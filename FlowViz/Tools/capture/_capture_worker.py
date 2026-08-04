@@ -29,9 +29,15 @@ and engine startup dominate wall time, individual captures are cheap.
 
 import json
 import os
+import sys
 import traceback
 
 import unreal
+
+# Sibling module, pure Python and unit-tested outside the engine. The commandlet
+# does not put this script's directory on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from verdict import Stats, judge  # noqa: E402
 
 
 # print() does not reach the Unreal log from the pythonscript commandlet.
@@ -51,19 +57,24 @@ CAPTURE_SOURCES = {
 
 
 def measure(world, render_target):
-    """Read back the render target and return (max, unique_rgb_count, mean).
+    """Read back the render target and return a verdict.Stats, or None.
 
     This mirrors the external PIL/numpy verification so a shot can be judged
     before the process exits.
+
+    The checksum is position-dependent: a plain histogram would call two frames
+    equal whenever an object merely MOVED, which would report "nothing
+    rendered" for a scene that rendered fine.
     """
     pixels = unreal.RenderingLibrary.read_render_target(world, render_target, False)
     if not pixels:
-        return -1, 0, 0.0
+        return Stats(largest=-1, distinct=0, mean=0.0, checksum=0)
 
     largest = 0
     total = 0
     distinct = set()
-    for p in pixels:
+    checksum = 0
+    for index, p in enumerate(pixels):
         r, g, b = int(p.r), int(p.g), int(p.b)
         if r > largest:
             largest = r
@@ -73,9 +84,12 @@ def measure(world, render_target):
             largest = b
         total += r + g + b
         distinct.add((r, g, b))
+        # Cheap, order-sensitive, and adequate here: this only ever has to
+        # distinguish "these two frames differ" from "they do not".
+        checksum = (checksum * 31 + (index + 1) * (r * 65536 + g * 256 + b)) & 0xFFFFFFFF
 
     mean = float(total) / float(len(pixels) * 3)
-    return largest, len(distinct), mean
+    return Stats(largest=largest, distinct=len(distinct), mean=mean, checksum=checksum)
 
 
 def check_lighting(world):
@@ -194,7 +208,38 @@ def capture_one(world, actor_subsystem, shot):
     for _ in range(max(1, warmups)):
         component.capture_scene()
 
-    largest, distinct, mean = measure(world, render_target)
+    scene_stats = measure(world, render_target)
+
+    # The reference frame: identical camera, identical everything, with every
+    # primitive suppressed. If the shot matches this, no geometry drew a single
+    # pixel -- which no single-frame brightness metric can detect, because the
+    # sky alone is bright and richly dithered. See verdict.py.
+    reference_stats = None
+    try:
+        component.set_editor_property(
+            "primitive_render_mode",
+            unreal.SceneCapturePrimitiveRenderMode.PRM_USE_SHOW_ONLY_LIST,
+        )
+        # An empty show-only list renders no primitives at all.
+        component.clear_show_only_components()
+        for _ in range(max(1, warmups)):
+            component.capture_scene()
+        reference_stats = measure(world, render_target)
+    except Exception:
+        log("WARNING: could not capture the primitive-suppressed reference:\n%s"
+            % traceback.format_exc())
+
+    # Restore and re-render, so the PNG written below is the real shot rather
+    # than the reference we just took.
+    try:
+        component.set_editor_property(
+            "primitive_render_mode",
+            unreal.SceneCapturePrimitiveRenderMode.PRM_LEGACY_SCENE_CAPTURE,
+        )
+        for _ in range(max(1, warmups)):
+            component.capture_scene()
+    except Exception:
+        pass
 
     output = shot["output"]
     directory = os.path.dirname(os.path.abspath(output))
@@ -214,22 +259,36 @@ def capture_one(world, actor_subsystem, shot):
     except Exception:
         pass
 
-    passed = bool(written and largest > 0 and distinct > 10)
-    log(
-        "%s -> max=%d unique=%d mean=%.3f bytes=%d %s"
-        % (filename, largest, distinct, mean, size, "PASS" if passed else "FAIL")
+    verdict = judge(
+        scene=scene_stats, reference=reference_stats, written=written, byte_size=size
     )
 
-    return {
+    log(
+        "%s -> max=%d unique=%d mean=%.3f bytes=%d %s"
+        % (
+            filename,
+            scene_stats.largest,
+            scene_stats.distinct,
+            scene_stats.mean,
+            size,
+            "PASS" if verdict.passed else "FAIL",
+        )
+    )
+    if not verdict.passed:
+        log("  %s" % verdict.reason)
+
+    result = {
         "output": output,
         "map": shot.get("map"),
         "written": written,
         "bytes": size,
-        "max": largest,
-        "unique": distinct,
-        "mean": round(mean, 3),
-        "pass": passed,
+        "pass": verdict.passed,
+        "reason": verdict.reason,
     }
+    result.update(scene_stats.as_dict())
+    if reference_stats is not None:
+        result["reference"] = reference_stats.as_dict()
+    return result
 
 
 def main():

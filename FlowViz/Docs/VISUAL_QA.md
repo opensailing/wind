@@ -172,6 +172,13 @@ A capture is fit for review only if **removing the subject changes the image.**
    contained the subject and the review is void.
 ```
 
+**`Tools/capture/capture_frame.py` now performs this automatically.** Every shot
+is rendered twice — once normally, once with `PrimitiveRenderMode` suppressing
+all primitives — and PASS requires the two to differ. You do not have to run the
+differential by hand; you do have to believe the FAIL when you get one. The
+criterion lives in `Tools/capture/verdict.py` and its tests (`tests/`) feed it
+known-empty frames and require rejection, so the check is itself checked.
+
 This replaces an earlier criterion — `max > 0` and `unique > 10` over the RGB
 array — which was **wrong and actively harmful**, and the reason it is spelled
 out here is that it cost real time and produced a false report of success.

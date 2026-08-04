@@ -75,7 +75,15 @@ print('min',a.min(),'max',a.max(),'mean',round(float(a.mean()),3),'unique',len(n
 "
 ```
 
-PASS requires `max > 0` and `unique > 10`.
+Those numbers are context, not a verdict. **PASS requires the frame to differ
+from the same view with every primitive suppressed** — the tool renders that
+reference automatically for each shot and compares. A frame that matches it
+contains no geometry, however bright it is.
+
+An earlier version of this tool passed on `max > 0 && unique > 10` and certified
+captures that were byte-identical to the level with every mesh deleted. The
+criterion now lives in `verdict.py` with tests that feed it known-bad frames and
+require rejection.
 
 ### A bright PNG is not a correct PNG
 

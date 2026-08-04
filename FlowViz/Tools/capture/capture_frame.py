@@ -22,14 +22,13 @@ EXIT CODE
     0  every requested PNG exists and contains real shaded content
     1  at least one shot failed verification
 
-A shot PASSES when the written PNG has max > 0 and more than 10 unique values,
-which is the same check an external reviewer would run:
+A shot PASSES only if it DIFFERS from the same frame rendered with every
+primitive suppressed. Brightness is not the criterion and cannot be: a
+SkyAtmosphere fills the frame with a bright dithered gradient using no geometry
+at all, so an empty capture clears any threshold. See verdict.py.
 
-    python3 -c "
-    from PIL import Image; import numpy as np
-    a=np.array(Image.open('shot.png').convert('RGB'))
-    print('min',a.min(),'max',a.max(),'mean',round(float(a.mean()),3),'unique',len(np.unique(a)))
-    "
+When a shot fails, the reason is printed with it and included in --json output
+as "reason".
 
 Verification happens inside Unreal by reading the render target back, so a
 "success" log line can never be mistaken for a file that was never written --
