@@ -305,8 +305,89 @@ same CRC rule.
 It carries: frame index, physical time, element/vertex association, component
 count (1 scalar, 3 vector, 6 symmetric tensor, 9 full tensor), storage type
 (float16/float32/float64), optional compression, and per-frame plus global
-statistics. Symmetric 6-component tensor order is normatively
-`XX, YY, ZZ, XY, YZ, XZ`.
+statistics.
+
+### 6.1 Header — fixed 96 bytes
+
+| Offset | Size | Type | Name |
+| --- | --- | --- | --- |
+| 0 | 8 | char[8] | `magic` = `CFDARR1\0` |
+| 8 | 2 | uint16 | `majorVersion` = 1 |
+| 10 | 2 | uint16 | `minorVersion` = 0 |
+| 12 | 4 | uint32 | `endianMarker` = `0x01020304` |
+| 16 | 4 | uint32 | `flags` |
+| 20 | 4 | uint32 | `headerBytes` = 96 |
+| 24 | 4 | uint32 | `frameIndex` |
+| 28 | 4 | uint32 | `fieldNumericId` |
+| 32 | 8 | float64 | `simulationTime` |
+| 40 | 8 | uint64 | `valueCount` (vertices or elements) |
+| 48 | 1 | uint8 | `componentCount` — 1, 3, 6, or 9 |
+| 49 | 1 | uint8 | `dataType` |
+| 50 | 1 | uint8 | `association` |
+| 51 | 1 | uint8 | `codec` |
+| 52 | 4 | uint32 | `payloadCrc32c` |
+| 56 | 8 | uint64 | `payloadOffset` |
+| 64 | 8 | uint64 | `compressedBytes` |
+| 72 | 8 | uint64 | `uncompressedBytes` |
+| 80 | 4 | uint32 | `headerCrc32c` |
+| 84 | 4 | uint32 | `reserved` = 0 |
+| 88 | 8 | uint64 | `statisticsOffset` — 0 when absent |
+
+`headerCrc32c` is CRC-32C over bytes `[0, 96)` with bytes `[80, 84)` zeroed —
+byte-for-byte the same rule as CVM §5.1.
+
+Two layout choices are deliberate and must not be "tidied":
+
+- Bytes `[0, 24)` are identical in meaning and position to a CVM header, so one
+  C++ routine can sniff and validate any CFDViz container.
+- `headerCrc32c` sits at `[80, 84)` for the same reason.
+
+### 6.2 Enumerations
+
+```
+dataType     1 = float16   2 = float32   4 = float64
+             3 is RESERVED for CVF's uint8, which CVA does not offer.
+             1 and 2 match CVF §4.2 so a shared C++ enum needs no translation.
+
+association  0 = mesh-element   1 = mesh-vertex
+             Matches CVF's convention: element-like 0, nodal/point-like 1.
+
+flags        bit 0  per-frame statistics present
+             bit 1  global statistics present
+```
+
+### 6.3 Payload rules
+
+These mirror CVF §4.4 exactly, so both payload decoders behave the same way.
+
+1. Components are **interleaved per entity**: `v0.x, v0.y, v0.z, v1.x, …`.
+2. `uncompressedBytes == valueCount * componentCount * sizeof(dataType)`,
+   verified **before** allocating (§1.5).
+3. `payloadCrc32c` is CRC-32C over the **compressed** bytes as stored, so
+   integrity is checkable without decompressing.
+4. `NaN` is legal and preserved bit-exactly; statistics ignore it.
+
+Symmetric 6-component tensors use the normative order `XX, YY, ZZ, XY, YZ, XZ`.
+The other common Voigt order (`XX, YY, ZZ, YZ, XZ, XY`) is the classic way for
+two solvers to silently disagree, so readers must not assume it. Full
+9-component tensors are row-major: `XX, XY, XZ, YX, YY, YZ, ZX, ZY, ZZ`.
+
+### 6.4 Statistics section
+
+Present when `statisticsOffset != 0`. One section is `8 + 32 * componentCount`
+bytes; the per-frame section comes first, then the global section when both
+flags are set.
+
+| Offset | Size | Type | Name |
+| --- | --- | --- | --- |
+| 0 | 8 | uint64 | `valueCount` |
+| 8 | 8·C | float64[C] | `minimum` per component |
+| 8 + 8·C | 8·C | float64[C] | `maximum` per component |
+| 8 + 16·C | 8·C | float64[C] | `mean` per component |
+| 8 + 24·C | 8·C | uint64[C] | `validCount` per component |
+
+`validCount` counts non-NaN entries per component, so a partially invalid field
+still reports honest statistics rather than silently averaging NaN.
 
 ---
 
