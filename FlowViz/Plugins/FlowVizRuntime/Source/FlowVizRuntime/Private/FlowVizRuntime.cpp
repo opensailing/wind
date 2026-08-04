@@ -2,6 +2,7 @@
 
 #include "FlowVizRuntime.h"
 
+#include "CFDViz/CFDVizCrc32C.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
@@ -26,6 +27,10 @@ void FFlowVizRuntimeModule::StartupModule()
 	{
 		UE_LOG(LogFlowViz, Error, TEXT("FlowVizRuntime plugin not found; shader path mapping skipped."));
 	}
+
+	// Fail loudly at startup rather than silently mis-validating every CFDViz file.
+	// CFDVizCrc32C::SelfCheck logs the specific mismatch on failure.
+	ensureMsgf(CFDViz::Crc32C::SelfCheck(), TEXT("CFDViz CRC-32C self-check failed; see the log above."));
 }
 
 void FFlowVizRuntimeModule::ShutdownModule()
