@@ -154,9 +154,44 @@ CFDViz uses CRC-32**C** (Castagnoli, reflected polynomial `0x82F63B78`) — *not
 
 ## Known platform issues
 
-**Headless render capture on this machine.** The reference Mac's main display is
-a Sidecar/AirPlay **virtual** device rather than a physical panel. Capture paths
-that render through a real window swapchain (`-DumpMovie`, `HighResShot`)
-produce correctly-sized but entirely black frames — verified all-zero pixels,
-not a loading artifact. See `Tools/capture/README.md` for the working capture
-path and its caveats.
+**Headless render capture is not yet working on this machine.** Captures write
+correctly-sized PNGs that contain sky and fog but **no geometry**. This is an
+open problem; `Tools/capture/` is usable plumbing, not a finished capture path.
+
+Do not re-litigate the following. Each was proposed as the cause and then
+disproven by experiment, and rediscovering them is expensive:
+
+| Theory | How it was ruled out |
+| --- | --- |
+| Sidecar/AirPlay virtual display breaks the swapchain | `-RenderOffscreen` never presents to a swapchain and is also black |
+| `DefaultEngine.ini` `MacTargetSettings` (`SF_METAL_SM6`) | Stock engine maps render in the *same* project with the *same* config. **Do not revert this config.** |
+| Lighting is wrong / meshes are black | An unlit mesh still *occludes* the sky. Deleting all geometry produced a byte-identical image, so nothing was drawn at all |
+| `SCENE_DEPTH` shows an empty scene | It reads `max=255 unique=2 mean=85.0` on working maps too — depth lands in the red channel and saturates in RGBA8. Useless as a diagnostic |
+
+Two facts that are established and load-bearing:
+
+- **`-AllowCommandletRendering` is mandatory.** Without it the renderer is
+  disabled outright in a commandlet and nothing renders at all.
+- **A capture that looks non-black proves nothing.** SkyAtmosphere and
+  VolumetricCloud render a full-screen gradient with zero primitives involved.
+  Verify differentially — see [VISUAL_QA.md](VISUAL_QA.md) §4.
+
+To check whether the render scene is populated, independently of any capture:
+
+```bash
+RHI=1 ./FlowViz/Tools/run_tests.sh FlowViz.Capture
+```
+
+That test spawns a cube and asserts the scene's proxy count rises, then falls
+when it is destroyed. Two traps it encodes, both of which produce a convincing
+false zero:
+
+- `FScene::GetPrimitiveSceneProxies()` reports the state as of the **last frame
+  drawn**. Adds sit in a pending queue until a frame renders, so a commandlet
+  that never drew one reports zero forever. Force the drain with
+  `UpdateAllPrimitiveSceneInfos`, inside a `UE::RenderCommandPipe::FSyncScope`
+  — without that scope it trips `Assertion failed: !IsReplaying()`.
+- A world may hold an **`FNULLSceneInterface` stub** rather than a real
+  `FScene`, which returns an empty proxy array unconditionally.
+  `UWorld::AllocateScene` falls back to it unless `GIsClient &&
+  FApp::CanEverRender() && !GUsingNullRHI`.

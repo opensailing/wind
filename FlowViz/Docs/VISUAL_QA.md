@@ -160,9 +160,43 @@ WHAT WORKS
 
 ## 4. Capture requirements
 
-- Captures must be **verified non-black before review**: `max > 0` and
-  `unique > 10` over the RGB array. A flat fill can pass a naive `max > 0`
-  check, so both conditions are required.
+### The acceptance test is differential, not a threshold
+
+A capture is fit for review only if **removing the subject changes the image.**
+
+```
+1. Capture the scene.
+2. Delete (or hide) the geometry under review.
+3. Capture again with identical camera, resolution, and settings.
+4. The two images MUST differ. If they are identical, the capture never
+   contained the subject and the review is void.
+```
+
+This replaces an earlier criterion — `max > 0` and `unique > 10` over the RGB
+array — which was **wrong and actively harmful**, and the reason it is spelled
+out here is that it cost real time and produced a false report of success.
+
+A scene containing SkyAtmosphere or VolumetricCloud renders a rich, plausible
+gradient **without a single primitive being drawn**. That easily clears both
+thresholds. The check therefore certified an empty sky as a working capture:
+`max=182 unique=1672 mean=88.660` before deleting every mesh in the level, and
+byte-identical numbers after. No threshold on a single image can tell content
+from background, because the background alone satisfies any of them.
+
+Note what a differential test rules out that an absolute one cannot: an unlit,
+black, or wrongly-shaded mesh still **occludes** what is behind it, so the image
+still changes. A byte-identical result means the geometry is genuinely absent
+from the render, not merely mis-shaded — which points at the scene, not the
+lighting.
+
+Corollaries worth holding onto:
+
+- **A metric that cannot fail is not a check.** Before trusting any automated
+  pass criterion, construct the input that *should* fail it and confirm it does.
+- **Look at the image.** This was caught by opening the PNG, not by reading
+  numbers. Every number was consistent with success.
+### Other capture requirements
+
 - Renders are compared at **identical resolution and framing**. A resolution
   mismatch invalidates a blind comparison.
 - Prefer **native resolution** captures. Upscaled images hide aliasing, which
