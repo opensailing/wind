@@ -1,0 +1,21 @@
+# Unreal generated
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vscode/
+.idea/
+*.xcworkspace/
+*.xcodeproj/
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Generated sample data (regenerate with: python -m cfdviz generate-mock)
+FlowViz/Samples/*.cfdviz/frames/

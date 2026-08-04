@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "FlowViz Editor",
+	"Description": "Editor-only tooling for FlowViz: case import helpers, asset actions and automation.",
+	"Category": "Scientific Visualization",
+	"CreatedBy": "FlowViz contributors",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "FlowVizEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "FlowVizRuntime",
+			"Enabled": true
+		}
+	]
+}
