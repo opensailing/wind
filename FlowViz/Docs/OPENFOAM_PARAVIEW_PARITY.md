@@ -113,7 +113,7 @@ This is the part that is real.
 
 | ParaView concept | FlowViz control | Status | Source | Known limitation | Milestone |
 | --- | --- | --- | --- | --- | --- |
-| Reader (case open) | CFDViz case reader | Done | `Private/CFDViz/CFDVizManifest.cpp` | Manifest 1.0. Rejects `mesh-vertex`/`mesh-element` grids per format §3.2; `structures[]` is reserved and parsed-when-present | B |
+| Reader (case open) | CFDViz case reader | Done | `Private/CFDViz/CFDVizManifest.cpp` | Manifest 1.0. Rejects `mesh-vertex`/`mesh-element` grids per format §3.2; `structures[]` is reserved and parsed-when-present. Path containment is defence-in-depth: `IsSafeRelativePath` rejects `..` segments lexically first, so the `IsUnderDirectory` check is unreachable through `ResolveRelativePath` and is tested as a direct assertion rather than a differential | B |
 | Volume data | CVF bricked-volume reader | Partial | `Private/CFDViz/CFDVizVolumeReader.cpp` | Implemented and it compiles, but it is the one reader with **no committed test** — the largest file in the layer, unverified. Not `Done` until `CFDVizVolumeReaderTest.cpp` lands | B |
 | Surface mesh | CVM reader | Done | `Private/CFDViz/CFDVizMeshReader.cpp` | — | B |
 | Mesh arrays | CVA reader | Done | `Private/CFDViz/CFDVizArrayReader.cpp` | — | B |
