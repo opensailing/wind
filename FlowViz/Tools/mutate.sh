@@ -132,6 +132,40 @@ source "${PROJECT_DIR}/Tools/verdict.sh"
 cd "${REPO_ROOT}" || exit 2
 [[ -f "${SRC}" ]] || { echo "error: no such source file: ${SRC}" >&2; exit 2; }
 
+# Is anyone else editing the file we are about to snapshot and repeatedly
+# overwrite? Checked HERE, before the backup, because the backup is the thing
+# that does the damage: every restore below is a whole-file `cp` from it, so a
+# peer's edit landing between an arm and its restore is silently reverted.
+#
+# Observed live 2026-08-05: a campaign mutated FlowVizVolumeRayMarch.usf while
+# another agent was landing a shader change in that same file. The lost work is
+# the visible harm and the smaller one -- an arm's evidence is "the suite went
+# red", and a peer's half-finished file goes red identically, so a KILLED that
+# was really someone else's in-flight edit retires a gap instead of reporting
+# it.
+#
+# Checked once, at start. By arm 2 the file is dirty BY DESIGN because this
+# script made it so; re-checking would deadlock the loop.
+_PORCELAIN="$(mktemp -t mutate_porcelain)"
+git status --porcelain > "${_PORCELAIN}" 2>/dev/null || true
+_SRC_REL="$(git ls-files --full-name "${SRC}" 2>/dev/null | head -1)"
+[[ -n "${_SRC_REL}" ]] || _SRC_REL="${SRC}"
+if [[ "$(check_foreign_edits "${_PORCELAIN}" "${_SRC_REL}")" == "foreign" ]]; then
+    echo "ABORT: ${_SRC_REL} has uncommitted changes."
+    echo
+    echo "  This script snapshots that file and restores it with a whole-file"
+    echo "  copy after every arm. Anything anyone lands in it meanwhile is"
+    echo "  reverted with no error and no conflict marker -- and worse, their"
+    echo "  half-finished file turns the suite red, which is indistinguishable"
+    echo "  from a mutant being caught. Every arm would score a false KILLED."
+    echo
+    echo "  Commit or stash the change, or run the campaign in its own tree:"
+    echo "    git worktree add ~/projects/wind-worktrees/<name> HEAD --detach"
+    rm -f "${_PORCELAIN}"
+    exit 2
+fi
+rm -f "${_PORCELAIN}"
+
 BACKUP="$(mktemp -t mutate_backup)"
 cp "${SRC}" "${BACKUP}"
 
@@ -229,10 +263,10 @@ PY
     return ${status}
 }
 
-echo "=== waiting for a green baseline before scoring anything ==="
+echo "=== waiting for a clean build before scoring anything ==="
 BASELINE_OK=0
 for attempt in $(seq 1 60); do
-    if build; then echo "baseline green (attempt ${attempt})"; BASELINE_OK=1; break; fi
+    if build; then echo "baseline builds (attempt ${attempt})"; BASELINE_OK=1; break; fi
     sleep 20
 done
 if [[ "${BASELINE_OK}" -ne 1 ]]; then
@@ -240,6 +274,65 @@ if [[ "${BASELINE_OK}" -ne 1 ]]; then
     grep -aE "error:" "${BUILD_LOG}" | head -5
     exit 1
 fi
+
+# THE SUITE MUST BE GREEN, NOT MERELY COMPILABLE.
+#
+# This block used to be the loop above and nothing else, under a banner reading
+# "waiting for a green baseline before scoring anything". It established that
+# the tree COMPILES. The word "green" was doing work the code never did:
+# run_tests.sh appeared exactly once in this script, inside the per-mutant loop.
+#
+# The gap forges reports rather than losing them. If any test matching FILTER is
+# already failing, every arm inherits that failure -- and classify_test_run is
+# right to call it `killed`, because tests really did run and one really did
+# fail. What it cannot see is that the failure PREDATES the mutant. The campaign
+# then reports every arm KILLED, which reads as a thoroughly covered file, and
+# nothing in the output looks wrong.
+#
+# Live example, which is how this was found: FlowViz.Render.Wiring is a standing
+# expected-red (task #26). Any campaign filtered on `FlowViz` or `FlowViz.Render`
+# would have scored all-KILLED while testing nothing.
+#
+# This is the harness-level form of the identity control -- a KILLED means
+# nothing unless the pristine tree is green under THAT filter.
+echo "=== running the suite pristine: a KILLED means nothing without this ==="
+BASELINE_TEST_LOG="${BASELINE_TEST_LOG:-$(mktemp -t mutate_baseline)}"
+for _lock_attempt in $(seq 1 40); do
+    "${PROJECT_DIR}/Tools/build_lock.sh" \
+        "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${BASELINE_TEST_LOG}" 2>&1
+    BASELINE_EXIT=$?
+    [[ "${BASELINE_EXIT}" -ne 75 ]] && break
+    sleep 15
+done
+
+case "$(classify_baseline_run "${BASELINE_EXIT}" "${BASELINE_TEST_LOG}")" in
+    green)
+        echo "baseline green under '${FILTER}'"
+        ;;
+    red)
+        echo "ABORT: '${FILTER}' is ALREADY RED before anything was mutated."
+        echo
+        echo "  Already failing:"
+        baseline_failures "${BASELINE_TEST_LOG}" | sed 's/^/    /'
+        echo
+        echo "  Every arm would inherit these failures and score KILLED without"
+        echo "  being tested -- an all-KILLED report that certifies nothing."
+        echo "  Narrow FILTER to exclude them, or fix them first."
+        echo "  Full output: ${BASELINE_TEST_LOG}"
+        exit 1
+        ;;
+    *)
+        echo "ABORT: the pristine suite produced no usable result under '${FILTER}'."
+        echo
+        echo "  No test run means no baseline, and no baseline means no arm can"
+        echo "  be scored. Usual causes: the filter matched nothing, every"
+        echo "  matched test skipped itself, or the editor died on startup."
+        grep -aiE "no tests matched|assertion failed|critical error|SIGSEGV|failed to start" \
+            "${BASELINE_TEST_LOG}" | head -3 | sed 's/^/    /'
+        echo "  Full output: ${BASELINE_TEST_LOG}"
+        exit 1
+        ;;
+esac
 
 KILLED=0; SURVIVED=0; INVALID=0; UNSCORED=0; SKIPPED=0
 

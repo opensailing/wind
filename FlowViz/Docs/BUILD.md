@@ -410,6 +410,61 @@ that died between applying the defect and restoring it. A lock would release on
 that death, at the moment protection matters most. A worktree's marker blocks
 only that worktree, which is the isolation you wanted.
 
+### A KILLED means nothing unless the pristine tree was green
+
+Run the suite unmutated, under **the campaign's own filter**, before scoring a
+single arm. `mutate.sh` now does this and aborts if it is not green; if you are
+running arms by hand, it is on you.
+
+The reason is that a pre-existing failure is invisible in a verdict. Every arm
+inherits it, the summary line is real, the non-zero exit is real, and the harness
+correctly reports `killed` — the classifier is not wrong, tests ran and one
+failed. What no classifier can see is that the failure **predates the mutant**.
+You get an all-arms-KILLED report, which reads as a thoroughly covered file, and
+nothing in the output looks off. That is the false-KILLED direction: it retires a
+gap instead of reporting one.
+
+This was live here. `FlowViz.Render.Wiring` is a standing expected-red, so any
+campaign filtered on `FlowViz` or `FlowViz.Render` would have scored every arm
+KILLED while testing nothing. `mutate.sh`'s banner said "waiting for a green
+baseline" while calling only `build()` — the word *green* was doing work the code
+never did.
+
+Two things that are **not** a green baseline, and both look like one:
+
+- **A filter matching no tests.** Zero of zero passing is vacuously true. Every
+  arm then runs no tests and scores SURVIVED, demanding tests that already exist.
+- **A filter whose tests all skip themselves.** A skipped test reports
+  `Result={Success}`, so the summary reads clean. One skip among real tests is
+  fine; *all* of them is a run that verified nothing.
+
+Both come back `UNSCORED` rather than `green` — a refusal to conclude.
+
+Make the assertion **name the value it rejected**, not just fail. Three mutation
+arms survived a challenge that their KILLEDs might have been someone else's red,
+purely because each failure quoted the exact token injected — `(65, .usf line
+69)` against `OverRange (64)`. A pre-existing failure cannot produce a message
+containing a number you wrote. It costs nothing when you write the assertion and
+it is what makes the verdict checkable by somebody else later.
+
+### Run campaigns in their own worktree
+
+`mutate.sh` snapshots the target file at campaign start and restores it with a
+whole-file `cp` after every arm. Anything anyone else lands in that file
+meanwhile is reverted — no error, no conflict marker. It now refuses to start
+when the target already has uncommitted changes, and names the file:
+
+```bash
+git worktree add ~/projects/wind-worktrees/<name> HEAD --detach
+```
+
+The check runs once, at start. By the second arm the file is dirty because the
+campaign itself made it so, and re-checking would deadlock the loop.
+
+The lost work is the smaller harm. A peer's half-finished file turns the suite
+red exactly like a caught mutant does, so the verdict is forged rather than just
+inconvenienced. Isolate the outputs too — see the per-checkout log note above.
+
 **Do not delete the marker to get your commit through.** Verify the tree is clean
 of the mutation first (`git diff`), then clear it.
 
