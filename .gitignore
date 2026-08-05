@@ -34,3 +34,6 @@ FlowViz/Tools/capture/references/**
 # Blind-comparison working files. The answer key must never be committed --
 # a reviewer reading git history would no longer be blind.
 FlowViz/Tools/capture/blind_sessions/
+
+# Agent worktree scaffolding (EnterWorktree/Agent isolation), not project source.
+.claude/worktrees/
