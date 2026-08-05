@@ -63,7 +63,8 @@ call.
 | CVF volume reader | `Private/CFDViz/CFDVizVolumeReader.cpp` | Partial — no committed test |
 | Payload/codec | `Private/CFDViz/CFDVizPayload.cpp` | Done |
 | CRC-32C | `Private/CFDViz/CFDVizCrc32C.cpp` | Done |
-| Byte source/cursor | `Private/CFDViz/CFDVizByteSource.cpp`, `CFDVizByteCursor.h` | Partial — no direct test |
+| Byte cursor | `Private/CFDViz/CFDVizByteCursor.h` | Done — `CFDVizByteCursorTest.cpp` |
+| Byte source | `Private/CFDViz/CFDVizByteSource.cpp` | Partial — no direct test |
 | Colormap tables | `Private/CFDViz/CFDVizColorMaps.cpp` | Done |
 | Coordinate adapter | `Private/CFDViz/CFDVizTypes.cpp` | Done — belongs to layer E, listed here as it lives beside the readers |
 
@@ -175,14 +176,14 @@ Recording it here so a rule does not become nobody's job:
 | 9 — probes sample the field | C sampler | Not started |
 | 10 — NaN/masked never silently zero | A readers, E shader | Partial — readers preserve them; no shader yet |
 | 11 — neutral shading for pseudocolor | E | Not started |
-| 12 — bounds-check before allocation | A readers | Partial — readers validate before allocating and are tested; the byte cursor doing the checking has no direct test |
+| 12 — bounds-check before allocation | A readers | **Enforced** — readers validate before allocating, and the byte cursor doing the checking is directly tested against overflowing counts |
 | 13 — malformed case errors, never crashes | A readers | **Enforced** — `FCFDVizResult` everywhere; tested |
 | 15 — no nonfunctional buttons | F | Not started |
 
-Two rules are genuinely enforced and tested today (4, 13). Three are half
-enforced (5, 10, 12) — 5 and 10 because only the reader half exists, 12 because
-the primitive doing the checking is itself untested. The remaining ten have no
-code at all. That distribution is the honest summary of this document: **the
+Three rules are genuinely enforced and tested today (4, 12, 13). Two are half
+enforced (5, 10), both because only the reader half exists — nothing displays a
+value yet, so nothing can normalize or zero one. The remaining ten have no code
+at all. That distribution is the honest summary of this document: **the
 layer that refuses bad input is built; the layer that draws anything is not.**
 
 ## Threading model

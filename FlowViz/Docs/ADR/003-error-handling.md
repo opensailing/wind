@@ -119,10 +119,14 @@ type system and defeat rule 13.
 samples — an all-`NaN` field is a successful read of unusable data. Conflating
 the two would let a consumer build a colour range from nothing.
 
-**Untested checks are the weak point, not the design.** Rule 12's enforcement
-lives almost entirely in `CFDVizByteCursor.h`, which has no direct test — it is
-exercised only indirectly through readers that mostly feed it *valid* input.
-The overflow-safe `CanRead` formulation above is, as of this ADR, unverified by
-any test. This is why [`ARCHITECTURE.md`](../ARCHITECTURE.md) lists rule 12 as
-`Partial` and why `BACKLOG.md` item 4 exists. The decision is sound; the
-evidence is incomplete, and this ADR does not claim otherwise.
+**The overflow-safe check is verified, not merely written.** Rule 12's
+enforcement lives almost entirely in `CFDVizByteCursor.h`, which for a time had
+no direct test — it was exercised only indirectly, through readers that feed it
+mostly *valid* input. `CFDVizByteCursorTest.cpp` now tests it against the only
+inputs that distinguish the safe formulation from the naive one: counts of
+`INT64_MAX`, `INT64_MIN`, `2^62`, and a value chosen so the naive addition
+wraps to exactly zero. On every ordinary input the two forms agree, so a test
+without those cases would have passed against the broken implementation.
+
+The remaining gap at this boundary is `CFDVizByteSource.cpp`, which has no
+direct test of its own; [`ARCHITECTURE.md`](../ARCHITECTURE.md) tracks it.

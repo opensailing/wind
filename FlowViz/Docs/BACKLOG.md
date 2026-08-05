@@ -21,9 +21,12 @@ per §3, and the blind visual review cannot produce a candidate frame without
 one. It is also what makes several tests below untestable rather than merely
 untested.
 
-*In progress.* The test suite (`Tools/cfdviz/tests/test_mock.py`, 591 lines)
-is written and currently fails at import with `No module named 'cfdviz.mock'` —
-which is the correct state for test-first work, not a defect.
+*Generator done; data still absent.* `cfdviz.mock` is implemented and its
+591-line suite passes 31/31 (verified independently 2026-08-04). What remains
+is the part the item is actually about: **no case has been generated and
+committed, and nothing has ever been written by Python and read back by
+Unreal.** Until that round trip runs, the two implementations are only believed
+to agree.
 
 ### 2. Milestone C is unstarted
 
@@ -44,18 +47,20 @@ picture rather than an error. Tracked in
 [`OPENFOAM_PARAVIEW_PARITY.md`](OPENFOAM_PARAVIEW_PARITY.md) as the reason the
 CVF row is `Partial` rather than `Done`.
 
-### 4. The byte cursor has no direct test
+### 4. ~~The byte cursor has no direct test~~ — closed 2026-08-04
 
-`Private/CFDViz/CFDVizByteCursor.h` is exercised indirectly by every reader
-test, and indirect coverage is not a test of its bounds checking — which is its
-entire job, and the mechanism behind rule 12.
+`Private/Tests/CFDVizByteCursorTest.cpp` now covers it directly: `CanRead`
+against `INT64_MAX`, `INT64_MIN`, `2^62` and a count chosen to wrap to exactly
+zero (the only inputs on which the overflow-safe form and the naive
+`Offset + Count <= Size` disagree); `Seek` rejecting negative, past-the-end,
+`INT64_MIN` and `INT64_MAX` while leaving the cursor untouched; `ReadIsAllZero`
+separating "the read happened" from "the bytes were zero", with the non-zero
+byte placed both first and last; and NaN payloads compared as *bit patterns*,
+since a quieted signalling NaN still satisfies `IsNaN` and `NaN != NaN` makes a
+value comparison vacuous.
 
-Specifically untested: `CanRead`'s overflow-safe formulation
-(`Count <= Size - Offset` rather than `Offset + Count <= Size`, which is the
-addition that overflows on a hostile 2^63 length); `Seek` rejecting a negative
-or past-the-end offset while leaving the cursor untouched; `ReadIsAllZero` on
-a reserved field; and NaN payload bits surviving `ReadFloat`/`ReadDouble`
-bit-exactly, which format rule 1.7 requires.
+Kept here rather than deleted because the entry explains why rule 12 was
+`Partial` in `ARCHITECTURE.md` for as long as it was.
 
 ### 5. Nothing wires the length unit into the coordinate adapter
 
