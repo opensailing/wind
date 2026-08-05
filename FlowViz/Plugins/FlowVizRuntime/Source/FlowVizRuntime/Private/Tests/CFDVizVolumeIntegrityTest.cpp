@@ -272,8 +272,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 {
-	using namespace CvfIntegrityTest;
-
 	// Each case corrupts exactly ONE thing and asserts the SPECIFIC error. A
 	// blanket "returns some failure" assertion would pass even if every malformed
 	// file produced the same useless message, which is what section 10 forbids.
@@ -295,7 +293,7 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 	// THE CONTROL. Every rejection below is a one-field edit of these bytes; if
 	// the unmutated fixture did not open, none of them would mean anything.
 	{
-		TArray<uint8> Clean = MakeCvf();
+		TArray<uint8> Clean = CvfIntegrityTest::MakeCvf();
 		const FCFDVizMemoryByteSource Source(Clean, TEXT("clean.cvf"));
 		FCFDVizVolumeReader Reader;
 		const FCFDVizResult Result = Reader.Open(Source);
@@ -308,9 +306,9 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 
 	// --- magic ---------------------------------------------------------------
 	{
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[3] = 'X';
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("wrong magic"), Bytes, ECFDVizError::BadMagic);
 	}
 	{
@@ -318,12 +316,12 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 		// containers share the version and endian layout, so if the magic did not
 		// distinguish them nothing later would - the reader would parse a mesh
 		// header as a volume header and produce numbers.
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		for (int32 Index = 0; Index < 8; ++Index)
 		{
 			Bytes[Index] = static_cast<uint8>(CFDViz::CvmMagic[Index]);
 		}
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("a CVM file is not a CVF"), Bytes, ECFDVizError::BadMagic);
 	}
 
@@ -333,26 +331,26 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 		// Section 4.1 says reject, never swap: a swapped read produces numbers,
 		// and wrong numbers are worse than a refusal because nothing downstream
 		// can tell they are wrong.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU32(Bytes, 16, 0x04030201u);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, 16, 0x04030201u);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("foreign byte order"), Bytes, ECFDVizError::UnsupportedEndianness);
 	}
 
 	// --- version policy (rule 1.4) -------------------------------------------
 	{
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU16(Bytes, 12, 2);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU16(Bytes, 12, 2);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("major version 2"), Bytes, ECFDVizError::UnsupportedVersion);
 	}
 	{
 		// A newer MINOR must be ACCEPTED. This is the direction that is easy to
 		// get wrong by treating any version difference as fatal, which would make
 		// every 1.x file unreadable the day 1.1 ships.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU16(Bytes, 14, 9);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU16(Bytes, 14, 9);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("minor.cvf"));
 		FCFDVizVolumeReader Reader;
 		TestTrue(TEXT("a newer MINOR version is accepted, not rejected"), Reader.Open(Source).IsOk());
@@ -361,23 +359,23 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 	// --- headerBytes and reserved --------------------------------------------
 	{
 		// headerBytes must be exactly 128: it is what every later offset trusts.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU32(Bytes, 8, 64);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, 8, 64);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("headerBytes != 128"), Bytes, ECFDVizError::InvalidHeader);
 	}
 	{
 		// Ignoring a non-zero reserved field is how a future extension gets
 		// silently misread as 1.0 data.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU16(Bytes, 62, 1);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU16(Bytes, 62, 1);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("reserved uint16 @62 is non-zero"), Bytes, ECFDVizError::InvalidHeader);
 	}
 	{
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[127] = 1; // the last byte of reserved[20] at @108
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("reserved tail @108 is non-zero"), Bytes, ECFDVizError::InvalidHeader);
 	}
 
@@ -385,41 +383,41 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 	{
 		// float64 is legal in a CVA and NOT in a CVF (section 3.3). It must be
 		// refused here even though the byte is a valid ECFDVizDataType.
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[59] = 4;
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("float64 is not a CVF data type"), Bytes, ECFDVizError::UnsupportedDataType);
 	}
 	{
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[59] = 99; // outside the enum entirely
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("unknown data type"), Bytes, ECFDVizError::UnsupportedDataType);
 	}
 	{
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[60] = 7;
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("unknown association"), Bytes, ECFDVizError::UnsupportedAssociation);
 	}
 	{
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[61] = 42;
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("unknown codec"), Bytes, ECFDVizError::UnsupportedCodec);
 	}
 	{
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[58] = 0; // componentCount
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("componentCount 0"), Bytes, ECFDVizError::InvalidHeader);
 	}
 	{
 		// The header carries only four componentMin/Max slots, so a fifth
 		// component would have nowhere to record its range.
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[58] = 5;
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("componentCount 5"), Bytes, ECFDVizError::InvalidHeader);
 	}
 
@@ -429,9 +427,9 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 		// a silent fallback to another codec. The message is asserted verbatim
 		// because the Python reference emits the same string, and section 9's
 		// cross-language bridge compares them.
-		TArray<uint8> Bytes = MakeCvf();
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[61] = 1; // Zstd
-		ResealHeaderCrc(Bytes);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("zstd.cvf"));
 		FCFDVizVolumeReader Reader;
 		const FCFDVizResult Result = Reader.Open(Source);
@@ -445,31 +443,31 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 	{
 		// A zero dimension makes the brick-grid arithmetic produce an empty volume
 		// that otherwise reads as perfectly valid.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU32(Bytes, 40, 0);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, 40, 0);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("dimensionX 0"), Bytes, ECFDVizError::InvalidHeader);
 	}
 	{
 		// A zero brick edge is worse: it is a division by zero in the brick-count
 		// computation.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU16(Bytes, 52, 0);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU16(Bytes, 52, 0);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("brickSizeX 0"), Bytes, ECFDVizError::InvalidHeader);
 	}
 
 	// --- directory bounds -----------------------------------------------------
 	{
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU64(Bytes, 72, 64); // inside the header
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU64(Bytes, 72, 64); // inside the header
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("directory overlaps the header"), Bytes, ECFDVizError::DirectoryOutOfBounds);
 	}
 	{
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU64(Bytes, 72, 1ull << 40); // far past a 360-byte file
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU64(Bytes, 72, 1ull << 40); // far past a 360-byte file
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		ExpectOpenError(TEXT("directory offset past the file"), Bytes, ECFDVizError::DirectoryOutOfBounds);
 	}
 	{
@@ -477,9 +475,9 @@ bool FCFDVizVolumeRejectionTest::RunTest(const FString& Parameters)
 		// number. A reader that computed `offset + count*80` in unchecked 64-bit
 		// arithmetic would see a bogus pass here and then index an
 		// attacker-chosen distance into memory.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU64(Bytes, 64, 0xFFFFFFFFFFFFFFFFull / 80 + 2);
-		ResealHeaderCrc(Bytes);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU64(Bytes, 64, 0xFFFFFFFFFFFFFFFFull / 80 + 2);
+		CvfIntegrityTest::ResealHeaderCrc(Bytes);
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("overflow.cvf"));
 		FCFDVizVolumeReader Reader;
 		const FCFDVizResult Result = Reader.Open(Source);
@@ -505,14 +503,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 {
-	using namespace CvfIntegrityTest;
-
 	// A corrupted payload MUST be rejected. This is the test that gives the CRC
 	// field its meaning: without it, "the format stores a payload CRC" is an
 	// unfalsifiable claim about the file rather than a property of the reader.
 	{
-		TArray<uint8> Bytes = MakeCvf();
-		Bytes[Payload0] ^= 0x01; // one bit of the first float of brick 0
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		Bytes[CvfIntegrityTest::Payload0] ^= 0x01; // one bit of the first float of brick 0
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("corrupt.cvf"));
 		FCFDVizVolumeReader Reader;
 		if (TestTrue(TEXT("a payload-corrupted file still opens"), Reader.Open(Source).IsOk()))
@@ -553,7 +549,7 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 			// flipped. Asserting only the length would pass against a reader that
 			// returned zeros, which is the behaviour 4.4.8 forbids.
 			TestEqual(TEXT("opting out means seeing the damage, not repaired data"),
-				BitsAt(Unverified, 0), static_cast<uint64>(0x3F800001ull));
+				CvfIntegrityTest::BitsAt(Unverified, 0), static_cast<uint64>(0x3F800001ull));
 		}
 	}
 
@@ -588,8 +584,8 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 	// checked BEFORE the allocation it would otherwise size (4.4.4). The payload
 	// CRC is left intact so the failure is attributable to the size rule alone.
 	{
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU32(Bytes, Entry0 + 32, 47); // one byte short of 48
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 32, 47); // one byte short of 48
 		ExpectOpenRejects(TEXT("uncompressedBytes inconsistent with the brick geometry"),
 			Bytes, ECFDVizError::SizeMismatch);
 	}
@@ -599,8 +595,8 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// reader that allocated first and failed second would be a trivial denial
 		// of service on a malformed file. Rejecting at Open means the allocation
 		// is never even reached.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU32(Bytes, Entry0 + 32, 0xFFFFFFFFu);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 32, 0xFFFFFFFFu);
 		ExpectOpenRejects(TEXT("a 4 GB claim for a 4-voxel brick"),
 			Bytes, ECFDVizError::SizeMismatch);
 	}
@@ -610,24 +606,24 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// payload CRC is RESEALED over the 40 bytes the entry now claims, so a CRC
 		// failure cannot mask the size check and let this pass for the wrong
 		// reason.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU32(Bytes, Entry0 + 28, 40);
-		ResealPayloadCrc(Bytes, Entry0, Payload0, 40);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 28, 40);
+		CvfIntegrityTest::ResealPayloadCrc(Bytes, CvfIntegrityTest::Entry0, CvfIntegrityTest::Payload0, 40);
 		ExpectOpenRejects(TEXT("codec none with compressedBytes != uncompressedBytes"),
 			Bytes, ECFDVizError::SizeMismatch);
 	}
 	{
 		// A payload offset that points outside the file (rule 1.5).
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU64(Bytes, Entry0 + 20, 100000);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU64(Bytes, CvfIntegrityTest::Entry0 + 20, 100000);
 		ExpectOpenRejects(TEXT("a payload offset past the end of the file"),
 			Bytes, ECFDVizError::PayloadOutOfBounds);
 	}
 	{
 		// No per-brick flag bits exist in 1.0, so an unknown one may change how
 		// the payload decodes and must not be ignored.
-		TArray<uint8> Bytes = MakeCvf();
-		PokeU16(Bytes, Entry0 + 18, 1);
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU16(Bytes, CvfIntegrityTest::Entry0 + 18, 1);
 		ExpectOpenRejects(TEXT("an undefined per-brick flag bit"),
 			Bytes, ECFDVizError::InvalidHeader);
 	}
@@ -635,8 +631,8 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// A directory entry's reserved[8] must be zero, same reasoning as the
 		// header's: a non-zero reserved field means a future writer put something
 		// there that this reader would otherwise silently ignore.
-		TArray<uint8> Bytes = MakeCvf();
-		Bytes[Entry0 + 72] = 1;
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		Bytes[CvfIntegrityTest::Entry0 + 72] = 1;
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("res.cvf"));
 		FCFDVizVolumeReader Reader;
 		TestTrue(TEXT("non-zero reserved bytes in a directory entry are rejected"),
@@ -658,9 +654,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FCFDVizVolumeBackgroundTest::RunTest(const FString& Parameters)
 {
-	using namespace CvfIntegrityTest;
-
-	const TArray<uint8> Bytes = MakeCvf();
+	const TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 	const FCFDVizMemoryByteSource Source(Bytes, TEXT("sparse.cvf"));
 
 	FCFDVizVolumeReader Reader;
@@ -695,16 +689,16 @@ bool FCFDVizVolumeBackgroundTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestEqual(TEXT("one voxel is 3 float32s"), Background.Num(), 12);
-	TestEqual(TEXT("background.x is the header's 1"), ValueAt(Background, 0), 1.0);
-	TestEqual(TEXT("background.y is the header's 2"), ValueAt(Background, 1), 2.0);
-	TestEqual(TEXT("background.z is the header's 3"), ValueAt(Background, 2), 3.0);
+	TestEqual(TEXT("background.x is the header's 1"), CvfIntegrityTest::ValueAt(Background, 0), 1.0);
+	TestEqual(TEXT("background.y is the header's 2"), CvfIntegrityTest::ValueAt(Background, 1), 2.0);
+	TestEqual(TEXT("background.z is the header's 3"), CvfIntegrityTest::ValueAt(Background, 2), 3.0);
 
 	// A voxel inside a STORED brick returns the stored value, not the background.
 	TArray<uint8> Voxel;
 	if (TestTrue(TEXT("a stored voxel reads"), Reader.ReadVoxel(1, 1, 0, Voxel).IsOk()))
 	{
-		TestEqual(TEXT("value (1,1,0).x is the stored 10"), ValueAt(Voxel, 0), 10.0);
-		TestEqual(TEXT("value (1,1,0).z is the stored 12"), ValueAt(Voxel, 2), 12.0);
+		TestEqual(TEXT("value (1,1,0).x is the stored 10"), CvfIntegrityTest::ValueAt(Voxel, 0), 10.0);
+		TestEqual(TEXT("value (1,1,0).z is the stored 12"), CvfIntegrityTest::ValueAt(Voxel, 2), 12.0);
 	}
 
 	// A voxel inside an ABSENT brick returns backgroundValue - NOT an error, and
@@ -765,14 +759,14 @@ bool FCFDVizVolumeBackgroundTest::RunTest(const FString& Parameters)
 	// The dense volume really does carry the absent brick's background at
 	// (2,0,0), and real data at (0,0,0) - so the agreement above is not two
 	// implementations of "return background everywhere".
-	TestEqual(TEXT("dense voxel (2,0,0).x is backgroundValue"), ValueAt(Dense, 2 * 3), 1.0);
-	TestEqual(TEXT("dense voxel (0,0,0).y is the stored 2"), ValueAt(Dense, 1), 2.0);
-	TestEqual(TEXT("dense voxel (1,0,0).y is the stored 5"), ValueAt(Dense, 1 * 3 + 1), 5.0);
+	TestEqual(TEXT("dense voxel (2,0,0).x is backgroundValue"), CvfIntegrityTest::ValueAt(Dense, 2 * 3), 1.0);
+	TestEqual(TEXT("dense voxel (0,0,0).y is the stored 2"), CvfIntegrityTest::ValueAt(Dense, 1), 2.0);
+	TestEqual(TEXT("dense voxel (1,0,0).y is the stored 5"), CvfIntegrityTest::ValueAt(Dense, 1 * 3 + 1), 5.0);
 	// NaN survives the dense reconstruction bit-exactly (rule 1.7). Compared as
 	// BITS: a float comparison would pass against any NaN, and also against a
 	// reader that substituted a different payload entirely.
 	TestEqual(TEXT("the stored NaN survives ReadDense bit-exactly"),
-		BitsAt(Dense, (1 * 3 + 0) * 3 + 2), static_cast<uint64>(0x7FC00000ull));
+		CvfIntegrityTest::BitsAt(Dense, (1 * 3 + 0) * 3 + 2), static_cast<uint64>(0x7FC00000ull));
 
 	// A budget below the volume size must be REFUSED rather than truncated. The
 	// cap is the only defence against a self-consistent header that declares a
@@ -791,9 +785,9 @@ bool FCFDVizVolumeBackgroundTest::RunTest(const FString& Parameters)
 	// path on the advertisement bit - such a reader would return zeros, or fail,
 	// for exactly the files a conservative writer produces without the flag.
 	{
-		TArray<uint8> Unflagged = MakeCvf();
-		PokeU32(Unflagged, 20, 0);
-		ResealHeaderCrc(Unflagged);
+		TArray<uint8> Unflagged = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Unflagged, 20, 0);
+		CvfIntegrityTest::ResealHeaderCrc(Unflagged);
 		const FCFDVizMemoryByteSource UnflaggedSource(Unflagged, TEXT("unflagged.cvf"));
 		FCFDVizVolumeReader UnflaggedReader;
 		if (TestTrue(TEXT("the same file without the sparse flag still opens"),
