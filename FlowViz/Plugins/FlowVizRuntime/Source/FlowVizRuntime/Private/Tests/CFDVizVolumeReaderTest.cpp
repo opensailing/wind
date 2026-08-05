@@ -1667,23 +1667,43 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	}
 
 	// --- the section 4.4.4 size equality, checked BEFORE any allocation ------
+	//
+	// The size pair is moved TOGETHER, and that is the whole point of this case.
+	// Poking uncompressedBytes alone and leaving compressedBytes at 48 violates
+	// two rules at once - the 4.4.4 geometry equality AND the codec-none rule
+	// that the two lengths match - and both return the same SizeMismatch code.
+	// An assertion written that way passes whichever rule fired, so it pins
+	// neither. Setting both to 24 satisfies every neighbouring guard (they agree
+	// with each other, the payload still fits) and leaves the derived-size
+	// equality as the only rule the file can break.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 49);	// 48 + 1
+		// 24 is a real byte count for SOME brick, just not this one: brick 0 is
+		// 3*2*4 voxels * 2 components * 1 byte = 48. A plausible number rather
+		// than an absurd one, so this cannot pass as a range check.
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 24);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetCompressed), 24);
+		ResealBrickCrc(Bytes, 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("size-lie.cvf"));
 		FCFDVizVolumeReader Reader;
 		const FCFDVizResult Result = Reader.Open(Source);
-		TestFalse(TEXT("uncompressedBytes one byte off the derived size is refused"), Result.IsOk());
+		TestFalse(TEXT("a self-consistent size pair that contradicts the geometry is refused"),
+			Result.IsOk());
 		TestTrue(TEXT("...as SizeMismatch"), Result.Error == ECFDVizError::SizeMismatch);
+		// The offset is what proves WHICH rule fired: @32 is the geometry
+		// equality, @28 would be the codec-none length rule.
 		TestEqual(TEXT("...naming uncompressedBytes @32 of that entry"),
 			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, CvfTestEntryOffsetUncompressed)));
 	}
 	{
 		// A hostile value, to prove the check is not a soft plausibility test:
-		// 4 GB declared for a 24-voxel brick.
+		// 4 GB declared for a 24-voxel brick. Both lengths again, for the reason
+		// above - otherwise the codec-none rule rejects this and the allocation
+		// guard is never reached, which is the opposite of what is being tested.
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 0xFFFFFFFFu);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetCompressed), 0xFFFFFFFFu);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("huge-size.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1691,6 +1711,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("a 4 GB uncompressedBytes on a 48-byte brick is refused"), Result.IsOk());
 		TestTrue(TEXT("...as SizeMismatch, before anything is allocated"),
 			Result.Error == ECFDVizError::SizeMismatch);
+		TestEqual(TEXT("...naming uncompressedBytes @32, not some other size rule"),
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, CvfTestEntryOffsetUncompressed)));
 	}
 	{
 		// codec none means the stored and decoded lengths are the same number
