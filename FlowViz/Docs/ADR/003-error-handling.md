@@ -128,5 +128,21 @@ inputs that distinguish the safe formulation from the naive one: counts of
 wraps to exactly zero. On every ordinary input the two forms agree, so a test
 without those cases would have passed against the broken implementation.
 
+That this test can actually fail is established by mutation, not asserted:
+replacing `Count <= Size - Offset` with the naive `Offset + Count <= Size` is
+one of the mutants `Tools/mutate.sh` runs, and the suite catches it. One result
+from that campaign is worth recording because it is easy to misread. A mutant
+that laundered a float through `static_cast<float>(static_cast<double>(x) *
+1.0)` appeared to survive; it does not, and the first script to score it was
+broken (see `ARCHITECTURE.md`). But the multiply-by-one form is also an
+*equivalent mutant* — at `-O1` and above the compiler folds it away entirely,
+so it changes no behaviour and proves nothing either way. Laundering through a
+`volatile double`, which the optimizer may not remove, does change the value:
+a signalling NaN payload `0x7F812345` comes back quieted to `0x7FC12345`. That
+mutant is killed by the bit-pattern assertion, which is the evidence that the
+assertion is real. **A mutant the compiler deletes is not a test of anything**,
+and reading one as a passing grade would have retired a check that was never
+exercised.
+
 The remaining gap at this boundary is `CFDVizByteSource.cpp`, which has no
 direct test of its own; [`ARCHITECTURE.md`](../ARCHITECTURE.md) tracks it.

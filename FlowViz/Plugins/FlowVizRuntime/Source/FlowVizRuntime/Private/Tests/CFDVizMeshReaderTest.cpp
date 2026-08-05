@@ -627,6 +627,95 @@ bool FCFDVizMeshReaderRejectionTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("an impossible vertexCount is rejected"), Result.IsOk());
 	}
 
+	// --- headerBytes disagreeing with the spec ------------------------------
+	// The reader rejects any headerBytes != 96, and nothing tested it. This is
+	// the field a writer from a future revision would grow, and honouring a
+	// declared size while parsing at fixed spec offsets reads every subsequent
+	// field from the wrong place. Both directions are checked because a reader
+	// that clamped instead of rejecting would pass a one-sided test.
+	{
+		const uint32 WrongSizes[] = { 0, 64, 95, 97, 128, 0xFFFFFFFFu };
+		for (uint32 Wrong : WrongSizes)
+		{
+			TArray<uint8> Bytes = CopyOf(GoldenCvmBytes, GoldenSize);
+			WriteUInt32At(Bytes, 20, Wrong);
+			ResealHeaderCrc(Bytes);
+
+			FCFDVizMeshReader Reader;
+			const FCFDVizResult Result = Reader.LoadFromMemory(Bytes, TEXT("headerbytes.cvm"));
+			TestFalse(FString::Printf(TEXT("headerBytes = %u is rejected"), Wrong), Result.IsOk());
+			TestEqual(FString::Printf(TEXT("headerBytes = %u reports InvalidHeader"), Wrong),
+				Result.Error, ECFDVizError::InvalidHeader);
+		}
+
+		// The control: the correct value must still load. Without it, a reader
+		// that rejected EVERY file would pass all six assertions above.
+		TArray<uint8> Good = CopyOf(GoldenCvmBytes, GoldenSize);
+		WriteUInt32At(Good, 20, 96);
+		ResealHeaderCrc(Good);
+
+		FCFDVizMeshReader Reader;
+		TestTrue(TEXT("headerBytes = 96 still loads"),
+			Reader.LoadFromMemory(Good, TEXT("ok.cvm")).IsOk());
+	}
+
+	// --- a non-zero reserved byte -------------------------------------------
+	// Section 5.1 fixes reserved[12] at zero. The reader enforces it and no test
+	// covered it. Every one of the twelve is checked separately: a loop bound
+	// that stopped one short would leave the last byte unguarded, and that is
+	// precisely the off-by-one this file's other loops are written to catch.
+	{
+		for (int32 Index = 0; Index < 12; ++Index)
+		{
+			TArray<uint8> Bytes = CopyOf(GoldenCvmBytes, GoldenSize);
+			Bytes[84 + Index] = 0x01;
+			ResealHeaderCrc(Bytes);
+
+			FCFDVizMeshReader Reader;
+			const FCFDVizResult Result = Reader.LoadFromMemory(Bytes, TEXT("reserved.cvm"));
+			TestFalse(FString::Printf(TEXT("a non-zero reserved byte %d is rejected"), Index),
+				Result.IsOk());
+			TestEqual(FString::Printf(TEXT("reserved byte %d reports InvalidHeader"), Index),
+				Result.Error, ECFDVizError::InvalidHeader);
+		}
+	}
+
+	// --- an array offset that overlaps the header ---------------------------
+	// A non-empty array starting inside the 96-byte header means the array and
+	// the header describe the same bytes. The reader rejects it; nothing tested
+	// it. Offset 0 is included because it is the value the format uses to mean
+	// "absent" - a non-empty array at 0 is a header claiming its own magic is
+	// vertex data.
+	{
+		const uint64 OverlappingOffsets[] = { 0, 1, 40, 95 };
+		for (uint64 Offset : OverlappingOffsets)
+		{
+			TArray<uint8> Bytes = CopyOf(GoldenCvmBytes, GoldenSize);
+			WriteUInt64At(Bytes, 40, Offset); // positionsOffset, which is never empty here
+			ResealHeaderCrc(Bytes);
+
+			FCFDVizMeshReader Reader;
+			const FCFDVizResult Result = Reader.LoadFromMemory(Bytes, TEXT("overlap.cvm"));
+			TestFalse(FString::Printf(
+					TEXT("a non-empty positions array at offset %llu is rejected"),
+					static_cast<unsigned long long>(Offset)),
+				Result.IsOk());
+			TestFalse(TEXT("and nothing is left loaded"), Reader.IsLoaded());
+		}
+
+		// The boundary that must still be ACCEPTED. 96 is the first legal byte,
+		// so a check written as `Offset <= CvmHeaderBytes` rather than `<` would
+		// reject the golden file itself - this assertion is what distinguishes
+		// the two.
+		TArray<uint8> AtBoundary = CopyOf(GoldenCvmBytes, GoldenSize);
+		WriteUInt64At(AtBoundary, 40, 96);
+		ResealHeaderCrc(AtBoundary);
+
+		FCFDVizMeshReader Reader;
+		TestTrue(TEXT("positions at offset 96, the first legal byte, is accepted"),
+			Reader.LoadFromMemory(AtBoundary, TEXT("boundary.cvm")).IsOk());
+	}
+
 	return true;
 }
 

@@ -104,6 +104,39 @@ Each addition carries a paired assertion in the opposite direction. Without
 one, a reader that rejected *every* file would satisfy the rejection cases and
 the check could not fail.
 
+### How tests here are verified — `Tools/mutate.sh`
+
+A test that has never been seen to fail is a claim, not evidence. Every reader
+test in this table is checked by deliberately breaking the source it covers,
+one edit at a time, and confirming the suite notices. `Tools/mutate.sh` does
+this; its header documents the four constraints that make its verdicts
+trustworthy. Three of those exist because an earlier ad-hoc version of this
+script produced **wrong answers that looked like results**:
+
+- It decided a mutant had been caught by grepping the test output for
+  `Result={Failed}`. The engine prints `Result={Fail}`. That string could never
+  appear, so the script reported `SURVIVED` for every mutant it ever scored —
+  including one whose own captured log, three lines below the verdict, read
+  `Result={Fail}` and `0/1 passed`. **A pass criterion that cannot fail is not
+  a check.** The verdict is now the runner's exit code, which fails closed: a
+  build producing no tests at all exits non-zero and reads as *killed*, never
+  as a survivor.
+- It applied mutants through `perl s{}{}`, so any replacement containing a
+  brace — in a C++ file — ran off its own delimiter. The mangled output was
+  then reported as `INVALID  did not compile`, which reads exactly like a
+  meaningful result. Substitution is now literal.
+- It attributed *any* build failure to the mutant. This module is a unity
+  build shared by several agents: one sibling's half-saved file breaks
+  everyone's compile. A mutant that was valid C++ was recorded `INVALID` for
+  someone else's syntax error. Failures are now attributed by filename, and
+  anything not traceable to the mutated file is `UNSCORED` — an explicit
+  refusal to draw a conclusion, rather than a false one.
+
+The script is itself verified the same way it verifies tests: it is run against
+three control mutants with known answers — one that *must* be killed, one that
+*must* survive, and one that *must* fail to compile. A harness that cannot
+produce all three verdicts cannot be trusted to report any of them.
+
 Adapters named in §5 as *reserved*, deliberately not built:
 `FCFDVizLiveDataSource`, `FCFDVizOpenFOAMAdapter`, `FCFDVizVTKAdapter`. §5A is
 explicit that the core visualizer must not depend on OpenFOAM libraries, so the
