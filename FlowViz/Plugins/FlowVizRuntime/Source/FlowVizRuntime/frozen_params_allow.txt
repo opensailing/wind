@@ -1,0 +1,20 @@
+# Shader parameters that are DELIBERATELY constant, exempt from check_frozen_params.sh.
+#
+# Format: <ParameterName>:<reason>
+#
+# The reason is not decoration. It is what a reviewer reads to decide the
+# exemption is honest, and the checker refuses an entry without one. It also
+# refuses an entry naming a parameter that is not actually frozen, because a
+# stale entry pre-silences whatever freezes under that name next.
+#
+# THE BAR. A parameter belongs here only if no user-visible behaviour depends on
+# its value -- padding the GPU never reads, or a sampler whose alternatives are
+# not a product decision. "Nobody has asked for it yet" is not a reason; that is
+# exactly the state item 2e describes, where CompositeMode sat welded to Alpha
+# and four required render modes were unreachable while the suite ran green.
+
+CropPad0:cbuffer alignment padding after the crop box; the shader never reads it
+CropPad1:cbuffer alignment padding after the crop box; the shader never reads it
+LightPad0:cbuffer alignment padding after LightDirection; the shader never reads it
+FieldSampler:static bilinear/clamp sampler state, not a user-facing control
+TransferFunctionSampler:static bilinear/clamp sampler state, not a user-facing control

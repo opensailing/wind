@@ -164,9 +164,21 @@ The harness applies mutations with `perl -0pi`; re-probed with `perl`, both
 changed exactly one line. **Probe with the tool that runs it**, and give the
 probe a positive control.
 
-Treat "the ray-marcher works" as made for compositing, stepping, cropping,
-status, iso-surface, gradients and clipping — and still unmade for anything
-about how it *looks*, which no assertion in this file addresses.
+Treat "the ray-marcher works" as made **of the shader**, for compositing,
+stepping, cropping, status, iso-surface, gradients and clipping — and still
+unmade for anything about how it *looks*, which no assertion in this file
+addresses.
+
+**The qualifier is load-bearing.** Every one of those claims is established by a
+test that writes `Params->CompositeMode` (or `bEnableLighting`, or `IsoValue`)
+directly. That is the right way to test a shader and it is blind to the question
+of whether any *caller* can reach the branch. Measured 2026-08-05: it cannot.
+`FlowVizRayMarch::FillDefaults` is the only non-test writer of 16 render
+parameters and writes a constant to each, so in a shipped build
+`CompositeMode` is permanently `Alpha` and `bEnableLighting` permanently 0.
+Four of the five modes §9 requires — MIP, MinIP, average, iso-surface — are
+unreachable, and the whole gradient-lighting path is dead behind a constant.
+See item 2e.
 
 ## Correctness gaps
 
@@ -421,6 +433,89 @@ prose. **The shader honours every flag it is handed; every gap found is upstream
 of it, in flags the shader is never given.** Not verified: anything needing a
 rendered-output comparison for the disclosure flags, since no consumer exists to
 render one. Per 2c's own method note, treat these counts as a lower bound.
+
+### 2e. 13 render parameters are frozen at their defaults — found 2026-08-05
+
+2d ended on "the shader honours every flag it is handed; every gap found is
+upstream of it, in flags the shader is never given." This is that sentence
+counted. **16 of the 73 declared shader parameters have exactly one non-test
+writer, `FlowVizRayMarch::FillDefaults`, and it writes a literal constant to
+each:**
+
+```
+CompositeMode=Alpha  bEnableLighting=0  IsoValue=0  bEnableJitter=0
+JitterAmount=1  JitterSeed=0  StepVoxels  ReferenceStepVoxels  MaxSteps
+EarlyTerminationAlpha  bFilterField=1  bStrictStatusFilter=0
+AmbientStrength=0.35  DiffuseStrength=0.65  LightDirection  NoDataColor
+```
+
+Five more — `CropPad0`, `CropPad1`, `LightPad0`, `FieldSampler`,
+`TransferFunctionSampler` — are also frozen and legitimately so; they are
+cbuffer padding and static sampler states, exempted by name and reason in
+`frozen_params_allow.txt`.
+
+Nothing downstream overrides them. The sole production call site is
+`FlowVizVolumeRayMarchDispatcher.cpp:165`; the two functions that run after it
+write geometry, format and camera rows only — `FillFromVolumeParameters` makes
+22 assignments and not one is a render control.
+
+**What is unreachable in a shipped build.** Five of the six composite modes:
+MAXIMUM(1), MINIMUM(2), AVERAGE(3), ISOSURFACE(4), DIAGNOSTIC(5). Only Alpha(0)
+can render. `OPENFOAM_PARAVIEW_PARITY.md:53` lists MIP, MinIP, average and
+iso-surface as required by §9 — four of the five required modes cannot be
+selected. The gradient path (`.usf:382 FlowVizGradient`) sits behind
+`.usf:466 if (bEnableLighting == 0)` and is dead, taking AmbientStrength,
+DiffuseStrength and LightDirection with it.
+
+**Why 2a's suite is green anyway, and why that is not a defect in it.** Those
+tests write `Params->CompositeMode` directly (`FlowVizVolumeMarchTest.cpp:532`).
+That is the correct way to test a shader, and it is structurally blind to who
+calls it — the same shape as [[mocking-a-seam-hides-that-nothing-builds-it]],
+where every test installed its own dispatcher so none could see that production
+installed none. A test that supplies the input cannot discover that nothing else
+supplies it.
+
+**The defaults themselves are not the bug.** They are deliberate and documented
+— jitter is off because per-ray jitter causes temporal shimmer (ADR 002), and
+the render is unlit because VISUAL_QA rule 1 forbids lighting modulating
+apparent scalar value. The bug is that they are the *only* reachable values.
+Fix by applying a settings source after `FillDefaults`, keeping these as the
+defaults.
+
+**The guard, which matters more than the fix, is built.**
+`Tools/check_frozen_params.sh` fails when a declared shader parameter has no
+production writer outside `FillDefaults`, with known-answer tests in
+`Tools/tests/test_check_frozen_params.sh` (18 cases, all passing). Without it
+the next parameter added is frozen the same way and nothing says so. It refuses
+to report a pass it cannot support: too few parameters extracted, no defaults
+function found, or an allowlist entry that is stale or reasonless all exit
+UNSCORED rather than 0.
+
+Three of its cases are defects the checker had on its first real run, kept as
+regressions. It reported 26 of 74 — both numbers wrong. It had harvested
+`BEGIN_SHADER_PARAMETER_STRUCT(FParams, FLOWVIZRUNTIME_API)`'s API macro as a
+parameter; it excluded the defaults *file* rather than the defaults *function
+body*, burying the four sibling writers that share that file and falsely
+freezing `bRejectNonFinite`; and it missed writes whose value sits on the next
+line. **Running a new assertion against pristine code first is what separated
+the instrument's errors from the code's** — the red was real, but only partly
+about the code.
+
+Two near-misses in method, both worth keeping:
+
+- The first query asked "which parameters are never written?" and returned
+  **empty**, because `FillDefaults` counts as a writer. Empty read as "all
+  covered." The question had to become "written *only* by the defaults
+  function" before the 16 appeared —
+  [[an-empty-match-set-passes-every-check]] in its most flattering form.
+- The hand-verification of the 16 initially returned 0 writers for all of
+  them *and* 0 for `bClampToRange`, `OpacityMultiplier` and `ValueRangeMin`,
+  which are demonstrably written. A `printf` was choking on the `%s` inside a
+  parameter name. **The positive control is the only reason that was caught**;
+  the 16 zeroes were the answer being sought and would have been believed. Re-run
+  with a working counter: controls 3, 4, 5, 2 — and 0 disagreements across all 16.
+
+Tracked as #39.
 
 ### 3. The CVF volume reader has no committed test
 
