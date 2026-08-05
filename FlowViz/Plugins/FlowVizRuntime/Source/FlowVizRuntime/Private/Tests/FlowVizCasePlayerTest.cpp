@@ -7,6 +7,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Playback/FlowVizFrameCache.h"
+#include "Scene/FlowVizVolumeComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -1295,6 +1296,250 @@ bool FFlowVizCasePlayerTest::RunTest(const FString& Parameters)
 
 	Player.Close();
 	TestFalse(TEXT("Close unbinds the player"), Player.IsOpen());
+
+	return true;
+}
+
+/* ========================================================================== */
+/* The seam onto IFlowVizVolumeFrameSource                                    */
+/* ========================================================================== */
+
+/**
+ * WHAT THIS TEST CATCHES THAT NO OTHER TEST IN THIS FILE DOES.
+ *
+ * Every other test here works in double, because the player works in double.
+ * This one covers the ONE place the value is narrowed to float, which is where
+ * the component's FFlowVizVolumeFrameSelection stores Alpha. Narrowing is not
+ * order-preserving near the endpoints, and the failure it produces is a
+ * DISCLOSURE failure, not an arithmetic one: an alpha that is a genuine blend
+ * in double can round to exactly 1.0f, at which point the component's
+ * IsInterpolated() reports "not interpolated" while FrameA and FrameB are still
+ * distinct - so the shader blends two frames that the UI has just told the
+ * scientist are not blended. That is the VISUAL_QA section 1 rule 5 violation.
+ *
+ * The fixture is chosen so the bug is REACHABLE ON THE SHIPPED SAMPLE rather
+ * than only on a synthetic pathology: the sample is spaced at 0.05, and
+ * t = 0.10 - 1e-11 sits inside frame 1..2 with a double alpha of
+ * 0.9999999998, which narrows to exactly 1.0f. A player that simply assigns
+ * (float)Alpha passes every other test in this file and fails here.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizPlaybackSeamTest,
+	"FlowViz.Playback.Seam",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizPlayback;
+
+	// ---------------------------------------------------------------------
+	// The narrowing collapse. This is the whole reason the adapter exists.
+	// ---------------------------------------------------------------------
+	{
+		// A genuine blend in double that narrows to exactly 1.0f.
+		FFlowVizDisplaySelection Display;
+		Display.FrameA = 1;
+		Display.FrameB = 2;
+		Display.Alpha = 1.0 - 1.0e-11;
+		Display.Time = 0.0999999999;
+		Display.NearestFrame = 2;
+		Display.bInterpolated = true;
+
+		// Establish the hazard is real before asserting the fix, so this test
+		// cannot silently become vacuous if the constant is ever edited. EXACT
+		// comparison on purpose: TestEqual on floats carries a 1e-4 tolerance,
+		// which would report "narrows to 1.0f" for any alpha above 0.9999, and a
+		// guard that passes without the hazard is not a guard.
+		TestTrue(TEXT("the fixture alpha really does narrow to EXACTLY 1.0f"),
+			(float)Display.Alpha == 1.0f);
+		TestTrue(TEXT("...while being a genuine blend in double"),
+			Display.Alpha < 1.0 && Display.Alpha > 0.0);
+
+		const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Display);
+
+		// The pair must collapse so that geometry and disclosure AGREE. Either
+		// answer alone is defensible; disagreement is not.
+		TestFalse(TEXT("a pair that narrows to alpha 1 is not disclosed as interpolated"),
+			Seam.IsInterpolated());
+		TestEqual(TEXT("...and it names frame B alone, which is the frame at alpha 1"),
+			Seam.FrameA, 2);
+		TestEqual(TEXT("...with B collapsed onto A so no blend is issued"),
+			Seam.FrameB, Seam.FrameA);
+		TestEqual(TEXT("...at alpha 0"), Seam.Alpha, 0.0f);
+	}
+
+	// The same hazard at the other end: an alpha just above 0 narrowing to 0.0f.
+	//
+	// 1e-45 does NOT work here and the first draft of this test used it: float's
+	// smallest subnormal is 1.4013e-45, so (float)1e-45 is subnormal-but-nonzero
+	// and the collapse correctly does not fire. 1e-46 is below the subnormal
+	// floor and flushes to a true zero.
+	//
+	// Worse, the guard below originally used TestEqual on floats, which applies a
+	// 1e-4 tolerance - so it reported the fixture as "narrowing to 0.0f" when it
+	// narrowed to 1.4e-45. A guard written to prove the hazard is real must use
+	// an EXACT comparison, or it is the same unfireable check it was added to
+	// prevent. TestTrue with == is deliberate.
+	{
+		FFlowVizDisplaySelection Display;
+		Display.FrameA = 3;
+		Display.FrameB = 4;
+		Display.Alpha = 1.0e-46;   // below float's smallest subnormal, 1.4013e-45
+		Display.bInterpolated = true;
+
+		TestTrue(TEXT("the low-end fixture really does narrow to EXACTLY 0.0f"),
+			(float)Display.Alpha == 0.0f);
+		TestTrue(TEXT("...while being nonzero in double"), Display.Alpha > 0.0);
+
+		const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Display);
+		TestFalse(TEXT("a pair that narrows to alpha 0 is not disclosed as interpolated"),
+			Seam.IsInterpolated());
+		TestEqual(TEXT("...and it names frame A alone"), Seam.FrameA, 3);
+		TestEqual(TEXT("...with B collapsed onto A"), Seam.FrameB, Seam.FrameA);
+		TestEqual(TEXT("...at alpha 0"), Seam.Alpha, 0.0f);
+	}
+
+	// ---------------------------------------------------------------------
+	// A real blend must SURVIVE the seam. Without this, an adapter that
+	// collapsed everything to frame A would pass both cases above.
+	// ---------------------------------------------------------------------
+	{
+		FFlowVizDisplaySelection Display;
+		Display.FrameA = 1;
+		Display.FrameB = 2;
+		Display.Alpha = 0.5;
+		Display.bInterpolated = true;
+
+		const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Display);
+		TestEqual(TEXT("a genuine blend keeps frame A"), Seam.FrameA, 1);
+		TestEqual(TEXT("a genuine blend keeps frame B"), Seam.FrameB, 2);
+		TestEqual(TEXT("a genuine blend keeps its alpha"), Seam.Alpha, 0.5f);
+		TestTrue(TEXT("a genuine blend IS disclosed as interpolated"),
+			Seam.IsInterpolated());
+	}
+
+	// ---------------------------------------------------------------------
+	// ORDER INDEPENDENCE. The adapter is a chain of guards, and a chain is
+	// exactly where a later branch can mask an earlier one without any single
+	// case noticing - the same shape as an accumulator whose fixture only ever
+	// writes it once, where max(Acc,X) and Acc=X agree because nothing looser
+	// ever arrives second.
+	//
+	// Here the equivalent is reusing one selection and writing the alpha TWICE,
+	// the second time with the value that must win. If the collapse ever became
+	// sticky (say by caching the first narrowed alpha, or by testing FrameB
+	// before re-reading Alpha), every case above would still pass because each
+	// builds a fresh struct.
+	// ---------------------------------------------------------------------
+	{
+		FFlowVizDisplaySelection Display;
+		Display.FrameA = 7;
+		Display.FrameB = 8;
+		Display.bInterpolated = true;
+
+		// First write: a value that COLLAPSES.
+		Display.Alpha = 1.0 - 1.0e-11;
+		const FFlowVizVolumeFrameSelection Collapsed = ToVolumeFrameSelection(Display);
+		TestEqual(TEXT("first write collapses onto frame B"), Collapsed.FrameA, 8);
+		TestFalse(TEXT("first write is not interpolated"), Collapsed.IsInterpolated());
+
+		// Second write on the SAME struct: a value that must NOT collapse.
+		Display.Alpha = 0.25;
+		const FFlowVizVolumeFrameSelection Blended = ToVolumeFrameSelection(Display);
+		TestEqual(TEXT("second write restores frame A"), Blended.FrameA, 7);
+		TestEqual(TEXT("second write restores frame B"), Blended.FrameB, 8);
+		TestEqual(TEXT("second write keeps its alpha"), Blended.Alpha, 0.25f);
+		TestTrue(TEXT("second write IS interpolated"), Blended.IsInterpolated());
+
+		// And back the other way, so neither ordering is the privileged one.
+		Display.Alpha = 1.0e-46;
+		const FFlowVizVolumeFrameSelection Vanished = ToVolumeFrameSelection(Display);
+		TestEqual(TEXT("third write collapses onto frame A"), Vanished.FrameA, 7);
+		TestEqual(TEXT("...with B collapsed onto A"), Vanished.FrameB, 7);
+		TestFalse(TEXT("third write is not interpolated"), Vanished.IsInterpolated());
+	}
+
+	// ---------------------------------------------------------------------
+	// An empty display must produce nothing drawable, not frame 0. Distinct
+	// from the collapse cases: those have a frame, this has none.
+	// ---------------------------------------------------------------------
+	{
+		const FFlowVizDisplaySelection Empty;
+		TestFalse(TEXT("the empty display is not valid"), Empty.IsValid());
+
+		const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Empty);
+		TestEqual(TEXT("an empty display draws nothing"), Seam.FrameA, (int32)INDEX_NONE);
+		TestFalse(TEXT("an empty display discloses no interpolation"),
+			Seam.IsInterpolated());
+	}
+
+	// ---------------------------------------------------------------------
+	// The adapter must be usable AS the interface, not merely convertible.
+	// This catches a signature that compiles standalone but cannot be bound
+	// to the component, which is the only thing the seam is for.
+	// ---------------------------------------------------------------------
+	{
+		FFlowVizCasePlayer Player;
+		const TSharedRef<IFlowVizVolumeFrameSource> Source =
+			MakeFrameSource(Player);
+
+		// A closed player is a legal state; the seam must not invent a frame.
+		const FFlowVizVolumeFrameSelection Seam = Source->GetFrameSelection();
+		TestEqual(TEXT("a closed player selects no frame through the seam"),
+			Seam.FrameA, (int32)INDEX_NONE);
+		TestFalse(TEXT("a closed player discloses no interpolation"),
+			Seam.IsInterpolated());
+	}
+
+	// ---------------------------------------------------------------------
+	// End to end on the shipped sample, at the exact time that produces the
+	// narrowing hazard. This is what proves the constant above is not a
+	// synthetic value chosen to make the adapter look necessary.
+	// ---------------------------------------------------------------------
+	{
+		const FString CaseDir = FlowVizCasePlayerTest::GetPlaybackSampleCaseDir();
+		const FString ManifestPath = FPaths::Combine(CaseDir, TEXT("manifest.json"));
+
+		TSharedRef<FCFDVizCase> Shared = MakeShared<FCFDVizCase>();
+		const bool bHaveCase = !CaseDir.IsEmpty() && FPaths::FileExists(ManifestPath)
+			&& FCFDVizCase::LoadFromFile(ManifestPath, Shared.Get()).IsOk();
+		if (!bHaveCase)
+		{
+			AddInfo(FString::Printf(
+				TEXT("SKIPPED the end-to-end seam check: no sample case at '%s'. "
+					 "The narrowing cases above still ran and are the substance of this test."),
+				*ManifestPath));
+		}
+		else
+		{
+			FFlowVizCasePlayer Player;
+			if (Player.Open(Shared, NAME_None).IsOk())
+			{
+				const TSharedRef<IFlowVizVolumeFrameSource> Source = MakeFrameSource(Player);
+
+				Player.SetInterpolationEnabled(true);
+				Player.SeekToTime(0.10 - 1.0e-11);
+
+				const FFlowVizFrameSelection Want = Player.GetSelection();
+				const FFlowVizVolumeFrameSelection Seam = Source->GetFrameSelection();
+
+				// Whatever the player wanted in double, the seam must not tell
+				// the UI "not interpolated" while handing the shader two frames.
+				const bool bSeamBlends = Seam.FrameB != INDEX_NONE
+					&& Seam.FrameB != Seam.FrameA
+					&& Seam.Alpha > 0.0f && Seam.Alpha < 1.0f;
+				TestEqual(
+					TEXT("on the shipped sample the seam's disclosure matches what it "
+						 "actually blends"),
+					Seam.IsInterpolated(), bSeamBlends);
+
+				AddInfo(FString::Printf(
+					TEXT("sample seam: player alpha %.17g -> seam alpha %.9g, frames %d/%d"),
+					Want.Alpha, Seam.Alpha, Seam.FrameA, Seam.FrameB));
+			}
+		}
+	}
 
 	return true;
 }

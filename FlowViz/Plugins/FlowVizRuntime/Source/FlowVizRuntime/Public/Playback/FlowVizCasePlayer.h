@@ -1047,3 +1047,48 @@ private:
 
 	FCFDVizResult LastError;
 };
+
+/* -------------------------------------------------------------------------- */
+/* The seam onto Scene/FlowVizVolumeComponent                                   */
+/* -------------------------------------------------------------------------- */
+
+struct FFlowVizVolumeFrameSelection;
+class IFlowVizVolumeFrameSource;
+
+namespace FlowVizPlayback
+{
+	/**
+	 * Narrow a display selection onto the component's seam type.
+	 *
+	 * THE NARROWING IS THE ENTIRE JOB. The player works in double; the component
+	 * stores Alpha as float. That conversion is not order-preserving at the
+	 * endpoints, and the resulting bug is a DISCLOSURE failure rather than a
+	 * visible arithmetic one: an alpha of 1 - 1e-11 is a genuine blend in double
+	 * and rounds to exactly 1.0f, at which point the component's IsInterpolated()
+	 * answers "no" while FrameA and FrameB are still distinct. The shader then
+	 * blends two frames that the UI has just told a scientist are not blended -
+	 * the VISUAL_QA section 1 rule 5 violation, in the direction the rule exists
+	 * to prevent.
+	 *
+	 * So the pair is collapsed AFTER narrowing, never before: if the narrowed
+	 * alpha is 0 or 1, the result names the single frame that alpha selects, with
+	 * FrameB equal to FrameA. Geometry and disclosure then agree by construction
+	 * instead of by the caller remembering to check.
+	 *
+	 * Reachable on the shipped sample, which is why this is not theoretical: at
+	 * its 0.05 spacing, t = 0.10 - 1e-11 produces alpha 0.9999999998.
+	 */
+	FLOWVIZRUNTIME_API FFlowVizVolumeFrameSelection ToVolumeFrameSelection(
+		const FFlowVizDisplaySelection& Display);
+
+	/**
+	 * Adapt a player to the component's frame-source interface.
+	 *
+	 * The returned source holds a REFERENCE, not a copy: the component polls it
+	 * once per tick and must see the live playhead. The player therefore has to
+	 * outlive the source, which is the normal ownership (the player is owned by
+	 * whatever also owns the component).
+	 */
+	FLOWVIZRUNTIME_API TSharedRef<IFlowVizVolumeFrameSource> MakeFrameSource(
+		const FFlowVizCasePlayer& Player);
+}
