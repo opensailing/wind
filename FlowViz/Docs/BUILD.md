@@ -295,6 +295,32 @@ not a passed one — treat the two arms as separate obligations.
 It exists so the reporting logic is testable over fixture logs
 (`Tools/tests/test_run_tests_summary.sh`) instead of a ~40s engine run.
 
+### The detail log is per-checkout. Check its mtime before believing it.
+
+`run_tests.sh` writes to `/tmp/flowviz_tests_<checkout-hash>.log`; run
+`./Tools/run_tests.sh --print-log-path` to see yours. Setting `LOG` overrides it.
+
+It used to be a fixed `/tmp/flowviz_tests.log` for every checkout. With nine
+worktrees open — which exist precisely so concurrent agents cannot corrupt each
+other — all nine wrote there, and the isolation was handed back at the last
+step. Hit on 2026-08-05: a run finished at 14:33:23 and the file at that path was
+dated 14:33:**30**, containing a different run's editor startup and zero test
+records. The console summary said 49/50 and the log said nothing.
+
+The console summary is printed by your own process and is always yours. The
+detail log is a file on a shared filesystem. When they disagree, suspect the
+file — and note that a *missing* log would have been safe, whereas an unrelated
+one at a known-good path reads as evidence about your run. That log is exactly
+what you open when a total looks wrong, so it turns a suspicion into a confident
+wrong answer.
+
+Before quoting a log for `MetalRHI`, `nullrhi`, a skip count, or an assertion's
+text, check `stat -f '%Sm' <log>` against when your run ended. **A log newer than
+the run that supposedly produced it belongs to a different run.** Prefer
+capturing your own stdout (`> /tmp/my_run.log 2>&1`) for anything you will report
+or score, and give each mutation arm its own file — a verdict read from a shared
+path can be a false KILLED, which reports as coverage you do not have.
+
 ### Tests failing on a shared tree may be someone else's mutation
 
 This project proves its assertions can fail by deliberately breaking the code
