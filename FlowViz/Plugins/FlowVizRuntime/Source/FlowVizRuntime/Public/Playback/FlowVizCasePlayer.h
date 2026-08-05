@@ -604,20 +604,54 @@ struct FFlowVizDisplaySelection
 	 *   mad           0 colour reversals, and 0 RAW retreats
 	 *
 	 * Witness: t = 0.00101479876, value 1.00101483 -> 1.00101471, colour index
-	 * 67 -> 66. The rate tracks 1/(floats per level) because it is simply the
-	 * chance that a 1-ULP step straddles a quantization boundary - geometric,
-	 * falling with resolution, never reaching zero. At [0.1,0.9] 16-bit (409.6
-	 * floats/level) it is 601 of 130955.
+	 * 67 -> 66.
+	 *
+	 * NO CLOSED-FORM RATE IS OFFERED, and the attempts are recorded because two
+	 * of them are already in this file's history. "1/(floats per colour level)"
+	 * fits [1,2] to four digits and FAILS off it. The obvious repair - evaluate
+	 * ULP(v)/level_width at the values where retreats actually occur - is also
+	 * wrong: on [0.1,0.9] 16-bit it predicts 0.4883% where 0.7811% is measured.
+	 * A third model of mine (a lattice-equidistribution count) matched three
+	 * windows and was then refuted by its own control, predicting 0.0000% where
+	 * 0.0483% and 0.0117% were measured.
+	 *
+	 * The reason every density model fails: the retreating values are not a
+	 * continuum but a PERIODIC LATTICE. On [0.1,0.9] t=0.75 the retreats fall on
+	 * exactly every 10th float (gap histogram: one bucket, 19999 of 19999) and
+	 * successive retreating values advance by a fixed 0.0390625 colour levels,
+	 * occupying only 128 or 256 distinct phases within a level. A rate computed
+	 * from average densities assumes phases that do not exist. This is also why
+	 * some anchors measure EXACTLY 0.0000% - when the retreat is smaller than
+	 * the lattice's phase spacing, no sample can straddle a boundary at all,
+	 * which no density model can produce.
+	 *
+	 * So the rate is strongly window- AND t-dependent, and single-anchor figures
+	 * are not window properties. Pooled over 16 anchors spanning t (the only
+	 * form worth quoting):
+	 *
+	 *   [1,2]     16-bit   571 / 72952  = 0.783%      mad: 0 retreats
+	 *   [0.1,0.9] 16-bit  1067 / 149901 = 0.712%      mad: 0 retreats
+	 *   [1,2]      8-bit     3 / 72952  = 0.004%      mad: 0 retreats
+	 *   [0.1,0.9]  8-bit     3 / 149901 = 0.002%      mad: 0 retreats
+	 *
+	 * An earlier version of this comment quoted "601 of 130955" for [0.1,0.9]
+	 * as confirmation of the 1/fpl model. That number was real but measured at
+	 * one anchor, and single-anchor rates on this window range from 0.0000% to
+	 * 0.7851% depending only on where t starts. It was cited as a second
+	 * confirming data point when arithmetic on it (0.459% vs a predicted 0.244%)
+	 * refutes the model it was cited for.
 	 *
 	 * The mad form's zero is structural, not a dead reading: a + t*(b-a) is
 	 * monotone in t for a fixed (b-a), so it has no raw retreats to quantize.
 	 * That zero was checked on the same samples that make two-product fire,
 	 * because "0" from an unfired harness has been wrong here seven times.
 	 *
-	 * So the honest statement is comparative and admits a real cost: the
-	 * two-product form CAN flip a colour index by one level in an ordinary
-	 * window, at roughly one in (floats per level) of its 1-ULP retreats. It is
-	 * still preferred, because a one-level flicker at the format's resolution
+	 * So the honest statement is comparative, admits a real cost, and does not
+	 * pretend to a rate: the two-product form CAN flip a colour index by one
+	 * level in an ordinary, well-resolved window - measured at sub-1% of its
+	 * retreats at 16-bit and far less at 8-bit, but strongly dependent on the
+	 * window and on t, and not predicted by any density formula tried here. It
+	 * is still preferred, because a one-level flicker at the format's resolution
 	 * limit is a display artifact, while a wrong endpoint is a wrong scalar
 	 * pseudocolored as measurement at any window. Only the second is a
 	 * provenance lie. Whoever sees the flicker should find it predicted here.
