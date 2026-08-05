@@ -4,6 +4,7 @@
 
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceStyle.h"
+#include "UI/SFlowVizClipPanel.h"
 #include "UI/SFlowVizTransferFunctionPanel.h"
 #include "UI/SFlowVizTransportBar.h"
 #include "Widgets/Layout/SBorder.h"
@@ -156,10 +157,8 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 						[
 							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("ClipHeading", "Clipping"),
-								FlowVizWorkspaceLocal::MakePendingRegion(
-									LOCTEXT("ClipPending",
-										"Clip-plane controls are not built yet. The clip view "
-										"model is complete and tested; no widget drives it.")))
+								SAssignNew(ClipPanel, SFlowVizClipPanel)
+									.ViewModel(&Model->Clip))
 						]
 
 						+ SScrollBox::Slot()

@@ -1,0 +1,48 @@
+preset_button_not_wired
+--
+				.OnClicked(FOnClicked::CreateSP(this, &SFlowVizClipPanel::OnPresetClicked, Preset))
+--
+				.OnClicked(FOnClicked())
+
+%%
+add_enablement_ignores_view_model
+--
+	const TAttribute<bool> AddEnabled =
+		TAttribute<bool>::CreateSP(this, &SFlowVizClipPanel::CanAddPlane);
+--
+	const TAttribute<bool> AddEnabled = TAttribute<bool>(true);
+
+%%
+enable_toggle_removes_instead_of_hiding
+--
+		ViewModel->SetPlaneEnabled(Index, !IsPlaneEnabled(Index));
+--
+		ViewModel->RemovePlane(Index);
+
+%%
+invert_flips_only_the_normal
+--
+		ViewModel->InvertPlane(Index);
+--
+		if (const FFlowVizClipPlane* Existing = ViewModel->FindPlane(Index))
+		{
+			FFlowVizClipPlane Flipped = *Existing;
+			Flipped.Normal = -Flipped.Normal;
+			ViewModel->SetPlane(Index, Flipped);
+		}
+
+%%
+crop_commit_writes_every_axis
+--
+	FVector Max = ViewModel->GetCropMax();
+	Max[Axis] = Value;
+	ViewModel->SetCropBox(ViewModel->GetCropMin(), Max);
+--
+	ViewModel->SetCropBox(ViewModel->GetCropMin(), FVector(Value, Value, Value));
+
+%%
+preset_button_always_adds_plus_x
+--
+		ViewModel->AddPresetPlane(Preset);
+--
+		ViewModel->AddPresetPlane(EFlowVizClipPreset::KeepPlusX);

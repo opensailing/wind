@@ -1,0 +1,10 @@
+startup_does_not_register_the_tab
+--
+	FlowVizWorkspaceTab::Register();
+}
+
+void FFlowVizRuntimeModule::ShutdownModule()
+--
+}
+
+void FFlowVizRuntimeModule::ShutdownModule()

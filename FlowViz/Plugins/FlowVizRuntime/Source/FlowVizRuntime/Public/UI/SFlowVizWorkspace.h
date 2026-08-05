@@ -7,6 +7,7 @@
 #include "Widgets/SCompoundWidget.h"
 
 struct FFlowVizWorkspaceModel;
+class SFlowVizClipPanel;
 class SFlowVizTransferFunctionPanel;
 class SFlowVizTransportBar;
 
@@ -61,6 +62,7 @@ public:
 	{
 		return TransferFunctionPanel;
 	}
+	TSharedPtr<SFlowVizClipPanel> GetClipPanel() const { return ClipPanel; }
 
 private:
 	/**
@@ -75,4 +77,5 @@ private:
 
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;
+	TSharedPtr<SFlowVizClipPanel> ClipPanel;
 };

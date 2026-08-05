@@ -1,0 +1,23 @@
+tab_spawned_without_the_workspace
+--
+				.Label(LOCTEXT("WorkspaceTabLabel", "FlowViz"))
+				[
+					// THE PRODUCTION CONSTRUCTION SITE. This is the line that makes
+					// the widgets a feature rather than a definition.
+					SNew(SFlowVizWorkspace)
+				];
+--
+				.Label(LOCTEXT("WorkspaceTabLabel", "FlowViz"));
+
+%%
+deferred_registration_never_subscribes
+--
+			if (!bDeferredRegistrationPending)
+			{
+				bDeferredRegistrationPending = true;
+				FCoreDelegates::GetOnPostEngineInit().AddStatic(&Register);
+			}
+			return;
+--
+			bDeferredRegistrationPending = true;
+			return;
