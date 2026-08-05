@@ -1,0 +1,874 @@
+// Copyright FlowViz contributors. All Rights Reserved.
+
+#include "Scene/FlowVizVolumeComponent.h"
+
+#include "CFDViz/CFDVizVolumeReader.h"
+#include "DynamicMeshBuilder.h"
+#include "Engine/Engine.h"
+#include "FlowVizRuntime.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialRenderProxy.h"
+#include "MeshBuilderOneFrameResources.h"
+#include "MeshElementCollector.h"
+#include "Misc/Paths.h"
+#include "PrimitiveDrawingUtils.h"
+#include "PrimitiveSceneProxy.h"
+#include "RenderingThread.h"
+#include "SceneManagement.h"
+#include "SceneView.h"
+#include "ShaderCore.h"
+
+/* -------------------------------------------------------------------------- */
+/* Box geometry                                                                 */
+/* -------------------------------------------------------------------------- */
+
+namespace FlowVizVolumeBoxLayout
+{
+	/*
+	 * A NAMED namespace, not an anonymous one. FlowVizRuntime is a unity build:
+	 * every .cpp in the module is #included into one translation unit, so an
+	 * anonymous namespace is NOT file-local and a constant named `FaceAxes` here
+	 * would collide with a sibling's. That collision already shipped once in this
+	 * repo and silently gave a reader the wrong byte offsets (Docs/BUILD.md,
+	 * commit 9d5d5ac).
+	 */
+
+	/** Face order: -X, +X, -Y, +Y, -Z, +Z. Pinned because the test asserts against exactly this order. */
+	struct FFaceDefinition
+	{
+		/** Outward normal. */
+		FVector3f Normal;
+
+		/** The four corners as 0/1 selectors per axis, counter-clockwise seen from OUTSIDE the box. */
+		FVector3f Corners[4];
+	};
+
+	inline constexpr int32 FaceCount = 6;
+
+	static const FFaceDefinition Faces[FaceCount] = {
+		// -X face, looking along +X from outside (from -X toward the box).
+		{{-1.0f, 0.0f, 0.0f},
+			{{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 0.0f}}},
+		// +X face.
+		{{1.0f, 0.0f, 0.0f},
+			{{1.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f, 1.0f}}},
+		// -Y face.
+		{{0.0f, -1.0f, 0.0f},
+			{{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}}},
+		// +Y face.
+		{{0.0f, 1.0f, 0.0f},
+			{{0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 0.0f}}},
+		// -Z face.
+		{{0.0f, 0.0f, -1.0f},
+			{{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}}},
+		// +Z face.
+		{{0.0f, 0.0f, 1.0f},
+			{{0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f, 1.0f}}},
+	};
+
+	static_assert(FaceCount * 4 == FlowVizVolumeBox::VertexCount,
+		"Four vertices per face: each face carries its own normal rather than an averaged corner.");
+	static_assert(FaceCount * 2 == FlowVizVolumeBox::TriangleCount, "Two triangles per face.");
+	static_assert(FlowVizVolumeBox::TriangleCount * 3 == FlowVizVolumeBox::IndexCount, "Three indices per triangle.");
+}
+
+void FlowVizVolumeBox::MakeBoxGeometry(
+	const FVector& LocalSize,
+	bool bReverseWinding,
+	FFlowVizVolumeBoxGeometry& OutGeometry)
+{
+	OutGeometry.Positions.Reset();
+	OutGeometry.Normals.Reset();
+	OutGeometry.LocalUVWs.Reset();
+	OutGeometry.Indices.Reset();
+
+	// A degenerate axis yields NO geometry rather than a hull with zero-area
+	// faces. Zero-area triangles rasterize as nothing, which is indistinguishable
+	// on screen from a failed load and sends the reader to the wrong file.
+	const bool bSizeIsDrawable =
+		LocalSize.X > 0.0 && LocalSize.Y > 0.0 && LocalSize.Z > 0.0
+		&& FMath::IsFinite(LocalSize.X) && FMath::IsFinite(LocalSize.Y) && FMath::IsFinite(LocalSize.Z);
+	if (!bSizeIsDrawable)
+	{
+		return;
+	}
+
+	OutGeometry.Positions.Reserve(VertexCount);
+	OutGeometry.Normals.Reserve(VertexCount);
+	OutGeometry.LocalUVWs.Reserve(VertexCount);
+	OutGeometry.Indices.Reserve(IndexCount);
+
+	const FVector3f Size(LocalSize);
+
+	for (int32 FaceIndex = 0; FaceIndex < FlowVizVolumeBoxLayout::FaceCount; ++FaceIndex)
+	{
+		const FlowVizVolumeBoxLayout::FFaceDefinition& Face = FlowVizVolumeBoxLayout::Faces[FaceIndex];
+		const int32 BaseVertex = OutGeometry.Positions.Num();
+
+		for (int32 Corner = 0; Corner < 4; ++Corner)
+		{
+			// The selector IS the local UVW: local space is [0, PhysicalSize]
+			// with the minimum corner at the origin, so a 0/1 selector per axis
+			// is already the normalised entry coordinate the ray-marcher wants.
+			const FVector3f Selector = Face.Corners[Corner];
+			OutGeometry.Positions.Add(Selector * Size);
+			OutGeometry.Normals.Add(Face.Normal);
+			OutGeometry.LocalUVWs.Add(Selector);
+		}
+
+		// The corners are authored counter-clockwise seen from outside, so
+		// (0,1,2) and (0,2,3) are outward-facing in a space that does NOT mirror.
+		//
+		// Under a mirroring transform - which every CFDViz placement matrix is,
+		// because solver -> Unreal negates Y (ADR 004 section 3) - a triangle's
+		// cross product picks up det(M) = -1 and points INWARD. Swapping two
+		// indices per triangle is the compensation, applied here and only here.
+		const int32 Order[6] = {0, 1, 2, 0, 2, 3};
+		const int32 ReversedOrder[6] = {0, 2, 1, 0, 3, 2};
+		const int32* const Chosen = bReverseWinding ? ReversedOrder : Order;
+
+		for (int32 Slot = 0; Slot < 6; ++Slot)
+		{
+			OutGeometry.Indices.Add(static_cast<uint32>(BaseVertex + Chosen[Slot]));
+		}
+	}
+
+	check(OutGeometry.Positions.Num() == VertexCount);
+	check(OutGeometry.Indices.Num() == IndexCount);
+}
+
+/* -------------------------------------------------------------------------- */
+/* The ray-march seam                                                           */
+/* -------------------------------------------------------------------------- */
+
+namespace FlowVizVolumeRayMarchState
+{
+	/*
+	 * A single global, because the ray-marcher is a global shader with no
+	 * per-instance state. Written from the game thread before the render thread
+	 * has work, and read from the render thread; the pointer is the only shared
+	 * state and it is not written while rendering is in flight.
+	 */
+	static IFlowVizVolumeRayMarchDispatcher* GDispatcher = nullptr;
+}
+
+void FlowVizVolumeRayMarch::SetDispatcher(IFlowVizVolumeRayMarchDispatcher* Dispatcher)
+{
+	FlowVizVolumeRayMarchState::GDispatcher = Dispatcher;
+}
+
+IFlowVizVolumeRayMarchDispatcher* FlowVizVolumeRayMarch::GetDispatcher()
+{
+	return FlowVizVolumeRayMarchState::GDispatcher;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Marshalled game -> render state                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Everything the proxy needs from the component, BY VALUE.
+ *
+ * No pointer into the component appears here, and none may be added. A scene
+ * proxy outlives some component operations and is destroyed on the render
+ * thread; a pointer back into a game-thread UObject is a use-after-free waiting
+ * for a garbage collection to happen at the wrong moment.
+ *
+ * The texture set is the one exception, and it is not an exception to the rule:
+ * FFlowVizVolumeTextureSet is not a UObject, it is owned for the component's
+ * whole life, and its RHI resources are released through the render thread
+ * before the component is collected (see UCFDVizVolumeComponent::BeginDestroy
+ * and IsReadyForFinishDestroy). The proxy holds it as a raw pointer because the
+ * alternative - copying RHI references per frame - would defeat the persistent
+ * texture requirement in plan.md section 9.
+ */
+struct FFlowVizVolumeProxyDynamicData
+{
+	/** The cbuffer block. Everything in it is LOCAL to the volume. */
+	FFlowVizVolumeShaderParameters Parameters;
+
+	/** Which frames are on screen and how they blend. */
+	FFlowVizVolumeFrameSelection FrameSelection;
+
+	/** True when Parameters was actually built. False means the field's layout is not known yet - typically before the first upload. */
+	bool bHasParameters = false;
+};
+
+/* -------------------------------------------------------------------------- */
+/* The scene proxy                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The volume's representation on the render thread.
+ *
+ * WHAT IT DRAWS. The volume's bounding box as a triangle hull, with its winding
+ * already corrected for the placement mirror, and then it hands the ray-marcher
+ * that hull's view context. The box is the ray-march domain, not decoration: the
+ * marcher runs per pixel covered by the hull.
+ *
+ * THE CAMERA CAN BE INSIDE THE BOX, AND THAT IS THE NORMAL CASE. A scientist
+ * inspecting a wake flies the camera into the domain. A hull drawn with ordinary
+ * back-face culling disappears the instant the near plane crosses the front
+ * face, and what disappears is the entire volume - which reads as a catastrophic
+ * failure rather than as a camera being where it is allowed to be.
+ *
+ * HOW THIS PROXY HANDLES IT: the mesh batch sets bDisableBackfaceCulling, so
+ * BOTH faces of the hull rasterize. From outside, the front faces are nearer and
+ * win the depth test; from inside, the front faces are behind the camera and the
+ * BACK faces cover the screen, so the hull still produces fragments over exactly
+ * the volume's screen footprint. The alternative - flipping the cull mode based
+ * on whether the camera is inside - has a discontinuity exactly at the boundary
+ * and pops a frame when the camera crosses a face.
+ *
+ * Two-sided rasterization is why the winding correction still matters even
+ * though nothing is culled: the ray-marcher needs to know which side of the hull
+ * a fragment is on to choose its ray entry point, and it reads that from the
+ * facing, which is only meaningful if the winding is right.
+ */
+class FFlowVizVolumeSceneProxy final : public FPrimitiveSceneProxy
+{
+public:
+	SIZE_T GetTypeHash() const override
+	{
+		static SIZE_T UniquePointer;
+		return reinterpret_cast<SIZE_T>(&UniquePointer);
+	}
+
+	explicit FFlowVizVolumeSceneProxy(const UCFDVizVolumeComponent* Component)
+		: FPrimitiveSceneProxy(Component)
+		, PhysicalSize(Component->GetPhysicalSize())
+		, TextureSet(&const_cast<UCFDVizVolumeComponent*>(Component)->GetTextureSet())
+		, BoundingBoxColor(Component->BoundingBoxColor)
+		, bDrawBoundingBox(Component->bDrawBoundingBox)
+	{
+		bWillEverBeLit = false;
+
+		// The winding correction, decided ONCE, here, from the matrix that will
+		// actually place this volume - not from a constant, and not rediscovered
+		// per call site (ADR 004 section 3).
+		const FMatrix LocalToUnreal = Component->GetVolumeLocalToUnrealMatrix();
+		bReverseWinding = TransformReversesWinding(LocalToUnreal);
+
+		FlowVizVolumeBox::MakeBoxGeometry(PhysicalSize, bReverseWinding, BoxGeometry);
+
+		// Seeded from the component so the very first frame after the proxy is
+		// created is not blank while it waits for a dynamic-data push.
+		DynamicData.FrameSelection = Component->GetFrameSelection();
+	}
+
+	/** Render thread. Replaces the marshalled copy wholesale, so there is no intermediate half-updated state. */
+	void SetDynamicData_RenderThread(FFlowVizVolumeProxyDynamicData&& InData)
+	{
+		check(IsInRenderingThread());
+		DynamicData = MoveTemp(InData);
+	}
+
+	/**
+	 * Did anything actually ray-march this volume?
+	 *
+	 * Reported rather than assumed because "no marcher is registered" and "the
+	 * marcher ran and drew nothing" are the same black screen with nothing in
+	 * common as fixes. VISUAL_QA section 3 rule 6 forbids calling an unrendered
+	 * feature working; this is what makes that checkable.
+	 */
+	bool WasRayMarchDispatched() const
+	{
+		return bRayMarchDispatched;
+	}
+
+	virtual void GetDynamicMeshElements(
+		const TArray<const FSceneView*>& Views,
+		const FSceneViewFamily& ViewFamily,
+		uint32 VisibilityMap,
+		FMeshElementCollector& Collector) const override
+	{
+		if (BoxGeometry.Positions.Num() == 0)
+		{
+			return;
+		}
+
+		const FMatrix& LocalToWorld = GetLocalToWorld();
+
+		for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ++ViewIndex)
+		{
+			if ((VisibilityMap & (1 << ViewIndex)) == 0)
+			{
+				continue;
+			}
+
+			const FSceneView* View = Views[ViewIndex];
+
+			if (bDrawBoundingBox)
+			{
+				// The domain outline. Drawn from the same geometry the marcher
+				// uses, so an outline that appears in the wrong place is
+				// evidence about placement rather than about a second code path.
+				FPrimitiveDrawInterface* PDI = Collector.GetPDI(ViewIndex);
+				const FBox LocalBox(FVector::ZeroVector, PhysicalSize);
+				DrawWireBox(PDI, LocalToWorld, LocalBox, BoundingBoxColor, SDPG_World);
+			}
+
+			// The ray-march hull.
+			const bool bIsWireframeView = AllowDebugViewmodes() && ViewFamily.EngineShowFlags.Wireframe;
+			if (!bIsWireframeView)
+			{
+				BuildHullMeshBatch(LocalToWorld, ViewIndex, Collector);
+			}
+
+			// The ray-march itself. Everything handed over is either a copy or a
+			// resource the component owns for its whole life; no game-thread
+			// pointer crosses.
+			if (IFlowVizVolumeRayMarchDispatcher* Dispatcher = FlowVizVolumeRayMarch::GetDispatcher())
+			{
+				if (DynamicData.bHasParameters && TextureSet != nullptr)
+				{
+					const int32 SlotA = TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameA);
+					const int32 SlotB = TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameB);
+
+					if (const FFlowVizVolumeSlotTextures* TexturesA = TextureSet->GetSlotTextures(SlotA))
+					{
+						FFlowVizVolumeRayMarchContext Context;
+						Context.View = View;
+						Context.LocalToWorld = LocalToWorld;
+						Context.Parameters = DynamicData.Parameters;
+						Context.SlotA = TexturesA;
+						Context.SlotB = TextureSet->GetSlotTextures(SlotB);
+						Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
+
+						Dispatcher->DispatchVolumeRayMarch(Context);
+						bRayMarchDispatched = true;
+					}
+				}
+			}
+		}
+	}
+
+	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const override
+	{
+		FPrimitiveViewRelevance Relevance;
+		Relevance.bDrawRelevance = IsShown(View);
+		Relevance.bDynamicRelevance = true;
+		Relevance.bShadowRelevance = false;
+
+		// A ray-marched volume composites against what is behind it, so it is
+		// translucent regardless of how opaque the transfer function happens to
+		// make it this frame.
+		Relevance.bSeparateTranslucency = Relevance.bNormalTranslucency = true;
+		Relevance.bRenderInMainPass = ShouldRenderInMainPass();
+		Relevance.bUsesLightingChannels = false;
+		Relevance.bVelocityRelevance = false;
+		return Relevance;
+	}
+
+	/**
+	 * The volume never occludes anything: its hull is a loose bound on a
+	 * semi-transparent field, and letting it write occlusion would cull geometry
+	 * that is genuinely visible through mostly-empty flow.
+	 */
+	virtual bool CanBeOccluded() const override
+	{
+		return false;
+	}
+
+	virtual uint32 GetMemoryFootprint() const override
+	{
+		return sizeof(*this) + GetAllocatedSize();
+	}
+
+private:
+	/** One two-sided hull batch. See the class comment for why nothing is culled. */
+	void BuildHullMeshBatch(const FMatrix& LocalToWorld, int32 ViewIndex, FMeshElementCollector& Collector) const
+	{
+		FDynamicMeshBuilder MeshBuilder(Collector.GetFeatureLevel(), /*NumTexCoords*/ 1);
+
+		for (int32 VertexIndex = 0; VertexIndex < BoxGeometry.Positions.Num(); ++VertexIndex)
+		{
+			const FVector3f& LocalUVW = BoxGeometry.LocalUVWs[VertexIndex];
+
+			FDynamicMeshVertex Vertex;
+			Vertex.Position = BoxGeometry.Positions[VertexIndex];
+			Vertex.TextureCoordinate[0] = FVector2f(LocalUVW.X, LocalUVW.Y);
+			Vertex.SetTangents(
+				FVector3f(1.0f, 0.0f, 0.0f),
+				FVector3f(0.0f, 1.0f, 0.0f),
+				BoxGeometry.Normals[VertexIndex]);
+			Vertex.Color = FColor::White;
+			MeshBuilder.AddVertex(Vertex);
+		}
+
+		for (int32 Triangle = 0; Triangle < FlowVizVolumeBox::TriangleCount; ++Triangle)
+		{
+			MeshBuilder.AddTriangle(
+				static_cast<int32>(BoxGeometry.Indices[Triangle * 3 + 0]),
+				static_cast<int32>(BoxGeometry.Indices[Triangle * 3 + 1]),
+				static_cast<int32>(BoxGeometry.Indices[Triangle * 3 + 2]));
+		}
+
+		const FMaterialRenderProxy* MaterialProxy =
+			GEngine->DebugMeshMaterial != nullptr
+				? GEngine->DebugMeshMaterial->GetRenderProxy()
+				: UMaterial::GetDefaultMaterial(MD_Surface)->GetRenderProxy();
+
+		FMeshBuilderOneFrameResources& OneFrameResources =
+			Collector.AllocateOneFrameResource<FMeshBuilderOneFrameResources>();
+
+		FMeshBatch& Mesh = Collector.AllocateMesh();
+		MeshBuilder.GetMeshElement(
+			LocalToWorld,
+			MaterialProxy,
+			SDPG_World,
+			/*bDisableBackfaceCulling*/ true,
+			/*bReceivesDecals*/ false,
+			ViewIndex,
+			OneFrameResources,
+			Mesh);
+
+		if (Mesh.VertexFactory == nullptr)
+		{
+			return;
+		}
+
+		// GetMeshElement sets ReverseCulling from the determinant, which for this
+		// volume is ALWAYS negative. That flag and MakeBoxGeometry's reversal are
+		// the same correction applied twice, and two reversals are the identity -
+		// the exact double-conversion ADR 004 section 2 warns about, and invisible
+		// because it lands back where it started. The correction lives in the
+		// geometry, so it is cleared here.
+		//
+		// Nothing is culled either way (bDisableBackfaceCulling above), but the
+		// flag also drives which side the shader is told it is on, and that must
+		// agree with the winding actually in the index buffer.
+		Mesh.ReverseCulling = false;
+		Mesh.bCanApplyViewModeOverrides = false;
+
+		Collector.AddMesh(ViewIndex, Mesh);
+	}
+
+	/** Domain extent in solver units. The hull and the wire box are both built from this. */
+	FVector PhysicalSize;
+
+	/** Local-space hull, winding already corrected for the placement mirror. */
+	FFlowVizVolumeBoxGeometry BoxGeometry;
+
+	/** Not a UObject and owned by the component for its whole life - see FFlowVizVolumeProxyDynamicData's comment. */
+	FFlowVizVolumeTextureSet* TextureSet = nullptr;
+
+	/** Replaced wholesale by SetDynamicData_RenderThread. */
+	FFlowVizVolumeProxyDynamicData DynamicData;
+
+	FLinearColor BoundingBoxColor;
+	bool bDrawBoundingBox = true;
+
+	/** True when the placement matrix mirrors, which for a CFDViz case it always does. Kept for diagnostics. */
+	bool bReverseWinding = false;
+
+	/** Mutable because GetDynamicMeshElements is const; this is a diagnostic, not render state. */
+	mutable bool bRayMarchDispatched = false;
+};
+
+/* -------------------------------------------------------------------------- */
+/* The component                                                                */
+/* -------------------------------------------------------------------------- */
+
+UCFDVizVolumeComponent::UCFDVizVolumeComponent()
+{
+	PrimaryComponentTick.bCanEverTick = false;
+
+	// A volume is never static: its textures change every playback frame.
+	Mobility = EComponentMobility::Movable;
+
+	// Data, not geometry. Collision would let a user click a box that is not a
+	// surface, and shadows from a loose hull would be shadows of nothing.
+	SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SetGenerateOverlapEvents(false);
+	CastShadow = false;
+	bCastDynamicShadow = false;
+	bAffectDynamicIndirectLighting = false;
+
+	TextureSet = MakeUnique<FFlowVizVolumeTextureSet>();
+	TextureSet->Initialize(FlowVizVolume::RecommendedBufferCount);
+}
+
+FCFDVizResult UCFDVizVolumeComponent::LoadCase(const FString& CaseDirectory, FName FieldId)
+{
+	// Built into a local and committed only on success. A component that drops to
+	// a half-loaded binding on failure would render a case that is partly the old
+	// one and partly nothing.
+	FFlowVizVolumeCaseBinding NewBinding;
+
+	const FString ManifestPath =
+		FPaths::GetCleanFilename(CaseDirectory).EndsWith(TEXT(".json"))
+			? CaseDirectory
+			: FPaths::Combine(CaseDirectory, TEXT("manifest.json"));
+
+	const FCFDVizResult LoadResult = FCFDVizCase::LoadFromFile(ManifestPath, NewBinding.Case);
+	if (!LoadResult.IsOk())
+	{
+		return LoadResult;
+	}
+
+	const FCFDVizResult CodecResult = NewBinding.Case.CheckCodecSupport();
+	if (!CodecResult.IsOk())
+	{
+		return CodecResult;
+	}
+
+	// Field selection. A mask is a 0/1 volume; binding it by default would
+	// render a solid block and read as a broken transfer function rather than as
+	// the wrong field being displayed.
+	const FCFDVizField* Field = nullptr;
+	if (!FieldId.IsNone())
+	{
+		Field = NewBinding.Case.FindField(FieldId);
+		if (Field == nullptr)
+		{
+			return FCFDVizResult::Fail(
+				ECFDVizError::InvalidManifest,
+				FString::Printf(TEXT("case declares no field '%s'"), *FieldId.ToString()),
+				ManifestPath);
+		}
+	}
+	else
+	{
+		for (const FCFDVizField& Candidate : NewBinding.Case.Fields)
+		{
+			const FCFDVizGridDescriptor* CandidateGrid = NewBinding.Case.FindGridForField(Candidate);
+			const bool bIsMask =
+				(CandidateGrid != nullptr && CandidateGrid->MaskFieldId == Candidate.Id)
+				|| Candidate.Semantic.Equals(TEXT("mask"), ESearchCase::IgnoreCase);
+			if (!bIsMask)
+			{
+				Field = &Candidate;
+				break;
+			}
+		}
+
+		if (Field == nullptr)
+		{
+			return FCFDVizResult::Fail(
+				ECFDVizError::InvalidManifest,
+				TEXT("case declares no field that is not a mask; nothing to display"),
+				ManifestPath);
+		}
+	}
+
+	const FCFDVizGridDescriptor* Grid = NewBinding.Case.FindGridForField(*Field);
+	if (Grid == nullptr)
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(TEXT("field '%s' names grid '%s', which the case does not declare"),
+				*Field->Id.ToString(), *Field->GridId.ToString()),
+			ManifestPath);
+	}
+
+	NewBinding.FieldId = Field->Id;
+	NewBinding.Transform.Grid = Grid->Geometry;
+	NewBinding.Transform.Association = Field->Association;
+
+	// The length scale comes from the manifest, and an unrecognised unit is an
+	// error rather than a silent assumption of metres (ADR 004 section 5).
+	// Defaulting a millimetre case to metres would place it a thousand times too
+	// large, with nothing on screen to say so.
+	double MetersPerUnit = 0.0;
+	if (!NewBinding.Case.Units.TryGetLengthInMeters(MetersPerUnit))
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(
+				TEXT("units.length '%s' is not a length this build recognises; refusing to guess a scale"),
+				*NewBinding.Case.Units.Length),
+			ManifestPath);
+	}
+	NewBinding.MetersToUnrealUnits = MetersPerUnit * CFDViz::MetersToUnrealCentimeters;
+
+	if (!NewBinding.Transform.IsValid())
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(TEXT("grid '%s' is not a usable volume geometry"), *Grid->Id.ToString()),
+			ManifestPath);
+	}
+
+	NewBinding.bIsValid = true;
+	CaseBinding = MoveTemp(NewBinding);
+	UploadedScalarLayout = FFlowVizVolumeLayout();
+
+	// Bounds and placement both changed, so the proxy is rebuilt rather than
+	// updated: its hull geometry is baked at construction.
+	MarkRenderStateDirty();
+	UpdateBounds();
+
+	UE_LOG(LogFlowViz, Log,
+		TEXT("UCFDVizVolumeComponent: loaded '%s', displaying field '%s' over %d x %d x %d cells."),
+		*CaseBinding.Case.Metadata.Name,
+		*CaseBinding.FieldId.ToString(),
+		CaseBinding.Transform.Grid.Dimensions.X,
+		CaseBinding.Transform.Grid.Dimensions.Y,
+		CaseBinding.Transform.Grid.Dimensions.Z);
+
+	return FCFDVizResult::Ok();
+}
+
+void UCFDVizVolumeComponent::ClearCase()
+{
+	CaseBinding = FFlowVizVolumeCaseBinding();
+	UploadedScalarLayout = FFlowVizVolumeLayout();
+	MarkRenderStateDirty();
+	UpdateBounds();
+}
+
+bool UCFDVizVolumeComponent::HasRenderableVolume() const
+{
+	if (!CaseBinding.bIsValid || !CaseBinding.Transform.IsValid())
+	{
+		return false;
+	}
+
+	const FVector Size = CaseBinding.Transform.GetPhysicalSize();
+	return Size.X > 0.0 && Size.Y > 0.0 && Size.Z > 0.0;
+}
+
+FMatrix UCFDVizVolumeComponent::GetVolumeLocalToUnrealMatrix() const
+{
+	if (!CaseBinding.bIsValid)
+	{
+		return FMatrix::Identity;
+	}
+
+	// The ONLY placement source. Double precision, mirror included, grid-origin
+	// translation included. Never FFlowVizVolumeShaderParameters::GridOrigin,
+	// which is float-narrowed and says so via OriginNarrowingError.
+	return CaseBinding.Transform.GetLocalToUnrealTransform(CaseBinding.MetersToUnrealUnits);
+}
+
+FVector UCFDVizVolumeComponent::GetPhysicalSize() const
+{
+	if (!CaseBinding.bIsValid)
+	{
+		return FVector::ZeroVector;
+	}
+	return CaseBinding.Transform.GetPhysicalSize();
+}
+
+FMatrix UCFDVizVolumeComponent::GetRenderMatrix() const
+{
+	// Volume placement first, then the component's own world transform, so an
+	// actor moves the whole case like any other actor. CalcBounds composes these
+	// two in the same order; if the two ever disagree, the volume is culled
+	// against a box that is not where it is drawn.
+	return GetVolumeLocalToUnrealMatrix() * GetComponentTransform().ToMatrixWithScale();
+}
+
+FBoxSphereBounds UCFDVizVolumeComponent::CalcBounds(const FTransform& LocalToWorld) const
+{
+	if (!HasRenderableVolume())
+	{
+		// A point at the component's location, not a zero-extent box at the
+		// world origin: an empty component must not drag a scene's bounds toward
+		// the origin.
+		return FBoxSphereBounds(LocalToWorld.GetLocation(), FVector::ZeroVector, 0.0);
+	}
+
+	// THE ACTUAL PHYSICAL EXTENT: spacing times cell count, per axis. Not a unit
+	// cube scaled by the actor transform, which is right only for a cubic domain
+	// at unit scale and is wrong on the shipped mock case, whose voxels are
+	// 0.09375 x 0.0625 x 0.0416667.
+	const FVector Size = CaseBinding.Transform.GetPhysicalSize();
+	const FBox LocalBox(FVector::ZeroVector, Size);
+
+	// The same composition GetRenderMatrix performs, in the same order.
+	return FBoxSphereBounds(LocalBox)
+		.TransformBy(GetVolumeLocalToUnrealMatrix())
+		.TransformBy(LocalToWorld);
+}
+
+void UCFDVizVolumeComponent::SetFrameSource(TSharedPtr<IFlowVizVolumeFrameSource> InFrameSource)
+{
+	FrameSource = MoveTemp(InFrameSource);
+	MarkRenderDynamicDataDirty();
+}
+
+FFlowVizVolumeFrameSelection UCFDVizVolumeComponent::GetFrameSelection() const
+{
+	if (FrameSource.IsValid())
+	{
+		return FrameSource->GetFrameSelection();
+	}
+
+	// No player attached is a display POLICY - hold the first frame - not a stub
+	// pretending to be a player. A component with a case bound and no player
+	// shows frame 0, which is a defensible thing to see and is distinguishable
+	// from an unloaded component, which shows nothing.
+	FFlowVizVolumeFrameSelection Selection;
+	Selection.FrameA = HasRenderableVolume() ? 0 : INDEX_NONE;
+	return Selection;
+}
+
+bool UCFDVizVolumeComponent::TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const
+{
+	if (!HasRenderableVolume() || !UploadedScalarLayout.IsValid())
+	{
+		return false;
+	}
+	return CaseBinding.Transform.MakeShaderParameters(UploadedScalarLayout, OutParams).IsOk();
+}
+
+FCFDVizResult UCFDVizVolumeComponent::UploadFrame(int32 FrameIndex)
+{
+	if (!HasRenderableVolume())
+	{
+		return FCFDVizResult::Fail(ECFDVizError::InvalidManifest, TEXT("no case is bound"));
+	}
+
+	if (FrameIndex < 0 || FrameIndex >= CaseBinding.Case.GetFrameCount())
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::IndexOutOfRange,
+			FString::Printf(TEXT("frame %d is outside the timeline's %d frames"),
+				FrameIndex, CaseBinding.Case.GetFrameCount()));
+	}
+
+	const FCFDVizField* Field = CaseBinding.Case.FindField(CaseBinding.FieldId);
+	if (Field == nullptr)
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(TEXT("bound field '%s' is no longer in the case"), *CaseBinding.FieldId.ToString()));
+	}
+
+	FString FieldPath;
+	const FCFDVizResult PathResult =
+		CaseBinding.Case.ResolveFieldFramePath(*Field, FrameIndex, FieldPath);
+	if (!PathResult.IsOk())
+	{
+		return PathResult;
+	}
+
+	FCFDVizVolumeReader Reader;
+	const FCFDVizResult OpenResult = Reader.Open(FieldPath);
+	if (!OpenResult.IsOk())
+	{
+		return OpenResult;
+	}
+
+	// The grid's mask, when it declares one. Passed to BuildUpload so masked
+	// cells reach the status texture rather than being silently rendered as
+	// data (plan.md section 4 rule 10).
+	const FCFDVizGridDescriptor* Grid = CaseBinding.Case.FindGridForField(*Field);
+	FCFDVizVolumeReader MaskReader;
+	FCFDVizVolumeReader* MaskReaderPtr = nullptr;
+	if (Grid != nullptr && Grid->HasMaskField())
+	{
+		FString MaskPath;
+		if (CaseBinding.Case.ResolveFieldFramePath(Grid->MaskFieldId, FrameIndex, MaskPath).IsOk()
+			&& MaskReader.Open(MaskPath).IsOk())
+		{
+			MaskReaderPtr = &MaskReader;
+		}
+	}
+
+	const bool bAsVector = Field->ComponentCount > 1;
+
+	FFlowVizVolumeUpload Upload;
+	const FCFDVizResult BuildResult =
+		FlowVizVolumeBuild::BuildUpload(Reader, MaskReaderPtr, bAsVector, Upload);
+	if (!BuildResult.IsOk())
+	{
+		return BuildResult;
+	}
+
+	// The layout the shader parameter block is built from. Taken from whichever
+	// texture this field actually landed in, so a vector field does not produce
+	// parameters describing an absent scalar texture.
+	UploadedScalarLayout = bAsVector ? Upload.VectorLayout : Upload.ScalarLayout;
+
+	const FCFDVizResult UploadResult = TextureSet->EnqueueUpload(MoveTemp(Upload));
+	if (!UploadResult.IsOk())
+	{
+		return UploadResult;
+	}
+
+	MarkRenderDynamicDataDirty();
+	return FCFDVizResult::Ok();
+}
+
+FPrimitiveSceneProxy* UCFDVizVolumeComponent::CreateSceneProxy()
+{
+	// No case, no proxy. A proxy with nothing in it would put a primitive in the
+	// render scene that draws nothing, and the scene-proxy count diagnostic
+	// would then report health that is not there - the exact failure
+	// FlowVizCaptureLibrary.h describes.
+	if (!HasRenderableVolume())
+	{
+		return nullptr;
+	}
+
+	return new FFlowVizVolumeSceneProxy(this);
+}
+
+void UCFDVizVolumeComponent::SendRenderDynamicData_Concurrent()
+{
+	Super::SendRenderDynamicData_Concurrent();
+
+	if (SceneProxy == nullptr)
+	{
+		return;
+	}
+
+	// Built on the game thread, moved to the render thread BY VALUE. The proxy
+	// never reads the component.
+	FFlowVizVolumeProxyDynamicData Data;
+	Data.FrameSelection = GetFrameSelection();
+	Data.bHasParameters = TryMakeShaderParameters(Data.Parameters);
+
+	FFlowVizVolumeSceneProxy* VolumeProxy = static_cast<FFlowVizVolumeSceneProxy*>(SceneProxy);
+	ENQUEUE_RENDER_COMMAND(FlowVizVolumeUpdateDynamicData)(
+		[VolumeProxy, Data = MoveTemp(Data)](FRHICommandListImmediate&) mutable
+		{
+			VolumeProxy->SetDynamicData_RenderThread(MoveTemp(Data));
+		});
+}
+
+void UCFDVizVolumeComponent::OnUnregister()
+{
+	Super::OnUnregister();
+}
+
+void UCFDVizVolumeComponent::BeginDestroy()
+{
+	Super::BeginDestroy();
+
+	// RHI resources may only be released on the render thread. Enqueue that here
+	// and let IsReadyForFinishDestroy hold the object alive until it has run;
+	// releasing in the destructor would free the texture references while the
+	// render thread might still be sampling them.
+	if (TextureSet.IsValid() && !bResourcesReleased)
+	{
+		TextureSet->ReleaseResources();
+		bResourcesReleased = true;
+
+		// The fence is what makes the release ORDERED with respect to this
+		// object's destruction. Without it, BeginDestroy would queue the release
+		// and FinishDestroy would run the destructor immediately after, freeing
+		// the texture set out from under a render command that has not executed
+		// yet. Nothing about that is deterministic - it depends on how far behind
+		// the render thread happens to be - so it would present as an occasional
+		// crash on level teardown.
+		ReleaseResourcesFence.BeginFence();
+	}
+}
+
+bool UCFDVizVolumeComponent::IsReadyForFinishDestroy()
+{
+	if (!Super::IsReadyForFinishDestroy())
+	{
+		return false;
+	}
+
+	// Not a flush: returning false here asks the garbage collector to come back
+	// later, which is the non-blocking way to wait. Calling
+	// FlushRenderingCommands from a GC callback stalls the game thread on the
+	// render thread for as many components as are being collected.
+	return !bResourcesReleased || ReleaseResourcesFence.IsFenceComplete();
+}
