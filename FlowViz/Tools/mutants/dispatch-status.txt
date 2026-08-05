@@ -1,0 +1,99 @@
+the classifier reports Dispatched no matter what -- the fail-OPEN direction
+--
+	if (Dispatcher == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+	}
+--
+	// MUTANT: the worst direction. A capture that rendered nothing reports a
+	// healthy march, which is the false green VISUAL_QA rule 6 forbids.
+	if (false)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+	}
+%%
+the missing-parameters case reported as a missing dispatcher -- one reason for two fixes
+--
+	else if (!DynamicData.bHasParameters)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoParameters;
+	}
+--
+	else if (!DynamicData.bHasParameters)
+	{
+		// MUTANT: the reasons collapse. Both render the same box; one means
+		// "install a marcher" and the other means "wait for an upload".
+		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+	}
+%%
+a missing texture set reported as a frame that has not landed -- a fault reported as a wait
+--
+	else if (TextureSet == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoTextureSet;
+	}
+--
+	else if (TextureSet == nullptr)
+	{
+		// MUTANT: a construction fault reported as something that resolves on
+		// its own, so the reader waits for a frame that will never come.
+		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+	}
+%%
+a non-resident display frame marched anyway -- the null the gate exists to stop
+--
+	else if (SlotATextures == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+	}
+--
+	else if (false)
+	{
+		// MUTANT: the slot check dropped, so a frame whose upload has not landed
+		// is dispatched with a null slot A.
+		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+	}
+%%
+two reasons share a description, so the log cannot tell them apart
+--
+	case EFlowVizDispatchReason::NoTextureSet:
+		return TEXT("the component has no texture set - a construction fault, not something that resolves on its own");
+--
+	case EFlowVizDispatchReason::NoTextureSet:
+		// MUTANT: the same string as NoParameters. The classifier still answers
+		// correctly; the only artifact a headless capture leaves cannot say so.
+		return TEXT("the shader parameters are not built - no case is bound, or no frame has been uploaded, so the field's layout is unknown");
+%%
+the component never publishes what the frame decided
+--
+			DispatchStatusChannel->Reason.Store(Status.Reason);
+--
+			// MUTANT: the render thread keeps the answer to itself, which is
+			// exactly the state this task found: computed correctly, unreachable.
+%%
+only failures are published, so a volume that stops marching still reads healthy
+--
+			// Published every frame, whichever way it went. Reporting only the
+			// failures would leave a volume that marched once and then stopped
+			// reading as still healthy -- the stale-success direction.
+			DispatchStatusChannel->Reason.Store(Status.Reason);
+--
+			// MUTANT: publish only the good news.
+			if (Status.ShouldDispatch())
+			{
+				DispatchStatusChannel->Reason.Store(Status.Reason);
+			}
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or every kill above is a standing red.
+--
+	FFlowVizDispatchStatus Status;
+
+	/*
+	 * ORDERED BY WHAT HAS TO BE FIXED FIRST,
+--
+	// MUTANT: identity control, no behaviour change
+	FFlowVizDispatchStatus Status;
+
+	/*
+	 * ORDERED BY WHAT HAS TO BE FIXED FIRST,
+%%
