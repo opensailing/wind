@@ -233,15 +233,16 @@ struct FFlowVizVolumeRayMarchContext
 	 *
 	 *     A=1, B=2:        774,339 backwards steps in 5e7 increasing t
 	 *     A=1, B=1+1ULP: 1,048,577
-	 *     A=0.1, B=0.9:          0 on that uniform grid, thousands under
-	 *                            anchored consecutive-float sampling
+	 *     A=0.1, B=0.9:          0 unfused, 20,000 fused, at one anchored t
+	 *                            (contraction mode, not the grid - see below)
 	 *     mad form:              0 everywhere, structurally (see below)
 	 *
-	 * TREAT THOSE COUNTS AS EXISTENCE PROOFS, NOT RATES. Each is specific to its
-	 * sampling of t, and the counts move by orders of magnitude with the grid -
-	 * the A=0.1 pair looks perfectly monotone on one sweep and retreats
-	 * thousands of times on another. What they establish is that the retreat is
-	 * real and reachable; they do not characterise how often it occurs.
+	 * TREAT THOSE COUNTS AS EXISTENCE PROOFS, NOT RATES. Each depends on both the
+	 * sampling of t AND on whether the build contracted the expression to an FMA
+	 * (see below) - the A=0.1 pair reads 0 on one combination and tens of
+	 * thousands on another. What they establish is that the retreat is real and
+	 * reachable in both modes; they do not characterise how often it occurs, and
+	 * the counts are not comparable across rows.
 	 *
 	 * The retreat is ALWAYS exactly 1 ULP. DO NOT conclude from that it cannot
 	 * reach a pixel - it can, and an earlier draft of this comment claimed
@@ -261,26 +262,38 @@ struct FFlowVizVolumeRayMarchContext
 	 *       where two-product fires. A theorem, not a sample - do not "repair"
 	 *       that control thinking it is dead.
 	 *
-	 * NO RATE IS QUOTED HERE ON PURPOSE. Three closed forms were proposed across
-	 * two agents - 1/(floats per level), E[ULP]/level_width, and a lattice
-	 * equidistribution model - and all three were refuted by measurement,
-	 * including by their own authors' controls. The reason none of them work is
-	 * that the retreating values are a sparse periodic lattice rather than a
-	 * continuum, so every density argument assumes phases that do not exist.
+	 * NO RATE IS QUOTED HERE, BUT NOT BECAUSE NONE EXISTS. An earlier draft of
+	 * this comment claimed the rate was ill-defined because three closed forms
+	 * had been refuted and the measurement "did not converge". That was wrong,
+	 * and the way it was wrong is the most useful thing on this page.
 	 *
-	 * Worse, the measured rate is not a property of the window at all. On
-	 * [0.1,0.9] at 16-bit, varying ONLY where the t sweep starts:
+	 * `(1-t)*A + t*B` IS NOT ONE EXPRESSION. Compilers contract it to a fused
+	 * multiply-add by default, and the fused and unfused forms are different
+	 * functions with different rounding. Verified in the generated arm64:
 	 *
-	 *     11-13 of 16 anchors produce ZERO raw retreats
-	 *     among anchors that do fire, the rate ranges 0.00% .. 0.83%
-	 *     pooling more anchors does not converge: the pooled rate reads
-	 *       exactly 0.0000% across 11,250 raw retreats and only then jumps
-	 *       to 0.14% when the sweep reaches a different region
+	 *     default            fsub / fmul / FMADD
+	 *     -ffp-contract=off  fsub / fmul / fmul / FADD
 	 *
-	 * A quantity that does not converge under refinement is not a measurement of
-	 * the window; it is a measurement of the sampling choice. Any single-anchor
-	 * percentage - including every one an earlier draft of this comment quoted -
-	 * is real arithmetic about nothing generalisable.
+	 * At A=0.1, B=0.9, t anchored at 0.75, the fused form retreats 20,000 times
+	 * and the unfused form does not retreat at all. Two agents measured the same
+	 * nominal expression and got 20000 and 0 - neither sloppily, but neither
+	 * having stated the flag that turned out to dominate the answer.
+	 *
+	 * Within a FIXED mode the rate is perfectly well behaved, converging as
+	 * samples are added ([0.1,0.9], 16-bit, 16 anchors, per-anchor 25k -> 1.6M):
+	 *
+	 *     fused    0.493 0.476 0.461 0.480 0.461 0.469 0.466 %  -> ~0.466%
+	 *     unfused  0.270 0.135 0.135 0.118 0.084 0.110 0.088 %  -> ~0.10%
+	 *
+	 * The unfused column looks ragged only because it counts a handful of events
+	 * (2, 2, 4, 7, 10, 26, 42); its 95% Poisson intervals all overlap, so it is
+	 * one constant rate seen through counting noise. Reading that raggedness as
+	 * divergence is what produced the false "ill-defined" conclusion.
+	 *
+	 * No rate is quoted because none of these C++ numbers transfer to the actual
+	 * blend, which is HLSL on the GPU where the compiler contracts freely and
+	 * there is no -ffp-contract to pin. A percentage measured here would be a
+	 * measurement of the host compiler's flags, not of what a scientist sees.
 	 *
 	 * WHAT IS ACTUALLY TRUE, and all that should be relied on: the retreat is
 	 * always exactly 1 ULP; it CAN flip a displayed colour index by one level,
@@ -325,14 +338,20 @@ struct FFlowVizVolumeRayMarchContext
 	 *       signed and unsigned, wrong across zero: reported a 1.79e9-ULP
 	 *       retreat on a step that was actually going UP.
 	 *
-	 *   A well-formed measurement of a quantity that IS NOT WELL DEFINED -
-	 *     - The colour-reversal "rate" above. Two agents measured it repeatedly,
-	 *       with agreeing independent quantisers, and proposed three closed
-	 *       forms for it. Every measurement was correct. The quantity itself
-	 *       does not exist: it varies from 0.00% to 0.83% with nothing but the
-	 *       choice of where the t sweep starts, and does not converge as
-	 *       anchors or samples are added. No amount of instrument-checking
-	 *       finds this, because the instrument is fine.
+	 *   Two measurements OF DIFFERENT FUNCTIONS, believed to be of one -
+	 *     - The colour-reversal rate. Two agents measured `(1-t)*A + t*B` and
+	 *       got 20000 and 0 on the same window and anchor, because one build
+	 *       contracted it to an FMA and the other did not. Both numbers were
+	 *       correct measurements of different arithmetic. Every check on this
+	 *       list passes: the instruments agree, the fixtures fire, re-running
+	 *       reproduces. Only naming the unstated condition resolves it.
+	 *     - I then concluded from the disagreement that the quantity was
+	 *       ILL-DEFINED. That was worse than the original error: within a fixed
+	 *       mode the rate converges cleanly, and what I read as divergence was
+	 *       a handful of events (2,2,4,7,10,26,42) whose Poisson intervals all
+	 *       overlap. "There is nothing to measure" is the most expensive way to
+	 *       be wrong about an uncontrolled variable, because it ends the search
+	 *       one step before the cause.
 	 *
 	 *   A CORRECT number contradicting the prose beside it -
 	 *     - An earlier draft of this comment measured colour reversals on a
@@ -341,13 +360,17 @@ struct FFlowVizVolumeRayMarchContext
 	 *       measurement refuted the sentence next to it and was shipped anyway,
 	 *       because it had been gathered to support a conclusion already
 	 *       written.
-	 *     - The "mad form: 0 retreats" line in the table above is the same
-	 *       shape and survived three revisions: this comment recorded 0 for
-	 *       A=0.1,B=0.9 while asserting the two-product form retreats in
-	 *       general. Both are true - it retreats there only under anchored
-	 *       consecutive-float sampling, not the uniform grid that produced the
-	 *       table - but nothing in the text said so, so the table read as a
-	 *       counterexample to its own paragraph.
+	 *     - The "A=0.1, B=0.9: 0" line in the table above is the same shape and
+	 *       survived three revisions: this comment recorded a zero for that pair
+	 *       while the paragraph around it asserted the two-product form retreats
+	 *       in general. Both were true, and the reason was contraction - that
+	 *       build did not fuse, and the fused build retreats 20,000 times on the
+	 *       same pair and anchor. But nothing in the text said so, and I did not
+	 *       know it, so for three revisions the table sat there reading as a
+	 *       counterexample to its own paragraph. The zero was not noise to be
+	 *       explained away; it was the uncontrolled variable announcing itself.
+	 *       (The "mad form: 0" line is NOT an instance of this species - that
+	 *       zero is structural, and the theorem is given below.)
 	 *
 	 * The invented finding is the most dangerous when agents review each other,
 	 * because it arrives as a correction to a colleague and carries more social
@@ -359,15 +382,26 @@ struct FFlowVizVolumeRayMarchContext
 	 * So: verify the fixture CAN produce a failure before believing it found
 	 * none; verify a dramatic result against a second implementation before
 	 * believing it found one; when a number sits next to a sentence, check that
-	 * it supports that sentence rather than merely appearing near it; and before
-	 * fitting a model to a measurement, check that the measurement CONVERGES
-	 * under refinement - if it moves with an arbitrary sampling choice, there is
-	 * nothing there to model.
+	 * it supports that sentence rather than merely appearing near it; and when
+	 * two measurements disagree, first establish that they are measurements of
+	 * the SAME FUNCTION - compiler flags, contraction, and precision mode all
+	 * silently change what an expression computes.
 	 *
 	 * Sample size is not coverage - a big clean number is what makes a broken
 	 * harness convincing. A number that does not fit the claim it is cited for
-	 * IS the finding. And three failed models in a row is evidence about the
-	 * quantity, not about the models.
+	 * IS the finding. Repeated model failure is evidence of an uncontrolled
+	 * variable, NOT evidence that there is nothing to model. And a rate built
+	 * from a few dozen events is noise until its confidence interval says
+	 * otherwise.
+	 *
+	 * WHICH IS WHY EVERY CLAIM THIS COMMENT RELIES ON IS MODE-INDEPENDENT. The
+	 * endpoint behaviour is identical fused and unfused - two-product exact at
+	 * both ends, mad wrong at t == 1 on all four sample pairs - and the mad
+	 * form's zero raw retreats holds in both modes across every window tested.
+	 * Contraction moves the rate; it never moves the direction of the trade.
+	 * Anything that DID depend on the mode has been removed from this comment
+	 * rather than restated with a flag attached, because the shader will not
+	 * honour the flag.
 	 */
 	float Alpha = 0.0f;
 

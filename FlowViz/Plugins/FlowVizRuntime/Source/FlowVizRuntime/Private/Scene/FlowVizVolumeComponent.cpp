@@ -6,6 +6,17 @@
 #include "DynamicMeshBuilder.h"
 #include "Engine/Engine.h"
 #include "FlowVizRuntime.h"
+/*
+ * MaterialDomain.h is included for MD_Surface at the default-material fallback
+ * below. It is NOT redundant with Materials/Material.h: this module is a unity
+ * build, so MD_Surface resolved for a long time only because some OTHER .cpp in
+ * the same blob pulled this header in. Compiling this file alone (-singlefile)
+ * failed with "use of undeclared identifier 'MD_Surface'; did you mean
+ * 'TLM_Surface'?" - and the typo-correction is the dangerous part, since
+ * TLM_Surface is a valid enumerator of a DIFFERENT enum. Do not drop this
+ * include because a full-module build still succeeds without it.
+ */
+#include "MaterialDomain.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "MeshBuilderOneFrameResources.h"

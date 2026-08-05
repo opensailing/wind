@@ -5,12 +5,24 @@
 #include "Scene/FlowVizCaseActor.h"
 
 #include "CFDViz/CFDVizManifest.h"
+/*
+ * ConvexVolume.h and PrimitiveSceneProxy.h are included for types this file
+ * uses BY VALUE and DELETES, not merely by pointer. Both resolved for a long
+ * time only because this module is a unity build and some other .cpp in the
+ * blob included them first. Compiling this file alone (-singlefile) failed with
+ * "variable has incomplete type 'FConvexVolume'" and, worse, "deleting pointer
+ * to incomplete type 'FPrimitiveSceneProxy'" - the latter is real undefined
+ * behaviour, since that destructor is virtual and deleting through an
+ * incomplete type skips it. Do not drop these because the module still links.
+ */
+#include "ConvexVolume.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
+#include "PrimitiveSceneProxy.h"
 #include "UObject/UObjectGlobals.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
