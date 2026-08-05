@@ -136,7 +136,25 @@ BACKUP="$(mktemp -t mutate_backup)"
 cp "${SRC}" "${BACKUP}"
 
 # Constraint 4: restore on normal exit, on error, and on being killed.
-restore() { cp "${BACKUP}" "${SRC}"; }
+#
+# Declare the mutation window as well as restoring it. The restore protects THIS
+# run's verdict; the marker protects everyone else's history. While a deliberate
+# defect is live in a shared checkout, any other agent running `git add -A` can
+# commit it under their own task's name, with an innocent message and a green
+# suite beside it -- and unlike a corrupted verdict, nothing about that result
+# looks wrong later. Tools/mutation_guard.sh (installed as .git/hooks/pre-commit)
+# reads this file and refuses to commit while it exists.
+#
+# Under .git/ so that it survives the `git checkout -- .` and `git stash` that
+# follow a mutation run, and so it can never itself be staged.
+MARKER="$(git rev-parse --git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
+{
+    echo "pid=$$"
+    echo "source=${SRC}"
+    echo "started=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+} > "${MARKER}" 2>/dev/null || true
+
+restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; }
 trap restore EXIT INT TERM
 
 # Constraint 1: the exit status of Build.sh is meaningless; read the log.
