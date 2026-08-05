@@ -1495,6 +1495,50 @@ bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
 	}
 
 	// ---------------------------------------------------------------------
+	// A SINGLE-FRAME DISPLAY (FrameB == INDEX_NONE) IS ALREADY COLLAPSED, at
+	// every alpha.
+	//
+	// Found by the same clause-enumeration a peer applied to their predicate:
+	// list the conditions the code branches on, then check each has a fixture
+	// that can distinguish it. The early-out has two arms and only one was
+	// covered - this is the second, and dropping it SURVIVED the test as it
+	// stood.
+	//
+	// The failure it admits is the worst one available at this seam. With the
+	// arm gone, a single-frame display falls through to the narrowing branches
+	// carrying FrameB == INDEX_NONE. At a narrowed alpha of 1 the saturation
+	// branch then assigns FrameA = Display.FrameB, i.e. INDEX_NONE, and the
+	// component draws NOTHING while a perfectly good frame is resident. Sixteen
+	// enumerated (frame, alpha) cases differ; the alpha == 1 ones black the
+	// volume out entirely.
+	//
+	// A single frame with a stale nonzero alpha is a real state, not a
+	// contrivance: the player produces it whenever interpolation is off or a
+	// blend partner has not finished decoding, and Alpha is documented as
+	// "meaningless when FrameB is INDEX_NONE" - which is only safe if the seam
+	// enforces it rather than trusting every caller to remember.
+	// ---------------------------------------------------------------------
+	{
+		for (const double StaleAlpha : { 0.0, 0.25, 0.5, 1.0 - 1.0e-11, 1.0 })
+		{
+			FFlowVizDisplaySelection Display;
+			Display.FrameA = 6;
+			Display.FrameB = INDEX_NONE;
+			Display.Alpha = StaleAlpha;   // stale/meaningless, must not be honoured
+
+			const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Display);
+			TestEqual(TEXT("a single-frame display still draws its frame"), Seam.FrameA, 6);
+			TestEqual(TEXT("a single-frame display never yields an unset frame A"),
+				Seam.FrameA, 6);
+			TestEqual(TEXT("a single-frame display collapses B onto A"), Seam.FrameB, 6);
+			TestTrue(TEXT("a single-frame display carries alpha 0 whatever alpha was asked for"),
+				Seam.Alpha == 0.0f);
+			TestFalse(TEXT("a single-frame display is never disclosed as interpolated"),
+				Seam.IsInterpolated());
+		}
+	}
+
+	// ---------------------------------------------------------------------
 	// An empty display must produce nothing drawable, not frame 0. Distinct
 	// from the collapse cases: those have a frame, this has none.
 	// ---------------------------------------------------------------------
