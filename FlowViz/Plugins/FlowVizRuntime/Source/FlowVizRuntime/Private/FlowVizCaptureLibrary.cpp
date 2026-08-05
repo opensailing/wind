@@ -645,3 +645,107 @@ bool UFlowVizCaptureLibrary::IsVolumeRayMarcherEnabled()
 {
 	return FlowVizVolumeRayMarch::GetDispatcher() != nullptr;
 }
+
+namespace
+{
+	/**
+	 * The volume behind a case actor, or null with a diagnostic naming the caller.
+	 *
+	 * Shared by both setters so a null actor produces the same refusal from
+	 * either, and so neither can be written to dereference first and check after.
+	 */
+	UCFDVizVolumeComponent* ResolveVolume(ACFDVizCaseActor* CaseActor, const TCHAR* Caller)
+	{
+		if (CaseActor == nullptr)
+		{
+			UE_LOG(LogFlowViz, Error, TEXT("%s: no case actor was supplied."), Caller);
+			return nullptr;
+		}
+
+		UCFDVizVolumeComponent* Volume = CaseActor->GetVolumeComponent();
+		if (Volume == nullptr)
+		{
+			UE_LOG(LogFlowViz, Error,
+				TEXT("%s: the case actor has no volume component."), Caller);
+			return nullptr;
+		}
+
+		return Volume;
+	}
+}
+
+bool UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+	ACFDVizCaseActor* CaseActor, int32 CompositeMode, float IsoValue)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("SetVolumeCompositeMode"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	/*
+	 * READ-MODIFY-WRITE, NOT A FRESH VIEW MODEL. Assigning a default-constructed
+	 * one here would make every mode selection also a silent reset of lighting,
+	 * steps, jitter and the rest -- the same class of defect as the dispatcher's
+	 * settings source, which must mutate FillDefaults' output rather than replace
+	 * it or the geometry and camera rows are erased. FlowViz.Capture.RenderSettings
+	 * asserts that lighting survives a mode change and vice versa.
+	 */
+	FFlowVizRenderSettingsViewModel Settings = Volume->GetRenderSettings();
+
+	/*
+	 * VALIDATED, NOT CAST. static_cast<EFlowVizCompositeMode>(99) is a legal cast
+	 * and an illegal mode: the .usf switches on this value and an unrecognised
+	 * one falls through to a default branch, rendering as a mode nobody selected.
+	 * SetCompositeModeByValue refuses it and keeps the previous mode, so a bad
+	 * number leaves the volume rendering what it rendered before.
+	 */
+	if (CompositeMode < 0
+		|| !Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode)))
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("SetVolumeCompositeMode: %d is not a composite mode; the volume keeps mode %u. "
+				 "Valid values: 0 Alpha, 1 Maximum, 2 Minimum, 3 Average, 4 IsoSurface, "
+				 "5 Diagnostic."),
+			CompositeMode, static_cast<uint32>(Volume->GetRenderSettings().GetCompositeMode()));
+		return false;
+	}
+
+	// Applied whatever the mode, so switching into IsoSurface later does not need
+	// a second call. Refused separately: a non-finite threshold finds no crossing
+	// and renders an empty iso-surface, which looks like data out of range.
+	if (!Settings.SetIsoValue(IsoValue))
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("SetVolumeCompositeMode: iso value %f is not finite; nothing was changed."),
+			IsoValue);
+		return false;
+	}
+
+	// THE CALL THAT DID NOT EXIST ANYWHERE IN PRODUCTION.
+	Volume->SetRenderSettings(Settings);
+
+	UE_LOG(LogFlowViz, Log,
+		TEXT("SetVolumeCompositeMode: mode %d, iso %f applied to '%s'."),
+		CompositeMode, IsoValue, *CaseActor->GetName());
+
+	return true;
+}
+
+bool UFlowVizCaptureLibrary::SetVolumeLightingEnabled(ACFDVizCaseActor* CaseActor, bool bEnabled)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("SetVolumeLightingEnabled"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	FFlowVizRenderSettingsViewModel Settings = Volume->GetRenderSettings();
+	Settings.SetLightingEnabled(bEnabled);
+	Volume->SetRenderSettings(Settings);
+
+	UE_LOG(LogFlowViz, Log, TEXT("SetVolumeLightingEnabled(%d) applied to '%s'."),
+		bEnabled ? 1 : 0, *CaseActor->GetName());
+
+	return true;
+}

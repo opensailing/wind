@@ -249,4 +249,61 @@ public:
 	/** Whether a ray-march dispatcher is currently installed. */
 	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
 	static bool IsVolumeRayMarcherEnabled();
+
+	/**
+	 * Choose how a placed volume composites, from script.
+	 *
+	 * THE LAST LINK IN A CHAIN THAT WAS VERIFIED EVERYWHERE ELSE. Below this
+	 * point every hop is mutation-verified: component to payload
+	 * (FlowViz.Scene.ProxySettings), payload to context
+	 * (FlowViz.Scene.DispatchContext), context to shader parameters
+	 * (FlowViz.Render.SettingsSeam). Above it there was nothing at all --
+	 * `UCFDVizVolumeComponent::SetRenderSettings` had exactly one caller in the
+	 * module and it was a test. So the five composite modes that #39 unfroze
+	 * were reachable from C++ and from nowhere a capture script could stand, and
+	 * every shipped frame still composited Alpha.
+	 *
+	 * AN int32 BECAUSE EFlowVizCompositeMode IS NOT A UENUM, deliberately: its
+	 * values are pinned to the FLOWVIZ_MODE_* defines in the .usf, and a UENUM
+	 * would be a second place for them to drift. The value is validated against
+	 * the enum here rather than passed through -- an unrecognised mode falls to a
+	 * default branch in the shader and renders as a mode nobody selected, which
+	 * reads as a broken shader rather than as a rejected input.
+	 *
+	 * MERGES INTO THE VOLUME'S EXISTING SETTINGS rather than replacing them, so
+	 * selecting a mode does not silently reset lighting, steps or jitter. The
+	 * two setters are independent and FlowViz.Capture.RenderSettings asserts
+	 * that each survives the other.
+	 *
+	 * @param CaseActor The placed case whose volume to configure. Null is
+	 *                  refused and logged, not dereferenced.
+	 * @param CompositeMode A value of EFlowVizCompositeMode: 0 Alpha, 1 Maximum,
+	 *                  2 Minimum, 3 Average, 4 IsoSurface, 5 Diagnostic.
+	 * @param IsoValue  The iso-surface threshold in field units. Read only in
+	 *                  IsoSurface mode, but applied regardless so that switching
+	 *                  into that mode later does not need a second call.
+	 * @return false when the actor is null, has no volume, or the mode is not a
+	 *         member of the enum. The volume's previous settings are KEPT on
+	 *         refusal -- a control given a bad number must not become a control
+	 *         that does nothing.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static bool SetVolumeCompositeMode(
+		class ACFDVizCaseActor* CaseActor,
+		int32 CompositeMode,
+		float IsoValue = 0.0f);
+
+	/**
+	 * Turn gradient lighting on or off for a placed volume.
+	 *
+	 * SEPARATE FROM THE MODE ON PURPOSE. VISUAL_QA rule 1 forbids lighting from
+	 * modulating apparent scalar value, so the Scientific profile renders unlit
+	 * and that default must survive a mode change. Folding both into one "apply
+	 * settings" call would make every mode selection also a decision about
+	 * lighting, silently.
+	 *
+	 * @return false when the actor is null or has no volume component.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static bool SetVolumeLightingEnabled(class ACFDVizCaseActor* CaseActor, bool bEnabled);
 };

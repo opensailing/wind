@@ -1,0 +1,67 @@
+THE DEFECT ITSELF: the mode setter never writes it back to the component
+--
+	// THE CALL THAT DID NOT EXIST ANYWHERE IN PRODUCTION.
+	Volume->SetRenderSettings(Settings);
+--
+	// MUTANT: the write-back deleted -- this is the state the module shipped in,
+	// where SetRenderSettings had no production caller at all.
+%%
+the lighting setter never writes back
+--
+	Settings.SetLightingEnabled(bEnabled);
+	Volume->SetRenderSettings(Settings);
+--
+	Settings.SetLightingEnabled(bEnabled); // MUTANT: never written back
+%%
+read-modify-write replaced by a fresh view model, so a mode change resets lighting
+--
+	FFlowVizRenderSettingsViewModel Settings = Volume->GetRenderSettings();
+
+	/*
+	 * VALIDATED, NOT CAST.
+--
+	FFlowVizRenderSettingsViewModel Settings; // MUTANT: previous settings discarded
+
+	/*
+	 * VALIDATED, NOT CAST.
+%%
+the enum validated by CAST rather than by the view model -- 99 becomes a live mode
+--
+	if (CompositeMode < 0
+		|| !Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode)))
+--
+	Settings.SetCompositeMode(static_cast<EFlowVizCompositeMode>(CompositeMode)); // MUTANT
+	if (false)
+%%
+the negative guard dropped -- -1 casts to a huge uint32
+--
+	if (CompositeMode < 0
+		|| !Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode)))
+--
+	if (!Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode))) // MUTANT
+%%
+the iso value never applied, so IsoSurface renders at whatever it was
+--
+	if (!Settings.SetIsoValue(IsoValue))
+--
+	if (false && !Settings.SetIsoValue(IsoValue)) // MUTANT
+%%
+null actor dereferenced instead of refused
+--
+		if (CaseActor == nullptr)
+		{
+			UE_LOG(LogFlowViz, Error, TEXT("%s: no case actor was supplied."), Caller);
+			return nullptr;
+		}
+--
+		// MUTANT: the null guard removed
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or every kill above is a standing red.
+--
+	FFlowVizRenderSettingsViewModel Settings = Volume->GetRenderSettings();
+	Settings.SetLightingEnabled(bEnabled);
+--
+	// MUTANT: identity control, no behaviour change
+	FFlowVizRenderSettingsViewModel Settings = Volume->GetRenderSettings();
+	Settings.SetLightingEnabled(bEnabled);
+%%

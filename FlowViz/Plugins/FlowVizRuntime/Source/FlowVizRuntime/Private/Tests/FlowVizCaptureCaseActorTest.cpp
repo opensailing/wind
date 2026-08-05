@@ -328,4 +328,179 @@ bool FFlowVizMarcherToggleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ * A COMPOSITE MODE SELECTED FROM SCRIPT MUST REACH THE PLACED VOLUME.
+ *
+ * The last link in a chain that is verified everywhere else. Below this point
+ * everything is now mutation-verified end to end:
+ *
+ *   component -> payload ....... FlowViz.Scene.ProxySettings
+ *   payload -> context ......... FlowViz.Scene.DispatchContext
+ *   context -> shader params ... FlowViz.Render.SettingsSeam
+ *
+ * And ABOVE it, nothing. UCFDVizVolumeComponent::SetRenderSettings had exactly
+ * one caller in the whole module and it was a test. So the sixteen parameters
+ * that #39 unfroze were reachable from C++ and from nowhere a user or a capture
+ * script could stand: every shipped frame still composited Alpha, unlit.
+ *
+ * That is the same defect shape three times running -- a verified producer, a
+ * verified consumer, and no test on the join -- which is why this asserts the
+ * JOIN and not the halves. Reading back through SetVolumeCompositeMode's own
+ * getter would pass against a library that stored the value in a static and
+ * never touched the component, so every assertion here reads the COMPONENT, and
+ * the last one reads the marshalled payload the render thread actually gets.
+ *
+ * WHY int32 AND NOT THE ENUM: EFlowVizCompositeMode is a plain enum class, not
+ * a UENUM, because its values are pinned to the FLOWVIZ_MODE_* defines in the
+ * .usf and a UENUM would add a second place for them to drift. A UFUNCTION
+ * cannot take it, so the raw value is validated by SetCompositeModeByValue,
+ * which refuses anything outside the enum rather than passing it to a shader
+ * that would switch to a default branch nobody selected.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizCaptureRenderSettingsTest,
+	"FlowViz.Capture.RenderSettings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizCaptureRenderSettingsTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizCaptureCaseActorTest;
+
+	const FString CaseDir = GetSampleCaseDir();
+	if (!TestFalse(TEXT("the sample case directory resolves"), CaseDir.IsEmpty()))
+	{
+		return false;
+	}
+
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	UWorld* World = MakeWorld(WorldContext);
+	if (!TestNotNull(TEXT("test world was created"), World))
+	{
+		return false;
+	}
+
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(/*bInformEngineOfWorld*/ true);
+		World->RemoveFromRoot();
+		GEngine->DestroyWorldContext(World);
+	};
+
+	FString Error;
+	ACFDVizCaseActor* Actor = UFlowVizCaptureLibrary::SpawnCaseActor(
+		World, CaseDir, FName(TEXT("speed")), FVector::ZeroVector, FRotator::ZeroRotator,
+		Error, /*FrameIndex*/ 0, /*bDrawBoundingBox*/ false);
+
+	if (!TestNotNull(
+			FString::Printf(TEXT("a case actor spawns for a scalar field: %s"), *Error), Actor))
+	{
+		return false;
+	}
+
+	UCFDVizVolumeComponent* Volume = Actor->GetVolumeComponent();
+	if (!TestNotNull(TEXT("the actor owns a volume component"), Volume))
+	{
+		return false;
+	}
+
+	/* == THE IDENTITY CONTROL, FIRST ========================================= */
+	//
+	// A spawned actor that nobody has configured must still composite Alpha,
+	// unlit. Without this, an implementation that forced some mode of its own at
+	// spawn would satisfy every assertion below while changing every existing
+	// capture -- and the shipped reference images would silently stop matching.
+	{
+		TestEqual(
+			TEXT("a freshly spawned case composites Alpha, so adding this control changed no "
+				 "existing capture"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Alpha));
+		TestFalse(TEXT("and renders unlit, which is the Scientific profile's default"),
+			Volume->GetRenderSettings().IsLightingEnabled());
+	}
+
+	/* == THE HEADLINE: the mode reaches the component and its payload ======== */
+	{
+		const bool bSet = UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+			Actor, static_cast<int32>(EFlowVizCompositeMode::IsoSurface), /*IsoValue*/ 2.5f);
+
+		TestTrue(TEXT("a valid composite mode is accepted"), bSet);
+
+		// Read the COMPONENT, not the library. A library that kept the value in a
+		// static of its own would pass a round-trip through its own getter.
+		TestEqual(
+			TEXT("the mode reaches the placed component, which is the object the renderer reads"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::IsoSurface));
+		TestEqual(TEXT("so does the iso value the mode is meaningless without"),
+			Volume->GetRenderSettings().GetIsoValue(), 2.5f);
+
+		// And through to the render-thread payload, which is what a frame is
+		// actually composited from. Two links in one assertion is deliberate:
+		// this is the seam where the whole chain was severed before.
+		const FFlowVizVolumeProxyDynamicData Data = Volume->MakeProxyDynamicData();
+		TestEqual(TEXT("and reaches the marshalled payload the render thread receives"),
+			static_cast<int32>(Data.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::IsoSurface));
+	}
+
+	/* == Lighting is a SEPARATE control, not a rider on the mode ============= */
+	//
+	// Setting the mode must not disturb it, and setting it must not disturb the
+	// mode. A single "apply settings" call that rebuilt the view model from
+	// scratch would pass each of the two blocks above in isolation and fail here.
+	{
+		TestTrue(TEXT("lighting can be turned on"),
+			UFlowVizCaptureLibrary::SetVolumeLightingEnabled(Actor, true));
+		TestTrue(TEXT("the component reports lighting on"),
+			Volume->GetRenderSettings().IsLightingEnabled());
+		TestEqual(TEXT("and the composite mode set earlier SURVIVED the lighting change"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::IsoSurface));
+
+		TestTrue(TEXT("a second mode change is accepted"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+				Actor, static_cast<int32>(EFlowVizCompositeMode::Maximum), /*IsoValue*/ 2.5f));
+		TestEqual(TEXT("the new mode took"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Maximum));
+		TestTrue(TEXT("and lighting SURVIVED the mode change"),
+			Volume->GetRenderSettings().IsLightingEnabled());
+	}
+
+	/* == Refusal, and it must keep the previous value ======================== */
+	//
+	// The direction that makes the acceptances above mean something. An
+	// out-of-range value handed to the shader falls through to a default branch
+	// and renders as a mode nobody selected -- a broken-shader picture produced
+	// by a rejected input. Asserting the mode is UNCHANGED, not merely that the
+	// call returned false, is what distinguishes "refused" from "refused and
+	// also cleared".
+	{
+		AddExpectedError(TEXT("is not a composite mode"),
+			EAutomationExpectedErrorFlags::Contains, 1);
+
+		TestFalse(TEXT("a value outside the enum is refused"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(Actor, 99, /*IsoValue*/ 2.5f));
+		TestEqual(TEXT("and the previous mode is kept rather than cleared"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Maximum));
+	}
+
+	/* == A null actor is refused, not dereferenced =========================== */
+	{
+		AddExpectedError(TEXT("no case actor"),
+			EAutomationExpectedErrorFlags::Contains, 2);
+
+		TestFalse(TEXT("a null actor is refused by the mode setter"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+				nullptr, static_cast<int32>(EFlowVizCompositeMode::Alpha), /*IsoValue*/ 0.0f));
+		TestFalse(TEXT("and by the lighting setter"),
+			UFlowVizCaptureLibrary::SetVolumeLightingEnabled(nullptr, false));
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
