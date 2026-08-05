@@ -166,6 +166,12 @@ build() {
         fi
         case "$(classify_build "${BUILD_LOG}")" in
             succeeded)      return 0 ;;
+            # The build compiled NOTHING ("run 0 action(s)"), so the binary does
+            # not contain this mutant and any test result would be about the
+            # previous one. Force the source strictly newer and rebuild. If it
+            # still compiles nothing, fall through to UNSCORED rather than score
+            # a binary we know is stale.
+            noop)           touch -A 01 "${SRC}"; sleep 1; continue ;;
             infrastructure) sleep 15; continue ;;
             *)              return 1 ;;
         esac
@@ -193,6 +199,16 @@ if count > 1:
     sys.exit(4)          # ambiguous -- would mutate more than intended
 open(target, 'w', encoding='utf-8').write(text.replace(frm, to))
 PY
+    local status=$?
+    # UnrealBuildTool rebuilds on MODIFICATION TIME, not content. `cp` from the
+    # backup above can restore an mtime no newer than the existing .o, and the
+    # write here happens within the same filesystem timestamp granularity, so
+    # UBT can conclude "Target is up to date" and run 0 actions -- leaving the
+    # tests to run against the previous, unmutated binary and score SURVIVED.
+    # Touching into the future guarantees the source is strictly newer than any
+    # object built from it.
+    [[ ${status} -eq 0 ]] && touch -A 01 "${SRC}"
+    return ${status}
 }
 
 echo "=== waiting for a green baseline before scoring anything ==="

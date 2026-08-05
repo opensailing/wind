@@ -42,7 +42,30 @@ classify_build() {
     # is unreliable (it exits 0 on failure), and UBT sometimes crashes during
     # teardown after the binary is already linked -- that crash must not
     # discard a build that actually succeeded.
+    #
+    # BUT "Result: Succeeded" ALONE IS NOT ENOUGH FOR A MUTATION CAMPAIGN.
+    # UnrealBuildTool decides what to rebuild from file modification times, and
+    # mutate.sh installs each mutant with `cp` from a backup, which can leave an
+    # mtime no newer than the object file already on disk. UBT then prints
+    #
+    #     Target is up to date
+    #     Using Unreal Build Accelerator local executor to run 0 action(s)
+    #     Result: Succeeded
+    #
+    # and the tests that follow run against the PREVIOUS, UNMUTATED binary. They
+    # pass, and the mutant is recorded SURVIVED -- a demand for a test that
+    # already exists and already works. Observed directly: `<=` -> `<` in
+    # FitsInBudget scored SURVIVED with 0 actions, and killed with 6 failed
+    # assertions once the file was actually recompiled.
+    #
+    # A build that compiled nothing is not evidence about the mutant, so it is
+    # classified `noop` -- neither a pass nor a failure, but a signal to the
+    # caller to force the rebuild and try again.
     if grep -aq "Result: Succeeded" "${log}"; then
+        if grep -aqE "run 0 action\(s\)" "${log}"; then
+            echo "noop"
+            return
+        fi
         echo "succeeded"
         return
     fi

@@ -1,0 +1,155 @@
+uniform_dt_alpha
+--
+	OutAlpha = (Time - Times[Low]) / IntervalWidth;
+--
+	OutAlpha = (Time - Times[Low]) / (Times[1] - Times[0]);
+
+%%
+uniform_dt_bracket
+--
+	int32 Low = 0;
+	int32 High = LastIndex;
+--
+	int32 Low = FMath::Clamp((int32)((Time - Times[0]) / (Times[1] - Times[0])), 0, LastIndex - 1);
+	int32 High = FMath::Min(Low + 1, LastIndex);
+	if (Times.Num() < 0)
+
+%%
+pingpong_if_turnaround
+--
+		const double Period = 2.0 * Duration;
+		const double Cycle = FlowVizPlaybackDetail::PositiveMod(Offset, Period);
+--
+		const double Period = 2.0 * Duration;
+		const double Cycle = FMath::Min(FMath::Abs(Offset), Period);
+
+%%
+pingpong_no_reflect
+--
+		bOutForward = !bSpeedForward;
+		return First + (Period - Cycle);
+--
+		bOutForward = !bSpeedForward;
+		return Last;
+
+%%
+display_partial_frame
+--
+	if (bHaveA && bHaveB)
+--
+	if (bHaveA || bHaveB)
+
+%%
+nearest_is_always_A
+--
+	Selection.NearestFrame = Alpha >= 0.5 ? FrameB : FrameA;
+--
+	Selection.NearestFrame = FrameA;
+
+%%
+interp_off_truncates_to_A
+--
+		Selection.FrameA = Selection.NearestFrame;
+		Selection.FrameB = Selection.NearestFrame;
+--
+		Selection.FrameA = FrameA;
+		Selection.FrameB = FrameA;
+
+%%
+alpha_1_allowed
+--
+	Selection.bInterpolated = (FrameA != FrameB) && (Alpha > 0.0) && (Alpha < 1.0);
+--
+	Selection.bInterpolated = (FrameA != FrameB);
+
+%%
+sequence_uses_constant_dt
+--
+		Result.PhaseTime = Timeline.FrameCoordinateToTime(TargetCoordinate);
+--
+		Result.PhaseTime = Result.DisplayTime + FrameStep * (Timeline.GetDuration() / FMath::Max(1, Timeline.GetFrameCount() - 1));
+
+%%
+fixedfps_drops_residual
+--
+		Result.FixedStepResidual = Banked - WholeSteps * StepSeconds;
+--
+		Result.FixedStepResidual = 0.0;
+
+%%
+coordinate_clamps_at_end
+--
+		const double LastWidth = Times[LastIndex] - Times[LastIndex - 1];
+		return Times[LastIndex] + (FrameCoordinate - static_cast<double>(LastIndex)) * LastWidth;
+--
+		return Times[LastIndex];
+
+%%
+request_clamps_instead_of_drops
+--
+		if (Frame < 0 || Frame > LastIndex)
+		{
+			return;
+		}
+--
+		Frame = FMath::Clamp(Frame, 0, LastIndex);
+
+%%
+request_ignores_direction
+--
+	const int32 Lead = bForward ? 1 : -1;
+--
+	const int32 Lead = 1;
+
+%%
+request_drops_priority
+--
+	AddFrame(Selection.FrameA);
+	AddFrame(Selection.FrameB);
+--
+	AddFrame(Selection.FrameB);
+	AddFrame(Selection.FrameA);
+
+%%
+seek_offbyone_last
+--
+	const int32 Clamped = FMath::Clamp(FrameIndex, 0, Timeline.GetLastFrameIndex());
+	double Time = 0.0;
+	Timeline.TryGetTime(Clamped, Time);
+	SeekToTime(Time);
+--
+	const int32 Clamped = FMath::Clamp(FrameIndex, 0, FMath::Max(0, Timeline.GetLastFrameIndex() - 1));
+	double Time = 0.0;
+	Timeline.TryGetTime(Clamped, Time);
+	SeekToTime(Time);
+
+%%
+resident_frame_reloads
+--
+	if (Cache.IsResident(FrameIndex))
+	{
+		Cache.Touch(FrameIndex);
+		++CacheHits;
+		return;
+	}
+--
+	if (!Cache.IsResident(FrameIndex))
+	{
+		Cache.Touch(FrameIndex);
+		++CacheHits;
+		return;
+	}
+
+%%
+timeline_accepts_unsorted
+--
+		if (Index > 0 && !(InTimes[Index] > InTimes[Index - 1]))
+--
+		if (Index > 0 && !(InTimes[Index] >= InTimes[Index - 1]))
+
+%%
+no_concurrency_limit
+--
+		if (InFlightFrames.Num() >= MaxConcurrentLoads)
+--
+		if (InFlightFrames.Num() >= MaxConcurrentLoads + 1000)

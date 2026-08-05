@@ -174,6 +174,33 @@ LOG
 check "a teardown crash after success is still a success" "succeeded" \
     "$(classify_build "${TMP}/okthencrash.log")"
 
+# A build that COMPILED NOTHING but still reported success. UnrealBuildTool
+# rebuilds on modification time, so a mutant installed with `cp` can leave the
+# source no newer than its object file; UBT then skips the compile and the
+# tests measure the PREVIOUS binary. Scoring that is a false SURVIVED, which
+# asks for a test that already exists. Seen for real: `<=` -> `<` in
+# FitsInBudget scored SURVIVED against 0 actions, then killed with 6 failed
+# assertions once genuinely recompiled.
+cat > "${TMP}/noop.log" <<'LOG'
+Building FlowVizEditor...
+Target is up to date
+Using Unreal Build Accelerator local executor to run 0 action(s)
+Result: Succeeded
+LOG
+check "a build that compiled nothing is not a scoreable success" "noop" \
+    "$(classify_build "${TMP}/noop.log")"
+
+# The control for the case above: a build that DID compile is a real success.
+# Without this, a classifier that answered "noop" for every green build would
+# pass the previous check.
+cat > "${TMP}/didwork.log" <<'LOG'
+Building FlowVizEditor...
+Using Unreal Build Accelerator local executor to run 2 action(s)
+Result: Succeeded
+LOG
+check "a build that compiled something succeeds" "succeeded" \
+    "$(classify_build "${TMP}/didwork.log")"
+
 echo
 echo "verdict tests: ${PASS} passed, ${FAIL} failed"
 [[ "${FAIL}" -eq 0 ]]

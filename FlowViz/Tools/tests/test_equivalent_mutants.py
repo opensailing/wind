@@ -121,6 +121,174 @@ CASES = [
 ]
 
 
+# --- Playback: FFlowVizTimeline / BuildRequestList --------------------------
+#
+# Two survivors from the FlowViz.Playback campaign. Both are claimed equivalent
+# below, and each claim is swept against a control that must be distinguished.
+
+def try_bracket(times, t):
+    """Model of FFlowVizTimeline::TryBracket. Returns (A, B, alpha)."""
+    n = len(times)
+    if n == 0:
+        return None
+    last = n - 1
+    if t <= times[0]:
+        return (0, 0, 0.0)
+    if t >= times[last]:
+        return (last, last, 0.0)
+    lo, hi = 0, last
+    while lo + 1 < hi:
+        mid = lo + (hi - lo) // 2
+        if times[mid] <= t:
+            lo = mid
+        else:
+            hi = mid
+    if t == times[lo]:
+        return (lo, lo, 0.0)
+    if t == times[hi]:
+        return (hi, hi, 0.0)
+    return (lo, hi, (t - times[lo]) / (times[hi] - times[lo]))
+
+
+TIMELINES = [
+    [0.0, 1.0, 3.0, 6.0, 10.0],   # the test fixture: no two gaps equal
+    [0.0, 0.05, 0.10, 0.15],      # the shipped sample: uniform
+    [0.0, 1.0],
+    [5.0],
+    [0.0, 2.0, 2.5],
+]
+
+
+def bracket_probes(times):
+    probes = list(times)
+    for a, b in zip(times, times[1:]):
+        width = b - a
+        probes += [(a + b) / 2.0, a + width * 1e-12, b - width * 1e-12,
+                   a + width * 0.25, a + width * 0.75]
+    probes += [times[0] - 1.0, times[-1] + 1.0, times[0] - 1e-9, times[-1] + 1e-9]
+    return probes
+
+
+def sweep_interpolated(reference, mutant):
+    """First time where the two bInterpolated spellings disagree, or None."""
+    for times in TIMELINES:
+        for t in bracket_probes(times):
+            r = try_bracket(times, t)
+            if r is None:
+                continue
+            a, b, alpha = r
+            if reference(a, b, alpha) != mutant(a, b, alpha):
+                return (times, t, a, b, alpha)
+    return None
+
+
+def interpolated_real(a, b, alpha):
+    """bInterpolated is true exactly when alpha is neither 0 nor 1 (VISUAL_QA
+    rule 5). TryBracket already collapses an exact landing to (F, F, 0), so the
+    alpha bounds cannot be the deciding clause."""
+    return a != b and alpha > 0.0 and alpha < 1.0
+
+
+def interpolated_mutant_drop_bounds(a, b, alpha):
+    """Campaign verdict: SURVIVED. Claimed equivalent -- TryBracket never
+    returns A != B together with an alpha of exactly 0 or 1, so the dropped
+    clauses can never decide the result."""
+    return a != b
+
+
+def interpolated_control_always(a, b, alpha):
+    """Control: must NOT be equivalent."""
+    return True
+
+
+def build_request_list(last, a, b, forward, ahead, behind, clamp):
+    """Model of FlowVizPlayback::BuildRequestList. `clamp` selects the mutant
+    that clamps out-of-range frames instead of dropping them."""
+    out = []
+
+    def add(frame):
+        if clamp:
+            frame = min(max(frame, 0), last)
+        elif frame < 0 or frame > last:
+            return
+        if frame not in out:
+            out.append(frame)
+
+    add(a)
+    add(b)
+    lead = 1 if forward else -1
+    lead_anchor = b if forward else a
+    trail_anchor = a if forward else b
+    for radius in range(1, max(ahead, behind) + 1):
+        if radius <= ahead:
+            add(lead_anchor + lead * radius)
+        if radius <= behind:
+            add(trail_anchor - lead * radius)
+    return out
+
+
+def sweep_request_list(reference, mutant):
+    """First (last, A, B, forward, ahead, behind) where the lists differ."""
+    for last in range(0, 8):
+        for a in range(0, last + 1):
+            for b in (a, min(a + 1, last)):
+                for forward in (True, False):
+                    for ahead in range(0, 5):
+                        for behind in range(0, 5):
+                            args = (last, a, b, forward, ahead, behind)
+                            if reference(*args) != mutant(*args):
+                                return args
+    return None
+
+
+def request_real(last, a, b, forward, ahead, behind):
+    return build_request_list(last, a, b, forward, ahead, behind, clamp=False)
+
+
+def request_mutant_clamp(last, a, b, forward, ahead, behind):
+    """Campaign verdict: SURVIVED. Claimed equivalent -- a clamped frame is
+    always 0 or `last`, and the walk only leaves the range after it has already
+    added that endpoint, so AddUnique folds the clamped value into the entry
+    already present."""
+    return build_request_list(last, a, b, forward, ahead, behind, clamp=True)
+
+
+def request_control_ignore_direction(last, a, b, forward, ahead, behind):
+    """Control: `Lead` pinned to +1 regardless of travel. This mutant was
+    KILLED by the suite, so the model must distinguish it too."""
+    out = []
+
+    def add(frame):
+        if frame < 0 or frame > last:
+            return
+        if frame not in out:
+            out.append(frame)
+
+    add(a)
+    add(b)
+    lead_anchor = b if forward else a
+    trail_anchor = a if forward else b
+    for radius in range(1, max(ahead, behind) + 1):
+        if radius <= ahead:
+            add(lead_anchor + 1 * radius)
+        if radius <= behind:
+            add(trail_anchor - 1 * radius)
+    return out
+
+
+PLAYBACK_CASES = [
+    # (name, sweep, reference, mutant, expected_equivalent)
+    ("SelectFrames: bInterpolated drops the alpha bounds",
+     sweep_interpolated, interpolated_real, interpolated_mutant_drop_bounds, True),
+    ("SelectFrames: bInterpolated always true",
+     sweep_interpolated, interpolated_real, interpolated_control_always, False),
+    ("BuildRequestList: clamps out-of-range instead of dropping",
+     sweep_request_list, request_real, request_mutant_clamp, True),
+    ("BuildRequestList: preload direction ignored",
+     sweep_request_list, request_real, request_control_ignore_direction, False),
+]
+
+
 def main():
     failures = 0
     print("equivalent-mutant analysis (model of FByteCursor::CanRead):")
@@ -143,7 +311,25 @@ def main():
             print("  FAIL  %s: expected equivalent=%s, got %s (witness %s)"
                   % (name, expect_equivalent, equivalent, witness))
 
-    total = len(CASES)
+    print()
+    print("equivalent-mutant analysis (models of the playback frame selection):")
+    for name, sweep_fn, reference, mutant, expect_equivalent in PLAYBACK_CASES:
+        witness = sweep_fn(reference, mutant)
+        equivalent = witness is None
+        if equivalent == expect_equivalent:
+            if equivalent:
+                print("  ok    EQUIVALENT   %s" % name)
+                print("        nothing in the sweep distinguishes it; a test for")
+                print("        this could not fail, so none is written.")
+            else:
+                print("  ok    DISTINGUISHED %s" % name)
+                print("        witness: %s" % (witness,))
+        else:
+            failures += 1
+            print("  FAIL  %s: expected equivalent=%s, got %s (witness %s)"
+                  % (name, expect_equivalent, equivalent, witness))
+
+    total = len(CASES) + len(PLAYBACK_CASES)
     print()
     print("equivalence tests: %d passed, %d failed" % (total - failures, failures))
     return 1 if failures else 0

@@ -1,0 +1,55 @@
+evict_one_early
+--
+		return Used <= Budget;
+--
+		return Used < Budget;
+
+%%
+lru_picks_newest
+--
+		if (Entry.LastUseSerial < BestSerial)
+--
+		if (Entry.LastUseSerial > BestSerial || BestSerial == MAX_uint64)
+
+%%
+ignore_pinned
+--
+		if (Entry.bPinned)
+		{
+			continue;
+		}
+--
+		if (!Entry.bPinned)
+		{
+			continue;
+		}
+
+%%
+readmit_double_counts
+--
+		CpuBytes -= Entry.CpuBytes;
+		GpuBytes -= Entry.GpuBytes;
+		Entry.CpuBytes = InCpuBytes;
+--
+		Entry.CpuBytes = InCpuBytes;
+
+%%
+evict_before_checking
+--
+		if (!FlowVizFrameCacheDetail::FitsInBudget(PlannedCpu, CpuBudgetBytes)
+			|| !FlowVizFrameCacheDetail::FitsInBudget(PlannedGpu, GpuBudgetBytes))
+		{
+			// Even with every evictable frame gone it does not fit
+--
+		for (int32 V : Plan) { Remove(V); }
+		if (!FlowVizFrameCacheDetail::FitsInBudget(PlannedCpu, CpuBudgetBytes)
+			|| !FlowVizFrameCacheDetail::FitsInBudget(PlannedGpu, GpuBudgetBytes))
+		{
+			// Even with every evictable frame gone it does not fit
+
+%%
+incomplete_is_resident
+--
+	return Index != INDEX_NONE && Entries[Index].bComplete;
+--
+	return Index != INDEX_NONE;
