@@ -649,7 +649,7 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 			FFlowVizVolumeLayout::Make(FIntVector(56, 28, 6), 3, ECFDVizDataType::Float16, Layout).IsOk());
 
 		FFlowVizVolumeShaderParameters Params;
-		TestTrue(TEXT("shader parameters build"), Cell.MakeShaderParameters(Layout, Params).IsOk());
+		TestTrue(TEXT("shader parameters build"), Cell.MakeShaderParametersWithoutValueRange(Layout, Params).IsOk());
 
 		TestEqual(TEXT("dimensions are the value counts"), Params.VolumeDimensions, FIntVector(56, 28, 6));
 		TestEqual(TEXT("ComponentCount is the field's 3, not the texture's 4"), Params.ComponentCount, 3);
@@ -711,7 +711,7 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("a point layout builds"),
 			FFlowVizVolumeLayout::Make(FIntVector(57, 29, 7), 1, ECFDVizDataType::Float32, PointLayout).IsOk());
 		FFlowVizVolumeShaderParameters PointParams;
-		TestTrue(TEXT("point shader parameters build"), Point.MakeShaderParameters(PointLayout, PointParams).IsOk());
+		TestTrue(TEXT("point shader parameters build"), Point.MakeShaderParametersWithoutValueRange(PointLayout, PointParams).IsOk());
 		TestEqual(TEXT("AssociationCode 1 is point"), PointParams.AssociationCode, 1u);
 		TestTrue(TEXT("a point field's UVW bias is half a texel"),
 			FMath::IsNearlyEqual((double)PointParams.UVWBias.X, 0.5 / 57.0, 1e-7));
@@ -722,7 +722,7 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		// bug. It must be rejected, not quietly rendered one plane short.
 		FFlowVizVolumeShaderParameters Wrong;
 		TestFalse(TEXT("a point transform with a cell-sized layout is REJECTED"),
-			Point.MakeShaderParameters(Layout, Wrong).IsOk());
+			Point.MakeShaderParametersWithoutValueRange(Layout, Wrong).IsOk());
 
 		/* -- Origin narrowing is reported, not hidden ----------------------- */
 		TestTrue(TEXT("a zero origin narrows exactly"),
@@ -739,7 +739,7 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("a kilometre-scale origin reports its narrowing error"),
 			FMath::IsNearlyEqual(Far.GetOriginNarrowingError(), 0.014999999897554517, 1e-9));
 		FFlowVizVolumeShaderParameters FarParams;
-		TestTrue(TEXT("far shader parameters build"), Far.MakeShaderParameters(Layout, FarParams).IsOk());
+		TestTrue(TEXT("far shader parameters build"), Far.MakeShaderParametersWithoutValueRange(Layout, FarParams).IsOk());
 		TestTrue(TEXT("and the error reaches the shader block"), FarParams.OriginNarrowingError > 0.0f);
 
 		/* -- Local-to-Unreal placement -------------------------------------- */
@@ -768,7 +768,7 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("a degenerate transform is not valid"), Degenerate.IsValid());
 		FFlowVizVolumeShaderParameters Nothing;
 		TestFalse(TEXT("and produces no shader parameters"),
-			Degenerate.MakeShaderParameters(Layout, Nothing).IsOk());
+			Degenerate.MakeShaderParametersWithoutValueRange(Layout, Nothing).IsOk());
 	}
 
 	/* == Upload payload validation ========================================== */

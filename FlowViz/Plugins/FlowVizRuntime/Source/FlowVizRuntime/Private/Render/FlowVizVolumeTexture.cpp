@@ -800,8 +800,19 @@ double FFlowVizVolumeTransform::GetOriginNarrowingError() const
 	return FMath::Max3(ErrorX, ErrorY, ErrorZ);
 }
 
+FCFDVizResult FFlowVizVolumeTransform::MakeShaderParametersWithoutValueRange(
+	const FFlowVizVolumeLayout& Layout,
+	FFlowVizVolumeShaderParameters& OutParams) const
+{
+	// The degenerate domain, written explicitly and named at every call site.
+	// See the header: this renders a uniform block, so it is only for parameter
+	// blocks whose colours are never read.
+	return MakeShaderParameters(Layout, FVector2D(0.0, 0.0), OutParams);
+}
+
 FCFDVizResult FFlowVizVolumeTransform::MakeShaderParameters(
 	const FFlowVizVolumeLayout& Layout,
+	const FVector2D& ValueRange,
 	FFlowVizVolumeShaderParameters& OutParams) const
 {
 	if (!IsValid())
@@ -908,10 +919,14 @@ FCFDVizResult FFlowVizVolumeTransform::MakeShaderParameters(
 	Params.bHasStatusTexture = 0;
 	Params.bHasVectorTexture = 0;
 
-	// Row 9. Non-finite rejection is meaningful for a float format and pointless
-	// for an integer one, where no bit pattern is NaN.
-	Params.ValueRangeMin = 0.0f;
-	Params.ValueRangeMax = 0.0f;
+	// Row 9. The colour domain is passed IN because a grid and a texture layout
+	// do not carry one - only the manifest's per-field statistics do. Narrowed
+	// to float here, alongside every other narrowing in this function.
+	Params.ValueRangeMin = static_cast<float>(ValueRange.X);
+	Params.ValueRangeMax = static_cast<float>(ValueRange.Y);
+
+	// Non-finite rejection is meaningful for a float format and pointless for an
+	// integer one, where no bit pattern is NaN.
 	Params.bRejectNonFinite =
 		(Layout.DataType == ECFDVizDataType::Float16 || Layout.DataType == ECFDVizDataType::Float32) ? 1u : 0u;
 	Params.PadElementBits = FlowVizVolumeFormat::GetPadElementBits(Layout.DataType);

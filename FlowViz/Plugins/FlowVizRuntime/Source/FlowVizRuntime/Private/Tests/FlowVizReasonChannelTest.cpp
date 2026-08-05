@@ -234,7 +234,7 @@ bool FFlowVizReasonChannelTest::RunTest(const FString& Parameters)
 
 	FFlowVizVolumeShaderParameters VolumeParams;
 	if (!TestTrue(TEXT("the fixture builds shader parameters"),
-			Transform.MakeShaderParameters(FieldLayout, VolumeParams).IsOk()))
+			Transform.MakeShaderParametersWithoutValueRange(FieldLayout, VolumeParams).IsOk()))
 	{
 		return false;
 	}

@@ -726,9 +726,40 @@ struct FFlowVizVolumeTransform
 	 *                 GetValueCounts(); a mismatch is a rejection, because a
 	 *                 texture sized from the cell count instead of the value count
 	 *                 is the point/cell bug and it renders plausibly.
+	 * @param ValueRange The transfer function's domain, in solver units, for the
+	 *                 field this layout describes. See the overload below for why
+	 *                 this is a parameter and not something derived here.
 	 * @param OutParams Written only on success.
 	 */
 	FLOWVIZRUNTIME_API FCFDVizResult MakeShaderParameters(
+		const FFlowVizVolumeLayout& Layout,
+		const FVector2D& ValueRange,
+		FFlowVizVolumeShaderParameters& OutParams) const;
+
+	/**
+	 * As above, with a DELIBERATELY DEGENERATE colour domain of [0, 0].
+	 *
+	 * THIS OVERLOAD DOES NOT PRODUCE A RENDERABLE VOLUME, and that is the point
+	 * of keeping it separate rather than defaulting the parameter. A grid and a
+	 * texture layout do not carry a field's value range - only the manifest's
+	 * statistics do - so this function cannot compute one, and the placeholder
+	 * it writes has a specific, invisible consequence: the .usf normalises
+	 * through `if (ValueRangeMax > ValueRangeMin)`, so with max == min the guard
+	 * never fires, T stays 0 for every voxel, and the entire volume samples LUT
+	 * entry 0. The range-classification blocks at .usf:367 and :813 are guarded
+	 * on the same comparison, so no UNDER_RANGE or OVER_RANGE bit fires either.
+	 * The result is a uniformly coloured block that nothing discloses.
+	 *
+	 * A DEFAULT ARGUMENT WOULD HAVE MADE THAT THE QUIET PATH. It was, until
+	 * FlowViz.Scene.VolumeValueRange was written: the range was hardcoded to
+	 * 0/0 here with no caller aware of it. Callers that genuinely have no range
+	 * must now say so at the call site.
+	 *
+	 * Use it only for parameter blocks whose colours will not be read - layout
+	 * and placement assertions, offset checks. Anything that reaches a pixel
+	 * wants the overload above.
+	 */
+	FLOWVIZRUNTIME_API FCFDVizResult MakeShaderParametersWithoutValueRange(
 		const FFlowVizVolumeLayout& Layout,
 		FFlowVizVolumeShaderParameters& OutParams) const;
 };

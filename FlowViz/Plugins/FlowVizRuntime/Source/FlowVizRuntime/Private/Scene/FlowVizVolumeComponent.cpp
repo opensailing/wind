@@ -753,13 +753,68 @@ void UCFDVizVolumeComponent::PublishDisplayFrames()
 	TextureSet->SetDisplayFrames(Selection.FrameA, Selection.FrameB);
 }
 
+FVector2D UCFDVizVolumeComponent::GetDisplayValueRange() const
+{
+	// The fallback is the unit domain, NOT [0,0]. A zero-width domain makes the
+	// .usf's `if (ValueRangeMax > ValueRangeMin)` guard never fire, so every
+	// voxel reads LUT entry 0 and the volume renders as one flat colour with no
+	// reason bit raised - an invisible failure. The unit domain at least colours
+	// [0,1] honestly and makes an out-of-range field visibly saturated, which is
+	// a picture a viewer can question. Neither is "the right colours"; one of
+	// them can be noticed.
+	const FVector2D UnitDomain(0.0, 1.0);
+
+	if (!CaseBinding.bIsValid)
+	{
+		return UnitDomain;
+	}
+
+	const FCFDVizField* Field = CaseBinding.Case.FindField(CaseBinding.FieldId);
+	if (Field == nullptr)
+	{
+		return UnitDomain;
+	}
+
+	FCFDVizStatistics Statistics;
+	if (!Field->Statistics.TryMakeStatistics(Field->ComponentCount, Statistics))
+	{
+		// ABSENT IS NOT ZERO. A field whose manifest omits statistics has no
+		// declared range, and inventing [0, max-of-something] would present a
+		// guess as a measurement (FCFDVizFieldStatistics's own comment).
+		return UnitDomain;
+	}
+
+	// THE MAGNITUDE RANGE, BECAUSE MAGNITUDE IS WHAT IS COLOURED.
+	// FlowVizRayMarch::FillDefaults sets ComponentMode = Magnitude, and the
+	// .usf's FlowVizExtractScalar under that mode returns sqrt of the sum of
+	// squares - which for a one-component field is |x|, not x. Using the
+	// component range instead would map a signed field like `pressure`
+	// (component [-62.94, 27.69], magnitude [~0, 62.94]) entirely into the upper
+	// half of its domain: a smooth, plausible, wrong picture with nothing on
+	// screen to say so. The two ranges coincide for a non-negative field, which
+	// is exactly why a fixture of only non-negative fields cannot catch this.
+	double Min = 0.0;
+	double Max = 0.0;
+	if (Statistics.TryGetMagnitudeRange(Min, Max) && Max > Min)
+	{
+		return FVector2D(Min, Max);
+	}
+
+	// A declared range that is degenerate (min == max, a genuinely constant
+	// field) is not usable as a domain: dividing by its width is what the guard
+	// in the .usf refuses to do. The unit domain is the honest fallback.
+	return UnitDomain;
+}
+
 bool UCFDVizVolumeComponent::TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const
 {
 	if (!HasRenderableVolume() || !UploadedScalarLayout.IsValid())
 	{
 		return false;
 	}
-	return CaseBinding.Transform.MakeShaderParameters(UploadedScalarLayout, OutParams).IsOk();
+	return CaseBinding.Transform
+		.MakeShaderParameters(UploadedScalarLayout, GetDisplayValueRange(), OutParams)
+		.IsOk();
 }
 
 FCFDVizResult UCFDVizVolumeComponent::UploadFrame(int32 FrameIndex)

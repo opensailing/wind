@@ -88,7 +88,7 @@ namespace FlowVizRayMarchTestFixture
 		{
 			return false;
 		}
-		return Transform.MakeShaderParameters(Layout, OutParams).IsOk();
+		return Transform.MakeShaderParametersWithoutValueRange(Layout, OutParams).IsOk();
 	}
 }
 
@@ -350,7 +350,7 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 
 			FFlowVizVolumeShaderParameters P;
 			if (!TestTrue(*FString::Printf(TEXT("[%s] shader parameters build"), Label),
-					Transform.MakeShaderParameters(Layout, P).IsOk()))
+					Transform.MakeShaderParametersWithoutValueRange(Layout, P).IsOk()))
 			{
 				continue;
 			}
@@ -520,7 +520,7 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 		{
 			FFlowVizVolumeShaderParameters P;
 			if (TestTrue(TEXT("a 3-component field builds shader parameters"),
-					Transform.MakeShaderParameters(Layout, P).IsOk()))
+					Transform.MakeShaderParametersWithoutValueRange(Layout, P).IsOk()))
 			{
 				TestEqual(TEXT("ComponentCount is 3 - what the DATA has, and what the shader "
 							   "must loop over"),
@@ -565,7 +565,7 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 				FFlowVizVolumeShaderParameters ScalarP;
 				if (FFlowVizVolumeLayout::Make(
 						Transform.GetValueCounts(), 1, ECFDVizDataType::Float32, ScalarLayout).IsOk()
-					&& Transform.MakeShaderParameters(ScalarLayout, ScalarP).IsOk())
+					&& Transform.MakeShaderParametersWithoutValueRange(ScalarLayout, ScalarP).IsOk())
 				{
 					TestEqual(TEXT("for a SCALAR field the two counts agree, which is why a "
 								   "scalar fixture cannot detect this confusion"),

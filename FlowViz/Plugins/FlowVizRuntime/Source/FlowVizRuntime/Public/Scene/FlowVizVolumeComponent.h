@@ -693,10 +693,40 @@ public:
 	virtual void BeginDestroy() override;
 	virtual bool IsReadyForFinishDestroy() override;
 
-private:
-	/** Build the shader parameter block for the bound field's layout. Returns false when no case is bound or the layout is not yet known. */
+	/**
+	 * Build the shader parameter block for the bound field's layout.
+	 *
+	 * @return false when no case is bound or no frame has been uploaded yet -
+	 *         UploadedScalarLayout is what UploadFrame fills, and without it
+	 *         there is no layout to describe.
+	 *
+	 * PUBLIC BECAUSE THE VALUES IN IT ARE ONLY CHECKABLE HERE. This block is
+	 * handed to the render thread and copied into a cbuffer; by the time it can
+	 * affect a pixel it is on the GPU, where a wrong number renders as a
+	 * plausible image rather than as a failure. FlowViz.Scene.VolumeValueRange
+	 * reads it on the CPU, where a degenerate colour domain is a number one can
+	 * assert on instead of a flat block one has to notice.
+	 */
 	bool TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const;
 
+	/**
+	 * The colour domain, in solver units, for the bound field.
+	 *
+	 * Taken from the manifest's declared MAGNITUDE range, because magnitude is
+	 * what the marcher colours: FlowVizRayMarch::FillDefaults selects
+	 * ComponentMode = Magnitude and the .usf reduces a sample with sqrt of the
+	 * sum of squares, which for a one-component field is |x| rather than x. For
+	 * a signed field the component and magnitude ranges genuinely differ and
+	 * only the magnitude one is right.
+	 *
+	 * Falls back to [0, 1] - never [0, 0] - when no usable range is declared.
+	 * A zero-width domain is the invisible failure: the .usf normalises through
+	 * `if (ValueRangeMax > ValueRangeMin)`, so with max == min every voxel reads
+	 * LUT entry 0 and the volume is a flat block that no reason bit discloses.
+	 */
+	FVector2D GetDisplayValueRange() const;
+
+private:
 	FFlowVizVolumeCaseBinding CaseBinding;
 
 	/** Owns RHI references, so it is heap-allocated and released through the render thread before the component is collected. */
