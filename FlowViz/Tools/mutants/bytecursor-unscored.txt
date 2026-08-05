@@ -1,0 +1,17 @@
+ReadFloat: sign bit dropped
+--
+			float Value = 0.0f;
+			FMemory::Memcpy(&Value, &Bits, sizeof(Value));
+			Out = Value;
+--
+			float Value = 0.0f;
+			uint32 Masked = Bits & 0x7FFFFFFFu;
+			FMemory::Memcpy(&Value, &Masked, sizeof(Value));
+			Out = Value;
+%%
+ctor: a negative size is stored as-is instead of clamped
+--
+			, Size(InSize > 0 ? InSize : 0)
+--
+			, Size(InSize)
+%%
