@@ -84,7 +84,13 @@ write_defaults() {  # write_defaults <dir> <name>...
 }
 
 # A real production writer, in a file that is not the defaults function.
-write_production() {  # write_production <dir> <name>...
+#
+# ORPHANED ON PURPOSE: nothing else in the tree references ViewModel.cpp. Use
+# this only where the case is about the write itself. Any fixture whose
+# expected answer is "clean" or "frozen" must use write_production, which adds
+# a consumer -- otherwise the orphan rule answers UNSCORED first and the case
+# never reaches the question it was written to ask.
+write_orphan_production() {  # write_orphan_production <dir> <name>...
     local d="$1"; shift
     local f="${d}/Private/UI/ViewModel.cpp" p
     printf 'void FViewModel::Apply(FParams& OutParameters) const\n{\n' > "${f}"
@@ -92,6 +98,18 @@ write_production() {  # write_production <dir> <name>...
         printf '\tOutParameters.%s = Value;\n' "${p}" >> "${f}"
     done
     printf '}\n' >> "${f}"
+}
+
+# The same writer, reached by a third production file. This is the default for
+# every case that is not specifically about reachability.
+write_production() {  # write_production <dir> <name>...
+    local d="$1"; shift
+    mkdir -p "${d}/Public/UI"
+    write_orphan_production "${d}" "$@"
+    printf '#include "UI/ViewModel.h"\nvoid FConsumer::Run()\n{\n\tViewModel.Apply(Parameters);\n}\n' \
+        > "${d}/Private/Render/Consumer.cpp"
+    printf 'class FViewModel { public: void Apply(FParams&) const; };\n' \
+        > "${d}/Public/UI/ViewModel.h"
 }
 
 # A test writer. Must NOT count -- this is the whole point of the guard.
@@ -232,6 +250,12 @@ write_defaults "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Thet
     done
     printf '}\n'
 } > "${D}/Private/UI/ViewModel.cpp"
+# Hand-built writer, so it needs its own consumer for the orphan rule.
+mkdir -p "${D}/Public/UI"
+printf '#include "UI/ViewModel.h"\nvoid FConsumer::Run()\n{\n\tViewModel.Apply(Parameters);\n}\n' \
+    > "${D}/Private/Render/Consumer.cpp"
+printf 'class FViewModel { public: void Apply(FParams&) const; };\n' \
+    > "${D}/Public/UI/ViewModel.h"
 check "a write whose value is on the following line still counts" \
     "0:clean" "$(run_on "${D}")"
 
@@ -389,6 +413,138 @@ write_defaults  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta The
 write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
 check "a SHADER_PARAMETER row the extractor cannot parse is UNSCORED, not dropped" \
     "2:unscored" "$(run_on "${D}")"
+
+# --- A WRITER NOBODY CALLS IS NOT A FIX ---------------------------------------
+#
+# Found 2026-08-05, by fixing the very defect this checker reports and watching
+# it go green one step too early.
+#
+# Adding FFlowVizRenderSettingsViewModel::ApplyToRayMarchParameters -- a real
+# production file, outside Private/Tests/, writing all 16 frozen parameters --
+# flipped the checker from "16 frozen of 74" to "every declared parameter has a
+# production writer." Nothing had changed about REACHABILITY. The dispatcher
+# still called only FillDefaults; the new function had exactly one caller in the
+# tree and it was the function's own test. A shipped build still rendered Alpha
+# only.
+#
+# That is this checker's own finding, one layer up: it verified that a writing
+# FUNCTION exists, and reported it as though a user could reach the parameter.
+# The green was worse than the red, because it tells the next reader the problem
+# is solved. Same shape as [[mocking-a-seam-hides-that-nothing-builds-it]] and
+# the ApplyToViewModels case in #38.
+#
+# So a writer must itself be reachable: the file containing it must be mentioned
+# by some other production file. That is a weaker condition than real call-graph
+# reachability -- it cannot see a call that never runs -- and it is what a source
+# scan can support honestly. It catches the case above, which is the one that
+# actually happened.
+
+# A writer whose file is referenced by another production file. The honest fix.
+D="${WORK}/writer_no_caller"; new_tree "${D}"
+mkdir -p "${D}/Public/UI"
+declare_params  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_orphan_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+# ViewModel.cpp is production, writes every parameter -- and NOTHING references
+# it. Exactly the state that produced a false clean.
+check "a production writer that nothing else references is UNSCORED, not clean" \
+    "2:unscored" "$(run_on "${D}")"
+
+D="${WORK}/writer_with_caller"; new_tree "${D}"
+mkdir -p "${D}/Public/UI"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+check "a production writer that another production file reaches is clean" \
+    "0:clean" "$(run_on "${D}")"
+
+# --- The defaults ANCHOR must be the definition, not a mention ---------------
+#
+# MEASURED ON THE REAL MODULE, 2026-08-05, against the COMMITTED checker.
+#
+# The anchor was `grep -rl "FillDefaults" | head -1`, which matches any file
+# CONTAINING the string. Four non-test files did: the definer, two callers, and
+# FlowVizRenderSettingsViewModel.cpp -- whose only two matches were COMMENTS I
+# had written the day before, naming the function to explain a clamp.
+#
+# When head -1 picked a non-definer, the real defaults file was scanned as
+# ordinary production code, so all 16 welded constants counted as production
+# writes and the checker printed EXIT=0, clean. A guard certifying the exact
+# defect it exists to find. It is also NONDETERMINISTIC: six identical greps
+# returned two different files, so the same tree answered clean or frozen
+# depending on directory-walk order.
+#
+# A comment is enough to break it -- that is the sharpest form of this case,
+# because it means no code change is needed to disarm the guard.
+
+D="${WORK}/anchor_named_in_comment"; new_tree "${D}"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_production "${D}" Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+# A file that only MENTIONS the defaults function, in a comment, and sorts
+# before Private/Render/Shader.cpp. CompositeMode is still frozen.
+# Given a consumer so the orphan rule does not answer UNSCORED first and hide
+# the anchor question this case exists to ask.
+mkdir -p "${D}/Private/AAA"
+printf 'void FOther::Note()\n{\n\t// FillDefaults already clamped this.\n\tOutParameters.Alpha = 1;\n}\n' \
+    > "${D}/Private/AAA/Mentions.cpp"
+printf '#include "AAA/Mentions.h"\nvoid FConsumer::Note()\n{\n\tOther.Note();\n}\n' \
+    > "${D}/Private/Render/MentionsConsumer.cpp"
+check "a comment naming the defaults function cannot become the anchor" \
+    "1:frozen" "$(run_on "${D}")"
+
+# The same tree with the mention removed. If this is not clean, the case above
+# proves nothing -- it would just be a checker stuck on "frozen".
+D="${WORK}/anchor_control"; new_tree "${D}"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+mkdir -p "${D}/Private/AAA"
+printf 'void FOther::Note()\n{\n\t// Nothing to see.\n\tOutParameters.Alpha = 1;\n}\n' \
+    > "${D}/Private/AAA/Mentions.cpp"
+printf '#include "AAA/Mentions.h"\nvoid FConsumer::Note()\n{\n\tOther.Note();\n}\n' \
+    > "${D}/Private/Render/MentionsConsumer.cpp"
+check "the same tree without the mention is clean (anchor control)" \
+    "0:clean" "$(run_on "${D}")"
+
+# Two definitions of the defaults function is not a tree this checker can
+# measure: head -1 would silently pick one and scan the other as production.
+D="${WORK}/anchor_ambiguous"; new_tree "${D}"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+mkdir -p "${D}/Private/Second"
+printf 'void FlowVizRayMarch::FillDefaults(FParams& OutParameters)\n{\n\tOutParameters.Alpha = 0;\n}\n' \
+    > "${D}/Private/Second/Other.cpp"
+check "two definitions of the defaults function is UNSCORED, not a coin flip" \
+    "2:unscored" "$(run_on "${D}")"
+
+# --- A CALL to the defaults function must not swallow the rest of the file ---
+#
+# MEASURED: the body-exclusion awk keys on index($0, fn "("), which matches a
+# CALL site as readily as a definition. On a call line there is no brace, so
+# seen_brace stays 0, depth never returns to 0, and every following line is
+# discarded as "inside the defaults body". In the real dispatcher this ate 11
+# lines after `FlowVizRayMarch::FillDefaults(Request.Parameters);`.
+#
+# Those 11 happened to contain no writes, so the count survived by luck. This
+# fixture removes the luck: the write sits AFTER the call, in the same file,
+# and it is the only production writer of CompositeMode.
+
+D="${WORK}/call_site_not_body"; new_tree "${D}"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_production "${D}" Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+mkdir -p "${D}/Private/Dispatch"
+{
+    printf 'void FDispatcher::Dispatch(FParams& OutParameters) const\n{\n'
+    printf '\tFlowVizRayMarch::FillDefaults(OutParameters);\n'
+    printf '\tOutParameters.CompositeMode = SelectedMode;\n'
+    printf '}\n'
+} > "${D}/Private/Dispatch/Dispatcher.cpp"
+printf '#include "Dispatch/Dispatcher.h"\nvoid FOwner::Run()\n{\n\tDispatcher.Dispatch(Parameters);\n}\n' \
+    > "${D}/Private/Render/DispatcherOwner.cpp"
+check "a write after a CALL to the defaults function still counts" \
+    "0:clean" "$(run_on "${D}")"
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

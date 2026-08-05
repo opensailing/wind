@@ -116,16 +116,63 @@ fi
 # found, every parameter would look like it has no defaults-only writer and the
 # tree would read as clean -- the exact vacuous pass this guards against.
 
-DEFAULTS_FILE="$(grep -rl "${DEFAULTS_FN}" "${MODULE_DIR}" --include='*.cpp' 2>/dev/null \
-    | grep -v '/Tests/' | head -1)"
+# MATCH THE DEFINITION, NOT THE NAME. This was `grep -rl "${DEFAULTS_FN}"`,
+# which matches any file CONTAINING the string. Measured on this module: four
+# non-test files did -- the definer, two call sites, and one whose only matches
+# were COMMENTS naming the function to explain a clamp. `head -1` then picked
+# whichever the directory walk reached first, and six identical runs returned
+# two different files.
+#
+# When it picked a non-definer the real defaults file was scanned as ordinary
+# production code, every welded constant counted as a production write, and the
+# checker printed "every declared parameter has a production writer" -- exit 0,
+# on the tree with 16 frozen parameters. A comment was enough to disarm it.
+#
+# A definition starts at column 0 with a return type. A call site is indented
+# or follows `=`; a comment line starts with `//` or `*`.
+# Verified against both definition forms (`void FlowVizRayMarch::FillDefaults(`
+# and a bare `void FillDefaults(`) and against six things it must NOT match:
+# an indented call, `// FillDefaults ...`, ` * FillDefaults(`, a call on the
+# right of `=`, and the substring names MyFillDefaults / FillDefaultsHelper.
+DEFN_RE='^[A-Za-z_][A-Za-z0-9_:<>,&*[:space:]]*[^A-Za-z0-9_]'"${DEFAULTS_FN}"'[[:space:]]*\('
 
-if [[ -z "${DEFAULTS_FILE}" ]]; then
+find "${MODULE_DIR}" -name '*.cpp' -not -path '*/Tests/*' 2>/dev/null \
+    | sort > "${WORK}/all_prod.txt"
+
+: > "${WORK}/defn_files.txt"
+while IFS= read -r f; do
+    [[ -n "${f}" ]] || continue
+    if grep -qE "${DEFN_RE}" "${f}" 2>/dev/null; then
+        printf '%s\n' "${f}" >> "${WORK}/defn_files.txt"
+    fi
+done < "${WORK}/all_prod.txt"
+
+DEFN_COUNT="$(wc -l < "${WORK}/defn_files.txt" | tr -d ' ')"
+
+if [[ "${DEFN_COUNT}" -eq 0 ]]; then
     echo "check_frozen_params: UNSCORED" >&2
     echo "  no non-test .cpp under ${MODULE_DIR} defines ${DEFAULTS_FN}." >&2
     echo "  Without it there is nothing to measure 'frozen' against, and every" >&2
     echo "  parameter would appear to have a production writer." >&2
     exit 2
 fi
+
+# Ambiguity is UNSCORED, never a pick. With two definitions, excluding one
+# leaves the other scanned as production, so its welded constants count as
+# real writes -- the same false clean, arrived at a different way.
+if [[ "${DEFN_COUNT}" -gt 1 ]]; then
+    echo "check_frozen_params: UNSCORED" >&2
+    echo "  ${DEFN_COUNT} non-test .cpp files define ${DEFAULTS_FN}:" >&2
+    echo >&2
+    sed 's/^/    /' "${WORK}/defn_files.txt" >&2
+    echo >&2
+    echo "  'Frozen' is measured against exactly one defaults function. Choosing" >&2
+    echo "  one would leave the other's welded constants counting as production" >&2
+    echo "  writes, which is the false clean this checker exists to prevent." >&2
+    exit 2
+fi
+
+DEFAULTS_FILE="$(cat "${WORK}/defn_files.txt")"
 
 # --- 3. Every production write ------------------------------------------------
 #
@@ -143,14 +190,42 @@ fi
 # end-of-line -- two such writes exist in FlowVizVolumeTexture.cpp and were
 # missed by requiring a non-`=` character there.
 
-find "${MODULE_DIR}" -name '*.cpp' -not -path '*/Tests/*' 2>/dev/null > "${WORK}/prod_files.txt"
+cp "${WORK}/all_prod.txt" "${WORK}/prod_files.txt"
 
 : > "${WORK}/written.txt"
 while IFS= read -r f; do
     [[ -n "${f}" ]] || continue
-    awk -v fn="${DEFAULTS_FN}" '
-        # Track whether we are inside the defaults function body.
-        !in_fn && index($0, fn "(") { in_fn = 1; depth = 0; seen_brace = 0 }
+    # Only the definer has a body to exclude. This was applied to EVERY file,
+    # keyed on `index($0, fn "(")` -- which matches a CALL site too. A call
+    # line carries no brace, so seen_brace stayed 0, depth never returned to 0,
+    # and every following line was discarded as "inside the defaults body". In
+    # FlowVizVolumeRayMarchDispatcher.cpp that silently ate the 11 lines after
+    # `FlowVizRayMarch::FillDefaults(Request.Parameters);`. They happened to
+    # contain no writes, so the count survived by luck rather than by design.
+    if [[ "${f}" != "${DEFAULTS_FILE}" ]]; then
+        grep -ohE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' "${f}" 2>/dev/null \
+            | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' >> "${WORK}/written.txt"
+        continue
+    fi
+    # The definition's LINE NUMBER, found by grep, not re-matched inside awk.
+    # awk's ERE rejected the `\(` in DEFN_RE outright ("illegal primary in
+    # regular expression"); the rule then never fired, the defaults body was
+    # never excluded, and all ten of its welded writes counted as production --
+    # a checker that had stopped measuring anything while still exiting 0.
+    # 2>/dev/null on the awk had been swallowing the error message.
+    DEFN_LINE="$(grep -nE "${DEFN_RE}" "${f}" | head -1 | cut -d: -f1)"
+    if [[ -z "${DEFN_LINE}" ]]; then
+        echo "check_frozen_params: UNSCORED" >&2
+        echo "  ${f} was selected as the defaults file but no definition line" >&2
+        echo "  could be located in it. Without body extents its welded writes" >&2
+        echo "  would count as production writes." >&2
+        exit 2
+    fi
+    awk -v defn="${DEFN_LINE}" '
+        # Track whether we are inside the defaults function body. Anchored on the
+        # DEFINITION line, so a recursive or self-referential call cannot start
+        # a second phantom body.
+        !in_fn && NR == defn { in_fn = 1; depth = 0; seen_brace = 0 }
         in_fn {
             n = gsub(/\{/, "{"); depth += n; if (n > 0) seen_brace = 1
             depth -= gsub(/\}/, "}")
@@ -163,6 +238,76 @@ while IFS= read -r f; do
         | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' >> "${WORK}/written.txt"
 done < "${WORK}/prod_files.txt"
 sort -u -o "${WORK}/written.txt" "${WORK}/written.txt"
+
+# --- 3b. A writer nobody references is not a fix ------------------------------
+#
+# Found 2026-08-05 while fixing the defect this script reports. Adding a view
+# model that wrote all 16 frozen parameters -- real production file, outside
+# Private/Tests/ -- flipped this checker to "every declared parameter has a
+# production writer" while NOTHING had changed about reachability: the dispatcher
+# still called only FillDefaults, and the new function's only caller in the whole
+# tree was its own test. A shipped build still rendered one composite mode.
+#
+# That green was worse than the red it replaced, because it tells the next reader
+# the problem is solved. So: a file whose writes are counted must itself be
+# mentioned by some other production file.
+#
+# THIS IS DELIBERATELY WEAKER THAN CALL-GRAPH REACHABILITY and says so. A source
+# scan cannot see whether the call actually runs, so an included-but-never-called
+# writer still passes. It catches the case that actually occurred -- a writer with
+# no production mention at all -- and the UNSCORED wording claims nothing more.
+
+: > "${WORK}/orphans.txt"
+while IFS= read -r f; do
+    [[ -n "${f}" ]] || continue
+    [[ "${f}" == "${DEFAULTS_FILE}" ]] && continue
+
+    # Does this file write any declared parameter at all? If not it is not a
+    # writer and its reachability is irrelevant.
+    # DEFAULTS_FILE is already skipped above, so no body exclusion is needed
+    # here. The earlier version ran the same call-site-triggered awk over every
+    # file, which meant a file whose only writes followed a call to the defaults
+    # function looked like it wrote nothing and was silently exempted from the
+    # reachability question entirely.
+    if ! grep -qE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' "${f}" 2>/dev/null; then
+        continue
+    fi
+
+    # Is it mentioned by a THIRD production file -- one that is neither itself
+    # nor its own paired header?
+    #
+    # The pairing exclusion is the whole rule. A writer's own header always
+    # names it, so "is this basename mentioned by any other file?" is true for
+    # every .cpp that has a header, and the check could never fail. Measured:
+    # with the self-pair counted, the real module reported clean while
+    # FlowVizRenderSettingsViewModel.cpp had no consumer at all -- the rule was
+    # a tautology that returned exactly the answer being hoped for.
+    base="$(basename "${f}" .cpp)"
+    if ! grep -rl "${base}" "${MODULE_DIR}" --include='*.cpp' --include='*.h' 2>/dev/null \
+        | grep -v '/Tests/' \
+        | grep -v "/${base}\.cpp$" \
+        | grep -qv "/${base}\.h$"; then
+        printf '%s\n' "${f}" >> "${WORK}/orphans.txt"
+    fi
+done < "${WORK}/prod_files.txt"
+
+if [[ -s "${WORK}/orphans.txt" ]]; then
+    echo "check_frozen_params: UNSCORED" >&2
+    echo "  These production files write shader parameters, and no other" >&2
+    echo "  production file mentions them:" >&2
+    echo >&2
+    sed 's/^/    /' "${WORK}/orphans.txt" >&2
+    echo >&2
+    echo "  Their writes are not counted, because a writer nobody reaches leaves" >&2
+    echo "  the parameter exactly as frozen as before -- and reporting it as a" >&2
+    echo "  production writer would answer 'can a user select this?' with 'a" >&2
+    echo "  function exists that could'. Wire the writer into the dispatch path," >&2
+    echo "  or delete it." >&2
+    echo >&2
+    echo "  (This checks MENTION, not that the call executes. It cannot detect a" >&2
+    echo "  writer that is included and never called.)" >&2
+    exit 2
+fi
 
 # --- 4. Frozen = declared, and never written outside the defaults -------------
 
