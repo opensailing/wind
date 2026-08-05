@@ -147,3 +147,97 @@ def judge(scene, reference, written, byte_size):
         "primitives rendered: %d pixels-worth of difference from the "
         "primitive-suppressed reference" % abs(scene.checksum - reference.checksum),
     )
+
+
+def judge_marcher(with_marcher, without_marcher, reference, written, byte_size):
+    """Return a Verdict for one shot of the VOLUME RAY-MARCHER specifically.
+
+    `judge` above answers "did any primitive render?". That is the wrong
+    question for the ray-marcher, and the reason is structural rather than a
+    matter of strictness.
+
+    FFlowVizVolumeSceneProxy::GetDynamicMeshElements draws three things from one
+    proxy: a wireframe bounding box (under bDrawBoundingBox), the HULL -- a
+    solid triangle box using GEngine->DebugMeshMaterial, drawn on every
+    non-wireframe view with no flag guarding it -- and the ray-march dispatch.
+    The primitive-suppressed reference removes the entire proxy, so it removes
+    all three at once. `scene != reference` therefore goes true the instant the
+    hull rasterizes, which it does unconditionally. It cannot distinguish a
+    working marcher from a dead one, and because the hull is an opaque box, the
+    frame it certifies even LOOKS like a rendered volume.
+
+    Turning bDrawBoundingBox off does not fix that: the wire box is not the
+    hull, and only the wire box is behind that flag.
+
+    So the criterion here holds the proxy fixed and moves exactly one variable:
+    whether a dispatcher is installed. With SetDispatcher(nullptr) the same
+    actor, the same hull, the same wireframe, the same camera and the same
+    lighting all still render; only the ray-march is gone. Any pixel that
+    differs between the two captures was produced by the marcher and by nothing
+    else, which is precisely the claim being made.
+
+    with_marcher    -- Stats with the production dispatcher installed.
+    without_marcher -- Stats for the identical scene with it uninstalled. The
+                       control. None means it could not be taken, which is
+                       UNSCORED, not a pass.
+    reference       -- Stats with all primitives suppressed. Still required: it
+                       answers a question the control cannot, namely whether the
+                       volume reached the render scene at all.
+    written         -- whether the PNG reached disk.
+    byte_size       -- its size on disk.
+
+    Checks are ordered so the reported reason is the root cause.
+    """
+    # Everything `judge` rejects, this must reject too: a shot that failed to
+    # read back or never hit disk says nothing about the marcher. Delegating
+    # rather than restating keeps one copy of those rules.
+    base = judge(with_marcher, reference, written, byte_size)
+    if not base.passed:
+        return base
+
+    if without_marcher is None:
+        return Verdict(
+            False,
+            "no marcher-suppressed control capture was taken, so this shot is "
+            "UNSCORED: the volume proxy draws an opaque hull box whether or not "
+            "the ray-marcher ran, and without the control there is no way to "
+            "attribute a single pixel to the marcher",
+        )
+
+    # The control matching the empty-scene reference means no volume primitive
+    # was in the scene at all -- the case never loaded, or the actor was never
+    # spawned. Whatever the marcher-on frame holds, it was not composited over a
+    # volume that is present, so "the volume rendered" would misdescribe it.
+    if without_marcher == reference:
+        return Verdict(
+            False,
+            "the volume is not in the scene: with the marcher suppressed the "
+            "frame is identical to the primitive-suppressed reference (max=%d "
+            "unique=%d mean=%.3f), but the proxy draws its hull unconditionally, "
+            "so a present volume could not look empty. The case failed to load "
+            "or the actor was never spawned."
+            % (without_marcher.largest, without_marcher.distinct, without_marcher.mean),
+        )
+
+    if with_marcher == without_marcher:
+        return Verdict(
+            False,
+            "the ray-marcher contributed nothing: this frame is identical to "
+            "the same scene with the dispatcher uninstalled (max=%d unique=%d "
+            "mean=%.3f both ways). Everything visible is the proxy's hull and "
+            "wireframe box. Check the capture log for 'AddRayMarchPass' and for "
+            "Error lines, and confirm a frame was uploaded -- without one, "
+            "bHasParameters is false and the dispatch is skipped."
+            % (with_marcher.largest, with_marcher.distinct, with_marcher.mean),
+        )
+
+    return Verdict(
+        True,
+        "the ray-marcher rendered: %d pixels-worth of difference from the "
+        "marcher-suppressed control, which is the same scene with the same hull "
+        "and the same box (control differs from the empty reference by %d)"
+        % (
+            abs(with_marcher.checksum - without_marcher.checksum),
+            abs(without_marcher.checksum - reference.checksum),
+        ),
+    )
