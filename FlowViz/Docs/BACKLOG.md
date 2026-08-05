@@ -170,6 +170,46 @@ about how it *looks*, which no assertion in this file addresses.
 
 ## Correctness gaps
 
+### 2b. Nothing wires the ray-marcher to a scene — found 2026-08-05
+
+**A volume placed in a real map renders nothing, and the suite is 49/49 green
+while that is true.** The two halves of volume rendering both exist and are both
+well covered; no production code joins them.
+
+- `FFlowVizVolumeSceneProxy::GetDynamicMeshElements` guards the dispatch on
+  `FlowVizVolumeRayMarch::GetDispatcher()` and silently draws nothing when it
+  returns null (`Private/Scene/FlowVizVolumeComponent.cpp:332`).
+- `SetDispatcher` had no caller outside `/Tests/` — grep across `Plugins` and
+  `Source`, excluding `Intermediate`, returned only its declaration
+  (`Public/Scene/FlowVizVolumeComponent.h:486`) and its definition
+  (`Private/Scene/FlowVizVolumeComponent.cpp:166`).
+- The only `IFlowVizVolumeRayMarchDispatcher` implementation lived in
+  `Private/Tests/FlowVizVolumeComponentTest.cpp`.
+- `FlowVizRayMarch::AddRayMarchPass`, the real RDG compute dispatch, was called
+  only from `FlowVizVolumeRayMarchTest.cpp` and `FlowVizVolumeMarchTest.cpp`.
+
+**Why no existing test could see it, which is the part worth keeping.** Every
+test that exercises this path installs its own recording dispatcher first,
+because it needs a double to assert against. Installing a dispatcher is
+therefore a *precondition* of those tests, which makes every one of them
+structurally incapable of noticing that production installs none. This is not an
+oversight in any individual test; it is a property of testing a seam through a
+mock. Catching it required a test that installs nothing and asks what startup
+left behind — `Private/Tests/FlowVizRenderWiringTest.cpp`, `FlowViz.Render.Wiring`.
+
+The hazard was anticipated. The seam comment on `IFlowVizVolumeRayMarchDispatcher`
+already said "no marcher wired" and "marcher ran and produced nothing" look
+identical on screen and have nothing in common as fixes. What was missing was an
+assertion that could tell them apart.
+
+Corroborating evidence: `Saved/Screenshots` holds 90,062 PNGs. 1,086 are the
+stock template map from 2026-08-04 (sky, checkered floor, no volume); the
+remaining ~89,000 are byte-identical pure-black 640x360 frames sharing one md5.
+No frame has ever contained FlowViz geometry. `Tools/capture` itself is *not*
+implicated — it is verified working on `L_CapTest` and its `verdict.py`
+explicitly rejects a pure-black frame — which is what makes the blanks evidence
+for this entry rather than against the harness.
+
 ### 3. The CVF volume reader has no committed test
 
 Every other reader has one. This is the reader that decodes the volume every
@@ -412,8 +452,9 @@ above because these are *risks*, not known defects.
 
 - **Temporal stability under camera motion.** A still frame that looks perfect
   and shimmers in motion has failed the visual bar. Per-ray jitter — needed
-  against banding — is a common cause of exactly that. Nothing renders yet, so
-  this is unproven rather than untested.
+  against banding — is a common cause of exactly that. No volume has ever
+  reached a screen (gap 2b: the marcher is built and tested but not wired to a
+  scene), so this is unproven rather than untested.
 - **Uploaded texels are what a shader would sample.** `FlowVizVolumeDeviceTest`
   proves the Metal driver *accepts* the create and the upload and *reports*
   the format we chose off the created resource. It does not prove the bytes
