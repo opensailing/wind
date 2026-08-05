@@ -107,6 +107,73 @@ Running automation tests matching 'FlowViz.CFDViz.Nonexistent'...
 LOG
 check "no tests found is never a survivor" "UNSCORED" "$(classify_test_run 0 "${TMP}/empty.log")"
 
+# --- build classification ---------------------------------------------------
+#
+# A build that did not produce a binary has two very different causes, and the
+# harness must not conflate them. If the MUTANT does not compile, that is
+# INVALID -- a fact about the mutant. If the BUILD TOOL fell over, that is a
+# fact about this machine, and scoring it at all would attribute a local race
+# to the code under test.
+#
+# mutate.sh already waits out one such case (ConflictingInstance, the UBT
+# lock). The cases below are the ones it did not recognise.
+
+# THE REGRESSION: UnrealBuildTool aborted on a user-global state file.
+#
+# Real captured output. Trace.uba lives in ~/Library/Application Support and is
+# shared by every build on the machine regardless of worktree, so a concurrent
+# build deleting it aborts an unrelated one. Nothing about the mutant is
+# involved, and the mutated file is never named -- yet a harness that only asks
+# "did the build succeed?" would fall through to a verdict.
+cat > "${TMP}/uba.log" <<'LOG'
+Building FlowVizEditor...
+Unhandled exception. System.IO.FileNotFoundException: Could not find file '/Users/x/Library/Application Support/Epic/UnrealBuildTool/Trace.uba'.
+   at EpicGames.Core.Log.BackupLogFile(FileReference outputFile)
+   at UnrealBuildTool.UnrealBuildTool.Main(String[] ArgumentsArray)
+Build.sh: line 35: 64851 Abort trap: 6           dotnet UnrealBuildTool.dll "$@"
+LOG
+check "a UBT crash is infrastructure" "infrastructure" \
+    "$(classify_build "${TMP}/uba.log")"
+
+# The UBT lock, which mutate.sh already retries. Classified the same way, so
+# that retry logic has one definition to consult rather than its own grep.
+cat > "${TMP}/lock.log" <<'LOG'
+Building FlowVizEditor...
+ERROR: Another instance of UnrealBuildTool is already running (ConflictingInstance). Waiting...
+LOG
+check "the UBT lock is infrastructure" "infrastructure" \
+    "$(classify_build "${TMP}/lock.log")"
+
+# A real compile error in the mutated file. This is the one case that is a
+# fact about the mutant, and it must NOT be swallowed as infrastructure --
+# doing so would silently drop every uncompilable mutant from the scoring.
+cat > "${TMP}/badmutant.log" <<'LOG'
+Building FlowVizEditor...
+/repo/Private/CFDViz/CFDVizArrayReader.cpp:118:9: error: use of undeclared identifier 'ValueCount'
+1 error generated.
+LOG
+check "a compile error in the mutant is not infrastructure" "failed" \
+    "$(classify_build "${TMP}/badmutant.log")"
+
+# A successful build. Included because a classifier that answered
+# "infrastructure" for everything would pass every case above.
+cat > "${TMP}/ok.log" <<'LOG'
+Building FlowVizEditor...
+Total execution time: 41.20 seconds
+Result: Succeeded
+LOG
+check "a green build succeeds" "succeeded" "$(classify_build "${TMP}/ok.log")"
+
+# An abort trap AFTER a successful result. The success line is authoritative
+# (the binary exists); a crash in UBT's own teardown must not discard it.
+cat > "${TMP}/okthencrash.log" <<'LOG'
+Building FlowVizEditor...
+Result: Succeeded
+Abort trap: 6
+LOG
+check "a teardown crash after success is still a success" "succeeded" \
+    "$(classify_build "${TMP}/okthencrash.log")"
+
 echo
 echo "verdict tests: ${PASS} passed, ${FAIL} failed"
 [[ "${FAIL}" -eq 0 ]]

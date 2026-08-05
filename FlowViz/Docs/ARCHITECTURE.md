@@ -59,7 +59,7 @@ call.
 | --- | --- | --- |
 | Manifest parser | `Private/CFDViz/CFDVizManifest.cpp` | Done |
 | CVM mesh reader | `Private/CFDViz/CFDVizMeshReader.cpp` | Done — audited 2026-08-04, see below |
-| CVA array reader | `Private/CFDViz/CFDVizArrayReader.cpp` | Partial — C++-only coverage, see below |
+| CVA array reader | `Private/CFDViz/CFDVizArrayReader.cpp` | Partial — bridged 2026-08-04, not yet mutation-verified, see below |
 | CVF volume reader | `Private/CFDViz/CFDVizVolumeReader.cpp` | Done — `CFDVizVolumeReaderTest.cpp`, `CFDVizVolumeIntegrityTest.cpp` |
 | Payload/codec | `Private/CFDViz/CFDVizPayload.cpp` | Done |
 | CRC-32C | `Private/CFDViz/CFDVizCrc32C.cpp` | Done |
@@ -75,16 +75,29 @@ call.
   every reader test, but indirect coverage is not a test of its own bounds
   checking. (The byte *cursor* beside it is no longer in this position:
   `CFDVizByteCursorTest.cpp` attacks its `CanRead` arithmetic directly.)
-- The **CVA reader** has a committed test, and that test only proves the reader
-  agrees with itself. `CFDVizKnownValuesTest.cpp` is the one place a
-  disagreement between the Python writer and the Unreal reader can surface, and
-  it bridges CVF (51 samples) and CVM (30) but **zero** CVA arrays — not
-  because the bridge cannot carry them, but because `generate-mock` emits no
-  `.cva` files, so `known_values.json`'s `arraySamples` is an empty list. Python
-  populates that key for cases that have arrays (`cfdviz/case.py:746`), so the
-  gap is in the mock generator. A reader and a writer that share a
-  misunderstanding agree perfectly with each other; that is precisely what CVA
-  coverage currently cannot rule out.
+- The **CVA reader** was, until 2026-08-04, the one format whose test proved
+  only that the reader agreed with itself. `CFDVizKnownValuesTest.cpp` is where
+  a disagreement between the Python writer and the Unreal reader surfaces, and
+  it bridged CVF and CVM but **zero** CVA arrays — not because the bridge could
+  not carry them, but because `generate-mock` emitted no `.cva` files, leaving
+  `arraySamples` an empty list. An empty list compares nothing and passes.
+
+  Closing that took a change in all three places at once, since any one alone
+  is a silent no-op: the generator now writes a per-frame wall-pressure array
+  (`mock.py:_write_wall_pressure`), the committed sample case carries 20 `.cva`
+  files and 8 `arraySamples`, and the test has a section that consumes them.
+  The array is the textbook inviscid cylinder solution — surface speed
+  `2·U∞·|sin θ|`, so `Cp = 1 − 4sin²θ` — checked against that closed form in
+  `test_mock.py`, because two implementations agreeing on arbitrary numbers is
+  what this section exists to rule out. One vertex carries a deliberate NaN so
+  that `validCount` differs from `valueCount`; comparisons are on stored bits,
+  not values, since `NaN != NaN` and a reader that folded NaN to zero would
+  otherwise compare `0.0 == 0.0` and pass.
+
+  It stays `Partial` for one reason: **the section has been seen to pass, not
+  seen to fail.** A campaign over `bridge-cva-*.txt` is what would move it, and
+  until those verdicts exist the section's own claim to catch anything is
+  exactly the kind of untested pass criterion this file warns about below.
 
 ### CVM mesh reader — audit, 2026-08-04
 

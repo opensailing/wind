@@ -22,6 +22,45 @@
 # a crash, a dead editor, a filter that matched nothing -- is UNSCORED, which
 # is a refusal to draw a conclusion rather than a conclusion.
 
+# classify_build <build-log> -> succeeded | infrastructure | failed
+#
+# "Did the build produce a binary, and if not, whose fault was it?"
+#
+# Separated from the caller's control flow for the same reason as
+# classify_test_run: a build that fails for a reason unrelated to the mutant is
+# not evidence about the mutant. UnrealBuildTool keeps state in
+# ~/Library/Application Support, which is shared by every build on the machine
+# regardless of worktree, so a concurrent build can abort an unrelated one
+# through no fault of the code being tested. Scoring that would be the same
+# error as scoring an engine crash as a kill, one stage earlier.
+classify_build() {
+    local log="$1"
+
+    [[ -f "${log}" ]] || { echo "infrastructure"; return; }
+
+    # The success line is authoritative and checked FIRST. Build.sh's exit code
+    # is unreliable (it exits 0 on failure), and UBT sometimes crashes during
+    # teardown after the binary is already linked -- that crash must not
+    # discard a build that actually succeeded.
+    if grep -aq "Result: Succeeded" "${log}"; then
+        echo "succeeded"
+        return
+    fi
+
+    # Infrastructure, not code: the UBT lock, and UBT falling over on its own
+    # global state. Deliberately narrow -- each pattern names a specific failure
+    # in the build tool itself. A broad "Exception" match would swallow genuine
+    # compile failures and silently drop mutants from scoring.
+    if grep -aq "ConflictingInstance" "${log}" \
+        || grep -aq "UnrealBuildTool/Trace.uba" "${log}" \
+        || grep -aqE "Unhandled exception.*(EpicGames|UnrealBuildTool)" "${log}"; then
+        echo "infrastructure"
+        return
+    fi
+
+    echo "failed"
+}
+
 # classify_test_run <exit-code> <runner-output-file> -> killed | SURVIVED | UNSCORED
 classify_test_run() {
     local exit_code="$1" log="$2"

@@ -126,18 +126,25 @@ restore() { cp "${BACKUP}" "${SRC}"; }
 trap restore EXIT INT TERM
 
 # Constraint 1: the exit status of Build.sh is meaningless; read the log.
-# ConflictingInstance means another process holds the UBT lock -- that is
-# contention, not a code error, so it is waited out rather than scored.
+# classify_build (verdict.sh) decides what the log says, and it is retried on
+# `infrastructure` -- the UBT lock, or UnrealBuildTool falling over on the
+# user-global state it keeps outside the worktree. Neither is a fact about the
+# mutant, so neither is scored; they are waited out.
 build() {
     local attempt
     for attempt in $(seq 1 40); do
         "${UE_ROOT}/Engine/Build/BatchFiles/Mac/Build.sh" \
             FlowVizEditor Mac Development \
             -project="${PROJECT_DIR}/FlowViz.uproject" >"${BUILD_LOG}" 2>&1
-        if grep -aq "ConflictingInstance" "${BUILD_LOG}"; then sleep 15; continue; fi
-        grep -aq "Result: Succeeded" "${BUILD_LOG}" && return 0
-        return 1
+        case "$(classify_build "${BUILD_LOG}")" in
+            succeeded)      return 0 ;;
+            infrastructure) sleep 15; continue ;;
+            *)              return 1 ;;
+        esac
     done
+    # Out of attempts and still not green. Returning 1 hands the decision to
+    # the caller, which finds no error naming the mutated file and records
+    # UNSCORED -- the right answer for a machine that would not build.
     return 1
 }
 

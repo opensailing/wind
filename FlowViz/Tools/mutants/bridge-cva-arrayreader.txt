@@ -1,0 +1,83 @@
+ParseHeader: frameIndex and fieldNumericId read in the wrong order
+--
+	if (!Cursor.ReadUInt32(OutHeader.FrameIndex)
+		|| !Cursor.ReadUInt32(OutHeader.FieldNumericId)
+--
+	if (!Cursor.ReadUInt32(OutHeader.FieldNumericId)
+		|| !Cursor.ReadUInt32(OutHeader.FrameIndex)
+
+%%
+ParseStatisticsSection: maximum and mean sections swapped
+--
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Maximum[Index]))
+			{
+				return false;
+			}
+		}
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Mean[Index]))
+--
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Mean[Index]))
+			{
+				return false;
+			}
+		}
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Maximum[Index]))
+
+%%
+ParseStatisticsSection: minimum and maximum sections swapped
+--
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Minimum[Index]))
+			{
+				return false;
+			}
+		}
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Maximum[Index]))
+--
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Maximum[Index]))
+			{
+				return false;
+			}
+		}
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadDouble(Out.Minimum[Index]))
+
+%%
+ParseStatisticsSection: validCount read from the section's leading valueCount instead
+--
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			if (!Cursor.ReadUInt64(Out.ValidCount[Index]))
+			{
+				return false;
+			}
+		}
+		return true;
+--
+		for (int32 Index = 0; Index < ComponentCount; ++Index)
+		{
+			Out.ValidCount[Index] = ValueCount;
+		}
+		return true;
+
+%%
+Read: frame and global statistics attached to the wrong members
+--
+			OutArray.FrameStatistics = MoveTemp(Frame);
+--
+			OutArray.GlobalStatistics = MoveTemp(Frame);
+
