@@ -144,12 +144,26 @@ trap restore EXIT INT TERM
 # `infrastructure` -- the UBT lock, or UnrealBuildTool falling over on the
 # user-global state it keeps outside the worktree. Neither is a fact about the
 # mutant, so neither is scored; they are waited out.
+#
+# build_lock.sh PREVENTS most of those rather than waiting them out. The retry
+# above stays: the lock stops concurrent builds started through it, and cannot
+# stop a build someone launches directly, so the classifier remains the
+# backstop. Belt and braces, because the failure mode here is a mutant scored
+# against another process's mess.
 build() {
     local attempt
     for attempt in $(seq 1 40); do
-        "${UE_ROOT}/Engine/Build/BatchFiles/Mac/Build.sh" \
+        "${PROJECT_DIR}/Tools/build_lock.sh" \
+            "${UE_ROOT}/Engine/Build/BatchFiles/Mac/Build.sh" \
             FlowVizEditor Mac Development \
             -project="${PROJECT_DIR}/FlowViz.uproject" >"${BUILD_LOG}" 2>&1
+        # 75 = EX_TEMPFAIL from build_lock: the build NEVER RAN. The log holds
+        # whatever the previous attempt left, so classifying it would score a
+        # stale result against this mutant. Wait and retry instead.
+        if [[ $? -eq 75 ]]; then
+            sleep 15
+            continue
+        fi
         case "$(classify_build "${BUILD_LOG}")" in
             succeeded)      return 0 ;;
             infrastructure) sleep 15; continue ;;
@@ -236,8 +250,26 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
         # Constraint 2: the exit code decides, not a string in the output --
         # but only once classify_test_run has established that tests actually
         # ran. An engine that crashes on startup also exits non-zero.
-        "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${TEST_LOG}" 2>&1
-        TEST_EXIT=$?
+        # Locked for the same reason as the build: a concurrent editor launch
+        # contends on the same user-global UBT/trace state, and the resulting
+        # noise is indistinguishable from a test result. A 75 here means the
+        # suite never ran, so it must not reach classify_test_run -- that would
+        # score a stale TEST_LOG against this mutant.
+        #
+        # Bounded, not a `while`. 75 is build_lock's EX_TEMPFAIL, but nothing
+        # stops the engine from someday exiting 75 for its own reasons, and an
+        # unbounded retry on that would hang the campaign forever with no
+        # verdict. After the bound the 75 is passed through to
+        # classify_test_run, which finds no `<n>/<m> passed.` summary in the log
+        # and returns UNSCORED -- a refusal to conclude, which is the correct
+        # answer for a run that never happened.
+        for _lock_attempt in $(seq 1 40); do
+            "${PROJECT_DIR}/Tools/build_lock.sh" \
+                "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${TEST_LOG}" 2>&1
+            TEST_EXIT=$?
+            [[ "${TEST_EXIT}" -ne 75 ]] && break
+            sleep 15
+        done
         case "$(classify_test_run "${TEST_EXIT}" "${TEST_LOG}")" in
             killed)
                 echo "killed    ${NAME}"
