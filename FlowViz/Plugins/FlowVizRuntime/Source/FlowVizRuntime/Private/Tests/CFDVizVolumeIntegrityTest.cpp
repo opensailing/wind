@@ -564,7 +564,15 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 	// half a volume already uploaded. Asserted here in the form the reader
 	// actually guarantees, so these tests pin that behaviour rather than a weaker
 	// one that would still pass if validation regressed to lazy.
-	auto ExpectOpenRejects = [this](const TCHAR* What, TArray<uint8>& Bytes, ECFDVizError Expected)
+	// ExpectedOffset names the FIELD the rejection must point at, and it is the
+	// assertion that keeps these cases honest. Several entry rules return the
+	// same SizeMismatch code, so an error-code assertion alone cannot tell which
+	// rule spoke - a case can keep passing after the guard it names is deleted,
+	// because a neighbouring rule rejects the same file identically. The byte
+	// offset is the only part of the result that distinguishes them. Pass
+	// INDEX_NONE to opt out where the offset is genuinely not specified.
+	auto ExpectOpenRejects = [this](const TCHAR* What, TArray<uint8>& Bytes, ECFDVizError Expected,
+		int64 ExpectedOffset = INDEX_NONE)
 	{
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("bad.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -578,6 +586,11 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// The offending brick must be identifiable from the message, or a
 		// validation report can only say "somewhere in this file".
 		TestTrue(FString::Printf(TEXT("%s reports a message"), What), !Result.ToString().IsEmpty());
+		if (ExpectedOffset != INDEX_NONE)
+		{
+			TestEqual(FString::Printf(TEXT("%s names the field it rejected"), What),
+				Result.ByteOffset, ExpectedOffset);
+		}
 	};
 
 	// uncompressedBytes must equal validX*validY*validZ*components*sizeof(type),
@@ -607,11 +620,16 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// holds - so the derived-size equality is the only thing left that can
 		// reject this file. If it is ever weakened, this file opens and the test
 		// goes red.
+		// 24 is deliberately a PLAUSIBLE byte count - it is the real size of the
+		// edge brick in this same fixture, just not of brick 0, whose 2x2x1 voxels
+		// x 3 components x float32 come to 48. An absurd value like 7 would also
+		// be rejected by a reader that merely range-checked, so it would not prove
+		// the product is actually computed.
 		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 28, 24); // compressedBytes
 		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 32, 24); // uncompressedBytes
 		ExpectOpenRejects(TEXT("a self-consistent size pair that still contradicts the geometry"),
-			Bytes, ECFDVizError::SizeMismatch);
+			Bytes, ECFDVizError::SizeMismatch, CvfIntegrityTest::Entry0 + 32);
 	}
 	{
 		// A hostile size field: 4 GB claimed for a 4-voxel brick. It must be
@@ -619,10 +637,19 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// reader that allocated first and failed second would be a trivial denial
 		// of service on a malformed file. Rejecting at Open means the allocation
 		// is never even reached.
+		//
+		// Both length fields move together for the same reason as the case above:
+		// poking only uncompressedBytes would break the codec-none rule too, and
+		// that rule would then reject this file with the same SizeMismatch code
+		// even if the 4.4.4 equality were deleted. The offset assertion is what
+		// detects the difference - with the geometry guard gone, this entry claims
+		// a payload running past EOF and the rejection moves to the payload bounds
+		// check at @20, which the offset catches.
 		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 28, 0xFFFFFFFFu);
 		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 32, 0xFFFFFFFFu);
 		ExpectOpenRejects(TEXT("a 4 GB claim for a 4-voxel brick"),
-			Bytes, ECFDVizError::SizeMismatch);
+			Bytes, ECFDVizError::SizeMismatch, CvfIntegrityTest::Entry0 + 32);
 	}
 	{
 		// With codec none, compressedBytes must equal uncompressedBytes: anything
@@ -633,15 +660,20 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 28, 40);
 		CvfIntegrityTest::ResealPayloadCrc(Bytes, CvfIntegrityTest::Entry0, CvfIntegrityTest::Payload0, 40);
+		// The offset must name compressedBytes @28, the field that is wrong. This
+		// is the converse of the case above and pins the OTHER of the two rules:
+		// here the geometry equality still holds for uncompressedBytes, so only
+		// the codec-none rule can reject, and it must say so at @28 rather than
+		// blaming @32.
 		ExpectOpenRejects(TEXT("codec none with compressedBytes != uncompressedBytes"),
-			Bytes, ECFDVizError::SizeMismatch);
+			Bytes, ECFDVizError::SizeMismatch, CvfIntegrityTest::Entry0 + 28);
 	}
 	{
 		// A payload offset that points outside the file (rule 1.5).
 		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		CvfIntegrityTest::PokeU64(Bytes, CvfIntegrityTest::Entry0 + 20, 100000);
 		ExpectOpenRejects(TEXT("a payload offset past the end of the file"),
-			Bytes, ECFDVizError::PayloadOutOfBounds);
+			Bytes, ECFDVizError::PayloadOutOfBounds, CvfIntegrityTest::Entry0 + 20);
 	}
 	{
 		// No per-brick flag bits exist in 1.0, so an unknown one may change how
@@ -649,7 +681,7 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		CvfIntegrityTest::PokeU16(Bytes, CvfIntegrityTest::Entry0 + 18, 1);
 		ExpectOpenRejects(TEXT("an undefined per-brick flag bit"),
-			Bytes, ECFDVizError::InvalidHeader);
+			Bytes, ECFDVizError::InvalidHeader, CvfIntegrityTest::Entry0 + 18);
 	}
 	{
 		// A directory entry's reserved[8] must be zero, same reasoning as the
@@ -657,10 +689,8 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 		// there that this reader would otherwise silently ignore.
 		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
 		Bytes[CvfIntegrityTest::Entry0 + 72] = 1;
-		const FCFDVizMemoryByteSource Source(Bytes, TEXT("res.cvf"));
-		FCFDVizVolumeReader Reader;
-		TestTrue(TEXT("non-zero reserved bytes in a directory entry are rejected"),
-			Reader.Open(Source).Error == ECFDVizError::InvalidHeader);
+		ExpectOpenRejects(TEXT("non-zero reserved bytes in a directory entry"),
+			Bytes, ECFDVizError::InvalidHeader, CvfIntegrityTest::Entry0 + 72);
 	}
 
 	return true;
