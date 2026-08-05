@@ -62,6 +62,26 @@ value comparison vacuous.
 Kept here rather than deleted because the entry explains why rule 12 was
 `Partial` in `ARCHITECTURE.md` for as long as it was.
 
+Measured 2026-08-05 by a 27-mutant campaign over `CFDVizByteCursor.h`:
+**killed 25, SURVIVED 2, INVALID 0, UNSCORED 1.** Each non-kill is accounted
+for rather than tolerated:
+
+- `ReadDouble: sign bit cleared` — a real gap, now closed. Every double
+  fixture was `0x7FF0000123456789`, whose sign bit is already clear, so the
+  mask was the identity map on the test data. Fixed by a negative-zero double
+  case and confirmed by a two-arm differential (control SURVIVED, fixed
+  killed).
+- `CanRead: offset one past the end accepted` — **equivalent**, not uncovered.
+  At `Offset == Size + 1` the relaxed clause is unreachable because
+  `Count <= Size - Offset` becomes `Count <= -1` and `Count >= 0` already
+  rejects. Verified exhaustively over every small case and the int64 extremes:
+  zero disagreements, while the same search finds 45 for the neighbouring
+  off-by-one mutant. No test can kill it and none should be written.
+- `ReadIsAllZero: loop one short` — **UNSCORED**, which is not a pass. The
+  test run produced no results, so nothing is known about this mutant. Tracked
+  as its own item; `mutate.sh` correctly exits non-zero on any UNSCORED, so
+  the campaign as a whole did not report success.
+
 ### 4a. ~~The CVA element index was unobservable~~ — closed 2026-08-05
 
 Two mutants of `FCFDVizArrayReader::GetElementIndex` — entity/component
