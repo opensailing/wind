@@ -1,0 +1,70 @@
+add_button_not_wired
+--
+				.OnClicked(FOnClicked::CreateSP(this, &SFlowVizProbePanel::OnAddProbeClicked))
+--
+				.OnClicked(FOnClicked())
+
+%%
+placement_commit_writes_every_axis
+--
+	PendingPosition[Axis] = Value;
+--
+	PendingPosition = FVector(Value, Value, Value);
+
+%%
+clear_enablement_ignores_probe_count
+--
+	return IsBound() && ViewModel->GetProbeCount() > 0;
+--
+	return IsBound();
+
+%%
+visible_toggle_removes_instead_of_hiding
+--
+			ViewModel->SetProbeVisible(Id, !Probe->bVisible);
+--
+			ViewModel->RemoveProbe(Id);
+
+%%
+remove_always_deletes_the_first_probe
+--
+		ViewModel->RemoveProbe(Id);
+		// MANDATORY here, not an optimisation: the row for the removed probe must
+		// go, and the rows are what GetProbeRemoveButton(Index) indexes.
+		RebuildProbeRows();
+--
+		if (ViewModel->GetProbeCount() > 0)
+		{
+			ViewModel->RemoveProbe(ViewModel->GetProbes()[0].Id);
+		}
+		RebuildProbeRows();
+
+%%
+unsampled_probe_reads_as_a_number
+--
+	if (!Reading.bHasValue)
+	{
+		// The string carries NO DIGITS at all, deliberately: a user scanning the
+		// column must not find a number here under any reading of it.
+		return Reading.bInsideDomain ? LOCTEXT("ValueNotSampled", "no reading")
+									 : LOCTEXT("ValueOutside", "outside the domain");
+	}
+--
+	// (rule 10 check deleted)
+
+%%
+rename_always_renames_the_first_probe
+--
+		ViewModel->RenameProbe(Id, NewText.ToString());
+--
+		if (ViewModel->GetProbeCount() > 0)
+		{
+			ViewModel->RenameProbe(ViewModel->GetProbes()[0].Id, NewText.ToString());
+		}
+
+%%
+line_end_commit_writes_every_axis
+--
+	PendingLineEnd[Axis] = Value;
+--
+	PendingLineEnd = FVector(Value, Value, Value);

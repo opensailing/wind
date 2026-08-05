@@ -5,6 +5,7 @@
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
+#include "UI/SFlowVizProbePanel.h"
 #include "UI/SFlowVizSlicePanel.h"
 #include "UI/SFlowVizTransferFunctionPanel.h"
 #include "UI/SFlowVizTransportBar.h"
@@ -175,10 +176,8 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 						[
 							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("ProbeHeading", "Probes"),
-								FlowVizWorkspaceLocal::MakePendingRegion(
-									LOCTEXT("ProbePending",
-										"The probe list is not built yet. The probe view model "
-										"is complete and tested; no widget drives it.")))
+								SAssignNew(ProbePanel, SFlowVizProbePanel)
+									.ViewModel(&Model->Probes))
 						]
 					]
 				]
