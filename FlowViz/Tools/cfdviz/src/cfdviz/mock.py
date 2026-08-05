@@ -965,8 +965,12 @@ def _write_meshes(root: Path, parameters: MockCaseParameters,
         positions=positions, indices=indices, normals=normals,
         patch_ids=patch_ids,
     )
-    _write_wall_pressure(root, parameters, positions,
-                         parameters.times if times is None else times)
+    frame_times = parameters.times if times is None else times
+    _write_wall_pressure(root, parameters, positions, frame_times)
+    # A second array on the same vertices, with three components. Not a
+    # near-duplicate: see _write_wall_shear for why a scalar array cannot make
+    # the reader's element indexing observable.
+    _write_wall_shear(root, parameters, positions, frame_times)
 
     # The domain box is viewed from the fluid inside it, so its faces wind
     # inward; an outward box would be invisible from every useful camera.
@@ -1037,6 +1041,10 @@ def _write_meshes(root: Path, parameters: MockCaseParameters,
 #: what a reader matches on.
 WALL_PRESSURE_NUMERIC_ID: Final = 64
 
+#: Numeric field id of the wall shear-stress array. See
+#: :func:`_write_wall_shear` for why a second, *vector* array exists at all.
+WALL_SHEAR_NUMERIC_ID: Final = 65
+
 
 def _write_wall_pressure(root: Path, parameters: MockCaseParameters,
                          positions: np.ndarray,
@@ -1095,6 +1103,114 @@ def _write_wall_pressure(root: Path, parameters: MockCaseParameters,
             simulation_time=time,
             association=CVA_ASSOC_VERTEX,
             field_numeric_id=WALL_PRESSURE_NUMERIC_ID,
+            dtype="float32",
+            codec=codec_id_from_name(parameters.codec),
+            level=parameters.level,
+        )
+
+
+def _write_wall_shear(root: Path, parameters: MockCaseParameters,
+                      positions: np.ndarray,
+                      times: Sequence[float]) -> None:
+    """Write per-vertex wall shear stress on the cylinder: a 3-component array.
+
+    This array exists for a reason that is not physical, and the reason is
+    worth stating plainly because otherwise someone will reasonably delete it
+    as a near-duplicate of the wall pressure beside it.
+
+    A mutation campaign against the C++ reader's element indexing found two
+    surviving mutants:
+
+        GetElementIndex: entity and component transposed
+        GetElementIndex: upper bound on entity dropped
+
+    Neither survived because an assertion was missing. They survived because
+    every ``.cva`` this generator wrote had ``componentCount == 1``, and on a
+    one-component array
+
+        Entity * ComponentCount + Component  ==  Entity
+        Component * ValueCount  + Entity     ==  Entity
+
+    are the same function. The transposition is the identity map. No comparison
+    over that data can distinguish the two readers, no matter how many
+    assertions are added -- so the fix belongs here, in the data, and not in
+    another test. A vector array makes the stride observable.
+
+    The physics is the companion of the pressure field rather than an
+    independent invention. For inviscid flow over a cylinder the surface speed
+    is ``q = 2 U sin(theta)``; a laminar boundary layer over that external flow
+    has a wall shear proportional to ``dq/ds``, giving a traction that acts
+    along the surface tangent, reverses sign across the shoulders, and vanishes
+    at both stagnation points. Stored as the (X, Y, Z) traction vector:
+
+        tau = tau_theta * t_hat,   t_hat = (-sin(theta_x), cos(theta_x), 0)
+
+    with a small spanwise Z component from the same spanwise modulation the
+    volume carries, so that component 2 is neither zero nor a copy of another.
+    Three components that were equal per entity would restore the very
+    degeneracy this array exists to remove.
+
+    The NaN sits at the same rear-stagnation vertex the pressure marks, and in
+    ONE component only. That asymmetry is deliberate: it is what distinguishes
+    a per-component ``validCount`` from a per-entity one, which an all-NaN or
+    no-NaN row cannot.
+    """
+    cx, cy = parameters.cylinder_center
+    dx = positions[:, 0].astype(np.float64) - cx
+    dy = positions[:, 1].astype(np.float64) - cy
+    theta = np.arctan2(dy, -dx)
+
+    # Surface tangent in the XY plane, pointing in the direction of increasing
+    # theta. `theta` is measured from -x, so the physical angle is pi - theta.
+    angle = math.pi - theta
+    tangent_x = -np.sin(angle)
+    tangent_y = np.cos(angle)
+
+    # Magnitude: proportional to d/ds of the inviscid surface speed, which is
+    # cos(theta) -- maximum at the shoulders, zero at both stagnation points,
+    # and antisymmetric fore and aft.
+    scale = 0.5 * parameters.density * parameters.inlet_velocity**2
+    magnitude = 0.02 * scale * np.cos(theta) * np.abs(np.sin(theta))
+
+    # Spanwise component: small, and driven by the same spanwise wavenumber the
+    # volume uses, so the two do not tell different stories about the same flow.
+    span = float(parameters.domain[2])
+    wavenumber = 2.0 * math.pi / max(span, 1e-12)
+    z = positions[:, 2].astype(np.float64)
+
+    separated = int(np.argmax(np.abs(theta)))
+
+    for frame, time in enumerate(times):
+        phase = 1.0 + 0.05 * math.sin(
+            2.0 * math.pi * parameters.shedding_frequency * time
+        )
+        spanwise = (
+            0.15
+            * parameters.spanwise_perturbation
+            * np.abs(magnitude)
+            * np.sin(wavenumber * z + 2.0 * math.pi
+                     * parameters.shedding_frequency * time)
+        )
+        values = np.stack(
+            [
+                magnitude * tangent_x * phase,
+                magnitude * tangent_y * phase,
+                spanwise,
+            ],
+            axis=-1,
+        ).astype(np.float32)
+
+        # One component of one vertex, not the whole row: a per-entity
+        # validCount and a per-component one differ only here.
+        values[separated, 0] = np.float32("nan")
+
+        write_cva(
+            root / "meshes" / f"obstacleWallShear_{frame:06d}.cva",
+            values=values,
+            frame_index=frame,
+            simulation_time=time,
+            association=CVA_ASSOC_VERTEX,
+            field_numeric_id=WALL_SHEAR_NUMERIC_ID,
             dtype="float32",
             codec=codec_id_from_name(parameters.codec),
             level=parameters.level,

@@ -766,3 +766,123 @@ def test_the_wall_pressure_changes_between_frames(tiny_case: Path):
     assert not np.array_equal(a[finite], b[finite]), (
         "consecutive frames are identical, so a frame-ignoring reader passes"
     )
+
+
+# ---------------------------------------------------------------------------
+# A multi-component array, so a transposed index is not the identity
+# ---------------------------------------------------------------------------
+#
+# The mutation campaign against `FCFDVizArray::GetElementIndex` found two
+# survivors under the `KnownValues` filter:
+#
+#     GetElementIndex: entity and component transposed
+#     GetElementIndex: upper bound on entity dropped
+#
+# Neither is a missing assertion. The bridge asserts both, and correctly. They
+# survived because every `.cva` in the case has componentCount == 1, and on a
+# one-component array
+#
+#     Entity * ComponentCount + Component  ==  Entity * 1 + 0  ==  Entity
+#     Component * ValueCount  + Entity     ==  0 * N       + Entity == Entity
+#
+# are the SAME FUNCTION. The transposition is the identity map; no assertion
+# over that data can distinguish it, however many are written. The fix is data,
+# not assertions -- which is why these tests are here and not in the C++.
+#
+# The same shape hides the dropped bound: entity `valueCount` on a
+# single-component array indexes element `valueCount`, one past the end of a
+# buffer whose length is exactly `valueCount`. With three components the same
+# entity indexes element `3 * valueCount`, three elements past a buffer of
+# `3 * valueCount` -- and a reader that lost its bound reads adjacent memory in
+# both cases, but only the multi-component case makes the *stride* observable.
+
+def test_the_case_ships_a_multi_component_array(tiny_case: Path):
+    """Some ``.cva`` must have componentCount > 1.
+
+    On a single-component array a transposed element index is the identity, so
+    the bridge's payload comparison passes whether the reader is right or
+    wrong. This is the data property that makes that comparison a check at all.
+    """
+    from cfdviz.cva import read_cva
+
+    counts = {
+        read_cva(path).component_count
+        for path in sorted((tiny_case / "meshes").glob("*.cva"))
+    }
+    assert any(count > 1 for count in counts), (
+        f"every .cva is single-component (counts={sorted(counts)}), so "
+        "entity/component transposition is the identity and cannot be caught"
+    )
+
+
+def test_the_multi_component_values_differ_across_components(tiny_case: Path):
+    """Within one entity, the components must not all be equal.
+
+    componentCount > 1 is necessary but not sufficient. If component 1 held the
+    same number as component 0 for every entity, a transposed read would return
+    the right value from the wrong place and the comparison would still pass.
+    The requirement is that reading (entity, c) and (entity, c') disagree.
+    """
+    from cfdviz.cva import read_cva
+
+    multi = [
+        read_cva(path)
+        for path in sorted((tiny_case / "meshes").glob("*.cva"))
+        if read_cva(path).component_count > 1
+    ]
+    assert multi, "no multi-component array to check"
+    for array in multi:
+        finite = np.isfinite(array.values).all(axis=1)
+        assert finite.any(), "no entity has all components finite"
+        rows = array.values[finite]
+        differs = (rows != rows[:, :1]).any(axis=1)
+        assert differs.any(), (
+            "every entity holds the same value in all components, so a "
+            "transposed read returns the correct number from the wrong place"
+        )
+
+
+def test_a_transposed_index_would_reach_a_different_value(tiny_case: Path):
+    """The differential check: transposing the index must change the answer.
+
+    The two tests above assert properties believed sufficient. This one asserts
+    the consequence directly, by computing both index expressions over the
+    stored buffer and requiring them to disagree somewhere.
+
+    Written this way because the properties above are a *model* of why the
+    transposition becomes visible, and a model can be wrong. This compares the
+    two functions themselves -- the real one and the mutant's -- over the real
+    data. If it ever passes vacuously the assertion below fails, not the test.
+    """
+    from cfdviz.cva import read_cva
+
+    candidates = [
+        array
+        for array in (
+            read_cva(path)
+            for path in sorted((tiny_case / "meshes").glob("*.cva"))
+        )
+        if array.component_count > 1
+    ]
+    assert candidates, "no multi-component array to check"
+    array = candidates[0]
+    flat = array.values.reshape(-1)
+    entities, components = array.value_count, array.component_count
+
+    disagreements = 0
+    for entity in range(entities):
+        for component in range(components):
+            real = entity * components + component
+            transposed = component * entities + entity
+            if transposed >= flat.size:
+                # The mutant runs off the end -- a different bug, caught by the
+                # bounds assertions rather than by a value comparison.
+                continue
+            a, b = flat[real], flat[transposed]
+            if a != b and not (np.isnan(a) and np.isnan(b)):
+                disagreements += 1
+
+    assert disagreements > 0, (
+        "the transposed index returns the same value as the real one for "
+        "every (entity, component), so no payload comparison can catch it"
+    )
