@@ -556,6 +556,17 @@ bool FFlowVizPlaybackFramesTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("every requested frame is a legal index"), Frame >= 0 && Frame <= 4);
 		}
 
+		// COUNT, NOT JUST MEMBERSHIP. The assertions above are all of the form
+		// "nothing illegal appears", which a list that preloads NOTHING also
+		// satisfies. Pinning the exact size is what makes a lost preload slot
+		// visible: at frame 0 with radius 2 the legal neighbourhood is exactly
+		// {0, 1, 2} - A is 0, B collapses onto 0 at an exact frame time, and only
+		// the forward side has anywhere to go.
+		TestEqual(TEXT("at frame 0 a radius-2 preload requests exactly the legal frames"),
+			Requests.Num(), 3);
+		TestTrue(TEXT("at frame 0 the forward preload reaches frame 1"), Requests.Contains(1));
+		TestTrue(TEXT("at frame 0 the forward preload reaches frame 2"), Requests.Contains(2));
+
 		// BOUNDARY: at the last frame there is nothing ahead.
 		const FFlowVizFrameSelection AtEnd = FlowVizPlayback::SelectFrames(Timeline, 10.0, true);
 		FlowVizPlayback::BuildRequestList(Timeline, AtEnd, true, 2, 2, Requests);

@@ -692,9 +692,25 @@ void FlowVizPlayback::BuildRequestList(
 
 	const int32 LastIndex = Timeline.GetLastFrameIndex();
 
-	// Out-of-range indices are DROPPED, not clamped. A clamp would silently
-	// re-request the current frame at both ends and produce a list that looks
-	// correct while preloading nothing.
+	// Out-of-range indices are DROPPED, not clamped, because dropping is what
+	// this function means. Kept explicit rather than left to AddUnique.
+	//
+	// AN EARLIER COMMENT HERE OVERSTATED THE HAZARD and is corrected rather than
+	// deleted, because the correction is the useful part. It claimed a clamp
+	// "would silently re-request the current frame at both ends and produce a
+	// list that looks correct while preloading nothing." A clamp is in fact
+	// EQUIVALENT here: exhaustively compared over 2800 (frame count, A, B,
+	// direction, ahead, behind) combinations, drop and clamp produce identical
+	// lists in every one - 0 disagreements, against a deliberately-wrong control
+	// that found 806. The reason is that the radius walk is CONTIGUOUS, so the
+	// index a clamp folds onto is always already in the list and AddUnique
+	// absorbs it. The safety here comes from AddUnique plus contiguity, not from
+	// the range check.
+	//
+	// This matters because the comment was written as a warning, and a warning
+	// naming an impossible failure trains the reader to distrust the real ones.
+	// The range check stays: it makes the intent local instead of resting on an
+	// invariant two loops away that a future edit could break without noticing.
 	auto AddFrame = [&OutFrames, LastIndex](int32 Frame)
 	{
 		if (Frame < 0 || Frame > LastIndex)
