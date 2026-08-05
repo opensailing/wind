@@ -529,6 +529,29 @@ struct FFlowVizDisplaySelection
 {
 	int32 FrameA = INDEX_NONE;
 	int32 FrameB = INDEX_NONE;
+
+	/**
+	 * DOUBLE HERE, FLOAT AT THE SEAM. Scene/FlowVizVolumeComponent.h's
+	 * FFlowVizVolumeFrameSelection stores Alpha as float, so the adapter that
+	 * feeds IFlowVizVolumeFrameSource must narrow this value - and narrowing is
+	 * not order-preserving near 1.
+	 *
+	 * An alpha of 1 - 1e-8 is a genuine blend in double and rounds to exactly
+	 * 1.0f. Their IsInterpolated() then reports NOT interpolated while FrameA
+	 * and FrameB are still distinct, so the shader blends a frame the UI has
+	 * just declared un-blended - the disclosure failure VISUAL_QA section 1
+	 * rule 5 exists to prevent. It is reachable on the shipped sample's own
+	 * 0.05 spacing: t = 0.10 - 1e-11 gives alpha 0.9999999998 -> 1.0f.
+	 *
+	 * So the adapter must not merely cast. It must re-derive the pair after
+	 * narrowing: if float(Alpha) lands on 0.0f or 1.0f, collapse to the single
+	 * frame that alpha names (A or B respectively) and emit FrameB == FrameA,
+	 * which is the same (F, F, 0) spelling TryBracket already uses for an exact
+	 * landing. Then the two predicates agree on every input.
+	 *
+	 * Verified by narrowing sweep, not by inspection; see the note in the
+	 * seam adapter when it lands.
+	 */
 	double Alpha = 0.0;
 
 	/** Physical time of THIS pair - the time the pixels correspond to, which is what the diagnostics panel must show. */
