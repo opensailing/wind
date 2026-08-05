@@ -1,0 +1,21 @@
+CONTROL-MUST-KILL: CanRead overflow guard replaced with the naive addition
+--
+			return Offset >= 0 && Count >= 0 && Offset <= Size && Count <= Size - Offset;
+--
+			return Offset >= 0 && Count >= 0 && Offset <= Size && Offset + Count <= Size;
+%%
+CONTROL-MUST-SURVIVE: a pure no-op reordering with identical semantics
+--
+			return Offset >= 0 && Count >= 0 && Offset <= Size && Count <= Size - Offset;
+--
+			return Count >= 0 && Offset >= 0 && Offset <= Size && Count <= Size - Offset;
+%%
+CONTROL-MUST-BE-INVALID: a brace-containing replacement that cannot compile
+--
+		bool Seek(int64 Offset)
+		{
+--
+		bool Seek(int64 Offset)
+		{
+			this_identifier_does_not_exist();
+%%

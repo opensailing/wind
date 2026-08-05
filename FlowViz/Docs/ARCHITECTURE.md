@@ -135,7 +135,21 @@ script produced **wrong answers that looked like results**:
 The script is itself verified the same way it verifies tests: it is run against
 three control mutants with known answers — one that *must* be killed, one that
 *must* survive, and one that *must* fail to compile. A harness that cannot
-produce all three verdicts cannot be trusted to report any of them.
+produce all three verdicts cannot be trusted to report any of them. Run
+2026-08-05 against `CFDVizByteCursor.h`:
+
+| Control | Expected | Got |
+| --- | --- | --- |
+| `CanRead`'s overflow guard swapped for the naive `Offset + Count <= Size` | killed | `killed` |
+| the same expression reordered, semantics identical | SURVIVED | `SURVIVED` |
+| a **brace-containing** replacement naming an undeclared identifier | INVALID | `INVALID`, error attributed to `CFDVizByteCursor.h` |
+
+`killed 1  SURVIVED 1  INVALID 1  UNSCORED 0`. The third control is the one
+that matters most: its replacement contains the `{` that broke the old perl
+substitution, it applied intact, and the compile error was traced to the
+mutated file rather than blamed on a sibling. The second matters nearly as
+much — a harness that reported every mutant as killed would be useless in the
+opposite direction, and only a control that *must* survive can detect that.
 
 Adapters named in §5 as *reserved*, deliberately not built:
 `FCFDVizLiveDataSource`, `FCFDVizOpenFOAMAdapter`, `FCFDVizVTKAdapter`. §5A is
