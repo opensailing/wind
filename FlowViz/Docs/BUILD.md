@@ -211,6 +211,37 @@ grep -aq "Result: Succeeded" /tmp/b.log && grep -aoE "run [0-9]+ action\(s\)" /t
 **Check the test name you expect is in the output table.** A count is not a
 roster; `7/7` and `6/6` look equally green.
 
+**The second branch of this, which is worse: an EXISTING test running against
+stale code.** The roster check above catches a new test that vanished. It cannot
+catch a test that is present, runs, and reports on a binary built from source you
+did not write — a changed assertion in a file that was already compiled in, or a
+production fix that never reached the dylib. The name is in the table, the count
+is green, and the result is about somebody else's code. In a shared checkout that
+binary may be a peer's, and may contain their live mutant.
+
+Two agents hit this on 2026-08-05, independently, both having already read the
+warning above. It is not enough to know that `run_tests.sh` does not build; the
+rebuild has to be an unconditional step, because the failure is silent and green
+in both directions — it hides a change you broke AND a change you fixed.
+
+**Wrapping it in `build_lock.sh` does not make it a build.** `build_lock.sh
+./Tools/run_tests.sh …` reads like a build command and serializes like one. It
+runs the editor.
+
+```bash
+# ALWAYS this order. The action count is the evidence, not "Result: Succeeded".
+./Tools/build_lock.sh "/Users/Shared/Epic Games/UE_5.8/Engine/Build/BatchFiles/Mac/Build.sh" \
+    FlowVizEditor Mac Development -Project="$PWD/FlowViz.uproject" -WaitMutex
+RHI=1 ./Tools/build_lock.sh ./Tools/run_tests.sh <filter>
+```
+
+**Zero compiled actions after a source edit means your edit did not reach the
+binary.** That is the tell — it is how the stale-binary run was caught, when a
+comment-only header change reported no recompiled units and an explicit build
+then rebuilt nine. A `.usf` edit is the one exception: shaders compile at
+runtime. The C++ half of a shader change is not exempt, and a half-rebuilt pair
+is exactly how a flag appears to work.
+
 ### A non-zero exit does not mean a test failed
 
 `run_tests.sh` uses distinct exit codes, and anything that *scores* a run must
@@ -282,6 +313,91 @@ stat -f '%Sm %N' <the source> <the .dylib>   # was it edited mid-run?
 
 A source file whose mtime matches the second your test reported the failure
 was being edited while you compiled.
+
+### Declare a mutation window before you break anything
+
+A live mutation does not only corrupt other people's *verdicts*. It corrupts
+their *history*: while a deliberate defect sits in the tree, any other agent
+running `git add -A` or `git commit -a` commits it under their own task's name,
+with an innocent message on top and a green suite beside it. A bad verdict gets
+caught by a re-run. A mis-attributed commit does not — nothing about it looks
+wrong afterward.
+
+So declare the window. `Tools/mutate.sh` does this automatically and needs
+nothing from you. Do it by hand only for a one-line manual break — the case that
+skips the tooling and causes the trouble.
+
+**Do not use a `trap` to clear it.** Each agent shell command runs in its own
+shell, which exits the moment that command returns. A trap installed there fires
+at the end of *that command*, so it clears the marker and reverts your mutation
+before you ever get to the build. What happens next is the trap in both senses:
+you see your edit undone, re-apply it in the following command without the marker
+idiom that appeared to eat it, and now the defect is live with **no window
+declared**. That is not hypothetical — it is how the shader mutants of
+2026-08-05 came to be live in the shared tree while the guard said committing was
+fine. A trap only works inside a single long-running script, which is why
+`mutate.sh` can use one and you cannot.
+
+Arm it in one command, clear it explicitly in a later one:
+
+```bash
+# 1. arm, then break the file (same command or a later one -- no trap)
+MARKER="$(git rev-parse --git-dir)/FLOWVIZ_MUTATION_ACTIVE"
+printf 'purpose=<what you are proving, and which task>\n' > "$MARKER"
+
+# 2. ... build, run the suite, record the verdict, across as many commands
+#    as it takes. The window stays open the whole time, which is correct.
+
+# 3. restore FIRST, verify, and only then close the window
+cp "$BACKUP" "$SRC"
+git diff --stat            # must be empty for the mutated file
+rm "$MARKER"
+```
+
+Restore before clearing, in that order. Clearing first reopens the tree to
+committers while the defect is still in it, which is the exact failure the
+marker exists to prevent.
+
+Record a `purpose=` naming what you are proving. Do not bother recording a pid:
+it belongs to a shell that is already dead by your next command, so it proves
+nothing about whether the run is alive, and a reader who tests it with `ps` will
+conclude a live campaign was abandoned. `mutation_guard.sh` strips pids from the
+refusal for that reason.
+
+`Tools/mutation_guard.sh`, installed as `.git/hooks/pre-commit`, refuses every
+commit in the checkout while that file exists. Install it once per clone:
+
+```bash
+cp FlowViz/Tools/mutation_guard.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
+It lives under `.git/` so it survives the sweeping `git checkout -- .` a mutation
+run ends with, and so it can never itself be staged. It is a file rather than a
+process lock because the dangerous case is the **abandoned** run — the process
+that died between applying the defect and restoring it. A lock would release on
+that death, at the moment protection matters most. A worktree's marker blocks
+only that worktree, which is the isolation you wanted.
+
+**Do not delete the marker to get your commit through.** Verify the tree is clean
+of the mutation first (`git diff`), then clear it.
+
+### Never `reset --hard` or `checkout -- .` in a shared checkout
+
+Both destroy the uncommitted work of every other agent in the tree, with no undo
+— the reflog recovers commits, and their work was never committed. Unrecognised
+modified files are the normal state of a shared checkout, not debris.
+
+This happened on 2026-08-05: an agent smoke-tested the pre-commit hook above with
+an `--allow-empty` commit followed by `reset --hard HEAD~1`, and destroyed three
+of a peer's uncommitted files mid-task. The destructive step was the *cleanup*,
+not the action being tested — an empty commit feels like it touches nothing,
+which is what makes the paired reset feel free.
+
+Smoke-test git behaviour in `mktemp -d` + `git init`. Hooks, aliases and filters
+all behave identically there. If you must verify against the real repo, verify
+only the path that gets REFUSED — the success path is the one that needs undoing.
+For your own files, prefer `git stash push -- <explicit paths you own>` over
+anything sweeping.
 
 ## Running Python tests
 

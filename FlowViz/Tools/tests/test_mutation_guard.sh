@@ -142,6 +142,52 @@ git -C "${REPO}" commit -qm "working-tree marker is not the mechanism" --allow-e
 check "a marker in the working tree does not block (only .git/ counts)" "0" "$?"
 rm -f "${REPO}/FLOWVIZ_MUTATION_ACTIVE"
 
+# --- a dead declaring pid must not read as evidence of abandonment -----------
+#
+# Found by watching a real agent reason from this refusal, 2026-08-05. Every
+# agent Bash call runs in a FRESH shell, so the `pid=$$` a marker records is
+# already dead by the caller's next tool call -- whether the campaign is live
+# or abandoned. `ps -p` therefore says "dead" in both cases and distinguishes
+# nothing.
+#
+# That matters because the refusal offers exactly one destructive remedy: `rm`
+# the marker if the run "was abandoned". Printing a pid beside that sentence
+# hands the reader a liveness test that is always false, and the action it
+# unlocks removes the protection over a genuinely live mutation. The peer who
+# hit this concluded, reasonably and wrongly, that the owner was dead.
+#
+# So the refusal must not print a bare pid, and must say what actually
+# establishes abandonment. Asserted on the real message, not on the file.
+
+printf 'pid=999999 purpose=reason-code differential\n' > "${MARKER}"
+msg="$(git -C "${REPO}" commit -qm "dead pid" --allow-empty 2>&1)"
+rm -f "${MARKER}"
+
+case "${msg}" in
+    *"pid=999999"*) leaks_pid="yes" ;;
+    *)              leaks_pid="no"  ;;
+esac
+check "the refusal does not present a raw pid as a liveness signal" "no" "${leaks_pid}"
+
+# The positive half: having removed the misleading signal, the message must
+# supply a working one. Without this, deleting the pid line alone would pass.
+case "${msg}" in
+    *"fresh shell"*|*"still dead"*|*"not evidence"*) explains_pid="yes" ;;
+    *)                                              explains_pid="no"  ;;
+esac
+check "and it explains why a dead pid proves nothing" "yes" "${explains_pid}"
+
+# The purpose text is the part that DOES identify the owner, so it has to
+# survive. This is what lets a blocked agent find who to ask.
+printf 'pid=999999 purpose=reason-code differential\n' > "${MARKER}"
+msg="$(git -C "${REPO}" commit -qm "purpose shown" --allow-empty 2>&1)"
+rm -f "${MARKER}"
+case "${msg}" in
+    *"reason-code differential"*) shows_purpose="yes" ;;
+    *)                            shows_purpose="no"  ;;
+esac
+check "but the declared purpose is still shown, to identify the owner" "yes" "${shows_purpose}"
+
 echo
 if [[ ${failures} -eq 0 ]]; then
     echo "mutation_guard.sh: ${checks} checks, all passed"

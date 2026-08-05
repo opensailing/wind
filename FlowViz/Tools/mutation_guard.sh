@@ -46,10 +46,21 @@ MARKER="${GIT_DIR_PATH}/FLOWVIZ_MUTATION_ACTIVE"
     echo
     echo "  marker: ${MARKER}"
     echo
+    # The pid is stripped deliberately. Every agent Bash call runs in a fresh
+    # shell, so the recorded pid is dead by the declaring agent's NEXT tool
+    # call -- live campaign or abandoned one, `ps -p` says "dead" either way.
+    # Printing it beside the `rm` instruction below hands the reader a liveness
+    # test that is always false, and the action it unlocks strips protection
+    # from a mutation that is still running. That inference was made, correctly
+    # reasoned from a false signal, on 2026-08-05.
     if [[ -s "${MARKER}" ]]; then
-        echo "  declared by:"
-        sed 's/^/    /' "${MARKER}"
-        echo
+        declared="$(sed -E 's/(^|[[:space:]])pid=[0-9]+[[:space:]]*/\1/g' "${MARKER}" \
+                    | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | grep -v '^$')"
+        if [[ -n "${declared}" ]]; then
+            echo "  declared by:"
+            printf '%s\n' "${declared}" | sed 's/^/    /'
+            echo
+        fi
     fi
     echo "A mutation run has deliberately broken a production file somewhere in"
     echo "this tree. Committing now can capture that defect under YOUR task's"
@@ -61,9 +72,19 @@ MARKER="${GIT_DIR_PATH}/FLOWVIZ_MUTATION_ACTIVE"
     echo "  wait for it to finish, or ask its owner to move to a worktree"
     echo "  (git worktree add ../wind-mutate-<topic> HEAD --detach)."
     echo
-    echo "If the run was abandoned and left this behind, verify the tree is"
-    echo "clean of its mutation FIRST, then clear the window:"
-    echo "  git diff        # confirm no unexplained production edits remain"
+    echo "A dead process is NOT evidence the run was abandoned. Every agent"
+    echo "shell command runs in a fresh shell, so the declaring process is"
+    echo "already gone by its own next command -- 'ps' reports it dead whether"
+    echo "the campaign is live or not, and so distinguishes nothing. What"
+    echo "establishes abandonment is the TREE: an unexplained production edit"
+    echo "with nobody working on it, and a marker whose declared purpose"
+    echo "matches no running task."
+    echo
+    echo "  git diff                    # what is actually modified, and why"
+    echo "  git diff --stat HEAD        # is any of it unexplained?"
+    echo
+    echo "Ask the owner named above before concluding they are gone. Only once"
+    echo "the tree is clean of the mutation:"
     echo "  rm ${MARKER}"
     echo
     echo "Do not delete the marker merely to get your commit through. It is the"
