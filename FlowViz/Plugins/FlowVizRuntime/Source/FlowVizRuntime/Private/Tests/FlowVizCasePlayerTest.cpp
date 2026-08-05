@@ -1461,6 +1461,40 @@ bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
 	}
 
 	// ---------------------------------------------------------------------
+	// A SELF-PAIR IS ALREADY COLLAPSED, at every alpha.
+	//
+	// Found by mutation: removing the `FrameB == FrameA` arm of the early-out
+	// SURVIVED the rest of this test. Nothing else here builds a selection whose
+	// two frames are equal while alpha is a strict mid-range blend, so nothing
+	// noticed that such a pair shipped a nonzero alpha.
+	//
+	// It is not a disclosure bug - IsInterpolated() is already false when the
+	// frames match, so the UI stays honest - which is exactly why no existing
+	// assertion caught it. It is a WASTED BLEND: the shader is handed a weight
+	// and told to interpolate frame N against frame N. The reason to reject it
+	// is that "alpha is meaningless when the frames are the same" then stops
+	// being true of the value actually crossing the seam, and the next person to
+	// read alpha without also checking FrameB gets a number that means nothing.
+	// ---------------------------------------------------------------------
+	{
+		for (const double SelfAlpha : { 0.0, 0.25, 0.5, 1.0 - 1.0e-11, 1.0 })
+		{
+			FFlowVizDisplaySelection Display;
+			Display.FrameA = 5;
+			Display.FrameB = 5;
+			Display.Alpha = SelfAlpha;
+
+			const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Display);
+			TestEqual(TEXT("a self-pair keeps its frame"), Seam.FrameA, 5);
+			TestEqual(TEXT("a self-pair stays a self-pair"), Seam.FrameB, 5);
+			TestTrue(TEXT("a self-pair carries alpha 0 whatever alpha was asked for"),
+				Seam.Alpha == 0.0f);
+			TestFalse(TEXT("a self-pair is never disclosed as interpolated"),
+				Seam.IsInterpolated());
+		}
+	}
+
+	// ---------------------------------------------------------------------
 	// An empty display must produce nothing drawable, not frame 0. Distinct
 	// from the collapse cases: those have a frame, this has none.
 	// ---------------------------------------------------------------------
