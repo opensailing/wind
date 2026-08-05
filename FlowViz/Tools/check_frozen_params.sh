@@ -256,6 +256,19 @@ sort -u -o "${WORK}/written.txt" "${WORK}/written.txt"
 # scan cannot see whether the call actually runs, so an included-but-never-called
 # writer still passes. It catches the case that actually occurred -- a writer with
 # no production mention at all -- and the UNSCORED wording claims nothing more.
+#
+# MEASURED 2026-08-05, so the sentence above is a control result and not a
+# hedge. On a scratch copy of the module:
+#
+#   seam call deleted from the dispatcher ..... exit 0, "all reachable"
+#   view model .cpp deleted entirely ......... exit 1, the same 16 named
+#
+# Deleting the one line that applies the settings is invisible here. Only the
+# writer's existence-and-reference is being measured. So exit 0 from this script
+# is NOT evidence that a user can select a composite mode -- that question is
+# answered by the mutation campaign in Tools/mutants/render-settings-seam.txt,
+# where the deleted seam is KILLED by FlowViz.Render.SettingsSeam. Read the two
+# together; neither alone covers the defect.
 
 : > "${WORK}/orphans.txt"
 while IFS= read -r f; do

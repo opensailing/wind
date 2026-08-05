@@ -184,6 +184,13 @@ namespace FlowVizVolumeRayMarchProduction
 		 * produce IsoSurface" -- already true, already covered -- and "asking
 		 * the scene for IsoSurface produces a request that says IsoSurface",
 		 * which is the only version of the question the defect could fail.
+		 *
+		 * MEASURED after the rewrite, in an isolated worktree
+		 * (Tools/mutants/render-settings-seam.txt): deleting the seam call is now
+		 * KILLED, as are inverting the order so FillDefaults runs last, and
+		 * applying the settings to a scratch copy. The identity control -- a
+		 * comment, no behaviour change -- SURVIVED, so those three kills are the
+		 * suite discriminating rather than a standing red scoring everything.
 		 */
 		bool PeekRequestParameters(int32 Index, FFlowVizVolumeRayMarchParameters& OutParameters) const;
 
