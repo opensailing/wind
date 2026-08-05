@@ -113,6 +113,8 @@ to confirm that work is done.
 1. **Blind comparison.** The critic is shown the FlowViz render and a
    film/AAA/publication reference **without being told which is which**, and
    must state which is better and why. Labelling them first destroys the test.
+   `Tools/capture/blind.py` implements this — see §3.1. Do not hand-roll it;
+   the failure modes are not the ones you expect.
 2. **The default verdict is REJECT.** "Looks good" is not a passing verdict.
    A pass requires stating specifically what makes it good.
 3. **Findings must be actionable and specific.** "Banding visible in the
@@ -138,6 +140,46 @@ to confirm that work is done.
 The loop continues until `PASS` or better. `WEAK` is not a passing grade — it
 is the most common self-deception in this kind of work, because "no specific
 thing is wrong" feels like success while the result is still visibly inferior.
+
+`blind.should_continue()` encodes exactly this: it returns `True` for `WEAK`.
+
+---
+
+## 3.1 The blind harness
+
+```python
+from blind import seal, audit, reveal, parse_report, should_continue
+
+sealed = seal(candidate_png, reference_png, shown_dir, key_json)
+leaks = audit(sealed)          # MUST be empty before the critic is asked
+report = parse_report(critic_output)
+preferred = reveal(sealed.record_path, "A")   # -> "candidate" | "reference"
+```
+
+Point the critic at `shown_dir` and nothing else. It contains exactly `A.png`
+and `B.png`, in an order decided per comparison.
+
+**Run `audit()` before asking the critic anything.** A leaked comparison does
+not produce a weaker verdict — it produces a worthless one, and afterwards it
+is indistinguishable from a real one. What it catches, all of which have ended
+blind tests in practice:
+
+| Leak | Why it ends the test |
+| --- | --- |
+| Mismatched resolution | The 3840-wide one is the film still. Also already forbidden by §4. |
+| PNG `tEXt` metadata | Renderers stamp themselves: `Software: Unreal Engine`. |
+| Identifying filename | `flowviz_0012.png` beside `avatar_still.png`. |
+| Answer key in `shown_dir` | The critic lists the directory. `seal()` refuses this outright. |
+
+The subtlest one is ordering. If the candidate is always `A`, the critic learns
+that after a single round and every later verdict is sighted. That is why
+`test_both_orderings_actually_occur` runs 40 seeds and requires both — a
+stubbed-out shuffle passes every other test in the file.
+
+`parse_report()` rejects a `PASS` whose `WHAT WORKS` is empty or says only
+"looks good", per the rule above that a pass must state specifically what makes
+it good. Enforcing it at parse time is the difference between a rule and a
+suggestion.
 
 ### Required output format
 
