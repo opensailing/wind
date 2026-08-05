@@ -223,7 +223,6 @@ namespace FlowVizSessionLocal
 	}
 }
 
-using namespace FlowVizSessionLocal;
 
 const TCHAR* FlowVizSession::GetFormatName()
 {
@@ -246,9 +245,9 @@ FCFDVizResult FlowVizSession::SaveToString(
 {
 	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 
-	Root->SetStringField(KeyFormat, GetFormatName());
-	Root->SetNumberField(KeyVersionMajor, FormatVersionMajor);
-	Root->SetNumberField(KeyVersionMinor, FormatVersionMinor);
+	Root->SetStringField(FlowVizSessionLocal::KeyFormat, GetFormatName());
+	Root->SetNumberField(FlowVizSessionLocal::KeyVersionMajor, FormatVersionMajor);
+	Root->SetNumberField(FlowVizSessionLocal::KeyVersionMinor, FormatVersionMinor);
 
 	/* --- Case ------------------------------------------------------------- */
 
@@ -283,8 +282,8 @@ FCFDVizResult FlowVizSession::SaveToString(
 	Root->SetNumberField(TEXT("physicalTime"), State.PhysicalTime);
 	{
 		TSharedRef<FJsonObject> Playback = MakeShared<FJsonObject>();
-		Playback->SetStringField(TEXT("mode"), PlaybackModeToString(State.Playback.Mode));
-		Playback->SetStringField(TEXT("loop"), LoopModeToString(State.Playback.LoopMode));
+		Playback->SetStringField(TEXT("mode"), FlowVizSessionLocal::PlaybackModeToString(State.Playback.Mode));
+		Playback->SetStringField(TEXT("loop"), FlowVizSessionLocal::LoopModeToString(State.Playback.LoopMode));
 		Playback->SetNumberField(TEXT("speed"), State.Playback.Speed);
 		Playback->SetNumberField(TEXT("sequenceFrameRate"), State.Playback.SequenceFrameRate);
 		Playback->SetNumberField(TEXT("outputFrameRate"), State.Playback.OutputFrameRate);
@@ -299,8 +298,8 @@ FCFDVizResult FlowVizSession::SaveToString(
 	Root->SetStringField(TEXT("colorMap"), CFDViz::ColorMaps::GetName(State.ColorMap).ToString());
 	Root->SetBoolField(TEXT("reverseColorMap"), State.bReverseColorMap);
 	Root->SetNumberField(TEXT("colorBands"), State.ColorBands);
-	Root->SetStringField(TEXT("component"), ComponentToString(State.Component));
-	Root->SetStringField(TEXT("rangeSource"), RangeSourceToString(State.RangeSource));
+	Root->SetStringField(TEXT("component"), FlowVizSessionLocal::ComponentToString(State.Component));
+	Root->SetStringField(TEXT("rangeSource"), FlowVizSessionLocal::RangeSourceToString(State.RangeSource));
 	Root->SetNumberField(TEXT("rangeMin"), State.RangeMin);
 	Root->SetNumberField(TEXT("rangeMax"), State.RangeMax);
 	{
@@ -325,7 +324,7 @@ FCFDVizResult FlowVizSession::SaveToString(
 		for (const FFlowVizClipPlane& Plane : State.ClipPlanes)
 		{
 			TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
-			Entry->SetObjectField(TEXT("normal"), MakeVector(Plane.Normal));
+			Entry->SetObjectField(TEXT("normal"), FlowVizSessionLocal::MakeVector(Plane.Normal));
 			Entry->SetNumberField(TEXT("distance"), Plane.Distance);
 			Entry->SetStringField(TEXT("label"), Plane.Label);
 			// A DISABLED PLANE IS PERSISTED. Writing only enabled planes would
@@ -338,8 +337,8 @@ FCFDVizResult FlowVizSession::SaveToString(
 	{
 		TSharedRef<FJsonObject> Crop = MakeShared<FJsonObject>();
 		Crop->SetBoolField(TEXT("active"), State.bHasCropBox);
-		Crop->SetObjectField(TEXT("min"), MakeVector(State.CropMin));
-		Crop->SetObjectField(TEXT("max"), MakeVector(State.CropMax));
+		Crop->SetObjectField(TEXT("min"), FlowVizSessionLocal::MakeVector(State.CropMin));
+		Crop->SetObjectField(TEXT("max"), FlowVizSessionLocal::MakeVector(State.CropMax));
 		Root->SetObjectField(TEXT("cropBox"), Crop);
 	}
 
@@ -348,11 +347,11 @@ FCFDVizResult FlowVizSession::SaveToString(
 	{
 		TSharedRef<FJsonObject> Slice = MakeShared<FJsonObject>();
 		Slice->SetBoolField(TEXT("active"), State.bHasSlice);
-		Slice->SetObjectField(TEXT("origin"), MakeVector(State.SliceOrigin));
-		Slice->SetObjectField(TEXT("normal"), MakeVector(State.SliceNormal));
+		Slice->SetObjectField(TEXT("origin"), FlowVizSessionLocal::MakeVector(State.SliceOrigin));
+		Slice->SetObjectField(TEXT("normal"), FlowVizSessionLocal::MakeVector(State.SliceNormal));
 		Slice->SetNumberField(TEXT("thickness"), State.SliceThickness);
 		Slice->SetNumberField(TEXT("slabSamples"), State.SliceSlabSamples);
-		Slice->SetStringField(TEXT("slabOp"), SlabOpToString(State.SliceSlabOp));
+		Slice->SetStringField(TEXT("slabOp"), FlowVizSessionLocal::SlabOpToString(State.SliceSlabOp));
 		Slice->SetBoolField(TEXT("visible"), State.bSliceVisible);
 		Root->SetObjectField(TEXT("slice"), Slice);
 	}
@@ -370,7 +369,7 @@ FCFDVizResult FlowVizSession::SaveToString(
 			Entry->SetStringField(TEXT("name"), Probe.Name);
 			// SOLVER UNITS. Writing centimetres would make a session opened against
 			// a differently scaled case probe a different cell.
-			Entry->SetObjectField(TEXT("solverPosition"), MakeVector(Probe.SolverPosition));
+			Entry->SetObjectField(TEXT("solverPosition"), FlowVizSessionLocal::MakeVector(Probe.SolverPosition));
 			Entry->SetBoolField(TEXT("visible"), Probe.bVisible);
 			// The last reading is NOT persisted: it is a measurement of a frame,
 			// derivable by re-sampling, and a stale one restored beside a live
@@ -382,8 +381,8 @@ FCFDVizResult FlowVizSession::SaveToString(
 	{
 		TSharedRef<FJsonObject> Line = MakeShared<FJsonObject>();
 		Line->SetBoolField(TEXT("active"), State.bHasLineProbe);
-		Line->SetObjectField(TEXT("start"), MakeVector(State.LineStart));
-		Line->SetObjectField(TEXT("end"), MakeVector(State.LineEnd));
+		Line->SetObjectField(TEXT("start"), FlowVizSessionLocal::MakeVector(State.LineStart));
+		Line->SetObjectField(TEXT("end"), FlowVizSessionLocal::MakeVector(State.LineEnd));
 		Line->SetNumberField(TEXT("samples"), State.LineSamples);
 		Root->SetObjectField(TEXT("lineProbe"), Line);
 	}
@@ -394,7 +393,7 @@ FCFDVizResult FlowVizSession::SaveToString(
 	{
 		TSharedRef<FJsonObject> Camera = MakeShared<FJsonObject>();
 		Camera->SetBoolField(TEXT("active"), State.bHasCamera);
-		Camera->SetObjectField(TEXT("location"), MakeVector(State.CameraLocation));
+		Camera->SetObjectField(TEXT("location"), FlowVizSessionLocal::MakeVector(State.CameraLocation));
 		TSharedRef<FJsonObject> Rotation = MakeShared<FJsonObject>();
 		Rotation->SetNumberField(TEXT("pitch"), State.CameraRotation.Pitch);
 		Rotation->SetNumberField(TEXT("yaw"), State.CameraRotation.Yaw);
@@ -458,7 +457,7 @@ FCFDVizResult FlowVizSession::LoadFromString(
 			FString::Printf(TEXT("session is not valid JSON: %s"), *Reader->GetErrorMessage()));
 	}
 
-	const FString Format = ReadString(Root, KeyFormat);
+	const FString Format = FlowVizSessionLocal::ReadString(Root, FlowVizSessionLocal::KeyFormat);
 	if (Format != GetFormatName())
 	{
 		return FCFDVizResult::Fail(
@@ -468,7 +467,7 @@ FCFDVizResult FlowVizSession::LoadFromString(
 	}
 
 	int32 Major = FormatVersionMajor;
-	ReadInt(Root, KeyVersionMajor, Major);
+	FlowVizSessionLocal::ReadInt(Root, FlowVizSessionLocal::KeyVersionMajor, Major);
 	if (Major > FormatVersionMajor)
 	{
 		/*
@@ -487,8 +486,8 @@ FCFDVizResult FlowVizSession::LoadFromString(
 
 	/* --- Case ------------------------------------------------------------- */
 
-	Parsed.CasePath = ReadString(Root, TEXT("case"));
-	Parsed.FieldId = FName(*ReadString(Root, TEXT("field")));
+	Parsed.CasePath = FlowVizSessionLocal::ReadString(Root, TEXT("case"));
+	Parsed.FieldId = FName(*FlowVizSessionLocal::ReadString(Root, TEXT("field")));
 
 	if (!Parsed.CasePath.IsEmpty())
 	{
@@ -512,26 +511,26 @@ FCFDVizResult FlowVizSession::LoadFromString(
 
 	/* --- Playback --------------------------------------------------------- */
 
-	ReadNumber(Root, TEXT("physicalTime"), Parsed.PhysicalTime);
+	FlowVizSessionLocal::ReadNumber(Root, TEXT("physicalTime"), Parsed.PhysicalTime);
 	{
 		const TSharedPtr<FJsonObject>* Playback = nullptr;
 		if (Root->TryGetObjectField(TEXT("playback"), Playback) && Playback != nullptr)
 		{
-			Parsed.Playback.Mode = PlaybackModeFromString(ReadString(*Playback, TEXT("mode")));
-			Parsed.Playback.LoopMode = LoopModeFromString(ReadString(*Playback, TEXT("loop")));
-			ReadNumber(*Playback, TEXT("speed"), Parsed.Playback.Speed);
-			ReadNumber(*Playback, TEXT("sequenceFrameRate"), Parsed.Playback.SequenceFrameRate);
-			ReadNumber(*Playback, TEXT("outputFrameRate"), Parsed.Playback.OutputFrameRate);
-			ReadBool(*Playback, TEXT("interpolate"), Parsed.Playback.bInterpolate);
-			ReadInt(*Playback, TEXT("preloadAhead"), Parsed.Playback.PreloadAhead);
-			ReadInt(*Playback, TEXT("preloadBehind"), Parsed.Playback.PreloadBehind);
+			Parsed.Playback.Mode = FlowVizSessionLocal::PlaybackModeFromString(FlowVizSessionLocal::ReadString(*Playback, TEXT("mode")));
+			Parsed.Playback.LoopMode = FlowVizSessionLocal::LoopModeFromString(FlowVizSessionLocal::ReadString(*Playback, TEXT("loop")));
+			FlowVizSessionLocal::ReadNumber(*Playback, TEXT("speed"), Parsed.Playback.Speed);
+			FlowVizSessionLocal::ReadNumber(*Playback, TEXT("sequenceFrameRate"), Parsed.Playback.SequenceFrameRate);
+			FlowVizSessionLocal::ReadNumber(*Playback, TEXT("outputFrameRate"), Parsed.Playback.OutputFrameRate);
+			FlowVizSessionLocal::ReadBool(*Playback, TEXT("interpolate"), Parsed.Playback.bInterpolate);
+			FlowVizSessionLocal::ReadInt(*Playback, TEXT("preloadAhead"), Parsed.Playback.PreloadAhead);
+			FlowVizSessionLocal::ReadInt(*Playback, TEXT("preloadBehind"), Parsed.Playback.PreloadBehind);
 		}
 	}
 
 	/* --- Colouring -------------------------------------------------------- */
 
 	{
-		const FString ColorMapName = ReadString(Root, TEXT("colorMap"));
+		const FString ColorMapName = FlowVizSessionLocal::ReadString(Root, TEXT("colorMap"));
 		ECFDVizColorMap ColorMap = CFDViz::ColorMaps::Default;
 		// An unrecognised name falls back to the documented default rather than
 		// failing the load: a session written by a build with an extra colormap
@@ -539,17 +538,17 @@ FCFDVizResult FlowVizSession::LoadFromString(
 		CFDViz::ColorMaps::TryParse(FName(*ColorMapName), ColorMap);
 		Parsed.ColorMap = ColorMap;
 	}
-	ReadBool(Root, TEXT("reverseColorMap"), Parsed.bReverseColorMap);
-	ReadInt(Root, TEXT("colorBands"), Parsed.ColorBands);
-	Parsed.Component = ComponentFromString(ReadString(Root, TEXT("component")));
-	Parsed.RangeSource = RangeSourceFromString(ReadString(Root, TEXT("rangeSource")));
-	ReadFloat(Root, TEXT("rangeMin"), Parsed.RangeMin);
-	ReadFloat(Root, TEXT("rangeMax"), Parsed.RangeMax);
+	FlowVizSessionLocal::ReadBool(Root, TEXT("reverseColorMap"), Parsed.bReverseColorMap);
+	FlowVizSessionLocal::ReadInt(Root, TEXT("colorBands"), Parsed.ColorBands);
+	Parsed.Component = FlowVizSessionLocal::ComponentFromString(FlowVizSessionLocal::ReadString(Root, TEXT("component")));
+	Parsed.RangeSource = FlowVizSessionLocal::RangeSourceFromString(FlowVizSessionLocal::ReadString(Root, TEXT("rangeSource")));
+	FlowVizSessionLocal::ReadFloat(Root, TEXT("rangeMin"), Parsed.RangeMin);
+	FlowVizSessionLocal::ReadFloat(Root, TEXT("rangeMax"), Parsed.RangeMax);
 	{
 		const TSharedPtr<FJsonObject>* Opacity = nullptr;
 		if (Root->TryGetObjectField(TEXT("opacity"), Opacity) && Opacity != nullptr)
 		{
-			ReadFloat(*Opacity, TEXT("multiplier"), Parsed.Opacity.OpacityMultiplier);
+			FlowVizSessionLocal::ReadFloat(*Opacity, TEXT("multiplier"), Parsed.Opacity.OpacityMultiplier);
 			const TArray<TSharedPtr<FJsonValue>>* Points = nullptr;
 			if ((*Opacity)->TryGetArrayField(TEXT("points"), Points) && Points != nullptr)
 			{
@@ -561,8 +560,8 @@ FCFDVizResult FlowVizSession::LoadFromString(
 						continue;
 					}
 					FFlowVizOpacityPoint Point;
-					ReadFloat(*Entry, TEXT("position"), Point.Position);
-					ReadFloat(*Entry, TEXT("opacity"), Point.Opacity);
+					FlowVizSessionLocal::ReadFloat(*Entry, TEXT("position"), Point.Position);
+					FlowVizSessionLocal::ReadFloat(*Entry, TEXT("opacity"), Point.Opacity);
 					Parsed.Opacity.Points.Add(Point);
 				}
 			}
@@ -583,17 +582,17 @@ FCFDVizResult FlowVizSession::LoadFromString(
 					continue;
 				}
 				FFlowVizClipPlane Plane;
-				if (!TryReadVector(*Entry, TEXT("normal"), Plane.Normal))
+				if (!FlowVizSessionLocal::TryReadVector(*Entry, TEXT("normal"), Plane.Normal))
 				{
 					// A plane with no normal is not a plane. Skipped rather than
 					// restored as a default that would clip an arbitrary half.
 					continue;
 				}
-				ReadNumber(*Entry, TEXT("distance"), Plane.Distance);
-				Plane.Label = ReadString(*Entry, TEXT("label"));
+				FlowVizSessionLocal::ReadNumber(*Entry, TEXT("distance"), Plane.Distance);
+				Plane.Label = FlowVizSessionLocal::ReadString(*Entry, TEXT("label"));
 				// Defaults to enabled when absent, matching the struct.
 				Plane.bEnabled = true;
-				ReadBool(*Entry, TEXT("enabled"), Plane.bEnabled);
+				FlowVizSessionLocal::ReadBool(*Entry, TEXT("enabled"), Plane.bEnabled);
 				Parsed.ClipPlanes.Add(Plane);
 			}
 		}
@@ -602,9 +601,9 @@ FCFDVizResult FlowVizSession::LoadFromString(
 		const TSharedPtr<FJsonObject>* Crop = nullptr;
 		if (Root->TryGetObjectField(TEXT("cropBox"), Crop) && Crop != nullptr)
 		{
-			ReadBool(*Crop, TEXT("active"), Parsed.bHasCropBox);
-			TryReadVector(*Crop, TEXT("min"), Parsed.CropMin);
-			TryReadVector(*Crop, TEXT("max"), Parsed.CropMax);
+			FlowVizSessionLocal::ReadBool(*Crop, TEXT("active"), Parsed.bHasCropBox);
+			FlowVizSessionLocal::TryReadVector(*Crop, TEXT("min"), Parsed.CropMin);
+			FlowVizSessionLocal::TryReadVector(*Crop, TEXT("max"), Parsed.CropMax);
 		}
 	}
 
@@ -614,13 +613,13 @@ FCFDVizResult FlowVizSession::LoadFromString(
 		const TSharedPtr<FJsonObject>* Slice = nullptr;
 		if (Root->TryGetObjectField(TEXT("slice"), Slice) && Slice != nullptr)
 		{
-			ReadBool(*Slice, TEXT("active"), Parsed.bHasSlice);
-			TryReadVector(*Slice, TEXT("origin"), Parsed.SliceOrigin);
-			TryReadVector(*Slice, TEXT("normal"), Parsed.SliceNormal);
-			ReadNumber(*Slice, TEXT("thickness"), Parsed.SliceThickness);
-			ReadInt(*Slice, TEXT("slabSamples"), Parsed.SliceSlabSamples);
-			Parsed.SliceSlabOp = SlabOpFromString(ReadString(*Slice, TEXT("slabOp")));
-			ReadBool(*Slice, TEXT("visible"), Parsed.bSliceVisible);
+			FlowVizSessionLocal::ReadBool(*Slice, TEXT("active"), Parsed.bHasSlice);
+			FlowVizSessionLocal::TryReadVector(*Slice, TEXT("origin"), Parsed.SliceOrigin);
+			FlowVizSessionLocal::TryReadVector(*Slice, TEXT("normal"), Parsed.SliceNormal);
+			FlowVizSessionLocal::ReadNumber(*Slice, TEXT("thickness"), Parsed.SliceThickness);
+			FlowVizSessionLocal::ReadInt(*Slice, TEXT("slabSamples"), Parsed.SliceSlabSamples);
+			Parsed.SliceSlabOp = FlowVizSessionLocal::SlabOpFromString(FlowVizSessionLocal::ReadString(*Slice, TEXT("slabOp")));
+			FlowVizSessionLocal::ReadBool(*Slice, TEXT("visible"), Parsed.bSliceVisible);
 		}
 	}
 
@@ -638,21 +637,21 @@ FCFDVizResult FlowVizSession::LoadFromString(
 					continue;
 				}
 				FFlowVizProbe Probe;
-				const FString IdText = ReadString(*Entry, TEXT("id"));
+				const FString IdText = FlowVizSessionLocal::ReadString(*Entry, TEXT("id"));
 				if (!FGuid::Parse(IdText, Probe.Id))
 				{
 					// A NEW ID, NOT A REFUSAL: an unparseable id costs the probe's
 					// chart-series linkage, which is worth less than the probe.
 					Probe.Id = FGuid::NewGuid();
 				}
-				Probe.Name = ReadString(*Entry, TEXT("name"));
-				if (!TryReadVector(*Entry, TEXT("solverPosition"), Probe.SolverPosition))
+				Probe.Name = FlowVizSessionLocal::ReadString(*Entry, TEXT("name"));
+				if (!FlowVizSessionLocal::TryReadVector(*Entry, TEXT("solverPosition"), Probe.SolverPosition))
 				{
 					// A probe with no position samples nothing.
 					continue;
 				}
 				Probe.bVisible = true;
-				ReadBool(*Entry, TEXT("visible"), Probe.bVisible);
+				FlowVizSessionLocal::ReadBool(*Entry, TEXT("visible"), Probe.bVisible);
 				Parsed.Probes.Add(Probe);
 			}
 		}
@@ -661,22 +660,22 @@ FCFDVizResult FlowVizSession::LoadFromString(
 		const TSharedPtr<FJsonObject>* Line = nullptr;
 		if (Root->TryGetObjectField(TEXT("lineProbe"), Line) && Line != nullptr)
 		{
-			ReadBool(*Line, TEXT("active"), Parsed.bHasLineProbe);
-			TryReadVector(*Line, TEXT("start"), Parsed.LineStart);
-			TryReadVector(*Line, TEXT("end"), Parsed.LineEnd);
-			ReadInt(*Line, TEXT("samples"), Parsed.LineSamples);
+			FlowVizSessionLocal::ReadBool(*Line, TEXT("active"), Parsed.bHasLineProbe);
+			FlowVizSessionLocal::TryReadVector(*Line, TEXT("start"), Parsed.LineStart);
+			FlowVizSessionLocal::TryReadVector(*Line, TEXT("end"), Parsed.LineEnd);
+			FlowVizSessionLocal::ReadInt(*Line, TEXT("samples"), Parsed.LineSamples);
 		}
 	}
 
 	/* --- Workspace -------------------------------------------------------- */
 
-	ReadBool(Root, TEXT("presentationMode"), Parsed.bPresentationMode);
+	FlowVizSessionLocal::ReadBool(Root, TEXT("presentationMode"), Parsed.bPresentationMode);
 	{
 		const TSharedPtr<FJsonObject>* Camera = nullptr;
 		if (Root->TryGetObjectField(TEXT("camera"), Camera) && Camera != nullptr)
 		{
-			ReadBool(*Camera, TEXT("active"), Parsed.bHasCamera);
-			TryReadVector(*Camera, TEXT("location"), Parsed.CameraLocation);
+			FlowVizSessionLocal::ReadBool(*Camera, TEXT("active"), Parsed.bHasCamera);
+			FlowVizSessionLocal::TryReadVector(*Camera, TEXT("location"), Parsed.CameraLocation);
 			const TSharedPtr<FJsonObject>* Rotation = nullptr;
 			if ((*Camera)->TryGetObjectField(TEXT("rotation"), Rotation) && Rotation != nullptr)
 			{

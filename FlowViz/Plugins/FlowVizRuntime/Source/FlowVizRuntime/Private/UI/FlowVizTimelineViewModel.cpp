@@ -40,7 +40,6 @@ namespace FlowVizTimelineViewModelLocal
 	}
 }
 
-using namespace FlowVizTimelineViewModelLocal;
 
 /* ========================================================================== */
 /* Binding                                                                     */
@@ -96,7 +95,7 @@ FCFDVizResult FFlowVizTimelineViewModel::Play()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!CanPlay())
 	{
@@ -104,7 +103,7 @@ FCFDVizResult FFlowVizTimelineViewModel::Play()
 		// while Play() quietly succeeds is worse than either alone: the button is
 		// disabled, so nobody discovers the disagreement until a keyboard shortcut
 		// or a session reload calls the method directly.
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	Player->Play();
 	return FCFDVizResult::Ok();
@@ -114,11 +113,11 @@ FCFDVizResult FFlowVizTimelineViewModel::Pause()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!CanPause())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	Player->Pause();
 	return FCFDVizResult::Ok();
@@ -128,7 +127,7 @@ FCFDVizResult FFlowVizTimelineViewModel::TogglePlayPause()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	return Player->IsPlaying() ? Pause() : Play();
 }
@@ -137,11 +136,11 @@ FCFDVizResult FFlowVizTimelineViewModel::Stop()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!HasFrames())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	// Stop is legal on a single-frame case even though Play is not: it is a
 	// rewind, and rewinding a one-frame case is a defined no-op rather than a
@@ -154,11 +153,11 @@ FCFDVizResult FFlowVizTimelineViewModel::GoToFirstFrame()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!HasFrames())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	Player->SeekToFirstFrame();
 	return FCFDVizResult::Ok();
@@ -168,11 +167,11 @@ FCFDVizResult FFlowVizTimelineViewModel::GoToLastFrame()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!HasFrames())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	Player->SeekToLastFrame();
 	return FCFDVizResult::Ok();
@@ -182,11 +181,11 @@ FCFDVizResult FFlowVizTimelineViewModel::StepForward()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!CanStep())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	// PAUSE FIRST, THEN STEP. The other order works today because StepFrames does
 	// not consult bPlaying, but it depends on that and would break silently if it
@@ -201,11 +200,11 @@ FCFDVizResult FFlowVizTimelineViewModel::StepBackward()
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!CanStep())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	Player->Pause();
 	Player->StepFrames(-1);
@@ -216,11 +215,11 @@ FCFDVizResult FFlowVizTimelineViewModel::ScrubToNormalized(double Normalized)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!CanScrub())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	if (!FMath::IsFinite(Normalized))
 	{
@@ -241,11 +240,11 @@ FCFDVizResult FFlowVizTimelineViewModel::ScrubToTime(double Time)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!CanScrub())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	if (!FMath::IsFinite(Time))
 	{
@@ -260,11 +259,11 @@ FCFDVizResult FFlowVizTimelineViewModel::ScrubToFrame(int32 FrameIndex)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	if (!HasFrames())
 	{
-		return MakeNoCaseResult();
+		return FlowVizTimelineViewModelLocal::MakeNoCaseResult();
 	}
 	const int32 FrameCount = Player->GetTimeline().GetFrameCount();
 	if (FrameIndex < 0 || FrameIndex >= FrameCount)
@@ -290,7 +289,7 @@ FCFDVizResult FFlowVizTimelineViewModel::SetSpeedPresetIndex(int32 PresetIndex)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	// Forwarded, not re-validated: FFlowVizCasePlayer::SetSpeedPreset already
 	// range-checks the index and applies nothing on failure.
@@ -301,7 +300,7 @@ FCFDVizResult FFlowVizTimelineViewModel::SetCustomSpeed(double Speed)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	return Player->SetSpeed(Speed);
 }
@@ -339,7 +338,7 @@ FCFDVizResult FFlowVizTimelineViewModel::SetLoopMode(EFlowVizLoopMode LoopMode)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	Player->SetLoopMode(LoopMode);
 	return FCFDVizResult::Ok();
@@ -354,7 +353,7 @@ FCFDVizResult FFlowVizTimelineViewModel::SetPlaybackMode(EFlowVizPlaybackMode Mo
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	Player->SetMode(Mode);
 	return FCFDVizResult::Ok();
@@ -369,7 +368,7 @@ FCFDVizResult FFlowVizTimelineViewModel::SetInterpolationEnabled(bool bEnabled)
 {
 	if (Player == nullptr)
 	{
-		return MakeUnboundResult();
+		return FlowVizTimelineViewModelLocal::MakeUnboundResult();
 	}
 	Player->SetInterpolationEnabled(bEnabled);
 	return FCFDVizResult::Ok();

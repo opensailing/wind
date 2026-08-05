@@ -30,7 +30,6 @@ namespace FlowVizSliceViewModelLocal
 	}
 }
 
-using namespace FlowVizSliceViewModelLocal;
 
 /* ========================================================================== */
 /* Domain                                                                      */
@@ -38,7 +37,7 @@ using namespace FlowVizSliceViewModelLocal;
 
 FCFDVizResult FFlowVizSliceViewModel::SetDomainSize(const FVector& PhysicalSize)
 {
-	if (!IsFiniteVector(PhysicalSize))
+	if (!FlowVizSliceViewModelLocal::IsFiniteVector(PhysicalSize))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A domain size must be finite on every axis"));
@@ -62,7 +61,7 @@ FCFDVizResult FFlowVizSliceViewModel::SetDomainSize(const FVector& PhysicalSize)
 
 FCFDVizResult FFlowVizSliceViewModel::SetOrigin(const FVector& LocalOrigin)
 {
-	if (!IsFiniteVector(LocalOrigin))
+	if (!FlowVizSliceViewModelLocal::IsFiniteVector(LocalOrigin))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A slice origin must be finite"));
@@ -76,7 +75,7 @@ FCFDVizResult FFlowVizSliceViewModel::SetOrigin(const FVector& LocalOrigin)
 
 FCFDVizResult FFlowVizSliceViewModel::SetNormal(const FVector& InNormal)
 {
-	if (!IsFiniteVector(InNormal))
+	if (!FlowVizSliceViewModelLocal::IsFiniteVector(InNormal))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A slice normal must be finite"));
@@ -112,7 +111,7 @@ FCFDVizResult FFlowVizSliceViewModel::CenterOnDomain()
 {
 	if (!bHasDomain)
 	{
-		return MakeNoDomainResult();
+		return FlowVizSliceViewModelLocal::MakeNoDomainResult();
 	}
 	// Local space runs [0, DomainSize] from the minimum corner, so the centre is
 	// half the size regardless of where the domain sits in solver coordinates.
@@ -124,7 +123,7 @@ FCFDVizResult FFlowVizSliceViewModel::SetNormalizedPosition(double Fraction)
 {
 	if (!bHasDomain)
 	{
-		return MakeNoDomainResult();
+		return FlowVizSliceViewModelLocal::MakeNoDomainResult();
 	}
 	if (!FMath::IsFinite(Fraction))
 	{

@@ -54,7 +54,6 @@ namespace FlowVizTransferFunctionViewModelLocal
 	}
 }
 
-using namespace FlowVizTransferFunctionViewModelLocal;
 
 FFlowVizTransferFunctionViewModel::FFlowVizTransferFunctionViewModel()
 {
@@ -220,16 +219,16 @@ FCFDVizResult FFlowVizTransferFunctionViewModel::SetComponent(EFlowVizComponentC
 {
 	if (!bBound)
 	{
-		return MakeUnboundResult();
+		return FlowVizTransferFunctionViewModelLocal::MakeUnboundResult();
 	}
-	const int32 Required = RequiredComponentCount(InComponent);
+	const int32 Required = FlowVizTransferFunctionViewModelLocal::RequiredComponentCount(InComponent);
 	if (Required > ComponentCount)
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange,
 			FString::Printf(
 				TEXT("Component %s needs at least %d components; field '%s' has %d"),
-				ComponentChoiceName(InComponent), Required, *FieldId.ToString(), ComponentCount));
+				FlowVizTransferFunctionViewModelLocal::ComponentChoiceName(InComponent), Required, *FieldId.ToString(), ComponentCount));
 	}
 	Component = InComponent;
 	// The domain follows the component when it came from the manifest, because
@@ -353,7 +352,7 @@ FCFDVizResult FFlowVizTransferFunctionViewModel::SetRangeSource(EFlowVizRangeSou
 	}
 	if (Source == EFlowVizRangeSource::Global && !bBound)
 	{
-		return MakeUnboundResult();
+		return FlowVizTransferFunctionViewModelLocal::MakeUnboundResult();
 	}
 
 	const EFlowVizRangeSource Previous = RangeSource;
@@ -421,7 +420,7 @@ FCFDVizResult FFlowVizTransferFunctionViewModel::ResetRange()
 {
 	if (!bBound)
 	{
-		return MakeUnboundResult();
+		return FlowVizTransferFunctionViewModelLocal::MakeUnboundResult();
 	}
 	// Reset means "back to the field's declared range", which is Global - and it
 	// re-derives through MakeDefaultDomain, so a diverging map re-centres.

@@ -42,7 +42,6 @@ namespace FlowVizClipViewModelLocal
 	}
 }
 
-using namespace FlowVizClipViewModelLocal;
 
 /* ========================================================================== */
 /* FFlowVizClipPlane                                                           */
@@ -50,7 +49,7 @@ using namespace FlowVizClipViewModelLocal;
 
 bool FFlowVizClipPlane::IsValid() const
 {
-	if (!IsFiniteVector(Normal) || !FMath::IsFinite(Distance))
+	if (!FlowVizClipViewModelLocal::IsFiniteVector(Normal) || !FMath::IsFinite(Distance))
 	{
 		return false;
 	}
@@ -75,7 +74,7 @@ double FFlowVizClipPlane::SignedDistance(const FVector& LocalPosition) const
 
 FCFDVizResult FFlowVizClipViewModel::SetDomainSize(const FVector& PhysicalSize)
 {
-	if (!IsFiniteVector(PhysicalSize))
+	if (!FlowVizClipViewModelLocal::IsFiniteVector(PhysicalSize))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A domain size must be finite on every axis"));
@@ -143,7 +142,7 @@ FCFDVizResult FFlowVizClipViewModel::AddPresetPlane(EFlowVizClipPreset Preset)
 		// centre. Falling back to the origin would put the plane on the domain's
 		// minimum CORNER - clipping the entire volume away, which looks like the
 		// feature is broken rather than like a missing domain.
-		return MakeNoDomainResult();
+		return FlowVizClipViewModelLocal::MakeNoDomainResult();
 	}
 
 	// Local space runs [0, DomainSize] with the minimum corner at the origin, so
@@ -193,7 +192,7 @@ FCFDVizResult FFlowVizClipViewModel::RemovePlane(int32 Index)
 {
 	if (!Planes.IsValidIndex(Index))
 	{
-		return MakeBadIndexResult(Index, Planes.Num());
+		return FlowVizClipViewModelLocal::MakeBadIndexResult(Index, Planes.Num());
 	}
 	Planes.RemoveAt(Index);
 	return FCFDVizResult::Ok();
@@ -208,7 +207,7 @@ FCFDVizResult FFlowVizClipViewModel::SetPlane(int32 Index, const FFlowVizClipPla
 {
 	if (!Planes.IsValidIndex(Index))
 	{
-		return MakeBadIndexResult(Index, Planes.Num());
+		return FlowVizClipViewModelLocal::MakeBadIndexResult(Index, Planes.Num());
 	}
 	if (!Plane.IsValid())
 	{
@@ -229,7 +228,7 @@ FCFDVizResult FFlowVizClipViewModel::SetPlaneEnabled(int32 Index, bool bEnabled)
 {
 	if (!Planes.IsValidIndex(Index))
 	{
-		return MakeBadIndexResult(Index, Planes.Num());
+		return FlowVizClipViewModelLocal::MakeBadIndexResult(Index, Planes.Num());
 	}
 	Planes[Index].bEnabled = bEnabled;
 	return FCFDVizResult::Ok();
@@ -239,7 +238,7 @@ FCFDVizResult FFlowVizClipViewModel::InvertPlane(int32 Index)
 {
 	if (!Planes.IsValidIndex(Index))
 	{
-		return MakeBadIndexResult(Index, Planes.Num());
+		return FlowVizClipViewModelLocal::MakeBadIndexResult(Index, Planes.Num());
 	}
 
 	// BOTH, NOT JUST THE NORMAL. Keeping the other side of dot(N,P) + D >= 0
@@ -294,9 +293,9 @@ FCFDVizResult FFlowVizClipViewModel::SetCropBox(const FVector& LocalMin, const F
 {
 	if (!bHasDomain)
 	{
-		return MakeNoDomainResult();
+		return FlowVizClipViewModelLocal::MakeNoDomainResult();
 	}
-	if (!IsFiniteVector(LocalMin) || !IsFiniteVector(LocalMax))
+	if (!FlowVizClipViewModelLocal::IsFiniteVector(LocalMin) || !FlowVizClipViewModelLocal::IsFiniteVector(LocalMax))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A crop box must be finite on every axis"));
@@ -347,7 +346,7 @@ FCFDVizResult FFlowVizClipViewModel::ApplyToRayMarchParameters(
 {
 	if (!bHasDomain)
 	{
-		return MakeNoDomainResult();
+		return FlowVizClipViewModelLocal::MakeNoDomainResult();
 	}
 
 	// VALIDATE EVERY PLANE BEFORE WRITING ANY. A half-written plane array renders

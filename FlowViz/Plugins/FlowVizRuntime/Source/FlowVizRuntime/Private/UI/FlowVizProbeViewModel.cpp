@@ -27,7 +27,6 @@ namespace FlowVizProbeViewModelLocal
 	}
 }
 
-using namespace FlowVizProbeViewModelLocal;
 
 /* ========================================================================== */
 /* Unit scale                                                                  */
@@ -58,7 +57,7 @@ FCFDVizResult FFlowVizProbeViewModel::SetMetersToUnrealUnits(double Scale)
 
 FGuid FFlowVizProbeViewModel::AddProbeAtSolverPosition(const FVector& SolverPosition, const FString& Name)
 {
-	if (!IsFiniteVector(SolverPosition))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(SolverPosition))
 	{
 		// An invalid GUID is the refusal. A probe at a NaN position samples nothing
 		// and would sit in the list looking like a placed probe.
@@ -77,7 +76,7 @@ FGuid FFlowVizProbeViewModel::AddProbeAtSolverPosition(const FVector& SolverPosi
 
 FGuid FFlowVizProbeViewModel::AddProbeAtUnrealPosition(const FVector& UnrealPosition, const FString& Name)
 {
-	if (!IsFiniteVector(UnrealPosition))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(UnrealPosition))
 	{
 		return FGuid();
 	}
@@ -97,7 +96,7 @@ FCFDVizResult FFlowVizProbeViewModel::RestoreProbe(
 			TEXT("A restored probe needs a valid id; an invalid one cannot be looked up "
 				 "afterwards, so the probe would be unreachable by every mutator here"));
 	}
-	if (!IsFiniteVector(SolverPosition))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(SolverPosition))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange,
@@ -130,7 +129,7 @@ FCFDVizResult FFlowVizProbeViewModel::RestoreProbe(
 
 bool FFlowVizProbeViewModel::MoveProbeToSolverPosition(const FGuid& Id, const FVector& SolverPosition)
 {
-	if (!IsFiniteVector(SolverPosition))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(SolverPosition))
 	{
 		return false;
 	}
@@ -151,7 +150,7 @@ bool FFlowVizProbeViewModel::MoveProbeToSolverPosition(const FGuid& Id, const FV
 
 bool FFlowVizProbeViewModel::MoveProbeToUnrealPosition(const FGuid& Id, const FVector& UnrealPosition)
 {
-	if (!IsFiniteVector(UnrealPosition))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(UnrealPosition))
 	{
 		return false;
 	}
@@ -233,7 +232,7 @@ bool FFlowVizProbeViewModel::SetProbeReading(const FGuid& Id, const FFlowVizProb
 
 FCFDVizResult FFlowVizProbeViewModel::SetLineProbe(const FVector& SolverStart, const FVector& SolverEnd)
 {
-	if (!IsFiniteVector(SolverStart) || !IsFiniteVector(SolverEnd))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(SolverStart) || !FlowVizProbeViewModelLocal::IsFiniteVector(SolverEnd))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A line probe's endpoints must be finite"));
@@ -377,7 +376,7 @@ FCFDVizResult FlowVizProbe::SampleStoredField(
 	OutReading.FrameIndex = FrameIndex;
 	OutReading.Time = Case.Timeline.Times[FrameIndex];
 
-	if (!IsFiniteVector(SolverPosition))
+	if (!FlowVizProbeViewModelLocal::IsFiniteVector(SolverPosition))
 	{
 		return FCFDVizResult::Fail(
 			ECFDVizError::IndexOutOfRange, TEXT("A probe position must be finite"));
