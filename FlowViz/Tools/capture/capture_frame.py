@@ -129,7 +129,7 @@ def normalize(shot):
     else:
         rotation = list(shot.get("rotation", DEFAULT_ROTATION))
 
-    return {
+    normalized = {
         "map": shot["map"],
         "output": os.path.abspath(os.path.expanduser(shot["output"])),
         "location": location,
@@ -139,6 +139,29 @@ def normalize(shot):
         "capture_source": shot.get("capture_source", DEFAULT_SOURCE),
         "warmup_captures": int(shot.get("warmup_captures", 3)),
     }
+
+    # Forwarded explicitly. This function builds its result by naming the keys it
+    # wants, so anything unnamed is dropped WITHOUT an error and the shot still
+    # renders -- producing a capture with no volume in it, which is
+    # pixel-indistinguishable from a capture whose volume failed to render.
+    volume = shot.get("volume")
+    if volume is not None:
+        for required in ("case", "field"):
+            if not volume.get(required):
+                # Rejected here, where the caller still has a stack trace.
+                # Downstream both of these degrade into a picture: no case means
+                # no volume at all, and the worker refuses to guess a field
+                # because the manifest's first one is typically a vector, which
+                # loads and uploads happily and then marches nothing.
+                raise ValueError(
+                    "a volume spec needs %r; without it the shot renders an "
+                    "empty room and reports success: %r" % (required, volume)
+                )
+        # Copied, so a caller reusing one spec across several shots cannot have a
+        # later edit reach backwards into an earlier one.
+        normalized["volume"] = dict(volume)
+
+    return normalized
 
 
 def capture(shots, project=PROJECT, editor=EDITOR_CMD, verbose=False, timeout=1800):

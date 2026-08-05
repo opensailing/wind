@@ -14,7 +14,18 @@ Job file schema:
           "rotation": [pitch, yaw, roll],
           "resolution": [w, h],
           "fov": 75.0,
-          "capture_source": "FINAL_COLOR_LDR"
+          "capture_source": "FINAL_COLOR_LDR",
+
+          # Optional. Present => spawn a CFDViz case actor and judge the shot
+          # on whether the RAY-MARCHER drew, not merely on whether anything did.
+          "volume": {
+            "case": "/abs/path/Case.cfdviz",
+            "field": "speed",          # MUST be scalar; a vector marches nothing
+            "frame": 0,
+            "location": [x, y, z],
+            "rotation": [pitch, yaw, roll],
+            "draw_bounding_box": false
+          }
         }
       ],
       "result": "/abs/path/result.json"
@@ -37,7 +48,7 @@ import unreal
 # Sibling module, pure Python and unit-tested outside the engine. The commandlet
 # does not put this script's directory on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from verdict import Stats, judge  # noqa: E402
+from verdict import Stats, judge, judge_marcher  # noqa: E402
 
 
 # print() does not reach the Unreal log from the pythonscript commandlet.
@@ -156,6 +167,78 @@ def disable_editor_overlays(world):
             "captures of maps with a skydome mesh may contain overlaid text")
 
 
+def spawn_volume(world, spec):
+    """Place a CFDViz case actor for this shot. Returns the actor, or None.
+
+    WHY A SEPARATE VERDICT EXISTS FOR THESE SHOTS, and why the primitive-
+    suppressed reference above is not enough on its own.
+
+    The volume's scene proxy emits three things from one GetDynamicMeshElements:
+    a debug wireframe box, a SOLID hull mesh drawn with GEngine->DebugMeshMaterial,
+    and the ray-march dispatch. The reference capture suppresses all three at
+    once, so "the shot differs from the reference" goes true the moment the hull
+    rasterizes -- and the hull is drawn with NO flag guarding it. That criterion
+    therefore cannot distinguish a working ray-marcher from a dead one, and
+    because the hull is an opaque box, the frame it certifies even LOOKS like a
+    rendered volume. Turning off `draw_bounding_box` does not help; only the
+    wireframe is behind that flag.
+
+    So a volume shot additionally captures a state with the ray-march dispatcher
+    uninstalled and everything else -- actor, hull, box, camera, lighting --
+    held fixed. Any pixel differing between those two came from the marcher and
+    from nothing else. See verdict.judge_marcher.
+    """
+    case = spec.get("case")
+    field = spec.get("field")
+    if not case:
+        log("volume spec has no 'case' path; no volume was placed")
+        return None
+    if not field:
+        # Refused rather than defaulted, matching SpawnCaseActor. The manifest's
+        # first field is typically a vector, whose bytes never reach the scalar
+        # texture the marcher samples: it would load, upload, and march nothing.
+        log("volume spec has no 'field'; refusing to guess, because the default "
+            "is typically a vector field that marches nothing")
+        return None
+
+    location = unreal.Vector(*spec.get("location", [0.0, 0.0, 0.0]))
+    pitch, yaw, roll = spec.get("rotation", [0.0, 0.0, 0.0])
+    rotation = unreal.Rotator(roll, pitch, yaw)
+
+    actor, error = unreal.FlowVizCaptureLibrary.spawn_case_actor(
+        world,
+        case,
+        field,
+        location,
+        rotation,
+        int(spec.get("frame", 0)),
+        bool(spec.get("draw_bounding_box", False)),
+    )
+
+    if actor is None:
+        # Loud, because every downstream symptom of this is a picture rather
+        # than an error: the shot would simply look empty.
+        log("VOLUME NOT PLACED: %s" % (error or "spawn_case_actor returned null"))
+        return None
+
+    # Reported because a volume outside the camera frustum photographs exactly
+    # like a volume that failed to render, and the two have nothing in common as
+    # fixes. The case transform includes a grid-origin translation and a metres
+    # -> centimetres scale, so the actor's own location is NOT where the data is.
+    try:
+        origin, extent = actor.get_actor_bounds(only_colliding_components=False)
+        log("placed volume: case=%s field=%s frame=%d box=%s "
+            "world bounds origin=(%.1f, %.1f, %.1f) extent=(%.1f, %.1f, %.1f)"
+            % (case, field, int(spec.get("frame", 0)),
+               bool(spec.get("draw_bounding_box", False)),
+               origin.x, origin.y, origin.z, extent.x, extent.y, extent.z))
+    except Exception:
+        log("placed volume: case=%s field=%s frame=%d box=%s (bounds unavailable)"
+            % (case, field, int(spec.get("frame", 0)),
+               bool(spec.get("draw_bounding_box", False))))
+    return actor
+
+
 def capture_one(world, actor_subsystem, shot):
     """Render a single shot and write the PNG. Returns a result dict."""
     width, height = shot.get("resolution", [1280, 720])
@@ -168,6 +251,12 @@ def capture_one(world, actor_subsystem, shot):
     source_name = shot.get("capture_source", "FINAL_COLOR_LDR")
     source = CAPTURE_SOURCES.get(source_name, unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
     warmups = int(shot.get("warmup_captures", 3))
+
+    # Placed BEFORE the render target and the camera, so the volume's proxy and
+    # its dynamic data have reached the render thread before the first capture.
+    volume_actor = None
+    if shot.get("volume"):
+        volume_actor = spawn_volume(world, shot["volume"])
 
     # RGBA8_SRGB is required: export_render_target only emits PNG for 8-bit
     # formats (float formats silently take the EXR/HDR path instead).
@@ -241,6 +330,50 @@ def capture_one(world, actor_subsystem, shot):
     except Exception:
         pass
 
+    # THE MARCHER-SUPPRESSED CONTROL. Only meaningful when a volume is in the
+    # shot, so it is captured here rather than unconditionally -- see the long
+    # comment on spawn_volume() for why the primitive-suppressed reference above
+    # cannot answer this question on its own.
+    without_marcher_stats = None
+    if volume_actor is not None:
+        try:
+            still_on = unreal.FlowVizCaptureLibrary.set_volume_ray_marcher_enabled(False)
+            if still_on:
+                # The toggle did not take. Leaving without_marcher_stats as None
+                # makes judge_marcher return UNSCORED, which is the honest
+                # answer: capturing anyway would compare two identical states
+                # and report "the marcher contributed nothing" -- a finding
+                # about the harness dressed up as a finding about the renderer.
+                log("WARNING: could not uninstall the ray-march dispatcher; "
+                    "the marcher control was NOT captured")
+            else:
+                for _ in range(max(1, warmups)):
+                    component.capture_scene()
+                without_marcher_stats = measure(world, render_target)
+        except Exception:
+            log("WARNING: could not capture the marcher-suppressed control:\n%s"
+                % traceback.format_exc())
+        finally:
+            # Restore unconditionally. A leaked-off dispatcher would silently
+            # make every LATER shot in this batch marcher-free, and those shots
+            # would fail with a reason that points at the renderer.
+            try:
+                restored = unreal.FlowVizCaptureLibrary.set_volume_ray_marcher_enabled(True)
+                if not restored:
+                    log("WARNING: could not reinstall the ray-march dispatcher; "
+                        "subsequent shots in this batch are UNTRUSTWORTHY")
+            except Exception:
+                log("WARNING: failed to restore the ray-march dispatcher:\n%s"
+                    % traceback.format_exc())
+
+        # Re-render the real shot, so the PNG written below is state A and not
+        # the control we just took.
+        try:
+            for _ in range(max(1, warmups)):
+                component.capture_scene()
+        except Exception:
+            pass
+
     output = shot["output"]
     directory = os.path.dirname(os.path.abspath(output))
     filename = os.path.basename(output)
@@ -259,9 +392,30 @@ def capture_one(world, actor_subsystem, shot):
     except Exception:
         pass
 
-    verdict = judge(
-        scene=scene_stats, reference=reference_stats, written=written, byte_size=size
-    )
+    # Destroyed too, so shots do not accumulate volumes: a later shot in the
+    # same map would otherwise capture every earlier shot's case actor as well.
+    if volume_actor is not None:
+        try:
+            actor_subsystem.destroy_actor(volume_actor)
+        except Exception:
+            pass
+
+    # A volume shot is held to the stricter criterion: it must be the MARCHER
+    # that drew, not merely something. judge_marcher runs judge() first, so the
+    # basic checks are not skipped -- it adds a requirement, it does not replace
+    # one.
+    if shot.get("volume"):
+        verdict = judge_marcher(
+            with_marcher=scene_stats,
+            without_marcher=without_marcher_stats,
+            reference=reference_stats,
+            written=written,
+            byte_size=size,
+        )
+    else:
+        verdict = judge(
+            scene=scene_stats, reference=reference_stats, written=written, byte_size=size
+        )
 
     log(
         "%s -> max=%d unique=%d mean=%.3f bytes=%d %s"
@@ -288,6 +442,14 @@ def capture_one(world, actor_subsystem, shot):
     result.update(scene_stats.as_dict())
     if reference_stats is not None:
         result["reference"] = reference_stats.as_dict()
+    if shot.get("volume"):
+        # Recorded even when None, so a reader can tell "the control was not
+        # taken" from "the control was taken and matched" -- opposite diagnoses.
+        result["volume"] = dict(shot["volume"])
+        result["volume_placed"] = volume_actor is not None
+        result["without_marcher"] = (
+            without_marcher_stats.as_dict() if without_marcher_stats is not None else None
+        )
     return result
 
 
