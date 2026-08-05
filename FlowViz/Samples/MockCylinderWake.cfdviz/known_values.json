@@ -1,0 +1,951 @@
+{
+  "formatVersion": "1.0.0",
+  "caseId": "7a4e3b1e-c8e0-5330-9479-05d49713da33",
+  "crc32cCheck": "0xE3069283",
+  "samples": [
+    {
+      "frame": 0,
+      "field": "validMask",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 1,
+      "bits": "0x01",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "validMask",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 1,
+      "bits": "0x01",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "validMask",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 1,
+      "bits": "0x01",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "validMask",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 1,
+      "bits": "0x01",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "validMask",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": 0,
+      "bits": "0x00",
+      "note": "masked"
+    },
+    {
+      "frame": 0,
+      "field": "U",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 3.99609375,
+      "bits": "0x43FE",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "U",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 2,
+      "value": -0.1397705078125,
+      "bits": "0xB079",
+      "note": "last-component"
+    },
+    {
+      "frame": 0,
+      "field": "U",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 5.87890625,
+      "bits": "0x45E1",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "U",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "U",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 4.03515625,
+      "bits": "0x4409",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "U",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 2,
+      "value": -0.07232666015625,
+      "bits": "0xACA1",
+      "note": "last-component"
+    },
+    {
+      "frame": 19,
+      "field": "U",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 5.9453125,
+      "bits": "0x45F2",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "U",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 0,
+      "field": "pressure",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 19.984375,
+      "bits": "0x4CFF",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "pressure",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 10.828125,
+      "bits": "0x496A",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "pressure",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "pressure",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 19.84375,
+      "bits": "0x4CF6",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "pressure",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 10.4609375,
+      "bits": "0x493B",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "pressure",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 0,
+      "field": "speed",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 4.03515625,
+      "bits": "0x4409",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "speed",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 5.8828125,
+      "bits": "0x45E2",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "speed",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "speed",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 4.0703125,
+      "bits": "0x4412",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "speed",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 5.9453125,
+      "bits": "0x45F2",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "speed",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 0,
+      "field": "vorticity",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": -0.37353515625,
+      "bits": "0xB5FA",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "vorticity",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 2,
+      "value": -0.09259033203125,
+      "bits": "0xADED",
+      "note": "last-component"
+    },
+    {
+      "frame": 0,
+      "field": "vorticity",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": -0.14794921875,
+      "bits": "0xB0BC",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "vorticity",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "vorticity",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": -0.30078125,
+      "bits": "0xB4D0",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "vorticity",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 2,
+      "value": -0.2431640625,
+      "bits": "0xB3C8",
+      "note": "last-component"
+    },
+    {
+      "frame": 19,
+      "field": "vorticity",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": -0.138671875,
+      "bits": "0xB070",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "vorticity",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 0,
+      "field": "vorticityMagnitude",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 0.48876953125,
+      "bits": "0x37D2",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "vorticityMagnitude",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 0.66455078125,
+      "bits": "0x3951",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "vorticityMagnitude",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "vorticityMagnitude",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 0.386962890625,
+      "bits": "0x3631",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "vorticityMagnitude",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 0.6259765625,
+      "bits": "0x3902",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "vorticityMagnitude",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 0,
+      "field": "qCriterion",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": -1.83984375,
+      "bits": "0xBF5C",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "qCriterion",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 0.0212554931640625,
+      "bits": "0x2571",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "qCriterion",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "qCriterion",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": -1.2392578125,
+      "bits": "0xBCF5",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "qCriterion",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": -0.005413055419921875,
+      "bits": "0x9D8B",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "qCriterion",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 0,
+      "field": "passiveScalar",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 0.335693359375,
+      "bits": "0x355F",
+      "note": "interior"
+    },
+    {
+      "frame": 0,
+      "field": "passiveScalar",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 9.244680404663086e-05,
+      "bits": "0x060F",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 0,
+      "field": "passiveScalar",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    },
+    {
+      "frame": 19,
+      "field": "passiveScalar",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 0,
+      "value": 0.315673828125,
+      "bits": "0x350D",
+      "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "passiveScalar",
+      "voxel": [
+        55,
+        27,
+        5
+      ],
+      "component": 0,
+      "value": 9.244680404663086e-05,
+      "bits": "0x060F",
+      "note": "partial-edge-brick"
+    },
+    {
+      "frame": 19,
+      "field": "passiveScalar",
+      "voxel": [
+        17,
+        11,
+        0
+      ],
+      "component": 0,
+      "value": null,
+      "bits": "0x7E00",
+      "note": "nan"
+    }
+  ],
+  "meshes": [
+    {
+      "id": "obstacle",
+      "path": "meshes/obstacle.cvm",
+      "vertexCount": 96,
+      "triangleCount": 96,
+      "hasNormals": true,
+      "hasPatchIds": true,
+      "hasNodeIds": false
+    },
+    {
+      "id": "boundaries",
+      "path": "meshes/boundaries.cvm",
+      "vertexCount": 24,
+      "triangleCount": 12,
+      "hasNormals": true,
+      "hasPatchIds": true,
+      "hasNodeIds": false
+    }
+  ],
+  "meshSamples": [
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 0,
+      "component": 0,
+      "componentName": "X",
+      "value": 4.449999809265137,
+      "bits": "0x408E6666"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 0,
+      "component": 1,
+      "componentName": "Y",
+      "value": 2.0,
+      "bits": "0x40000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 0,
+      "component": 2,
+      "componentName": "Z",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 48,
+      "component": 0,
+      "componentName": "X",
+      "value": 4.449999809265137,
+      "bits": "0x408E6666"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 48,
+      "component": 1,
+      "componentName": "Y",
+      "value": 2.0,
+      "bits": "0x40000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 48,
+      "component": 2,
+      "componentName": "Z",
+      "value": 1.0,
+      "bits": "0x3F800000"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 95,
+      "component": 0,
+      "componentName": "X",
+      "value": 4.446150302886963,
+      "bits": "0x408E46DD"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 95,
+      "component": 1,
+      "componentName": "Y",
+      "value": 1.941263198852539,
+      "bits": "0x3FF87B50"
+    },
+    {
+      "kind": "position",
+      "mesh": "obstacle",
+      "vertex": 95,
+      "component": 2,
+      "componentName": "Z",
+      "value": 1.0,
+      "bits": "0x3F800000"
+    },
+    {
+      "kind": "triangle",
+      "mesh": "obstacle",
+      "triangle": 0,
+      "indices": [
+        0,
+        1,
+        49
+      ]
+    },
+    {
+      "kind": "triangle",
+      "mesh": "obstacle",
+      "triangle": 48,
+      "indices": [
+        24,
+        25,
+        73
+      ]
+    },
+    {
+      "kind": "triangle",
+      "mesh": "obstacle",
+      "triangle": 95,
+      "indices": [
+        47,
+        48,
+        95
+      ]
+    },
+    {
+      "kind": "patchId",
+      "mesh": "obstacle",
+      "triangle": 0,
+      "value": 4
+    },
+    {
+      "kind": "patchId",
+      "mesh": "obstacle",
+      "triangle": 48,
+      "value": 4
+    },
+    {
+      "kind": "patchId",
+      "mesh": "obstacle",
+      "triangle": 95,
+      "value": 4
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 0,
+      "component": 0,
+      "componentName": "X",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 0,
+      "component": 1,
+      "componentName": "Y",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 0,
+      "component": 2,
+      "componentName": "Z",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 12,
+      "component": 0,
+      "componentName": "X",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 12,
+      "component": 1,
+      "componentName": "Y",
+      "value": 4.0,
+      "bits": "0x40800000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 12,
+      "component": 2,
+      "componentName": "Z",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 23,
+      "component": 0,
+      "componentName": "X",
+      "value": 0.0,
+      "bits": "0x00000000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 23,
+      "component": 1,
+      "componentName": "Y",
+      "value": 4.0,
+      "bits": "0x40800000"
+    },
+    {
+      "kind": "position",
+      "mesh": "boundaries",
+      "vertex": 23,
+      "component": 2,
+      "componentName": "Z",
+      "value": 1.0,
+      "bits": "0x3F800000"
+    },
+    {
+      "kind": "triangle",
+      "mesh": "boundaries",
+      "triangle": 0,
+      "indices": [
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "kind": "triangle",
+      "mesh": "boundaries",
+      "triangle": 6,
+      "indices": [
+        14,
+        13,
+        12
+      ]
+    },
+    {
+      "kind": "triangle",
+      "mesh": "boundaries",
+      "triangle": 11,
+      "indices": [
+        23,
+        22,
+        20
+      ]
+    },
+    {
+      "kind": "patchId",
+      "mesh": "boundaries",
+      "triangle": 0,
+      "value": 1
+    },
+    {
+      "kind": "patchId",
+      "mesh": "boundaries",
+      "triangle": 6,
+      "value": 3
+    },
+    {
+      "kind": "patchId",
+      "mesh": "boundaries",
+      "triangle": 11,
+      "value": 3
+    }
+  ],
+  "arraySamples": []
+}

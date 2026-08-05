@@ -17,8 +17,13 @@ venv/
 *.egg-info/
 .pytest_cache/
 
-# Generated sample data (regenerate with: python -m cfdviz generate-mock)
+# Locally generated sample data (regenerate with: python -m cfdviz generate-mock).
+# The low-resolution MockCylinderWake sample is the exception and IS committed:
+# the demo map auto-loads a case on first launch, so it cannot depend on anyone
+# having run a Python script first. Negating the directory itself is required --
+# git will not re-include a file whose parent directory is excluded.
 FlowViz/Samples/*.cfdviz/frames/
+!FlowViz/Samples/MockCylinderWake.cfdviz/frames/
 
 # Blind-comparison reference stills are third-party film/AAA frames. Judging
 # our output against them locally is fine; redistributing them here is not
