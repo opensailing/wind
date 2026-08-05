@@ -21,6 +21,16 @@
 
 set -uo pipefail
 
+# --summarize <log> reports on an existing log without launching the editor.
+# It is the seam Tools/tests/test_run_tests_summary.sh drives, so the reporting
+# logic can be tested over fixture logs instead of a ~40s engine run.
+SUMMARIZE_ONLY=""
+if [[ "${1:-}" == "--summarize" ]]; then
+    SUMMARIZE_ONLY=1
+    LOG="${2:?--summarize needs a log path}"
+    shift 2 || true
+fi
+
 FILTER="${1:-FlowViz}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPROJECT="${PROJECT_DIR}/FlowViz.uproject"
@@ -28,22 +38,27 @@ UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 EDITOR_CMD="${UE_ROOT}/Engine/Binaries/Mac/UnrealEditor-Cmd"
 LOG="${LOG:-/tmp/flowviz_tests.log}"
 
-if [[ ! -x "${EDITOR_CMD}" ]]; then
-    echo "error: UnrealEditor-Cmd not found at ${EDITOR_CMD}" >&2
-    echo "       set UE_ROOT to your engine install" >&2
-    exit 2
+if [[ -n "${SUMMARIZE_ONLY}" ]]; then
+    # Reporting only: no engine, and no engine exit code to fold in.
+    ENGINE_EXIT=0
+else
+    if [[ ! -x "${EDITOR_CMD}" ]]; then
+        echo "error: UnrealEditor-Cmd not found at ${EDITOR_CMD}" >&2
+        echo "       set UE_ROOT to your engine install" >&2
+        exit 2
+    fi
+
+    RHI_FLAG="-nullrhi"
+    [[ "${RHI:-0}" == "1" ]] && RHI_FLAG=""
+
+    echo "Running automation tests matching '${FILTER}'..."
+
+    "${EDITOR_CMD}" "${UPROJECT}" \
+        -ExecCmds="Automation RunTests ${FILTER}; Quit" \
+        -unattended -nopause -nosplash -notrace ${RHI_FLAG} \
+        -abslog="${LOG}" >/dev/null 2>&1
+    ENGINE_EXIT=$?
 fi
-
-RHI_FLAG="-nullrhi"
-[[ "${RHI:-0}" == "1" ]] && RHI_FLAG=""
-
-echo "Running automation tests matching '${FILTER}'..."
-
-"${EDITOR_CMD}" "${UPROJECT}" \
-    -ExecCmds="Automation RunTests ${FILTER}; Quit" \
-    -unattended -nopause -nosplash -notrace ${RHI_FLAG} \
-    -abslog="${LOG}" >/dev/null 2>&1
-ENGINE_EXIT=$?
 
 if [[ ! -f "${LOG}" ]]; then
     echo "error: no log produced at ${LOG}; the editor failed to start" >&2
@@ -74,5 +89,38 @@ if [[ "${FOUND}" -eq 0 ]]; then
     exit 4
 fi
 
+# --- tests that passed without verifying anything ----------------------------
+#
+# A test that skips itself -- no GPU, no fixture, no network -- still reports
+# Result={Success} to the engine, so it lands in PASSED above. The count is
+# accurate and the sentence "47/47 passed" is still misleading, because three
+# of those 47 had checked nothing. Report them by name.
+#
+# Attribution is by the most recent "Test Started", NOT the nearest Completed:
+# a test emits its skip message from inside its own body, so the marker lands
+# after that test's Completed line and immediately before the next test's
+# Started line. Keying on Completed blames the wrong test every time.
+SKIPPED_NAMES="$(awk '
+    /Test Started\. .*Path=\{/ {
+        match($0, /Path=\{[^}]*\}/)
+        current = substr($0, RSTART + 6, RLENGTH - 7)
+    }
+    /SKIPPED/ && current != "" && !seen[current]++ { print current }
+' "${LOG}")"
+
+SKIPPED=0
+[[ -n "${SKIPPED_NAMES}" ]] && SKIPPED="$(printf '%s\n' "${SKIPPED_NAMES}" | wc -l | tr -d ' ')"
+
+if [[ "${SKIPPED}" -gt 0 ]]; then
+    echo "${SKIPPED} skipped -- these reported success having verified nothing:"
+    printf '%s\n' "${SKIPPED_NAMES}" | sed 's/^/  /'
+    echo "  (reasons are in the log; GPU tests need RHI=1)"
+    echo
+fi
+
 echo "${PASSED}/${FOUND} passed. Full log: ${LOG}"
+
+# A skip is not a failure. Turning the suite red for it would get the signal
+# suppressed the first time someone ran without a GPU, which is the opposite
+# of the point.
 [[ "${PASSED}" -eq "${FOUND}" && "${ENGINE_EXIT}" -eq 0 ]] || exit 1
