@@ -122,6 +122,22 @@ namespace FlowVizRayMarch
 	inline constexpr int32 MaxClipPlanes = 6;
 
 	/**
+	 * Every bit EFlowVizInvalidReason defines, OR-ed together.
+	 *
+	 * A C++ enum is not enumerable, so a test that pins each enumerator against
+	 * the .usf cannot notice a NINTH one being added - it would simply never look
+	 * at it, and the new bit would reach OutValue.z with no #define behind it.
+	 * This is the enumerable form: FlowViz.Render.ReasonCodes compares it against
+	 * the union of the bits it pins, so an enumerator added here without a
+	 * matching FLOWVIZ_REASON_* fails that test. Add a bit, add it here.
+	 */
+	inline constexpr EFlowVizInvalidReason KnownInvalidReasons =
+		EFlowVizInvalidReason::Valid | EFlowVizInvalidReason::Unknown
+		| EFlowVizInvalidReason::Masked | EFlowVizInvalidReason::NaN
+		| EFlowVizInvalidReason::Infinite | EFlowVizInvalidReason::UnderRange
+		| EFlowVizInvalidReason::OverRange;
+
+	/**
 	 * Default sample step, in VOXEL units.
 	 *
 	 * Half a voxel is Nyquist for a trilinearly filtered field: one sample per
@@ -248,6 +264,26 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFlowVizVolumeRayMarchParameters, FLOWVIZRUNTIME_A
 	SHADER_PARAMETER(FLinearColor, NoDataColor)
 	SHADER_PARAMETER(FLinearColor, UnderRangeColor)
 	SHADER_PARAMETER(FLinearColor, OverRangeColor)
+
+	/**
+	 * Draw the colormap's END instead of the two range colours above.
+	 *
+	 * THE POLICY FOR THE TWO COLOURS DIRECTLY ABOVE, WHICH IS WHY IT LIVES HERE
+	 * AND NOT IN THE MARCHING BLOCK. 0 - the default - is the protective reading
+	 * of VISUAL_QA rule 4: an out-of-range value gets a flag colour, because
+	 * drawing the colormap minimum would present it as the smallest real value in
+	 * the field. 1 is the user's explicit opt-out, and it changes COLOUR ONLY.
+	 *
+	 * IT MUST NOT REACH THE CLASSIFICATION. OutValue.x and the FLOWVIZ_REASON_*
+	 * bits are identical either way - see FlowVizTransferFunction.cpp:333, which
+	 * states the same rule for the CPU path. A flag that also moved the reported
+	 * number would turn a display choice into a quantitative lie, which is the
+	 * exact failure the flag colours exist to prevent. FlowViz.Render.VolumeMarch
+	 * asserts the invariance next to the colour difference, so "clamping did
+	 * something" and "clamping did only what it is allowed to do" are separate
+	 * assertions.
+	 */
+	SHADER_PARAMETER(uint32, bClampToRange)
 
 	/* -- Resources -------------------------------------------------------- */
 	SHADER_PARAMETER_TEXTURE(Texture3D, FieldTexture)
@@ -439,3 +475,24 @@ static_assert(
 	"The ray-march parameters must begin their own members exactly where "
 	"FFlowVizVolumeShaderParameters ends. A member added to either struct "
 	"without updating the other lands here.");
+
+/*
+ * THE TAIL OF THE BLOCK, pinned for the reason the prefix is.
+ *
+ * The asserts above stop at offset 156 because that is where the SHARED prefix
+ * ends - they exist to keep two structs from drifting apart. Everything after it
+ * was unpinned, which is how bClampToRange could be appended with nothing
+ * checking where it landed. These three pin the last colour, the new flag, and
+ * the total, so a member inserted ANYWHERE between UnderRangeColor and the end
+ * moves at least one of them.
+ *
+ * bClampToRange is a uint32 alone on row 34, which is deliberate and is why it
+ * was appended rather than tucked into the padding after a FVector3f: the four
+ * colours before it are 16-byte-aligned FLinearColors with no gaps to fill, so
+ * any 4-byte member has to start a row regardless. Putting it last keeps every
+ * offset in this file unchanged - the numbers below are the ones the compiler
+ * computes today, not a renumbering.
+ */
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, UnderRangeColor) == 512, "cbuffer row 32");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, OverRangeColor) == 528, "cbuffer row 33");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, bClampToRange) == 544, "cbuffer row 34");

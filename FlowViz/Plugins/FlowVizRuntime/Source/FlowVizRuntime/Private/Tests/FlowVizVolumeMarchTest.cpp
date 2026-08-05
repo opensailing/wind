@@ -89,6 +89,45 @@ namespace FlowVizMarchFixture
 	/** Largest value the field takes, so the transfer function can span it without clipping. */
 	constexpr float FieldMax = 511.0f;
 
+	/**
+	 * Entries in the fixture LUT, and the formula that fills it.
+	 *
+	 * HOISTED OUT OF THE RENDER LAMBDA ON PURPOSE. The clamp block below asserts
+	 * that a clamped out-of-range sample draws the colormap's END - which means it
+	 * needs to know what the LUT's first and last entries ARE. Restating them as
+	 * literals next to the assertion would let the fixture and the expectation
+	 * drift apart, and a drifted expectation fails for a reason that has nothing
+	 * to do with clamping. One formula, two callers.
+	 *
+	 * GREEN IS THE CONSTANT 0.5 AT EVERY ENTRY and must stay that way: the
+	 * lighting block recovers NdotL by dividing the green channel by it.
+	 */
+	constexpr int32 LutWidth = 16;
+
+	static FLinearColor LutEntry(int32 Index)
+	{
+		const float T = static_cast<float>(Index) / static_cast<float>(LutWidth - 1);
+		return FLinearColor(T, 0.5f, 1.0f - T, 0.25f);
+	}
+
+	/**
+	 * The two out-of-range flag colours, chosen FAR FROM BOTH ENDS OF THE LUT.
+	 *
+	 * The clamp assertion is a difference between two renders, so its resolution
+	 * is the distance between the flag colour and the colormap end that replaces
+	 * it. FillDefaults' cyan (0, 0.85, 1) sits 0.35 from LUT entry 0 (0, 0.5, 1)
+	 * in the GREEN CHANNEL ALONE, and its orange-red 0.15 from entry 15 - a
+	 * one-channel margin, which a partially-applied fix could squeeze under.
+	 * Pure red against (0, 0.5, 1) and pure green against (1, 0.5, 0) separate in
+	 * more than one channel and by more than 0.5, so the difference is a fact
+	 * about clamping rather than about the tolerance.
+	 *
+	 * They are also distinct FROM EACH OTHER, so a shader that drew the under
+	 * colour for an over-range sample is a different answer and not a near miss.
+	 */
+	static const FLinearColor UnderFlagColor(1.0f, 0.0f, 0.0f, 1.0f);
+	static const FLinearColor OverFlagColor(0.0f, 1.0f, 0.0f, 1.0f);
+
 	/** Voxels with I < this are marked Masked in the second status volume. */
 	constexpr int32 MaskedBelowI = 4;
 
@@ -146,6 +185,22 @@ namespace FlowVizMarchFixture
 		int32 NumClip = 0;
 		FVector4f Clip0 = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
 		FVector4f Clip1 = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+
+		/*
+		 * THE CLAMP ARM'S NARROWED DOMAIN.
+		 *
+		 * Every config above renders with ValueRangeMin = 0, ValueRangeMax =
+		 * FieldMax, which spans the whole field precisely so nothing is out of
+		 * range and the two range reason bits stay out of every comparison. The
+		 * clamp flag is only observable on a sample the domain does NOT cover, so
+		 * these configs opt into a narrower one. Defaulted to the full span, so
+		 * every pass-one and pass-two config already written renders byte for byte
+		 * as it did before this field existed.
+		 */
+		bool  bNarrowRange = false;
+		float RangeMin = 0.0f;
+		float RangeMax = FieldMax;
+		bool  bClampToRange = false;
 	};
 
 	/** A single dispatch's readback, both targets. */
@@ -183,10 +238,43 @@ namespace FlowVizMarchFixture
 	/** OutValue channel meanings, named rather than spelled .R/.G/.B/.A at every use. */
 	static float ReportedValue(const FLinearColor& Pixel) { return Pixel.R; }
 	static float ReportedAlpha(const FLinearColor& Pixel) { return Pixel.G; }
+
+	/**
+	 * The reason bits, decoded by THE SHIPPED DECODER.
+	 *
+	 * This calls FlowVizRayMarch::DecodeReason rather than rounding the float
+	 * here, and that is the point. Until it did, DecodeReason had ZERO call sites
+	 * in the entire plugin - not one, tests included - while this file read
+	 * OutValue.z through a local helper and hand-written masks (& 1u, & 4u). So
+	 * two things were true at once: the shipped decoder was never executed by
+	 * anything, and the assertions never mentioned EFlowVizInvalidReason at all.
+	 *
+	 * A decoder nothing calls cannot be observed to be wrong. The +0.5 truncation
+	 * inside it could round the wrong way, or the enum could be renumbered, and
+	 * every test here would still pass while every SHIPPING caller read the wrong
+	 * cause off the same pixel. Routing the assertions through it makes the
+	 * decoder part of what is under test instead of a promise about it.
+	 *
+	 * FlowViz.Render.ReasonCodes pins the other half: that these C++ enumerators
+	 * are the numbers the .usf writes.
+	 */
+	static EFlowVizInvalidReason ReasonOf(const FLinearColor& Pixel)
+	{
+		return FlowVizRayMarch::DecodeReason(Pixel.B);
+	}
+
+	/** True when the ray reported this cause. A named enumerator, never a bare mask. */
+	static bool HasReason(const FLinearColor& Pixel, EFlowVizInvalidReason Reason)
+	{
+		return EnumHasAnyFlags(ReasonOf(Pixel), Reason);
+	}
+
+	/** The raw bits, for a message that prints what was actually found. */
 	static uint32 ReasonBits(const FLinearColor& Pixel)
 	{
-		return static_cast<uint32>(FMath::RoundToInt(Pixel.B));
+		return static_cast<uint32>(ReasonOf(Pixel));
 	}
+
 	static int32 StepCount(const FLinearColor& Pixel) { return FMath::RoundToInt(Pixel.A); }
 }
 
@@ -389,8 +477,8 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			// A 16-entry LUT with CONSTANT non-zero alpha. Constant because the
 			// alpha arm below compares a lit and an unlit render, and an alpha
 			// that varied with value would let a lighting change masquerade as
-			// an opacity change.
-			constexpr int32 LutWidth = 16;
+			// an opacity change. LutEntry is shared with the clamp block, which
+			// asserts against the colormap's ENDS and must not restate them.
 			FTextureRHIRef LutTexture;
 			{
 				const FRHITextureCreateDesc LutDesc =
@@ -404,8 +492,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 				Lut.SetNum(LutWidth);
 				for (int32 Index = 0; Index < LutWidth; ++Index)
 				{
-					const float T = static_cast<float>(Index) / static_cast<float>(LutWidth - 1);
-					Lut[Index] = FFloat16Color(FLinearColor(T, 0.5f, 1.0f - T, 0.25f));
+					Lut[Index] = FFloat16Color(LutEntry(Index));
 				}
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, LutWidth, 1);
 				RHICmdList.UpdateTexture2D(LutTexture, 0, Region,
@@ -460,10 +547,20 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 				// came from - which is the property every assertion here uses.
 				Params->bFilterField = 0;
 
-				// Spans the whole field, so nothing is under or over range and
-				// those reason bits stay out of the comparison.
-				Params->ValueRangeMin = 0.0f;
-				Params->ValueRangeMax = FieldMax;
+				// Spans the whole field by default, so nothing is under or over
+				// range and those reason bits stay out of the comparison. Only the
+				// clamp configs narrow it, because the clamp flag is unobservable
+				// on a domain that covers every sample.
+				Params->ValueRangeMin = Config.bNarrowRange ? Config.RangeMin : 0.0f;
+				Params->ValueRangeMax = Config.bNarrowRange ? Config.RangeMax : FieldMax;
+				Params->bClampToRange = Config.bClampToRange ? 1u : 0u;
+
+				// The two flag colours the clamp block measures against. Set for
+				// EVERY config, not only the clamped ones: a value set on one arm
+				// of a differential pair and not the other would produce a colour
+				// difference that had nothing to do with the flag under test.
+				Params->UnderRangeColor = UnderFlagColor;
+				Params->OverRangeColor = OverFlagColor;
 
 				FlowVizRayMarch::SetVolumeTextures(*Params, FieldTexture,
 					Config.bMaskedStatus ? MaskedStatusTexture : ValidStatusTexture, false);
@@ -917,8 +1014,57 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 		SecondPassConfigs.Append(IsoConfigs, UE_ARRAY_COUNT(IsoConfigs));
 	}
 
+	/*
+	 * FOUR MORE CONFIGS FOR THE CLAMP FLAG: two values, each rendered with the
+	 * flag off and on.
+	 *
+	 * The domain is narrowed to [RowMin + 4, RowMin + 11] - stated relative to the
+	 * row constant read back from pass one, for the same reason IsoTarget is. The
+	 * ray still spans RowMin .. RowMin + 15, so Minimum resolves BELOW the domain
+	 * and Maximum ABOVE it, and one narrowing produces both an under-range and an
+	 * over-range pixel. Two directions matter: a shader that honoured the flag on
+	 * only one branch would be half fixed and look entirely correct on whichever
+	 * half was tested.
+	 *
+	 * WHY THE PAIRS DIFFER ONLY IN THE FLAG. Same mode, same range, same colours,
+	 * same camera, same textures. Anything that differs between a pair is
+	 * therefore attributable to bClampToRange and to nothing else - which is what
+	 * makes this a test of the RENDER rather than of the parameter block. The
+	 * existing assertion in FlowVizTransferFunctionTest checks that the flag is
+	 * SET; that passes identically whether or not any shader ever reads it.
+	 */
+	const float ClampRangeMin = CentreRowMin + 4.0f;
+	const float ClampRangeMax = CentreRowMin + 11.0f;
+	{
+		FMarchConfig ClampConfigs[4];
+
+		// Minimum resolves to the row's first voxel, which is 4 below the domain.
+		ClampConfigs[0].Name = TEXT("ClampUnderOff");
+		ClampConfigs[0].Mode = EFlowVizCompositeMode::Minimum;
+		ClampConfigs[1].Name = TEXT("ClampUnderOn");
+		ClampConfigs[1].Mode = EFlowVizCompositeMode::Minimum;
+
+		// Maximum resolves to the row's last voxel, 4 above the domain.
+		ClampConfigs[2].Name = TEXT("ClampOverOff");
+		ClampConfigs[2].Mode = EFlowVizCompositeMode::Maximum;
+		ClampConfigs[3].Name = TEXT("ClampOverOn");
+		ClampConfigs[3].Mode = EFlowVizCompositeMode::Maximum;
+
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			ClampConfigs[Index].bNarrowRange = true;
+			ClampConfigs[Index].RangeMin = ClampRangeMin;
+			ClampConfigs[Index].RangeMax = ClampRangeMax;
+			// Odd entries are the clamped arm of their pair.
+			ClampConfigs[Index].bClampToRange = (Index % 2) == 1;
+		}
+
+		SecondPassConfigs.Append(ClampConfigs, UE_ARRAY_COUNT(ClampConfigs));
+	}
+
 	enum { IsoHit = 0, IsoMiss = 1, IsoLitX = 2, IsoLitY = 3, IsoLitZ = 4,
-		   ClipMin = 5, ClipBoth = 6, ClipMinPair = 7, ClipMaxPair = 8, ClipAll = 9 };
+		   ClipMin = 5, ClipBoth = 6, ClipMinPair = 7, ClipMaxPair = 8, ClipAll = 9,
+		   ClampUnderOff = 10, ClampUnderOn = 11, ClampOverOff = 12, ClampOverOn = 13 };
 
 	SecondPassResults.SetNum(SecondPassConfigs.Num());
 	RunPass(SecondPassConfigs, SecondPassResults);
@@ -1278,6 +1424,253 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("...and reports REASON_NONE, i.e. 'the ray never entered' rather than "
 					   "'entered and found nothing usable'"),
 			static_cast<int32>(ReasonBits(All)), 0);
+	}
+
+	/* == bClampToRange changes the PIXEL, and changes nothing else ============ */
+	/*
+	 * WHAT THIS BLOCK CATCHES THAT NOTHING ELSE DOES: a user-facing control that
+	 * silently does nothing.
+	 *
+	 * bClampToRange was produced by MakeShaderParameters, pinned by a
+	 * static_assert on its cbuffer offset, and asserted by
+	 * FlowVizTransferFunctionTest - and no shader could read it. There was no
+	 * SHADER_PARAMETER to carry it and `grep -i ClampToRange Shaders/` returned
+	 * nothing, so the CPU preview honoured the flag and the GPU render did not.
+	 * Turning clamping ON changed the preview and not the picture.
+	 *
+	 * WHY THE EXISTING ASSERTION COULD NOT SEE IT, which is the reusable part:
+	 * `TestEqual(Params.bClampToRange, 1u)` tests the PRODUCER. It passes byte for
+	 * byte on a build where the flag reaches the shader and on one where it is
+	 * dropped on the floor, because in both the struct field is 1. A flag's
+	 * coverage has to be a difference in what was DRAWN; anything upstream of the
+	 * dispatch is satisfied by the defect.
+	 *
+	 * So this is differential and it is on pixels: the same out-of-range voxel,
+	 * rendered twice, differing only in the flag.
+	 *
+	 *   flag off -> the flag colour       (VISUAL_QA rule 4's protection)
+	 *   flag on  -> the colormap's end    (the user's explicit opt-out)
+	 *
+	 * AND THE INVARIANT THAT KEEPS THE OPT-OUT HONEST. Clamping is a DISPLAY
+	 * choice applied AFTER classification - FlowVizTransferFunction.cpp:333 says
+	 * so for the CPU path and the same must hold here. The reported scalar and the
+	 * reason bits are asserted IDENTICAL across each pair. A flag that also moved
+	 * the number, or that cleared the UNDER/OVER_RANGE bit, would hide the
+	 * out-of-range condition instead of recolouring it - which is the quantitative
+	 * lie the flag colours exist to prevent, arriving through the control meant to
+	 * be an informed choice about them.
+	 */
+	{
+		const FLinearColor& UnderOffValue = SecondPassResults[ClampUnderOff].ValueAt(CentreX, CentreY);
+		const FLinearColor& UnderOnValue = SecondPassResults[ClampUnderOn].ValueAt(CentreX, CentreY);
+		const FLinearColor& OverOffValue = SecondPassResults[ClampOverOff].ValueAt(CentreX, CentreY);
+		const FLinearColor& OverOnValue = SecondPassResults[ClampOverOn].ValueAt(CentreX, CentreY);
+
+		const FLinearColor& UnderOffColor = SecondPassResults[ClampUnderOff].ColorAt(CentreX, CentreY);
+		const FLinearColor& UnderOnColor = SecondPassResults[ClampUnderOn].ColorAt(CentreX, CentreY);
+		const FLinearColor& OverOffColor = SecondPassResults[ClampOverOff].ColorAt(CentreX, CentreY);
+		const FLinearColor& OverOnColor = SecondPassResults[ClampOverOn].ColorAt(CentreX, CentreY);
+
+		const auto RgbDistance = [](const FLinearColor& A, const FLinearColor& B)
+		{
+			return FMath::Sqrt(FMath::Square(A.R - B.R) + FMath::Square(A.G - B.G)
+				+ FMath::Square(A.B - B.B));
+		};
+
+		/* -- THE CONTROLS, FIRST ------------------------------------------- */
+		/*
+		 * A comparison that finds nothing because it is BLIND looks exactly like a
+		 * proof of correctness. Three things must be true before any difference
+		 * below means anything, and each is stated so that it can fail:
+		 *
+		 *   1. The narrowed domain really put these samples out of range. If the
+		 *      range did not take effect the samples are in-range, both arms draw
+		 *      the same LUT colour, and "no difference" would be reported as a
+		 *      pass by an assertion looking for equality - or as a failure with a
+		 *      misleading cause by this one.
+		 *   2. Both renders are non-black. Two black pixels are equal, and a pair
+		 *      of empty images satisfies every equality assertion here.
+		 *   3. The flag colour and the colormap end are far apart, so the pair CAN
+		 *      differ measurably. This is a property of the fixture and is checked
+		 *      on the CPU, where a failure names the fixture rather than the shader.
+		 */
+		const int32 UnderReason = static_cast<int32>(ReasonBits(UnderOffValue));
+		const int32 OverReason = static_cast<int32>(ReasonBits(OverOffValue));
+
+		// Both halves: the RESOLVED value - which is what picks the colour - lies
+		// outside the domain, AND the shader agrees by raising the matching reason
+		// bit. Checking only the bit would accept a render whose resolved value was
+		// in range while some other sample along the ray was not; checking only the
+		// value would not prove the shader classified it.
+		const bool bRangeTookEffect =
+			ReportedValue(UnderOffValue) < ClampRangeMin
+			&& ReportedValue(OverOffValue) > ClampRangeMax
+			// Named enumerators, not literals. A hand-written 32 agrees with the
+			// shader only until someone renumbers one side, and a stale literal
+			// here would silently start reading a DIFFERENT cause while still
+			// passing. HasReason routes through FlowVizRayMarch::DecodeReason, the
+			// decoder the plugin ships to its callers, and FlowViz.Render.ReasonCodes
+			// pins those enumerators to the .usf's own #defines.
+			&& HasReason(UnderOffValue, EFlowVizInvalidReason::UnderRange)
+			&& HasReason(OverOffValue, EFlowVizInvalidReason::OverRange);
+
+		if (!TestTrue(*FString::Printf(
+					TEXT("CONTROL: narrowing the domain to [%.1f, %.1f] really put the centre ray's "
+						 "Minimum (%.1f) UNDER it and its Maximum (%.1f) OVER it - reason bits %d and "
+						 "%d carry UNDER_RANGE (32) and OVER_RANGE (64). Without this the samples are "
+						 "in range, both arms draw the same LUT colour, and every comparison below "
+						 "would be between two identical correct pixels"),
+					ClampRangeMin, ClampRangeMax,
+					ReportedValue(UnderOffValue), ReportedValue(OverOffValue),
+					UnderReason, OverReason),
+				bRangeTookEffect))
+		{
+			AddError(TEXT("The clamp fixture is degenerate: nothing was out of range, so the "
+						  "clamp flag had nothing to change and NOTHING about it was verified."));
+			return false;
+		}
+
+		const auto IsNonBlack = [](const FLinearColor& C)
+		{
+			return (C.R + C.G + C.B) > 0.01f;
+		};
+
+		if (!TestTrue(*FString::Printf(
+					TEXT("CONTROL: all four clamp renders are NON-BLACK (unclamped under "
+						 "%.3f,%.3f,%.3f; clamped under %.3f,%.3f,%.3f; unclamped over "
+						 "%.3f,%.3f,%.3f; clamped over %.3f,%.3f,%.3f). Two black pixels are equal, "
+						 "so an empty image would satisfy the invariance assertions below while "
+						 "proving nothing"),
+					UnderOffColor.R, UnderOffColor.G, UnderOffColor.B,
+					UnderOnColor.R, UnderOnColor.G, UnderOnColor.B,
+					OverOffColor.R, OverOffColor.G, OverOffColor.B,
+					OverOnColor.R, OverOnColor.G, OverOnColor.B),
+				IsNonBlack(UnderOffColor) && IsNonBlack(UnderOnColor)
+					&& IsNonBlack(OverOffColor) && IsNonBlack(OverOnColor)))
+		{
+			return false;
+		}
+
+		const FLinearColor LutFirst = LutEntry(0);
+		const FLinearColor LutLast = LutEntry(LutWidth - 1);
+
+		// The fixture's own separation, on the CPU. The assertions below demand a
+		// difference of 0.5; this says the fixture can actually produce one.
+		TestTrue(*FString::Printf(
+				TEXT("CONTROL: the fixture's flag colours are far from the colormap ends they "
+					 "replace (under %.3f, over %.3f in RGB distance). A flag colour that sat near "
+					 "the LUT end would make 'clamped' and 'unclamped' nearly the same pixel and "
+					 "the difference assertions would be measuring the tolerance"),
+				RgbDistance(UnderFlagColor, LutFirst), RgbDistance(OverFlagColor, LutLast)),
+			RgbDistance(UnderFlagColor, LutFirst) > 0.5f
+				&& RgbDistance(OverFlagColor, LutLast) > 0.5f);
+
+		/* -- THE DEFECT: the two renders must DIFFER ----------------------- */
+
+		TestTrue(*FString::Printf(
+				TEXT("an UNDER-range pixel is coloured DIFFERENTLY with clamping on than off "
+					 "(%.4f,%.4f,%.4f vs %.4f,%.4f,%.4f; distance %.4f). Identical colours mean the "
+					 "shader never received bClampToRange, so the control changes the CPU preview "
+					 "and not the render - which is the whole defect, and is invisible to any "
+					 "assertion that only checks the flag was SET"),
+				UnderOffColor.R, UnderOffColor.G, UnderOffColor.B,
+				UnderOnColor.R, UnderOnColor.G, UnderOnColor.B,
+				RgbDistance(UnderOffColor, UnderOnColor)),
+			RgbDistance(UnderOffColor, UnderOnColor) > 0.5f);
+
+		TestTrue(*FString::Printf(
+				TEXT("an OVER-range pixel likewise (%.4f,%.4f,%.4f vs %.4f,%.4f,%.4f; distance "
+					 "%.4f). Stated separately from the under-range case: a shader that guarded "
+					 "only one of the two branches is half fixed and looks entirely correct on "
+					 "whichever half was tested"),
+				OverOffColor.R, OverOffColor.G, OverOffColor.B,
+				OverOnColor.R, OverOnColor.G, OverOnColor.B,
+				RgbDistance(OverOffColor, OverOnColor)),
+			RgbDistance(OverOffColor, OverOnColor) > 0.5f);
+
+		/* -- ...and differ in the RIGHT DIRECTION --------------------------- */
+		/*
+		 * "The two differ" alone would be satisfied by a flag that drew anything
+		 * else at all - the NaN colour, black, the other end of the LUT. These name
+		 * the four colours: unclamped is the flag colour, clamped is the colormap
+		 * END, on both branches.
+		 */
+		TestTrue(*FString::Printf(
+				TEXT("unclamped, an under-range pixel is the UNDER-RANGE FLAG COLOUR "
+					 "(%.4f,%.4f,%.4f vs expected %.3f,%.3f,%.3f). This is VISUAL_QA rule 4's "
+					 "protection and it must still be the default"),
+				UnderOffColor.R, UnderOffColor.G, UnderOffColor.B,
+				UnderFlagColor.R, UnderFlagColor.G, UnderFlagColor.B),
+			RgbDistance(UnderOffColor, UnderFlagColor) < 0.01f);
+
+		TestTrue(*FString::Printf(
+				TEXT("CLAMPED, the same pixel is the colormap's FIRST entry (%.4f,%.4f,%.4f vs "
+					 "expected %.3f,%.3f,%.3f) - the LUT end saturate() produces, not the flag "
+					 "colour and not some third thing"),
+				UnderOnColor.R, UnderOnColor.G, UnderOnColor.B,
+				LutFirst.R, LutFirst.G, LutFirst.B),
+			RgbDistance(UnderOnColor, LutFirst) < 0.01f);
+
+		TestTrue(*FString::Printf(
+				TEXT("unclamped, an over-range pixel is the OVER-RANGE FLAG COLOUR "
+					 "(%.4f,%.4f,%.4f vs expected %.3f,%.3f,%.3f)"),
+				OverOffColor.R, OverOffColor.G, OverOffColor.B,
+				OverFlagColor.R, OverFlagColor.G, OverFlagColor.B),
+			RgbDistance(OverOffColor, OverFlagColor) < 0.01f);
+
+		TestTrue(*FString::Printf(
+				TEXT("CLAMPED, the same pixel is the colormap's LAST entry (%.4f,%.4f,%.4f vs "
+					 "expected %.3f,%.3f,%.3f). The under and over branches must reach OPPOSITE "
+					 "ends; a shader that clamped both to the same end is a different bug that the "
+					 "difference assertions above cannot see"),
+				OverOnColor.R, OverOnColor.G, OverOnColor.B,
+				LutLast.R, LutLast.G, LutLast.B),
+			RgbDistance(OverOnColor, LutLast) < 0.01f);
+
+		/* -- THE INVARIANT: clamping is a DISPLAY choice, and only that ----- */
+		/*
+		 * BIT EQUALITY, not a tolerance, for the same reason the lighting block
+		 * uses it: any difference at all means the display flag reached the number
+		 * a scientific reading is taken from.
+		 */
+		TestTrue(*FString::Printf(
+				TEXT("the reported scalar is BIT-IDENTICAL with clamping on and off on the "
+					 "under-range branch (%.9g vs %.9g). Clamping is a DISPLAY choice applied AFTER "
+					 "classification - FlowVizTransferFunction.cpp:333 states the same rule for the "
+					 "CPU path. A flag that also clamped the reported VALUE would turn an informed "
+					 "opt-out into the quantitative lie the flag colours exist to prevent"),
+				ReportedValue(UnderOffValue), ReportedValue(UnderOnValue)),
+			ReportedValue(UnderOffValue) == ReportedValue(UnderOnValue));
+
+		TestTrue(*FString::Printf(
+				TEXT("...and on the over-range branch (%.9g vs %.9g)"),
+				ReportedValue(OverOffValue), ReportedValue(OverOnValue)),
+			ReportedValue(OverOffValue) == ReportedValue(OverOnValue));
+
+		TestEqual(*FString::Printf(
+				TEXT("the REASON BITS are identical with clamping on and off on the under-range "
+					 "branch (%d vs %d). UNDER_RANGE must still be reported when clamping is on: "
+					 "clamping recolours the disclosure, it does not withdraw it, and a shader that "
+					 "cleared the bit would make the diagnostics panel agree that nothing was out "
+					 "of range"),
+				static_cast<int32>(ReasonBits(UnderOffValue)),
+				static_cast<int32>(ReasonBits(UnderOnValue))),
+			static_cast<int32>(ReasonBits(UnderOnValue)),
+			static_cast<int32>(ReasonBits(UnderOffValue)));
+
+		TestEqual(*FString::Printf(
+				TEXT("...and on the over-range branch (%d vs %d)"),
+				static_cast<int32>(ReasonBits(OverOffValue)),
+				static_cast<int32>(ReasonBits(OverOnValue))),
+			static_cast<int32>(ReasonBits(OverOnValue)),
+			static_cast<int32>(ReasonBits(OverOffValue)));
+
+		// The step count too: clamping must not change how far the ray marched.
+		// A flag that altered traversal would change the sampled set, and then the
+		// bit-equal value above would be a coincidence of this fixture.
+		TestEqual(TEXT("...and the ray took the same number of steps either way, so clamping "
+					   "changed the shading and not the traversal"),
+			StepCount(UnderOnValue), StepCount(UnderOffValue));
 	}
 
 	return true;

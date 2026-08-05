@@ -121,6 +121,14 @@ void FlowVizRayMarch::FillDefaults(FFlowVizVolumeRayMarchParameters& OutParamete
 	OutParameters.UnderRangeColor = FLinearColor(0.0f, 0.85f, 1.0f, 1.0f);  // cyan
 	OutParameters.OverRangeColor = FLinearColor(1.0f, 0.35f, 0.0f, 1.0f);   // orange-red
 
+	// OFF, which is the PROTECTIVE reading and matches FFlowVizTransferFunction's
+	// own default. The two colours above only do their job while this is 0: with
+	// it on, an out-of-range value is drawn as the colormap's end, i.e. as the
+	// most extreme REAL value in the field. That is a legitimate display choice
+	// and it is the user's to make, so it is never the default a caller gets by
+	// forgetting to set it.
+	OutParameters.bClampToRange = 0;
+
 	OutParameters.bOrthographic = 1;
 	OutParameters.RayCameraPad0 = 0.0f;
 	OutParameters.RayCameraPad1 = 0.0f;

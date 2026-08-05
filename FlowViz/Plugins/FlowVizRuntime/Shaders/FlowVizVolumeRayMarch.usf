@@ -146,6 +146,12 @@ float4 NoDataColor;
 float4 UnderRangeColor;
 float4 OverRangeColor;
 
+/* Draw the colormap's END for an out-of-range sample instead of the two colours
+   directly above. 0 - the default - is VISUAL_QA rule 4's protection; 1 is the
+   user's explicit opt-out. COLOUR ONLY: see FlowVizShadeSample, which is where
+   it is read and which is downstream of all classification. */
+uint bClampToRange;
+
 /* -------------------------------------------------------------------------- */
 /* Resources                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -421,8 +427,29 @@ float4 FlowVizShadeSample(FFlowVizSample Sample)
 	if ((Sample.Reason & FLOWVIZ_REASON_INFINITE) != 0u) { return NaNColor; }
 	if ((Sample.Reason & FLOWVIZ_REASON_MASKED) != 0u)   { return MaskedColor; }
 	if ((Sample.Reason & FLOWVIZ_REASON_UNKNOWN) != 0u)  { return NoDataColor; }
-	if ((Sample.Reason & FLOWVIZ_REASON_UNDER_RANGE) != 0u) { return UnderRangeColor; }
-	if ((Sample.Reason & FLOWVIZ_REASON_OVER_RANGE) != 0u)  { return OverRangeColor; }
+	// THE CLAMP FLAG IS READ HERE AND NOWHERE ELSE, which is what makes it a
+	// display choice rather than a change to the data.
+	//
+	// Everything above this point has already happened: the sample was
+	// classified, Sample.Reason carries UNDER_RANGE or OVER_RANGE, and the
+	// caller has already OR-ed those bits into what OutValue.z reports.
+	// Sample.Value is untouched either way. So turning clamping on recolours the
+	// disclosure and cannot withdraw it - the pixel changes, the reported number
+	// and the reason bits do not. Reading the flag any earlier - in
+	// FlowVizSampleVolume, or before the range test that sets those bits - would
+	// suppress the classification itself, which is exactly the quantitative lie
+	// the flag colours exist to prevent. FlowViz.Render.VolumeMarch asserts the
+	// invariance alongside the colour difference.
+	//
+	// Falling through to FlowVizTransferFunction is the whole implementation: its
+	// saturate(T) already maps anything below the domain to LUT coordinate 0 and
+	// anything above it to 1, so the clamped colour IS the colormap's end and no
+	// second sampling path exists to disagree with the unclamped one.
+	if (bClampToRange == 0u)
+	{
+		if ((Sample.Reason & FLOWVIZ_REASON_UNDER_RANGE) != 0u) { return UnderRangeColor; }
+		if ((Sample.Reason & FLOWVIZ_REASON_OVER_RANGE) != 0u)  { return OverRangeColor; }
+	}
 	return FlowVizTransferFunction(Sample.Value);
 }
 
