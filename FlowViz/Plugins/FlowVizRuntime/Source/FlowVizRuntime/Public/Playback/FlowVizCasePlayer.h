@@ -579,14 +579,30 @@ struct FFlowVizDisplaySelection
 	 * [min, max], so a sweep that checks only bounds finds nothing and reads as
 	 * a clean bill of health.
 	 *
-	 * That wobble is accepted here because of its SIZE. It is 1 ULP
-	 * (1.19e-07 of the A..B span), which is far below one step of any
-	 * pseudocolor ramp, and it is non-monotonic only in the sense that a value
-	 * repeats or retreats by that ULP - the field is still visually smooth. The
-	 * mad form's endpoint error is not comparable: at a = -1000, b = 0.001 it
-	 * is 2.3e-2 relative, a wrong scalar pseudocolored as measurement.
-	 * A 1-ULP wobble in a smooth interior is a rounding artifact; a wrong
-	 * endpoint is a false measurement. Only the second is a provenance lie.
+	 * That wobble is accepted here because of its SIZE: exactly 1 ULP, verified
+	 * over pairs spanning sign changes and 40 decades. The mad form's endpoint
+	 * error is not comparable - at a = -1000, b = 0.001 it is 2.3e-2 relative,
+	 * a wrong scalar pseudocolored as measurement.
+	 *
+	 * BUT NOT "1 ULP CANNOT REACH A PIXEL", which is the tempting next step and
+	 * is false as stated. ULP is relative to the VALUE; a colormap step is
+	 * relative to the display WINDOW. Quantize a value near 1e6 through a window
+	 * of [1e6, 1e6+1] and every single 1-ULP step crosses a color boundary
+	 * (200000 of 200000 measured, at both 8- and 16-bit).
+	 *
+	 * That case is real but it is not an argument against this form: only 16
+	 * distinct float32 values exist inside that window, against 256 colour
+	 * levels, so the window is UNDER-RESOLVED and any 1-ULP change crosses a
+	 * boundary for ANY blend form, the mad form included. It is a precision
+	 * limit of the chosen transfer-function window, not a property of the
+	 * interpolation. On a window that float32 can resolve - [0,1] at 16-bit has
+	 * 1.6e4 floats per level - the crossing rate is 781 of 200000 and falls with
+	 * window width.
+	 *
+	 * So the honest statement is the comparative one, not an absolute: a 1-ULP
+	 * retreat is at the resolution limit of the format and affects a pixel only
+	 * where the window is already below that limit; a wrong endpoint is a false
+	 * measurement at any window. Only the second is a provenance lie.
 	 *
 	 * The temporal blend is not written yet. When it is, it must use the
 	 * two-product form, and the collapse above must still happen so the pair
@@ -597,6 +613,14 @@ struct FFlowVizDisplaySelection
 	 * believed: a shared loop guard, a fixed decimal t-step instead of
 	 * consecutive floats, and an a/b range inside a factor of two each produced
 	 * a confident zero here before being corrected.
+	 *
+	 * And the instrument itself needs checking, not just the fixture. A ULP
+	 * comparator written as `if (x < 0) x = 0x80000000 - x` mixes signed and
+	 * unsigned and is wrong across zero; it reported a 1.79e9-ULP "retreat" on
+	 * a = -1e20, b = 3.5 where the value had in fact gone UP, from -5.96e12 to
+	 * 3.5. A broken measurement invents findings as readily as a broken fixture
+	 * hides them - the correct total-order key flips all bits for negatives and
+	 * sets the top bit for positives.
 	 */
 	double Alpha = 0.0;
 
