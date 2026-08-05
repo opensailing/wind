@@ -1,0 +1,54 @@
+headerBytes: check removed entirely
+--
+	if (static_cast<int64>(DeclaredHeaderBytes) != CFDViz::CvmHeaderBytes)
+--
+	if (static_cast<int64>(DeclaredHeaderBytes) == -1)
+%%
+headerBytes: only undersized values rejected, oversized ones let through
+--
+	if (static_cast<int64>(DeclaredHeaderBytes) != CFDViz::CvmHeaderBytes)
+--
+	if (static_cast<int64>(DeclaredHeaderBytes) < CFDViz::CvmHeaderBytes)
+%%
+headerBytes: only oversized values rejected, undersized ones let through
+--
+	if (static_cast<int64>(DeclaredHeaderBytes) != CFDViz::CvmHeaderBytes)
+--
+	if (static_cast<int64>(DeclaredHeaderBytes) > CFDViz::CvmHeaderBytes)
+%%
+reserved: loop bound one short, so the last reserved byte is never examined
+--
+	for (int64 Index = 0; Index < CvmReservedBytes; ++Index)
+--
+	for (int64 Index = 0; Index < CvmReservedBytes - 1; ++Index)
+%%
+reserved: loop starts one late, so the first reserved byte is never examined
+--
+	for (int64 Index = 0; Index < CvmReservedBytes; ++Index)
+--
+	for (int64 Index = 1; Index < CvmReservedBytes; ++Index)
+%%
+reserved: check removed entirely
+--
+	for (int64 Index = 0; Index < CvmReservedBytes; ++Index)
+--
+	for (int64 Index = 0; Index < 0; ++Index)
+%%
+array offset: header-overlap check removed, so an array may sit inside the header
+--
+		if (ByteCount > 0 && Offset < CFDViz::CvmHeaderBytes)
+--
+		if (ByteCount > 0 && Offset < 0)
+%%
+array offset: off-by-one the wrong way, so the first legal byte is rejected
+--
+		if (ByteCount > 0 && Offset < CFDViz::CvmHeaderBytes)
+--
+		if (ByteCount > 0 && Offset <= CFDViz::CvmHeaderBytes)
+%%
+array offset: the empty-array exemption dropped, so a zero-length array at 0 is rejected
+--
+		if (ByteCount > 0 && Offset < CFDViz::CvmHeaderBytes)
+--
+		if (Offset < CFDViz::CvmHeaderBytes)
+%%

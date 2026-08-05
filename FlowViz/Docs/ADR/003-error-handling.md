@@ -138,11 +138,11 @@ broken (see `ARCHITECTURE.md`). But the multiply-by-one form is also an
 *equivalent mutant* — at `-O1` and above the compiler folds it away entirely,
 so it changes no behaviour and proves nothing either way. Laundering through a
 `volatile double`, which the optimizer may not remove, does change the value:
-a signalling NaN payload `0x7F812345` comes back quieted to `0x7FC12345`. That
-mutant is killed by the bit-pattern assertion, which is the evidence that the
-assertion is real. **A mutant the compiler deletes is not a test of anything**,
-and reading one as a passing grade would have retired a check that was never
-exercised.
+a signalling NaN payload `0x7F812345` comes back quieted to `0x7FC12345`. Re-run
+under `Tools/mutate.sh` in an isolated worktree, that mutant comes back
+`killed`, which is the evidence that the bit-pattern assertion is real. **A
+mutant the compiler deletes is not a test of anything**, and reading one as a
+passing grade would have retired a check that was never exercised.
 
 The remaining gap at this boundary is `CFDVizByteSource.cpp`, which has no
 direct test of its own; [`ARCHITECTURE.md`](../ARCHITECTURE.md) tracks it.
