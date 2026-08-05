@@ -101,6 +101,7 @@ from . import FORMAT_VERSION, __version__
 from .case import KNOWN_VALUES_NAME, write_known_values
 from .codecs import codec_id_from_name
 from .cvf import write_cvf
+from .cva import CVA_ASSOC_VERTEX, write_cva
 from .cvm import make_box_mesh, make_cylinder_mesh, write_cvm
 
 __all__ = [
@@ -934,8 +935,18 @@ def _frame_fields(field: WakeField, time: float,
     }
 
 
-def _write_meshes(root: Path, parameters: MockCaseParameters) -> list[dict[str, Any]]:
-    """Write the obstacle and boundary meshes; return their manifest entries."""
+def _write_meshes(root: Path, parameters: MockCaseParameters,
+                  times: Sequence[float] | None = None) -> list[dict[str, Any]]:
+    """Write the obstacle and boundary meshes; return their manifest entries.
+
+    Also writes the per-vertex wall pressure on the cylinder as a ``.cva``. That
+    array is what makes the CVA half of ``known_values.json`` a real check: with
+    no ``.cva`` on disk the bridge's ``arraySamples`` list is empty, and an
+    empty list is not a passing comparison, it is no comparison. The C++ CVA
+    reader was then verified only against fixtures its own test file had
+    written, which establishes self-consistency and nothing about agreement
+    with this implementation.
+    """
     ox, oy, oz = parameters.origin
     lx, ly, lz = parameters.domain
     cx, cy = parameters.cylinder_center
@@ -954,6 +965,8 @@ def _write_meshes(root: Path, parameters: MockCaseParameters) -> list[dict[str, 
         positions=positions, indices=indices, normals=normals,
         patch_ids=patch_ids,
     )
+    _write_wall_pressure(root, parameters, positions,
+                         parameters.times if times is None else times)
 
     # The domain box is viewed from the fluid inside it, so its faces wind
     # inward; an outward box would be invisible from every useful camera.
@@ -1015,6 +1028,77 @@ def _write_meshes(root: Path, parameters: MockCaseParameters) -> list[dict[str, 
             ],
         },
     ]
+
+
+#: Numeric field id of the wall-pressure array. Distinct from every `_FIELDS`
+#: id: the manifest's `fields[]` is grid storage, and CFDViz 1.0 reserves its
+#: `mesh-vertex` association for a later version, so this array is discovered
+#: on disk rather than declared. The id still has to be unique, because it is
+#: what a reader matches on.
+WALL_PRESSURE_NUMERIC_ID: Final = 64
+
+
+def _write_wall_pressure(root: Path, parameters: MockCaseParameters,
+                         positions: np.ndarray,
+                         times: Sequence[float]) -> None:
+    """Write per-vertex wall pressure on the cylinder, one ``.cva`` per frame.
+
+    The relation is the same Bernoulli one the volume ``pressure`` field uses,
+    evaluated on the surface rather than in the grid:
+
+        p = 0.5 * density * (U_inf^2 - q^2)
+
+    where ``q`` is the inviscid surface speed on a cylinder in cross-flow,
+    ``q = 2 * U_inf * |sin(theta)|``, ``theta`` measured from the upstream
+    stagnation point. That gives the textbook ``Cp = 1 - 4 sin^2(theta)``:
+    ``+0.5 rho U^2`` at the stagnation point and ``-1.5 rho U^2`` at the
+    shoulders. Using the volume field's relation rather than an unrelated
+    formula matters -- a wall array that disagreed with the volume beside it
+    would be a plausible-looking artefact that teaches the renderer a lie.
+
+    One vertex is deliberately NaN. ``validCount`` is the only statistic that
+    can distinguish a reader which *excludes* non-finite values from one which
+    folds them to zero before counting, and on an all-finite array the two are
+    indistinguishable -- the comparison could not fail, which is not a check.
+    The NaN sits at the rear stagnation line, where an inviscid solution is
+    least defensible anyway: it reads as "no data here", which is honest.
+    """
+    cx, cy = parameters.cylinder_center
+    dx = positions[:, 0].astype(np.float64) - cx
+    dy = positions[:, 1].astype(np.float64) - cy
+
+    # Angle from the upstream stagnation point. Flow runs +x, so the stagnation
+    # point is at -x from the centre and theta = 0 there.
+    theta = np.arctan2(dy, -dx)
+    speed = 2.0 * parameters.inlet_velocity * np.abs(np.sin(theta))
+    pressure = 0.5 * parameters.density * (
+        parameters.inlet_velocity**2 - speed**2
+    )
+
+    # The vertex closest to the rear stagnation line (theta = +-pi).
+    separated = int(np.argmax(np.abs(theta)))
+
+    for frame, time in enumerate(times):
+        # A weak breathing mode so the array is not identical frame to frame --
+        # a reader that ignored frameIndex and always returned frame 0 would
+        # otherwise pass every comparison.
+        phase = 1.0 + 0.05 * math.sin(
+            2.0 * math.pi * parameters.shedding_frequency * time
+        )
+        values = (pressure * phase).astype(np.float32)
+        values[separated] = np.float32("nan")
+
+        write_cva(
+            root / "meshes" / f"obstacleWallPressure_{frame:06d}.cva",
+            values=values[:, None],
+            frame_index=frame,
+            simulation_time=time,
+            association=CVA_ASSOC_VERTEX,
+            field_numeric_id=WALL_PRESSURE_NUMERIC_ID,
+            dtype="float32",
+            codec=codec_id_from_name(parameters.codec),
+            level=parameters.level,
+        )
 
 
 def generate_mock_case(output: Path | str,

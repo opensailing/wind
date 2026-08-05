@@ -947,5 +947,106 @@
       "value": 3
     }
   ],
-  "arraySamples": []
+  "arraySamples": [
+    {
+      "kind": "value",
+      "path": "meshes/obstacleWallPressure_000000.cva",
+      "frame": 0,
+      "entity": 0,
+      "component": 0,
+      "componentName": "",
+      "value": null,
+      "bits": "0x7FC00000"
+    },
+    {
+      "kind": "value",
+      "path": "meshes/obstacleWallPressure_000000.cva",
+      "frame": 0,
+      "entity": 48,
+      "component": 0,
+      "componentName": "",
+      "value": 28.125,
+      "bits": "0x41E10000"
+    },
+    {
+      "kind": "value",
+      "path": "meshes/obstacleWallPressure_000000.cva",
+      "frame": 0,
+      "entity": 95,
+      "component": 0,
+      "componentName": "",
+      "value": 26.208328247070312,
+      "bits": "0x41D1AAA8"
+    },
+    {
+      "kind": "statistics",
+      "path": "meshes/obstacleWallPressure_000000.cva",
+      "frame": 0,
+      "component": 0,
+      "componentName": "",
+      "minimum": {
+        "value": -84.375,
+        "bits": "0xC055180000000000"
+      },
+      "maximum": {
+        "value": 28.125,
+        "bits": "0x403C200000000000"
+      },
+      "mean": {
+        "value": -28.71710534346731,
+        "bits": "0xC03CB794373DFA9C"
+      },
+      "validCount": 95
+    },
+    {
+      "kind": "value",
+      "path": "meshes/obstacleWallPressure_000019.cva",
+      "frame": 19,
+      "entity": 0,
+      "component": 0,
+      "componentName": "",
+      "value": null,
+      "bits": "0x7FC00000"
+    },
+    {
+      "kind": "value",
+      "path": "meshes/obstacleWallPressure_000019.cva",
+      "frame": 19,
+      "entity": 48,
+      "component": 0,
+      "componentName": "",
+      "value": 29.119369506835938,
+      "bits": "0x41E8F478"
+    },
+    {
+      "kind": "value",
+      "path": "meshes/obstacleWallPressure_000019.cva",
+      "frame": 19,
+      "entity": 95,
+      "component": 0,
+      "componentName": "",
+      "value": 27.134931564331055,
+      "bits": "0x41D91457"
+    },
+    {
+      "kind": "statistics",
+      "path": "meshes/obstacleWallPressure_000019.cva",
+      "frame": 19,
+      "component": 0,
+      "componentName": "",
+      "minimum": {
+        "value": -87.35810852050781,
+        "bits": "0xC055D6EB40000000"
+      },
+      "maximum": {
+        "value": 29.119369506835938,
+        "bits": "0x403D1E8F00000000"
+      },
+      "mean": {
+        "value": -29.732408945184005,
+        "bits": "0xC03DBB7F2712DCF8"
+      },
+      "validCount": 95
+    }
+  ]
 }

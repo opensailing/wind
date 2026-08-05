@@ -642,3 +642,127 @@ def test_the_low_resolution_preset_still_resolves_the_cylinder():
     assert diameter_cells >= 3.0, (
         f"the cylinder is only {diameter_cells:.1f} cells across"
     )
+
+
+# ---------------------------------------------------------------------------
+# Mesh-associated arrays: the half of the bridge that had no data
+# ---------------------------------------------------------------------------
+#
+# The CVA reader on the Unreal side was checked only against fixtures the same
+# test file had written, which proves it is self-consistent and nothing more.
+# `known_values.json` is what breaks that circularity for every other format --
+# Python writes, C++ reads, the two are compared bit for bit -- and its
+# `arraySamples` list was empty, because the generator wrote no `.cva` for the
+# extractor to find. An empty list is not a passing check; it is no check.
+
+def test_the_case_ships_a_mesh_associated_array(tiny_case: Path):
+    """A ``.cva`` must exist, or the CVA half of the bridge has no input.
+
+    `_array_samples` in case.py globs ``meshes/*.cva``. It is complete and
+    correct; it was simply never given a file. The bridge it feeds is the only
+    thing standing between the C++ CVA reader and grading its own homework.
+    """
+    arrays = sorted((tiny_case / "meshes").glob("*.cva"))
+    assert arrays, "no .cva was written, so arraySamples will be empty"
+
+
+def test_the_bridge_carries_array_samples(tiny_case: Path):
+    """``arraySamples`` must be non-empty and must agree with the file on disk.
+
+    Both halves matter. Non-empty is what the previous test buys; agreement is
+    what makes it evidence. `verify_known_values` re-reads every ``.cva`` and
+    compares bits, so a sample generated from different data than the file
+    beside it fails here rather than in Unreal against a stale answer key.
+    """
+    bridge = json.loads((tiny_case / "known_values.json").read_text("utf-8"))
+    samples = bridge["arraySamples"]
+    assert samples, "the bridge declares no array samples to check"
+
+    kinds = {s["kind"] for s in samples}
+    assert "value" in kinds, "no payload sample: a mis-strided read would pass"
+    assert "statistics" in kinds, (
+        "no statistics sample: validCount is the only thing that catches a "
+        "reader which coerces NaN to zero *before* counting, which is "
+        "invisible in the payload"
+    )
+    assert verify_known_values(tiny_case, bridge) == []
+
+
+def test_the_array_carries_a_nan_so_valid_count_can_disagree(tiny_case: Path):
+    """The array must contain a non-finite value.
+
+    ``validCount`` is the statistic that distinguishes a reader which excludes
+    NaN from one which folds it to zero. On an all-finite array every reader
+    agrees and the field cannot fail -- a pass criterion that cannot fail is
+    not a check.
+    """
+    from cfdviz.cva import read_cva
+
+    path = next(iter(sorted((tiny_case / "meshes").glob("*.cva"))))
+    array = read_cva(path)
+    assert not np.isfinite(array.values).all(), (
+        f"{path.name} is entirely finite, so validCount can never disagree"
+    )
+    statistics = array.frame_statistics
+    assert statistics is not None, "no per-frame statistics were stored"
+    assert int(statistics.valid_count[0]) < array.value_count, (
+        "validCount equals the value count, so the NaN was counted as valid"
+    )
+
+
+def test_the_wall_pressure_is_the_textbook_cylinder_solution(tiny_case: Path):
+    """The array must be right, not merely self-consistent.
+
+    A `.cva` full of arbitrary numbers would satisfy every bridge test above --
+    Python would write it, C++ would read it back, and the bits would agree.
+    That checks the *plumbing*. This checks the *content*, against a closed-form
+    answer neither implementation computed: inviscid flow over a cylinder has
+
+        Cp = 1 - 4 sin^2(theta)
+
+    which is +1 at the upstream stagnation point and -3 at the shoulders. If
+    the wall array disagreed with that, the renderer would be colouring the
+    obstacle with a plausible-looking lie.
+    """
+    from cfdviz.cva import read_cva
+
+    parameters = tiny_parameters()
+    array = read_cva(tiny_case / "meshes" / "obstacleWallPressure_000000.cva")
+    mesh = read_cvm(tiny_case / "meshes" / "obstacle.cvm")
+
+    cx, cy = parameters.cylinder_center
+    dx = mesh.positions[:, 0].astype(np.float64) - cx
+    dy = mesh.positions[:, 1].astype(np.float64) - cy
+    theta = np.arctan2(dy, -dx)
+
+    dynamic = 0.5 * parameters.density * parameters.inlet_velocity**2
+    cp = array.values[:, 0].astype(np.float64) / dynamic
+    finite = np.isfinite(cp)
+    expected = 1.0 - 4.0 * np.sin(theta) ** 2
+
+    # Frame 0 carries the breathing-mode phase factor, so compare shape rather
+    # than absolute scale: the phase multiplies every vertex equally.
+    scale = np.median(cp[finite] / expected[finite])
+    assert np.allclose(cp[finite], scale * expected[finite], rtol=1e-4, atol=1e-4)
+
+    # The named extremes, which are what someone reading the picture checks.
+    assert cp[finite].max() == pytest.approx(1.0 * scale, rel=1e-3)
+    assert cp[finite].min() == pytest.approx(-3.0 * scale, rel=1e-3)
+
+
+def test_the_wall_pressure_changes_between_frames(tiny_case: Path):
+    """A reader that ignored frameIndex and always returned frame 0 must fail.
+
+    Identical frames make that bug invisible: every comparison passes because
+    every frame is the same answer.
+    """
+    from cfdviz.cva import read_cva
+
+    first = read_cva(tiny_case / "meshes" / "obstacleWallPressure_000000.cva")
+    second = read_cva(tiny_case / "meshes" / "obstacleWallPressure_000001.cva")
+    assert second.frame_index == 1, "the header does not record its own frame"
+    a, b = first.values[:, 0], second.values[:, 0]
+    finite = np.isfinite(a) & np.isfinite(b)
+    assert not np.array_equal(a[finite], b[finite]), (
+        "consecutive frames are identical, so a frame-ignoring reader passes"
+    )

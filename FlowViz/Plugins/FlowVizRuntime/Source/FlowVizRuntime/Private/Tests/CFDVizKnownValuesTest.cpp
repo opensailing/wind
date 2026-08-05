@@ -1,5 +1,7 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
+#include "CFDViz/CFDVizArrayReader.h"
+#include "CFDViz/CFDVizByteSource.h"
 #include "CFDViz/CFDVizCrc32C.h"
 #include "CFDViz/CFDVizManifest.h"
 #include "CFDViz/CFDVizMeshReader.h"
@@ -511,6 +513,176 @@ bool FCFDVizKnownValuesTest::RunTest(const FString& Parameters)
 
 		TestEqual(TEXT("every mesh sample was actually compared"),
 			ComparedMeshSamples, MeshSamples->Num());
+	}
+
+	/* --------------------------------------------------------------------- */
+	/* Mesh-associated array samples (.cva)                                    */
+	/* --------------------------------------------------------------------- */
+	//
+	// This section exists because its absence was the one real hole in the
+	// bridge. CFDVizArrayReaderTest.cpp verifies the CVA reader against
+	// fixtures CFDVizArrayReaderTest.cpp wrote, which establishes that the
+	// reader is self-consistent and nothing whatever about whether it agrees
+	// with the Python implementation. Every other format is checked here
+	// against bytes Python produced; CVA was not, because the generator emitted
+	// no .cva and arraySamples was an empty list. An empty list compares
+	// nothing and passes.
+	//
+	// Required, not optional, for the same reason as meshSamples above: making
+	// it conditional would let a regenerated known_values.json with an empty
+	// arraySamples silently delete this whole section and still report green.
+
+	const TArray<TSharedPtr<FJsonValue>>* ArraySamples = nullptr;
+	if (TestTrue(TEXT("known_values has an arraySamples array"),
+			Root->TryGetArrayField(TEXT("arraySamples"), ArraySamples) && ArraySamples != nullptr)
+		&& TestTrue(TEXT("there is at least one array sample to compare"), ArraySamples->Num() > 0))
+	{
+		FString OpenArrayPath;
+		FCFDVizArrayData ArrayData;
+		int32 ComparedArraySamples = 0;
+
+		for (const TSharedPtr<FJsonValue>& Entry : *ArraySamples)
+		{
+			const TSharedPtr<FJsonObject>* Sample = nullptr;
+			if (!Entry.IsValid() || !Entry->TryGetObject(Sample) || Sample == nullptr)
+			{
+				AddError(TEXT("an arraySamples[] entry is not an object"));
+				continue;
+			}
+
+			FString Kind;
+			FString RelativePath;
+			if (!(*Sample)->TryGetStringField(TEXT("kind"), Kind)
+				|| !(*Sample)->TryGetStringField(TEXT("path"), RelativePath))
+			{
+				AddError(TEXT("an arraySamples[] entry is missing kind/path"));
+				continue;
+			}
+
+			// Samples arrive grouped by path, so this reopens only on change.
+			if (RelativePath != OpenArrayPath)
+			{
+				const FString ArrayPath = FPaths::Combine(CaseDir, RelativePath);
+				FCFDVizFileByteSource ArraySource;
+				if (!TestTrue(*FString::Printf(TEXT("open array '%s'"), *RelativePath),
+						ArraySource.Open(ArrayPath)))
+				{
+					OpenArrayPath.Reset();
+					continue;
+				}
+
+				const FCFDVizResult ArrayRead = FCFDVizArrayReader::Read(ArraySource, ArrayData);
+				if (!TestTrue(*FString::Printf(TEXT("read array '%s': %s"),
+						*RelativePath, *ArrayRead.ToString()), ArrayRead.IsOk()))
+				{
+					OpenArrayPath.Reset();
+					continue;
+				}
+				OpenArrayPath = RelativePath;
+			}
+
+			// The frame the file declares must be the frame Python sampled. A
+			// reader that ignored frameIndex would otherwise answer every
+			// question about frame 7 with frame 0's data and pass, because the
+			// payload comparison alone cannot tell which frame it read.
+			int32 ExpectedFrame = 0;
+			if ((*Sample)->TryGetNumberField(TEXT("frame"), ExpectedFrame))
+			{
+				TestEqual(*FString::Printf(TEXT("array '%s' declares frame %d"),
+						*RelativePath, ExpectedFrame),
+					static_cast<int32>(ArrayData.Header.FrameIndex), ExpectedFrame);
+			}
+
+			if (Kind == TEXT("value"))
+			{
+				int32 EntityIndex = 0;
+				int32 Component = 0;
+				FString ExpectedBitsText;
+				if (!(*Sample)->TryGetNumberField(TEXT("entity"), EntityIndex)
+					|| !(*Sample)->TryGetNumberField(TEXT("component"), Component)
+					|| !(*Sample)->TryGetStringField(TEXT("bits"), ExpectedBitsText))
+				{
+					AddError(TEXT("a value arraySample is missing entity/component/bits"));
+					continue;
+				}
+
+				uint64 ExpectedBits = 0;
+				if (!TestTrue(*FString::Printf(TEXT("array '%s' entity %d expected bits parse"),
+						*RelativePath, EntityIndex),
+						TryParseHexBits(ExpectedBitsText, ExpectedBits)))
+				{
+					continue;
+				}
+
+				// Bits, not values. The obstacle array deliberately carries a
+				// NaN, and NaN != NaN: a value comparison would report a
+				// mismatch on a correct reader and, worse, a reader that folded
+				// NaN to 0.0 would compare 0.0 == 0.0 against a bridge that had
+				// also been read as 0.0 and pass. Only the bit pattern
+				// distinguishes 0x7FC00000 from 0x00000000.
+				uint64 ActualBits = 0;
+				if (!TestTrue(*FString::Printf(
+						TEXT("array '%s' has entity %d component %d"),
+						*RelativePath, EntityIndex, Component),
+						ArrayData.TryGetValueBits(EntityIndex, Component, ActualBits)))
+				{
+					continue;
+				}
+
+				TestEqual(*FString::Printf(
+						TEXT("array '%s' entity %d component %d matches Python bit-for-bit"),
+						*RelativePath, EntityIndex, Component),
+					ActualBits, ExpectedBits);
+				++ComparedArraySamples;
+			}
+			else if (Kind == TEXT("statistics"))
+			{
+				int32 Component = 0;
+				double ExpectedValidCount = 0.0;
+				if (!(*Sample)->TryGetNumberField(TEXT("component"), Component)
+					|| !(*Sample)->TryGetNumberField(TEXT("validCount"), ExpectedValidCount))
+				{
+					AddError(TEXT("a statistics arraySample is missing component/validCount"));
+					continue;
+				}
+
+				if (!TestTrue(*FString::Printf(TEXT("array '%s' carries frame statistics"),
+						*RelativePath), ArrayData.FrameStatistics.IsSet()))
+				{
+					continue;
+				}
+
+				const FCFDVizArrayStatistics& Statistics = ArrayData.FrameStatistics.GetValue();
+				if (!Statistics.ValidCount.IsValidIndex(Component))
+				{
+					AddError(FString::Printf(TEXT("array '%s' has no validCount for component %d"),
+						*RelativePath, Component));
+					continue;
+				}
+
+				// validCount is the whole reason a statistics sample is here.
+				// It is the only field that distinguishes a reader which
+				// EXCLUDES non-finite values from one which folds them to zero
+				// and counts them - a difference that is invisible in the
+				// payload and changes every mean the UI displays.
+				TestEqual(*FString::Printf(
+						TEXT("array '%s' component %d validCount matches Python"),
+						*RelativePath, Component),
+					static_cast<int64>(Statistics.ValidCount[Component]),
+					static_cast<int64>(ExpectedValidCount));
+				++ComparedArraySamples;
+			}
+			else
+			{
+				AddError(FString::Printf(TEXT("unknown arraySample kind '%s'"), *Kind));
+			}
+		}
+
+		// Every declared sample must have been compared, not merely iterated. A
+		// `continue` above skips a comparison, and without this the test would
+		// report a pass having checked nothing.
+		TestEqual(TEXT("every array sample was actually compared"),
+			ComparedArraySamples, ArraySamples->Num());
 	}
 
 	/* --------------------------------------------------------------------- */
