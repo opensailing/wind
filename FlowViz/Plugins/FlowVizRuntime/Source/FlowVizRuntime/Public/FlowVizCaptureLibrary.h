@@ -166,4 +166,87 @@ public:
 		int32 Width = 1280,
 		int32 Height = 720,
 		float FOV = 90.0f);
+
+	/**
+	 * Put a CFDViz case in the world, loaded, uploaded, and ready to march.
+	 *
+	 * Python cannot assemble this itself, and the reasons are the same class as
+	 * SpawnSceneCapture2D's: every Blueprint spawn entry point is
+	 * `BlueprintInternalUseOnly`, and `UCFDVizVolumeComponent::UploadFrame` is
+	 * not a UFUNCTION. A case actor placed without an upload has a scene proxy
+	 * and no shader parameters, so it draws its hull and dispatches NOTHING -
+	 * which looks exactly like a broken ray-marcher.
+	 *
+	 * THE FIELD MUST BE A SCALAR, AND THIS FUNCTION REJECTS ONE THAT IS NOT.
+	 * `LoadCase(NAME_None)` picks the first non-mask field, which in the shipped
+	 * sample is `U` - a 3-component vector. A vector field's bytes land in the
+	 * upload's VectorLayout, leaving `Slot.ScalarTexture` null, and
+	 * `DispatchVolumeRayMarch` early-returns on `!Request.FieldTexture.IsValid()`.
+	 * The volume then renders its hull and nothing else, silently: a picture
+	 * indistinguishable from a broken marcher, produced by a correct one.
+	 *
+	 * An earlier draft of this comment only WARNED about that, which would have
+	 * moved the trap from the renderer into the docstring. The check is here
+	 * instead, and it fails loudly with the component count in OutError. Scalar
+	 * fields in the sample: `speed`, `pressure`, `vorticityMagnitude`,
+	 * `qCriterion`, `passiveScalar`.
+	 *
+	 * @param CaseDirectory Path to the `.cfdviz` directory or its manifest.json.
+	 * @param FieldId       Field to display. Must name a 1-component field, and
+	 *                      must be given: NAME_None is refused rather than
+	 *                      defaulted, because the default is a vector.
+	 * @param FrameIndex    Frame to upload. Without an upload there are no
+	 *                      shader parameters and no dispatch.
+	 * @param bDrawBoundingBox Whether the debug wireframe box is drawn. Note
+	 *                      this does NOT suppress the proxy's solid hull, which
+	 *                      is drawn unconditionally - see
+	 *                      SetVolumeRayMarcherEnabled for what actually isolates
+	 *                      the marcher.
+	 * @param OutError      The full diagnostic on failure, naming the file.
+	 * @return The spawned actor, or nullptr. A non-null return means the case
+	 *         loaded AND a frame was uploaded; a partial success returns null.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
+		meta = (WorldContext = "WorldContextObject"))
+	static class ACFDVizCaseActor* SpawnCaseActor(
+		const UObject* WorldContextObject,
+		const FString& CaseDirectory,
+		FName FieldId,
+		FVector Location,
+		FRotator Rotation,
+		FString& OutError,
+		int32 FrameIndex = 0,
+		bool bDrawBoundingBox = false);
+
+	/**
+	 * Install or uninstall the production ray-march dispatcher.
+	 *
+	 * THIS IS THE ONLY SINGLE-VARIABLE CONTROL THE VOLUME HAS, and it exists
+	 * because the obvious ones do not work. The scene proxy draws a wireframe
+	 * box, a solid `GEngine->DebugMeshMaterial` hull, and the ray-march dispatch
+	 * from one `GetDynamicMeshElements`. A primitive-suppressed reference capture
+	 * removes all three at once, so "the frame differs from the reference" goes
+	 * true the moment the hull rasterizes - which it does unconditionally, with
+	 * no flag guarding it. That criterion cannot distinguish a working marcher
+	 * from a dead one, and since the hull is an opaque box, the frame it
+	 * certifies even looks like a rendered volume. `bDrawBoundingBox` does not
+	 * help: only the wireframe is behind it.
+	 *
+	 * Toggling the dispatcher holds the proxy, the hull, the box, the camera and
+	 * the lighting all fixed and moves exactly one thing. Any pixel that differs
+	 * between the two captures came from the ray-marcher and from nothing else.
+	 *
+	 * Flushes rendering commands before returning, so a capture issued on the
+	 * next line observes the change rather than racing it.
+	 *
+	 * @param bEnabled true reinstalls the production dispatcher; false uninstalls.
+	 * @return Whether a dispatcher is installed after the call, so a caller can
+	 *         assert the toggle took effect rather than assuming it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static bool SetVolumeRayMarcherEnabled(bool bEnabled);
+
+	/** Whether a ray-march dispatcher is currently installed. */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static bool IsVolumeRayMarcherEnabled();
 };

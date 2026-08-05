@@ -18,7 +18,10 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
+#include "Render/FlowVizVolumeRayMarchDispatcher.h"
 #include "RHI.h"
+#include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizVolumeComponent.h"
 #include "RenderingThread.h"
 #include "SceneInterface.h"
 #include "TextureResource.h"
@@ -438,4 +441,207 @@ bool UFlowVizCaptureLibrary::CaptureToPNG(
 	UE_LOG(LogFlowViz, Log,
 		TEXT("CaptureToPNG: wrote '%s' (%lld bytes)."), *AbsolutePath, FileSize);
 	return true;
+}
+
+ACFDVizCaseActor* UFlowVizCaptureLibrary::SpawnCaseActor(
+	const UObject* WorldContextObject,
+	const FString& CaseDirectory,
+	FName FieldId,
+	FVector Location,
+	FRotator Rotation,
+	FString& OutError,
+	int32 FrameIndex,
+	bool bDrawBoundingBox)
+{
+	OutError.Reset();
+
+	UWorld* World = ResolveWorld(WorldContextObject, TEXT("SpawnCaseActor"));
+	if (World == nullptr)
+	{
+		OutError = TEXT("could not resolve a world from the supplied context object");
+		return nullptr;
+	}
+
+	/*
+	 * REFUSED, NOT DEFAULTED. LoadCase(NAME_None) picks the manifest's first
+	 * non-mask field, which in the shipped sample is the 3-component `U`. That
+	 * load succeeds, the upload succeeds, and the volume then renders its hull
+	 * and nothing else because the dispatcher early-returns on a null
+	 * ScalarTexture. Defaulting here would make the most convenient call the
+	 * one that produces an un-marchable volume.
+	 */
+	if (FieldId.IsNone())
+	{
+		OutError = TEXT("no field was named. This function will not pick one for you: the "
+			"manifest's first field is typically a vector, whose bytes never reach the "
+			"scalar texture the ray-marcher samples, so the volume would draw its hull "
+			"and march nothing. Name a scalar field explicitly.");
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s"), *OutError);
+		return nullptr;
+	}
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.ObjectFlags |= RF_Transient;
+	// A case placed for a capture is instrumentation; it must never fail to
+	// appear because something happens to occupy the requested transform.
+	SpawnParams.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	ACFDVizCaseActor* Actor =
+		World->SpawnActor<ACFDVizCaseActor>(Location, Rotation, SpawnParams);
+
+	if (Actor == nullptr)
+	{
+		OutError = TEXT("SpawnActor returned null");
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s."), *OutError);
+		return nullptr;
+	}
+
+	/*
+	 * Every failure below destroys the actor before returning. A half-configured
+	 * case actor left in the world is worse than none: it has a scene proxy, so
+	 * it draws, and it has no parameters, so it never dispatches - the exact
+	 * pairing that makes a dead marcher photograph like a live one.
+	 */
+	bool bSucceeded = false;
+	ON_SCOPE_EXIT
+	{
+		if (!bSucceeded && IsValid(Actor))
+		{
+			World->DestroyActor(Actor);
+		}
+	};
+
+	UCFDVizVolumeComponent* Volume = Actor->GetVolumeComponent();
+	if (Volume == nullptr)
+	{
+		OutError = TEXT("the spawned case actor has no volume component");
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s."), *OutError);
+		return nullptr;
+	}
+
+	const FCFDVizResult LoadResult = Actor->LoadCase(CaseDirectory, FieldId);
+	if (!LoadResult.IsOk())
+	{
+		OutError = FString::Printf(TEXT("could not load '%s' field '%s': %s"),
+			*CaseDirectory, *FieldId.ToString(), *LoadResult.ToString());
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s"), *OutError);
+		return nullptr;
+	}
+
+	/*
+	 * THE SCALAR CHECK, AFTER THE LOAD BECAUSE THE MANIFEST IS WHAT KNOWS.
+	 * A vector field loads and uploads without complaint; the failure appears
+	 * only later, on the render thread, as a dispatch that early-returns. This
+	 * is the last point at which it can be reported to a caller at all.
+	 */
+	const FCFDVizField* const Field =
+		Volume->GetCaseBinding().Case.FindField(Volume->GetCaseBinding().FieldId);
+	if (Field == nullptr)
+	{
+		OutError = FString::Printf(
+			TEXT("field '%s' is not in the loaded manifest"), *FieldId.ToString());
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s."), *OutError);
+		return nullptr;
+	}
+
+	if (Field->ComponentCount != 1)
+	{
+		OutError = FString::Printf(
+			TEXT("field '%s' has %d components; the ray-marcher samples a scalar texture, so "
+				 "a multi-component field's bytes land in the vector texture instead, leaving "
+				 "Slot.ScalarTexture null and DispatchVolumeRayMarch early-returning. The "
+				 "volume would draw its hull and march nothing"),
+			*FieldId.ToString(), Field->ComponentCount);
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s."), *OutError);
+		return nullptr;
+	}
+
+	/*
+	 * THE STEP NOTHING IN PRODUCTION PERFORMS. ACFDVizCaseActor::BeginPlay
+	 * loads and never uploads, and a component with no upload has no
+	 * UploadedScalarLayout, so TryMakeShaderParameters returns false and the
+	 * proxy's bHasParameters stays false. The proxy then draws its box and its
+	 * hull and never touches the dispatcher. Without this line the actor looks
+	 * completely healthy and marches nothing.
+	 */
+	const FCFDVizResult UploadResult = Volume->UploadFrame(FrameIndex);
+	if (!UploadResult.IsOk())
+	{
+		OutError = FString::Printf(TEXT("could not upload frame %d of '%s': %s"),
+			FrameIndex, *FieldId.ToString(), *UploadResult.ToString());
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s"), *OutError);
+		return nullptr;
+	}
+
+	Volume->bDrawBoundingBox = bDrawBoundingBox;
+	Volume->MarkRenderStateDirty();
+
+	// Verified rather than assumed. This is the condition the proxy actually
+	// gates its dispatch on, so checking it here is checking the thing that
+	// matters instead of checking that the calls above returned Ok.
+	FFlowVizVolumeShaderParameters Params;
+	if (!Volume->TryMakeShaderParameters(Params))
+	{
+		OutError = FString::Printf(
+			TEXT("'%s' loaded and uploaded but produces no shader parameters, so the scene "
+				 "proxy's bHasParameters would be false and it would never call the "
+				 "dispatcher"),
+			*FieldId.ToString());
+		UE_LOG(LogFlowViz, Error, TEXT("SpawnCaseActor: %s."), *OutError);
+		return nullptr;
+	}
+
+	// Push the proxy and the dynamic data to the render thread now, so a capture
+	// issued on the next line sees a volume rather than racing its creation. In
+	// a commandlet nothing ticks, so this never happens on its own.
+	FlushSceneUpdates(World);
+
+	UE_LOG(LogFlowViz, Log,
+		TEXT("SpawnCaseActor: '%s' field '%s' frame %d, colour domain [%f, %f], box=%d."),
+		*CaseDirectory, *FieldId.ToString(), FrameIndex,
+		Params.ValueRangeMin, Params.ValueRangeMax, bDrawBoundingBox ? 1 : 0);
+
+	bSucceeded = true;
+	return Actor;
+}
+
+bool UFlowVizCaptureLibrary::SetVolumeRayMarcherEnabled(bool bEnabled)
+{
+	if (bEnabled)
+	{
+		/*
+		 * Re-installs THE PRODUCTION DISPATCHER, not a fresh one. Register() is
+		 * idempotent with respect to the global - it is a plain assignment of
+		 * the address of a function-local static - so calling it again after an
+		 * uninstall restores exactly the pointer module startup left behind.
+		 * Allocating a new dispatcher here would leak, and worse, would not be
+		 * the object the view extension drains.
+		 */
+		FlowVizVolumeRayMarchProduction::Register();
+	}
+	else
+	{
+		FlowVizVolumeRayMarch::SetDispatcher(nullptr);
+	}
+
+	// The render thread may be midway through a frame that already read the old
+	// value. Without this flush a capture issued immediately afterwards can
+	// straddle the change, which would put pixels from both states in one image
+	// and make the difference between them unattributable.
+	FlushRenderingCommands();
+
+	const bool bInstalled = IsVolumeRayMarcherEnabled();
+	UE_LOG(LogFlowViz, Log,
+		TEXT("SetVolumeRayMarcherEnabled(%d): dispatcher installed = %d."),
+		bEnabled ? 1 : 0, bInstalled ? 1 : 0);
+
+	// Reports what IS, not what was asked for. A caller asserting on the return
+	// value is then asserting about the global rather than about its own input.
+	return bInstalled;
+}
+
+bool UFlowVizCaptureLibrary::IsVolumeRayMarcherEnabled()
+{
+	return FlowVizVolumeRayMarch::GetDispatcher() != nullptr;
 }
