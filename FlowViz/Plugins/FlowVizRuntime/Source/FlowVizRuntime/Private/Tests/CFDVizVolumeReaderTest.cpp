@@ -267,7 +267,7 @@ namespace CvfReaderTest
 	/* ---------------------------------------------------------------------- */
 
 	/** A modifiable copy, so a test can corrupt one byte without disturbing the fixture. */
-	TArray<uint8> CopyOf(const uint8* Bytes, int32 Count)
+	TArray<uint8> CopyOfCvf(const uint8* Bytes, int32 Count)
 	{
 		TArray<uint8> Copy;
 		Copy.Append(Bytes, Count);
@@ -276,7 +276,7 @@ namespace CvfReaderTest
 
 	TArray<uint8> CopyOfGolden()
 	{
-		return CopyOf(GoldenCvfBytes, UE_ARRAY_COUNT(GoldenCvfBytes));
+		return CopyOfCvf(GoldenCvfBytes, UE_ARRAY_COUNT(GoldenCvfBytes));
 	}
 
 	void WriteUInt8At(TArray<uint8>& Bytes, int32 Offset, uint8 Value)
@@ -292,7 +292,7 @@ namespace CvfReaderTest
 		}
 	}
 
-	void WriteUInt32At(TArray<uint8>& Bytes, int32 Offset, uint32 Value)
+	void WriteCvfUInt32At(TArray<uint8>& Bytes, int32 Offset, uint32 Value)
 	{
 		for (int32 Index = 0; Index < 4; ++Index)
 		{
@@ -300,7 +300,7 @@ namespace CvfReaderTest
 		}
 	}
 
-	void WriteUInt64At(TArray<uint8>& Bytes, int32 Offset, uint64 Value)
+	void WriteCvfUInt64At(TArray<uint8>& Bytes, int32 Offset, uint64 Value)
 	{
 		for (int32 Index = 0; Index < 8; ++Index)
 		{
@@ -313,7 +313,7 @@ namespace CvfReaderTest
 	{
 		uint32 Bits = 0;
 		FMemory::Memcpy(&Bits, &Value, sizeof(Bits));
-		WriteUInt32At(Bytes, Offset, Bits);
+		WriteCvfUInt32At(Bytes, Offset, Bits);
 	}
 
 	/**
@@ -330,11 +330,11 @@ namespace CvfReaderTest
 	 * never reach the check it was written to exercise - a test that always
 	 * fails for the same reason proves nothing about the field it names.
 	 */
-	void ResealHeaderCrc(TArray<uint8>& Bytes)
+	void ResealCvfHeaderCrc(TArray<uint8>& Bytes)
 	{
 		FMemory::Memzero(Bytes.GetData() + HdrOffsetCrc, 4);
 		const uint32 Crc = CFDViz::Crc32C::Compute(Bytes.GetData(), HdrBytes);
-		WriteUInt32At(Bytes, HdrOffsetCrc, Crc);
+		WriteCvfUInt32At(Bytes, HdrOffsetCrc, Crc);
 	}
 
 	/** Byte offset of field `Field` inside directory entry `Entry` of the golden fixture. */
@@ -358,7 +358,7 @@ namespace CvfReaderTest
 			Count |= static_cast<int64>(Bytes[Base + EntryOffsetCompressed + Index]) << (Index * 8);
 		}
 		const uint32 Crc = CFDViz::Crc32C::Compute(Bytes.GetData() + Offset, Count);
-		WriteUInt32At(Bytes, Base + EntryOffsetPayloadCrc, Crc);
+		WriteCvfUInt32At(Bytes, Base + EntryOffsetPayloadCrc, Crc);
 	}
 
 	/** float32 bit pattern of one decoded uint8 value, for asserting stored bytes exactly. */
@@ -861,8 +861,8 @@ bool FCFDVizVolumeReaderHeaderCrcTest::RunTest(const FString& Parameters)
 	// check they name, and would prove nothing. This asserts the harness.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetFrameIndex, 4242);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetFrameIndex, 4242);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
@@ -907,8 +907,8 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	// --- the three dimensions are three distinct uint32s at 40, 44, 48 -------
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetDimensions + 4, 11);	// dimensionY only
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetDimensions + 4, 11);	// dimensionY only
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		if (TestTrue(TEXT("the probe header parses"),
@@ -931,7 +931,7 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteUInt16At(Bytes, HdrOffsetBrickSize + 2, 0x0101);
-		ResealHeaderCrc(Bytes);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		if (TestTrue(TEXT("the probe header parses"),
@@ -952,7 +952,7 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteUInt8At(Bytes, HdrOffsetAssociation, 1);	// cell -> point
-		ResealHeaderCrc(Bytes);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		if (TestTrue(TEXT("the probe header parses"),
@@ -983,8 +983,8 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	// --- the three uint64s at 64, 72, 80 -------------------------------------
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetDirectoryOffset, 4096);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetDirectoryOffset, 4096);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		if (TestTrue(TEXT("the probe header parses"),
@@ -1004,7 +1004,7 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteFloatAt(Bytes, HdrOffsetBackground + 2 * 4, -2.5f);
-		ResealHeaderCrc(Bytes);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		if (TestTrue(TEXT("the probe header parses"),
@@ -1047,7 +1047,7 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	// Moving one and asserting the other stayed is the only way to tell.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 37);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 37);
 
 		FCFDVizBrickEntry Entry;
 		if (TestTrue(TEXT("the probe entry parses"),
@@ -1172,8 +1172,8 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 		for (int32 Length : CutLengths)
 		{
 			TArray<uint8> Bytes = CopyOfGolden();
-			WriteUInt64At(Bytes, HdrOffsetPayloadOffset, HdrBytes);
-			ResealHeaderCrc(Bytes);
+			WriteCvfUInt64At(Bytes, HdrOffsetPayloadOffset, HdrBytes);
+			ResealCvfHeaderCrc(Bytes);
 			Bytes.SetNum(Length);
 
 			const FCFDVizMemoryByteSource Source(Bytes, TEXT("cut-dir.cvf"));
@@ -1234,8 +1234,8 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 	// should not be trusted on the strength of "we never read that field".
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetPayloadOffset, 100000);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetPayloadOffset, 100000);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("beyond.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1248,8 +1248,8 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 		// ...and inside the header, which is a different failure with the same
 		// offset: the payload cannot start before the container does.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetPayloadOffset, 127);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetPayloadOffset, 127);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("overlap.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1262,15 +1262,15 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 		// real file, not a truncated one. A bounds check written with the wrong
 		// comparison would reject one of these.
 		TArray<uint8> AtHeaderEnd = CopyOfGolden();
-		WriteUInt64At(AtHeaderEnd, HdrOffsetPayloadOffset, HdrBytes);
-		ResealHeaderCrc(AtHeaderEnd);
+		WriteCvfUInt64At(AtHeaderEnd, HdrOffsetPayloadOffset, HdrBytes);
+		ResealCvfHeaderCrc(AtHeaderEnd);
 		const FCFDVizMemoryByteSource AtStart(AtHeaderEnd, TEXT("at-header-end.cvf"));
 		FCFDVizVolumeReader StartReader;
 		TestTrue(TEXT("payloadOffset == 128 is legal"), StartReader.Open(AtStart).IsOk());
 
 		TArray<uint8> AtEnd = CopyOfGolden();
-		WriteUInt64At(AtEnd, HdrOffsetPayloadOffset, AtEnd.Num());
-		ResealHeaderCrc(AtEnd);
+		WriteCvfUInt64At(AtEnd, HdrOffsetPayloadOffset, AtEnd.Num());
+		ResealCvfHeaderCrc(AtEnd);
 		const FCFDVizMemoryByteSource AtEndSource(AtEnd, TEXT("at-end.cvf"));
 		FCFDVizVolumeReader EndReader;
 		TestTrue(TEXT("payloadOffset == fileSize is legal: a sparse volume has no payload"),
@@ -1280,8 +1280,8 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 	// --- directoryOffset inside the header -----------------------------------
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetDirectoryOffset, 100);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetDirectoryOffset, 100);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("dir-in-header.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1299,8 +1299,8 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 	// (format rule 1.5).
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetDirectoryOffset, 0x7FFFFFFFFFFFFF00ULL);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetDirectoryOffset, 0x7FFFFFFFFFFFFF00ULL);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("huge-dir.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1311,7 +1311,7 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 	{
 		// The same for a brick payload offset, which is checked per entry.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, GoldenEntryField(3, EntryOffsetPayload), 0x7FFFFFFFFFFFFF00ULL);
+		WriteCvfUInt64At(Bytes, GoldenEntryField(3, EntryOffsetPayload), 0x7FFFFFFFFFFFFF00ULL);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("huge-payload.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1438,8 +1438,8 @@ bool FCFDVizVolumeReaderEdgeBrickTest::RunTest(const FString& Parameters)
 		// that the entry is internally coherent and the ONLY thing wrong with it
 		// is its relationship to the tiling. A reader that had no tiling check
 		// but did have the section 4.4.4 size equality would accept this file.
-		WriteUInt32At(Bytes, GoldenEntryField(7, EntryOffsetUncompressed), 12);
-		WriteUInt32At(Bytes, GoldenEntryField(7, EntryOffsetCompressed), 12);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(7, EntryOffsetUncompressed), 12);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(7, EntryOffsetCompressed), 12);
 		ResealBrickCrc(Bytes, 7);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("padded-edge.cvf"));
@@ -1456,8 +1456,8 @@ bool FCFDVizVolumeReaderEdgeBrickTest::RunTest(const FString& Parameters)
 		// reconstruct the volume with a hole in it.
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteUInt16At(Bytes, GoldenEntryField(0, EntryOffsetValidSize + 4), 3);	// validSizeZ 4 -> 3
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 36);	// 3*2*3*2
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 36);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 36);	// 3*2*3*2
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 36);
 		ResealBrickCrc(Bytes, 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("short-interior.cvf"));
@@ -1471,8 +1471,8 @@ bool FCFDVizVolumeReaderEdgeBrickTest::RunTest(const FString& Parameters)
 		// remainder is always at least 1, so a zero can never satisfy it.
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteUInt16At(Bytes, GoldenEntryField(0, EntryOffsetValidSize), 0);
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 0);
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 0);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 0);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("zero-extent.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1502,8 +1502,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// 81st entry's worth of bytes past the directory.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetBrickCount, 9);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetBrickCount, 9);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("too-many.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1523,8 +1523,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// a corrupted dimension field actually produces.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetDimensions, 3);	// dimensionX 5 -> 3
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetDimensions, 3);	// dimensionX 5 -> 3
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("shrunk.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1540,9 +1540,9 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// passes and the per-entry tiling check is what has to catch it. The
 		// entries at brickIndex.X == 1 are now outside a 1x2x2 grid.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetDimensions, 3);
-		WriteUInt64At(Bytes, HdrOffsetBrickCount, 4);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetDimensions, 3);
+		WriteCvfUInt64At(Bytes, HdrOffsetBrickCount, 4);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("shrunk-consistent.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1562,8 +1562,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
 		WriteUInt16At(Bytes, HdrOffsetBrickSize, 5);
-		WriteUInt64At(Bytes, HdrOffsetBrickCount, 4);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetBrickCount, 4);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("wrong-bricksize.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1584,8 +1584,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// as backgroundValue.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetBrickCount, 4);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetBrickCount, 4);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("half.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1620,8 +1620,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// --- brickCount 0 is legal too -------------------------------------------
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt64At(Bytes, HdrOffsetBrickCount, 0);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt64At(Bytes, HdrOffsetBrickCount, 0);
+		ResealCvfHeaderCrc(Bytes);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("empty.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1651,10 +1651,10 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// claims.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, GoldenEntryField(1, EntryOffsetBrickIndex), 0);	// (1,0,0) -> (0,0,0)
+		WriteCvfUInt32At(Bytes, GoldenEntryField(1, EntryOffsetBrickIndex), 0);	// (1,0,0) -> (0,0,0)
 		WriteUInt16At(Bytes, GoldenEntryField(1, EntryOffsetValidSize), 3);	// keep validSize legal for (0,0,0)
-		WriteUInt32At(Bytes, GoldenEntryField(1, EntryOffsetUncompressed), 48);
-		WriteUInt32At(Bytes, GoldenEntryField(1, EntryOffsetCompressed), 48);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(1, EntryOffsetUncompressed), 48);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(1, EntryOffsetCompressed), 48);
 		ResealBrickCrc(Bytes, 1);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("duplicate.cvf"));
@@ -1669,7 +1669,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// --- the section 4.4.4 size equality, checked BEFORE any allocation ------
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 49);	// 48 + 1
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 49);	// 48 + 1
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("size-lie.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1683,7 +1683,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// A hostile value, to prove the check is not a soft plausibility test:
 		// 4 GB declared for a 24-voxel brick.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 0xFFFFFFFFu);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 0xFFFFFFFFu);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("huge-size.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1697,7 +1697,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// by definition. A file that says otherwise describes a transformation
 		// it did not perform.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 40);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 40);
 		ResealBrickCrc(Bytes, 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("codec-none-mismatch.cvf"));
@@ -1713,7 +1713,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
 		Bytes[HdrOffsetReservedShort] = 1;
-		ResealHeaderCrc(Bytes);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
@@ -1724,7 +1724,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
 		Bytes[HdrBytes - 1] = 0x80;	// the last byte of the reserved tail
-		ResealHeaderCrc(Bytes);
+		ResealCvfHeaderCrc(Bytes);
 
 		FCFDVizVolumeHeader Header;
 		const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
@@ -1766,8 +1766,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// An unknown header flag bit could change how payloads decode, so
 		// reading on "as if it were clear" would silently produce wrong data.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetFlags, 0x00000002);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetFlags, 0x00000002);
+		ResealCvfHeaderCrc(Bytes);
 		FCFDVizVolumeHeader Header;
 		const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
 			TArrayView<const uint8>(Bytes.GetData(), HdrBytes), Header);
@@ -1776,8 +1776,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 
 		// POSITIVE CONTROL: bit 0 IS known, and must not be refused.
 		TArray<uint8> Sparse = CopyOfGolden();
-		WriteUInt32At(Sparse, HdrOffsetFlags, 0x00000001);
-		ResealHeaderCrc(Sparse);
+		WriteCvfUInt32At(Sparse, HdrOffsetFlags, 0x00000001);
+		ResealCvfHeaderCrc(Sparse);
 		FCFDVizVolumeHeader SparseHeader;
 		if (TestTrue(TEXT("the sparse flag bit is accepted"),
 			FCFDVizVolumeHeader::Parse(
@@ -1793,7 +1793,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		{
 			TArray<uint8> Bytes = CopyOfGolden();
 			Bytes[HdrOffsetComponentCount] = Count;
-			ResealHeaderCrc(Bytes);
+			ResealCvfHeaderCrc(Bytes);
 			FCFDVizVolumeHeader Header;
 			const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
 				TArrayView<const uint8>(Bytes.GetData(), HdrBytes), Header);
@@ -1805,7 +1805,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		{
 			TArray<uint8> Bytes = CopyOfGolden();
 			Bytes[HdrOffsetComponentCount] = Count;
-			ResealHeaderCrc(Bytes);
+			ResealCvfHeaderCrc(Bytes);
 			FCFDVizVolumeHeader Header;
 			TestTrue(*FString::Printf(TEXT("componentCount %u is legal"), Count),
 				FCFDVizVolumeHeader::Parse(TArrayView<const uint8>(Bytes.GetData(), HdrBytes), Header).IsOk());
@@ -1817,8 +1817,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// axis X alone, and that the reported offset is the START of the
 		// dimensions triple rather than the individual axis that was zero.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetDimensions + 4, 0);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetDimensions + 4, 0);
+		ResealCvfHeaderCrc(Bytes);
 		FCFDVizVolumeHeader Header;
 		const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
 			TArrayView<const uint8>(Bytes.GetData(), HdrBytes), Header);
@@ -1828,7 +1828,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// Likewise brickSizeY, not brickSizeX.
 		TArray<uint8> ZeroBrick = CopyOfGolden();
 		WriteUInt16At(ZeroBrick, HdrOffsetBrickSize + 2, 0);
-		ResealHeaderCrc(ZeroBrick);
+		ResealCvfHeaderCrc(ZeroBrick);
 		const FCFDVizResult BrickResult = FCFDVizVolumeHeader::Parse(
 			TArrayView<const uint8>(ZeroBrick.GetData(), HdrBytes), Header);
 		TestFalse(TEXT("a zero brickSizeY is refused"), BrickResult.IsOk());
@@ -1839,8 +1839,8 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// saying so is more honest than overflowing an extent and then
 		// bounds-checking against the wrapped value.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt32At(Bytes, HdrOffsetDimensions, 0xFFFFFFFFu);
-		ResealHeaderCrc(Bytes);
+		WriteCvfUInt32At(Bytes, HdrOffsetDimensions, 0xFFFFFFFFu);
+		ResealCvfHeaderCrc(Bytes);
 		FCFDVizVolumeHeader Header;
 		const FCFDVizResult Result = FCFDVizVolumeHeader::Parse(
 			TArrayView<const uint8>(Bytes.GetData(), HdrBytes), Header);
