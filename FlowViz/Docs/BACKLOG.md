@@ -242,6 +242,34 @@ nothing.
 - Aggravating: the whole `FFlowVizTransferFunctionShaderParameters` cbuffer is
   built and offset-asserted but never bound by production.
 
+**The fix has two halves, and closing one makes the other harder to find.**
+Adding `SHADER_PARAMETER(uint32, bClampToRange)` and honouring it in the `.usf`
+closes the GPU half. But the UI reaches the renderer through
+`FFlowVizTransferFunctionViewModel::ApplyToRayMarchParameters`
+(`Public/UI/FlowVizTransferFunctionViewModel.h`), which currently and
+deliberately does not write the flag — correctly, since as of this writing there
+is nowhere to write it. The moment the shader parameter exists, that omission
+stops being correct and becomes **the same defect relocated one layer up**: the
+user's clamp choice still stops before the GPU, now with a passing shader-level
+test beside it attesting the plumbing works. A green test at the lower layer is
+evidence *against* looking at the upper one, so this is worse than the original.
+
+Two comments in that header will also go false on the shader commit — one says
+the write is omitted because there is nowhere to write it, the other that the
+volume render "cannot currently observe this flag". The second is the dangerous
+one: it tells a reader the control is inert exactly when it becomes live, and a
+comment asserting a capability is *absent* stops anyone from testing it.
+Generalisation worth carrying: **a comment that asserts the absence of a
+capability is a claim about someone else's file, and it rots when they do their
+job.** Three instances of this appeared on 2026-08-05 alone.
+
+Acceptance for both halves is the same shape and it is not an assertion on the
+struct field — reading back a field you just assigned passes identically on the
+broken and the fixed build. It is a marched pixel at an out-of-range value that
+**differs** between clamp on and clamp off, reported with the sample coordinate;
+and for the view-model half, the same difference driven through
+`ApplyToRayMarchParameters` rather than by setting the parameter directly.
+
 **(ii) `DecodeReason` has zero call sites in the entire plugin, tests included**
 (`Public/Render/FlowVizVolumeRayMarchShader.h:383`). Tests read `OutValue.z`
 through a locally re-declared `ReasonBits()` helper with hand-written magic
