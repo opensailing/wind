@@ -441,39 +441,75 @@ private:
 				? GEngine->DebugMeshMaterial->GetRenderProxy()
 				: UMaterial::GetDefaultMaterial(MD_Surface)->GetRenderProxy();
 
-		FMeshBuilderOneFrameResources& OneFrameResources =
-			Collector.AllocateOneFrameResource<FMeshBuilderOneFrameResources>();
+		/*
+		 * GetMesh, NOT GetMeshElement. THIS IS A CRASH FIX, NOT A STYLE CHANGE.
+		 *
+		 * FDynamicMeshBuilder::GetMeshElement initialises its RHI resources
+		 * through `FRHICommandListImmediate::Get()`, which opens with
+		 * `check(IsInRenderingThread())` (RHICommandList.h:5310). Since UE 5.x
+		 * gathers dynamic mesh elements on WORKER threads by default
+		 * (r.Visibility.DynamicMeshElements.Parallel, on unless the RHI cannot
+		 * support it), GetDynamicMeshElements does not run on the rendering
+		 * thread, and that assertion fires. It took down the editor on the
+		 * first headless capture, in FDynamicMeshElementContext::
+		 * GatherDynamicMeshElementsForPrimitive on a task worker.
+		 *
+		 * GetMesh does the same work but takes its command list from
+		 * `Collector.GetRHICommandList()` - the collector's own list, which is
+		 * valid on whichever thread is doing the gather. That is the supported
+		 * path for a proxy, and it allocates the one-frame resources and the
+		 * FMeshBatch internally.
+		 */
+		FDynamicMeshBuilderSettings Settings;
+		// Nothing is culled: the hull is a loose bound on a semi-transparent
+		// field and the camera may be inside it.
+		Settings.bDisableBackfaceCulling = true;
+		Settings.bReceivesDecals = false;
+		Settings.CastShadow = false;
+		Settings.bUseSelectionOutline = false;
+		Settings.bCanApplyViewModeOverrides = false;
 
-		FMeshBatch& Mesh = Collector.AllocateMesh();
-		MeshBuilder.GetMeshElement(
+		/*
+		 * THE WINDING CORRECTION STAYS IN THE GEOMETRY. WHY THE SECOND ONE
+		 * BELOW IS NOT A DOUBLE CORRECTION.
+		 *
+		 * GetMesh sets `Mesh.ReverseCulling = LocalToWorld.Determinant() < 0`
+		 * internally and, unlike the GetMeshElement path, gives the caller no
+		 * batch to amend afterwards - it calls Collector.AddMesh itself. For
+		 * this volume the determinant is ALWAYS negative (the solver -> Unreal
+		 * Y mirror), so that flag is always set, on top of the reversal
+		 * MakeBoxGeometry already baked into the index buffer. That reads like
+		 * the double conversion ADR 004 section 2 warns about, and an earlier
+		 * revision of this comment claimed it was one and proposed dropping the
+		 * geometry reversal to compensate. THAT WOULD HAVE BEEN A REAL BUG.
+		 *
+		 * ReverseCulling has exactly one consumer in the renderer, and it is
+		 * reached only after a two-sided test that we fail on purpose:
+		 *
+		 *   ComputeMeshOverrideSettings (MeshPassProcessor.cpp:1846) maps
+		 *   Mesh.bDisableBackfaceCulling -> EDrawingPolicyOverrideFlags::TwoSided,
+		 *   and ComputeMeshCullMode (:1867) returns
+		 *     bMeshRenderTwoSided ? CM_None : (bReverseCullMode ? CM_CCW : CM_CW)
+		 *
+		 * bDisableBackfaceCulling is set true twenty lines above, so the cull
+		 * mode is CM_None and ReverseCulling is never consulted. There is one
+		 * correction, not two, and it is the one in the index buffer.
+		 *
+		 * THE COUPLING IS LOAD-BEARING: this is only true while the hull is
+		 * two-sided. Anyone who sets bDisableBackfaceCulling = false re-arms
+		 * ReverseCulling and DOES get two reversals, which cancel - an
+		 * inside-out hull that renders as nothing and looks exactly like a
+		 * volume that failed to load. Change that flag and you must neutralise
+		 * the geometry reversal in the same edit.
+		 */
+		MeshBuilder.GetMesh(
 			LocalToWorld,
 			MaterialProxy,
 			SDPG_World,
-			/*bDisableBackfaceCulling*/ true,
-			/*bReceivesDecals*/ false,
+			Settings,
+			/*DrawOffset*/ nullptr,
 			ViewIndex,
-			OneFrameResources,
-			Mesh);
-
-		if (Mesh.VertexFactory == nullptr)
-		{
-			return;
-		}
-
-		// GetMeshElement sets ReverseCulling from the determinant, which for this
-		// volume is ALWAYS negative. That flag and MakeBoxGeometry's reversal are
-		// the same correction applied twice, and two reversals are the identity -
-		// the exact double-conversion ADR 004 section 2 warns about, and invisible
-		// because it lands back where it started. The correction lives in the
-		// geometry, so it is cleared here.
-		//
-		// Nothing is culled either way (bDisableBackfaceCulling above), but the
-		// flag also drives which side the shader is told it is on, and that must
-		// agree with the winding actually in the index buffer.
-		Mesh.ReverseCulling = false;
-		Mesh.bCanApplyViewModeOverrides = false;
-
-		Collector.AddMesh(ViewIndex, Mesh);
+			Collector);
 	}
 
 	/** Domain extent in solver units. The hull and the wire box are both built from this. */
