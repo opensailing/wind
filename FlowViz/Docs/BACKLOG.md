@@ -337,13 +337,22 @@ have **zero consumers outside `/Tests/`**. Both comments corrected in place
 rather than deleted; the false version is the more dangerous artifact and the
 correction is the finding.
 
-*Aggravating, and the reason this outranks an ordinary stale comment:* the same
-claim is load-bearing at the null-RHI early-out in
-`Private/Render/FlowVizTransferFunction.cpp:875`, where "the CPU-side LUT is
-still correct and is what the legend and the probe readout sample" is the stated
-reason **not to log a missing LUT texture**. A false all-clear is buying silence
-on a real GPU failure path. Fixing that call site belongs to the
-transfer-function owner; `Private/Render` was not this auditor's file.
+*Aggravating, and the reason this outranked an ordinary stale comment:* the same
+claim had gone load-bearing in the null-`LutTexture` early return of
+`UpdateOnRenderThread` (`Private/Render/FlowVizTransferFunction.cpp`), where
+"the CPU-side LUT is still correct and is what the legend and the probe readout
+sample" was the stated reason **not to log a missing LUT texture**. A false
+all-clear was buying silence on a real GPU failure path.
+
+**CLOSED in `a7df00e`** by the transfer-function owner. The return had been
+covering two causes with one branch: no device (silence is correct — the
+condition holds for the whole run) and a create that genuinely failed on a real
+device (the volume renders without its colour map while `Update()` returns Ok
+and both counters read like success). `GUsingNullRHI` now separates them,
+checked alongside `GIsRHIInitialized` because the null RHI sets the latter.
+Verified pristine → Success with **zero** occurrences of the new error line — a
+log that fires when nothing is wrong is its own defect — and mutant
+(`LutTexture.SafeRelease()` after create) → Fail with the log firing.
 
 **Audited and genuinely covered** — named so nobody re-audits them:
 

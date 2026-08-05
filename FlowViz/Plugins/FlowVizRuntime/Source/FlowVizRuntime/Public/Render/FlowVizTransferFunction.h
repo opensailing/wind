@@ -728,11 +728,16 @@ public:
 	 * FlowVizTransferFunctionTest.cpp. Grep before relying on the claim; a
 	 * consumer that does not exist cannot corroborate the LUT.
 	 *
-	 * Why the correction matters more than the accessor does: the same sentence
-	 * is load-bearing at FlowVizTransferFunction.cpp:875, where "the CPU-side LUT
-	 * is still correct and is what the legend and the probe readout sample" is
-	 * the stated reason NOT to log a missing LUT texture. A reassurance about an
-	 * imaginary consumer is buying silence on a real GPU failure path.
+	 * Why the correction mattered more than the accessor does: the same sentence
+	 * had gone load-bearing in the null-LutTexture early return of
+	 * UpdateOnRenderThread (FlowVizTransferFunction.cpp), where it was the stated
+	 * reason NOT to log a missing LUT texture. A reassurance about an imaginary
+	 * consumer was buying silence on a real GPU failure path.
+	 *
+	 * FIXED in a7df00e: that return now separates the two causes it had been
+	 * covering with one branch - no device (silence is right) from a create that
+	 * failed on a real device (an Error naming what the user will see). Read that
+	 * comment there, not this summary of it.
 	 */
 	TArrayView<const FLinearColor> GetLut() const
 	{
