@@ -217,6 +217,58 @@ A mutation run scored on the exit code reports every mutant killed while
 proving nothing, which is the failure this project treats as worse than having
 no test.
 
+**`Result: Succeeded` is not sufficient either.** Found 2026-08-05: a
+full-module build returned exit 0, printed `Result: Succeeded`, and had zero
+`error:` lines — while the log read `Target is up to date` and
+`Using Unreal Build Accelerator local executor to run 0 action(s)`. It
+compiled nothing, because a concurrent agent's build had finished five seconds
+earlier. If the point of a build was to check that new sources compile, also
+confirm the action count is non-zero. A no-op build answers a question you did
+not ask.
+
+### 8a. The GPU test arm was not part of routine verification
+
+Found 2026-08-05, and it had been hiding a real bug.
+
+`run_tests.sh` defaults to `-nullrhi`. The three `*Device` tests skip
+themselves when there is no GPU — honestly, each logging what went unverified
+and how to re-run it — but the engine records a self-skipped test as
+`Result={Success}`, so they landed in the pass count. The suite reported
+`47/47 passed` while three of those 47 had checked nothing about the GPU, and
+the reasons sat 2000 lines deep in a log nobody reads when the last line is
+green.
+
+Closed by `60b446d`: the summary now names any test that passed without
+verifying anything, so a skipped device test can no longer hide inside a green
+total.
+
+One caution for whoever reads a device-test failure in a log. Running the
+`RHI=1` arm produced this:
+
+```
+FlowViz.Render.RayMarchShaderDevice  FAILED
+Expected 'cbuffer row 2 (VoxelSpacing/MinVoxelSpacing): .w' to be 0.041667,
+but it was 0.093750
+```
+
+That looks exactly like a constant-buffer member drifted one row — 0.09375 is
+`MaxVoxelSpacing`, 0.0416667 is `MinVoxelSpacing`. **It was not a defect.** An
+agent was deliberately breaking the shader to prove the assertion could fail,
+and the build observed the broken intermediate state. The cbuffer is correct:
+the C++ struct, the `static_assert`s and the HLSL agree, and the same test
+passes against the unmodified shader.
+
+Recorded because the confusion is structural, not a one-off. This project
+verifies its assertions by breaking the code under them, and while a
+break-verify-restore cycle is in flight the tree is genuinely red for reasons
+that are indistinguishable, from the outside, from a real bug. Before filing a
+failure seen during a shared-tree run, check whether the source is currently
+mutated — `git diff` and a grep for `BROKEN` markers answer it in seconds.
+
+The general lesson is the one this file keeps relearning: **a green total that
+includes tests which verified nothing is a vacuous pass.** Counting is not the
+same as checking.
+
 ### 9. Windows is a declared target and has never been built
 
 `FlowViz.uproject` lists it. Nothing has been compiled or run there. Do not
