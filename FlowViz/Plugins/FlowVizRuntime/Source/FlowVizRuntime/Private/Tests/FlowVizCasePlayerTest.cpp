@@ -1216,6 +1216,70 @@ bool FFlowVizCasePlayerTest::RunTest(const FString& Parameters)
 			Diag.Cache.GpuBytes <= Diag.Cache.GpuBudgetBytes);
 	}
 
+	/* == The scrub actually CANCELS, and starvation is the reason it must ==== */
+	{
+		// WHAT THIS CATCHES THAT NOTHING ELSE HERE DOES. Every assertion in the
+		// block above is satisfied by a player whose cancellation is deleted
+		// outright - verified by mutation (drop_cancel SURVIVED the whole
+		// FlowViz.Playback suite). "LoadsInFlight <= MaxConcurrentLoads" cannot
+		// fail at all: StartPendingLoads breaks at that cap by construction, so
+		// the bound is enforced by the loop being tested rather than observed.
+		// A requirement with no falsifiable assertion is not covered, and
+		// "cancel obsolete requests during aggressive scrubbing" is a plan.md
+		// section 8 bullet.
+		//
+		// THE CONSEQUENCE IS STARVATION, NOT WASTE. Cancellation's job is not
+		// tidiness - obsolete decodes hold the concurrency budget, so with the
+		// sweep gone the frame the user is looking at is never even requested.
+		// Pinning MaxConcurrentLoads to 1 makes that deterministic instead of a
+		// race: exactly one slot exists, and a stale occupant owns it forever.
+		// PRECONDITION, ASSERTED RATHER THAN ASSUMED. Earlier blocks leave decodes
+		// in flight, and "how many slots are free" is the entire subject here, so
+		// inheriting that state would make the first measurement meaningless.
+		TestTrue(TEXT("the prior blocks' loads are drained"), Player.WaitForPendingLoads(120.0));
+		Player.Tick(0.0);
+		Player.GetCache().Reset();
+		TestEqual(TEXT("the cancellation block starts with no load in flight"),
+			Player.GetDiagnostics().LoadsInFlight, 0);
+
+		const int32 RestoreMaxLoads = Player.GetMaxConcurrentLoads();
+		TestTrue(TEXT("a single-slot concurrency limit is accepted"),
+			Player.SetMaxConcurrentLoads(1).IsOk());
+
+		// Occupy the one slot with frame 0, then abandon it WITHOUT draining.
+		Player.SeekToFrame(0);
+		Player.Tick(0.0);
+		TestEqual(TEXT("the abandoned frame holds the only load slot"),
+			Player.GetDiagnostics().LoadsInFlight, 1);
+		TestEqual(TEXT("the occupant is the frame we are about to abandon"),
+			Player.GetFrameLoadState(0), EFlowVizLoadState::Loading);
+
+		// Now jump far away. Frame 0 is not in frame 19's request list (preload
+		// radius 1), so it is obsolete the moment this tick runs.
+		Player.SeekToFrame(19);
+		const int64 CancelledBefore = Player.GetDiagnostics().LoadsCancelled;
+		Player.Tick(0.0);
+		const FFlowVizPlaybackDiagnostics AfterJump = Player.GetDiagnostics();
+
+		TestTrue(TEXT("abandoning an in-flight frame cancels it"),
+			AfterJump.LoadsCancelled > CancelledBefore);
+		TestEqual(TEXT("the abandoned frame no longer holds a load slot"),
+			Player.GetFrameLoadState(0), EFlowVizLoadState::Absent);
+
+		// The point of the cancel: the freed slot went to the frame on screen.
+		// Without the sweep frame 19 is never requested and this is Absent.
+		TestEqual(TEXT("the freed slot went to the frame the playhead wants"),
+			Player.GetFrameLoadState(19), EFlowVizLoadState::Loading);
+
+		TestTrue(TEXT("the starved frame still arrives"), Player.WaitForPendingLoads(120.0));
+		Player.Tick(0.0);
+		TestTrue(TEXT("the frame the playhead wants becomes resident"),
+			Player.GetCache().IsResident(19));
+
+		TestTrue(TEXT("the concurrency limit is restored"),
+			Player.SetMaxConcurrentLoads(RestoreMaxLoads).IsOk());
+	}
+
 	/* == Playing advances the playhead ====================================== */
 	{
 		Player.SeekToFrame(0);
