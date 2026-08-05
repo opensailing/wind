@@ -142,16 +142,42 @@ bool FFlowVizProbePanelBindingTest::RunTest(const FString& Parameters)
 		}
 
 		const int32 CountBefore = Probes.GetProbeCount();
+
+		// GUARD BEFORE INDEX, for the same reason as the count check below: an
+		// earlier block that lost a probe would otherwise crash the process here
+		// rather than fail this test, and a crash reports as "no tests matched".
+		if (!TestTrue(TEXT("there are two probes to toggle between"), CountBefore >= 2))
+		{
+			return false;
+		}
 		TestTrue(TEXT("precondition: row 1 starts visible"), Probes.GetProbes()[1].bVisible);
 
 		Visible->SimulateClick();
 
+		/*
+		 * THE COUNT IS CHECKED FIRST, AND IT IS A HARD STOP.
+		 *
+		 * This ordering is not stylistic. A toggle implemented as RemoveProbe
+		 * shrinks the array, and the assertions below index [1]. Checking the
+		 * count afterwards means the out-of-bounds read happens FIRST: the
+		 * process dies on a check() inside TArray, the automation run reports
+		 * zero completed tests, and the wrapper prints "no tests matched" - which
+		 * reads like a filter typo, not a caught defect. It also takes the other
+		 * two tests in this suite down with it.
+		 *
+		 * A mutation campaign hit exactly this and returned UNSCORED twice. The
+		 * assertion that was supposed to catch the bug could not run, because the
+		 * bug crashed the harness before reaching it.
+		 */
+		if (!TestEqual(TEXT("hiding a probe does not delete it - the count is unchanged "
+							"(a toggle implemented as a remove fails HERE, before anything "
+							"indexes the shrunken array)"),
+				Probes.GetProbeCount(), CountBefore))
+		{
+			return false;
+		}
+
 		TestFalse(TEXT("pressing the toggle hides that probe"), Probes.GetProbes()[1].bVisible);
-		// A TOGGLE IMPLEMENTED AS RemoveProbe would satisfy nothing above but
-		// would silently destroy the user's probe and its history. The count is
-		// what catches it.
-		TestEqual(TEXT("hiding a probe does not delete it - the count is unchanged"),
-			Probes.GetProbeCount(), CountBefore);
 		TestTrue(TEXT("and row 0 was not hidden along with it"), Probes.GetProbes()[0].bVisible);
 
 		Visible->SimulateClick();
