@@ -716,6 +716,55 @@ bool FCFDVizMeshReaderRejectionTest::RunTest(const FString& Parameters)
 			Reader.LoadFromMemory(AtBoundary, TEXT("boundary.cvm")).IsOk());
 	}
 
+	// --- the other half of that rule: an EMPTY array at offset 0 is legal ----
+	// The guard reads `ByteCount > 0 && Offset < CvmHeaderBytes`. Every case
+	// above exercises the second conjunct with a non-empty array, so dropping
+	// the first conjunct entirely leaves them all passing - a mutation run
+	// scored exactly that and the mutant SURVIVED. The rule the guard states is
+	// that a zero-length array occupies no bytes and therefore cannot overlap
+	// anything, so it is allowed to sit at 0, which is also the value the format
+	// uses to mean "absent". Nothing asserted that half.
+	//
+	// This needs a zero-count mesh, which the golden fixture is not, so the
+	// counts are zeroed too. Note the reader has no minimum-count rule: a
+	// vertexCount of 0 is not rejected anywhere in the load path, so this file
+	// really does reach the guard rather than dying earlier for another reason.
+	{
+		TArray<uint8> Empty = CopyOf(GoldenCvmBytes, GoldenSize);
+		WriteUInt64At(Empty, 24, 0);  // vertexCount  = 0
+		WriteUInt64At(Empty, 32, 0);  // triangleCount = 0
+		WriteUInt64At(Empty, 40, 0);  // positionsOffset = 0, and now empty
+		WriteUInt64At(Empty, 56, 0);  // indicesOffset   = 0, and now empty
+		WriteUInt32At(Empty, 16, 0);  // clear flags: no normals/patchIds/nodeIds
+		WriteUInt64At(Empty, 48, 0);  // absent arrays must carry offset 0 (5.2)
+		WriteUInt64At(Empty, 64, 0);
+		WriteUInt64At(Empty, 72, 0);
+		ResealHeaderCrc(Empty);
+
+		FCFDVizMeshReader EmptyReader;
+		const FCFDVizResult EmptyResult = EmptyReader.LoadFromMemory(Empty, TEXT("empty.cvm"));
+		TestTrue(TEXT("a zero-length array at offset 0 does not overlap the header"),
+			EmptyResult.IsOk());
+		TestEqual(TEXT("and the empty mesh reports no vertices"),
+			EmptyReader.GetVertexCount(), 0);
+		TestEqual(TEXT("and no triangles"),
+			EmptyReader.GetTriangleCount(), 0);
+
+		// The control for the assertion above. If the loader rejected this file
+		// for some reason unrelated to the offset - a count rule, a flags rule -
+		// the assertion would fail without the guard being involved at all. The
+		// same file with a NON-empty positions array at offset 0 must be
+		// rejected, which is what shows offset 0 is being judged against the
+		// length and not on its own.
+		TArray<uint8> NonEmptyAtZero = CopyOf(Empty.GetData(), Empty.Num());
+		WriteUInt64At(NonEmptyAtZero, 24, 4); // vertexCount = 4, positions at 0
+		ResealHeaderCrc(NonEmptyAtZero);
+
+		FCFDVizMeshReader ControlReader;
+		TestFalse(TEXT("but the same offset 0 with a non-empty array is rejected"),
+			ControlReader.LoadFromMemory(NonEmptyAtZero, TEXT("nonempty.cvm")).IsOk());
+	}
+
 	return true;
 }
 
