@@ -118,17 +118,26 @@ A test that has never been seen to fail is a claim, not evidence. Every reader
 test in this table is checked by deliberately breaking the source it covers,
 one edit at a time, and confirming the suite notices. `Tools/mutate.sh` does
 this; its header documents the four constraints that make its verdicts
-trustworthy. Three of those exist because an earlier ad-hoc version of this
-script produced **wrong answers that looked like results**:
+trustworthy. Every one of them exists because a version of this script produced
+**wrong answers that looked like results**:
 
 - It decided a mutant had been caught by grepping the test output for
   `Result={Failed}`. The engine prints `Result={Fail}`. That string could never
   appear, so the script reported `SURVIVED` for every mutant it ever scored —
   including one whose own captured log, three lines below the verdict, read
   `Result={Fail}` and `0/1 passed`. **A pass criterion that cannot fail is not
-  a check.** The verdict is now the runner's exit code, which fails closed: a
-  build producing no tests at all exits non-zero and reads as *killed*, never
-  as a survivor.
+  a check.**
+- Its replacement read *any* non-zero exit from the test runner as a kill. On
+  2026-08-05, under a load average of 62, the editor died during startup with
+  `Assertion failed: bDirectoryExists` in `ShaderCore.cpp` and then `SIGSEGV`.
+  It never reached a test. The runner exited non-zero, and the harness was
+  about to record that crash as proof the suite catches a live sign-mask
+  mutant. This is the more dangerous of the two failures: a false `SURVIVED`
+  asks for a test that already exists, while a false `killed` retires a check
+  that was never exercised. Classification now lives in `Tools/verdict.sh` and
+  demands the runner's `<n>/<m> passed.` summary line — positive evidence that
+  tests ran — before it will read the exit code at all. No summary means
+  `UNSCORED`.
 - It applied mutants through `perl s{}{}`, so any replacement containing a
   brace — in a C++ file — ran off its own delimiter. The mangled output was
   then reported as `INVALID  did not compile`, which reads exactly like a
@@ -151,6 +160,18 @@ produce all three verdicts cannot be trusted to report any of them. Run
 | `CanRead`'s overflow guard swapped for the naive `Offset + Count <= Size` | killed | `killed` |
 | the same expression reordered, semantics identical | SURVIVED | `SURVIVED` |
 | a **brace-containing** replacement naming an undeclared identifier | INVALID | `INVALID`, error attributed to `CFDVizByteCursor.h` |
+
+The verdict function is verified separately, and differentially, because it is
+the only part of the harness that decides truth and it has been wrong twice.
+`Tools/tests/test_verdict.sh` runs six known-answer cases built from *real*
+captured runner output — the whole bug class here is a mismatch between what
+the engine prints and what the harness expects, so invented text would test the
+wrong thing. It needs no build and takes under a second. With the fix in place
+it reports `6 passed, 0 failed`; with the pre-fix logic pasted back over
+`verdict.sh` it reports `3 passed, 3 failed`, failing exactly the crash, the
+dead editor, and the no-tests-found cases while both genuine verdicts still
+pass. **A test that has not been seen to fail on the specific defect it was
+written for has not been shown to detect it.**
 
 `killed 1  SURVIVED 1  INVALID 1  UNSCORED 0`. The third control is the one
 that matters most: its replacement contains the `{` that broke the old perl

@@ -29,19 +29,34 @@
 # str.replace so no character is special.
 #
 # ---------------------------------------------------------------------------
-# Four constraints, each learned by getting a wrong answer first:
+# Four constraints, every one of them learned by getting a wrong answer first
+# and believing it. Constraint 2 has now been learned twice, from opposite
+# directions, which is why its logic is the only part of this script under test.
 #
 #  1. Build.sh EXITS 0 WHEN IT FAILS. Only the printed "Result:" line is
 #     authoritative. Never trust $? from a UE build.
 #
-#  2. A KILL IS DECIDED BY run_tests.sh's EXIT CODE, never by grepping its
-#     output for a word. A previous script tested for "Result={Failed}"; the
-#     engine prints "Result={Fail}". That grep could not match under any
-#     circumstance, so the script reported SURVIVED for every mutant it ever
-#     scored, including one whose own captured log said the test had failed.
-#     A pass criterion that cannot fail is not a check. The exit code fails
-#     closed: a build that produces no tests at all exits 4, which reads as
-#     killed rather than as a pass.
+#  2. A KILL REQUIRES EVIDENCE THAT TESTS RAN AND ONE FAILED -- not merely an
+#     unhappy exit code, and never a grep for a word. This constraint has been
+#     violated in both directions:
+#
+#       - A previous script tested for "Result={Failed}"; the engine prints
+#         "Result={Fail}". That grep could not match under any circumstance, so
+#         the script reported SURVIVED for every mutant it ever scored,
+#         including one whose own captured log said the test had failed.
+#
+#       - Its replacement read ANY non-zero exit as a kill. An editor that dies
+#         on startup exits non-zero too ("Assertion failed: bDirectoryExists"
+#         in ShaderCore.cpp, then SIGSEGV, under heavy machine load), so a
+#         crash that never reached the test was about to be recorded as proof
+#         the suite catches the mutant.
+#
+#     The two failures are opposite and unequal: a false SURVIVED asks for a
+#     test that already exists, while a false killed retires a check that was
+#     never exercised. Classification therefore lives in Tools/verdict.sh, is
+#     tested against known-answer inputs by Tools/tests/test_verdict.sh, and
+#     requires the runner's "<n>/<m> passed." summary before it will read the
+#     exit code at all. No summary means UNSCORED -- a refusal to conclude.
 #
 #  3. BUILD FAILURES MUST BE ATTRIBUTED. This tree is a unity build shared by
 #     several agents: every .cpp in the module compiles as one translation
@@ -93,6 +108,12 @@ UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 BUILD_LOG="${BUILD_LOG:-/tmp/mutate_build.log}"
 TEST_LOG="${TEST_LOG:-/tmp/mutate_test.log}"
 SRC_BASE="$(basename "${SRC}")"
+
+# Constraint 2: classification lives in its own file so it can be exercised
+# against known-answer inputs without building anything. Sourced before the cd
+# below, and by absolute path, because this script changes directory.
+# shellcheck source=/dev/null
+source "${PROJECT_DIR}/Tools/verdict.sh"
 
 cd "${REPO_ROOT}" || exit 2
 [[ -f "${SRC}" ]] || { echo "error: no such source file: ${SRC}" >&2; exit 2; }
@@ -184,15 +205,24 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
     esac
 
     if build; then
-        # Constraint 2: the exit code decides, not a string in the output.
+        # Constraint 2: the exit code decides, not a string in the output --
+        # but only once classify_test_run has established that tests actually
+        # ran. An engine that crashes on startup also exits non-zero.
         "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${TEST_LOG}" 2>&1
-        if [[ $? -ne 0 ]]; then
-            echo "killed    ${NAME}"
-            KILLED=$((KILLED+1))
-        else
-            echo "SURVIVED  ${NAME}   <-- the suite does NOT catch this"
-            SURVIVED=$((SURVIVED+1))
-        fi
+        TEST_EXIT=$?
+        case "$(classify_test_run "${TEST_EXIT}" "${TEST_LOG}")" in
+            killed)
+                echo "killed    ${NAME}"
+                KILLED=$((KILLED+1)) ;;
+            SURVIVED)
+                echo "SURVIVED  ${NAME}   <-- the suite does NOT catch this"
+                SURVIVED=$((SURVIVED+1)) ;;
+            *)
+                echo "UNSCORED  ${NAME} -- the test run produced no results; no conclusion drawn"
+                grep -aiE "assertion failed|critical error|SIGSEGV|no tests matched|failed to start" \
+                    "${TEST_LOG}" | head -2 | sed 's/^/            /'
+                UNSCORED=$((UNSCORED+1)) ;;
+        esac
     elif mutant_is_to_blame; then
         echo "INVALID   ${NAME} -- does not compile (error names ${SRC_BASE})"
         grep -aE "error:" "${BUILD_LOG}" | grep -a "${SRC_BASE}" | head -2 | sed 's/^/            /'
