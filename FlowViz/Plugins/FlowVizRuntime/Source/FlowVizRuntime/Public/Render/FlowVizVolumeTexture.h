@@ -696,7 +696,7 @@ struct FFlowVizVolumeTransform
 	 * Local-space -> Unreal world transform for the volume's scene proxy.
 	 *
 	 * Local space is [0, PhysicalSize] in solver units. This composes the
-	 * translation to the grid origin with CFDViz::MakeSolverToUnrealTransform, so
+	 * translation to the grid origin with MakeSolverToUnrealTransform, so
 	 * the axis and unit conversion has exactly one implementation
 	 * (engineering rule 4, ADR 004).
 	 *
