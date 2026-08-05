@@ -944,4 +944,295 @@ bool FFlowVizVolumeRayMarchSeamTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Do the render settings actually LEAVE the component?                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The link above the mutation-verified dispatcher seam.
+ *
+ * WHAT WAS WRONG. FlowViz.Render.SettingsSeam proves the dispatcher applies
+ * whatever Context.RenderSettings holds -- deleting that call is KILLED, with an
+ * identity control that survives. It was being handed nothing. A grep of every
+ * production (non-Tests) reference to RenderSettings found a DECLARATION on the
+ * context struct and a READ in the dispatcher, and no write anywhere: the scene
+ * proxy built its context without ever assigning the field, so every shipped
+ * frame composited with a default-constructed view model.
+ *
+ * WHY BOTH GREEN SUITES MISSED IT, which is the part worth keeping:
+ *
+ *  - The seam test builds its own context and sets RenderSettings itself. A test
+ *    that supplies the input cannot discover that nothing else supplies it --
+ *    the same defect shape as the original frozen-parameter finding, one layer up.
+ *  - check_frozen_params.sh exits 0 either way. MEASURED: deleting the seam call
+ *    from the dispatcher entirely still exits 0, because it scans for a writer's
+ *    existence and reference, not for a call that runs.
+ *
+ * So a verified seam sat under an unwired one, and the two green artifacts
+ * between them covered every part of the path except the join.
+ *
+ * WHY IT ASSERTS ON MakeProxyDynamicData AND NOT ON A RENDERED FRAME. The
+ * assignment lives in GetDynamicMeshElements -- render thread, needs a live
+ * scene, an RHI and a collector -- so a test that drove it would self-skip
+ * under the default -nullrhi suite and cover nothing (repo memory
+ * green-totals-can-hide-skips). The payload builder is the same code the proxy
+ * consumes, is const, and needs none of that. Testing the primitive directly is
+ * only meaningful because the primitive IS the production path: both writers,
+ * the constructor seed and the per-frame push, call this one function.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizProxySettingsTest,
+	"FlowViz.Scene.ProxySettings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizProxySettingsTest::RunTest(const FString& Parameters)
+{
+	UCFDVizVolumeComponent* Volume = NewObject<UCFDVizVolumeComponent>();
+	if (!TestNotNull(TEXT("a volume component was created"), Volume))
+	{
+		return false;
+	}
+
+	Volume->AddToRoot();
+	ON_SCOPE_EXIT
+	{
+		Volume->RemoveFromRoot();
+	};
+
+	/* == THE IDENTITY CONTROL, FIRST ========================================= */
+	//
+	// A fresh component must marshal settings that are an identity over
+	// FillDefaults, or every assertion below is measuring a component that
+	// changed the picture merely by existing. This is also the assertion that
+	// keeps the wiring honest in the other direction: it fails if someone gives
+	// the component a non-default starting mode to "make the test interesting".
+	{
+		const FFlowVizVolumeProxyDynamicData Fresh = Volume->MakeProxyDynamicData();
+
+		TestEqual(TEXT("a fresh component marshals the default composite mode, so wiring this changed no picture"),
+			static_cast<int32>(Fresh.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Alpha));
+		TestFalse(TEXT("and lighting off, which is the Scientific profile's default"),
+			Fresh.RenderSettings.IsLightingEnabled());
+	}
+
+	/* == The setting must survive the trip into the payload ================== */
+	//
+	// IsoSurface, not Maximum: it is the mode whose value is read alongside a
+	// SECOND parameter (IsoValue), so a payload that carried the mode but
+	// dropped everything else would still fail here. Every value below is
+	// distinct from the default, or the assertion cannot fail.
+	{
+		FFlowVizRenderSettingsViewModel Settings;
+		Settings.SetCompositeMode(EFlowVizCompositeMode::IsoSurface);
+		TestTrue(TEXT("the fixture's iso value was accepted, so the assertion below is about marshalling"),
+			Settings.SetIsoValue(3.5f));
+		Settings.SetLightingEnabled(true);
+		Settings.SetMaxSteps(777u);
+
+		Volume->SetRenderSettings(Settings);
+
+		TestEqual(TEXT("the component reports back the mode it was given"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::IsoSurface));
+
+		/*
+		 * THE HEADLINE ASSERTION. This is what had no production writer. It
+		 * fails if MakeProxyDynamicData drops the field, and that is not a
+		 * hypothetical form of the bug -- it is precisely the state the code was
+		 * in: the payload struct carried Parameters and FrameSelection and the
+		 * settings simply were not in it.
+		 */
+		const FFlowVizVolumeProxyDynamicData Data = Volume->MakeProxyDynamicData();
+
+		TestEqual(TEXT("the composite mode reaches the render-thread payload"),
+			static_cast<int32>(Data.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::IsoSurface));
+		TestEqual(TEXT("so does the iso value the mode is meaningless without"),
+			Data.RenderSettings.GetIsoValue(), 3.5f);
+		TestTrue(TEXT("and the lighting flag, which is a separate frozen parameter"),
+			Data.RenderSettings.IsLightingEnabled());
+		TestEqual(TEXT("and MaxSteps, so this is not one field wired by hand"),
+			static_cast<int32>(Data.RenderSettings.GetMaxSteps()), 777);
+	}
+
+	/* == A COPY, not a reference ============================================= */
+	//
+	// The payload crosses to the render thread and outlives the call. If it
+	// aliased the component's field, a settings edit during a frame would mutate
+	// state the render thread is reading -- a data race whose symptom is an
+	// occasional wrong composite mode, not a crash.
+	{
+		const FFlowVizVolumeProxyDynamicData Captured = Volume->MakeProxyDynamicData();
+
+		FFlowVizRenderSettingsViewModel Changed;
+		Changed.SetCompositeMode(EFlowVizCompositeMode::Minimum);
+		Volume->SetRenderSettings(Changed);
+
+		TestEqual(TEXT("a payload already built is unaffected by a later edit, so it is a copy"),
+			static_cast<int32>(Captured.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::IsoSurface));
+		TestEqual(TEXT("while a payload built after the edit carries the new mode"),
+			static_cast<int32>(Volume->MakeProxyDynamicData().RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Minimum));
+	}
+
+	return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The join between the payload and the dispatcher                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Does the marshalled payload actually reach the context the dispatcher reads?
+ *
+ * WHY THIS EXISTS AS A SEPARATE TEST, and it is the whole lesson of this task:
+ * the path has three links, and having verified two of them proved nothing
+ * about the third.
+ *
+ *   1. component -> payload ....... FlowViz.Scene.ProxySettings
+ *   2. payload -> context ......... THIS TEST -- previously nothing
+ *   3. context -> shader params ... FlowViz.Render.SettingsSeam
+ *
+ * MEASURED, not assumed. With link 2 deleted -- `Context.RenderSettings =
+ * DynamicData.RenderSettings` removed from the proxy's dispatch site -- the
+ * full suite passed 90/90, ProxySettings and SettingsSeam included. Link 1
+ * proves the payload carries the settings; link 3 proves the dispatcher applies
+ * whatever the context holds; neither notices that nothing copies one into the
+ * other. That is the same defect shape as the original frozen-parameter finding
+ * and as the unwired view model above it: a verified producer, a verified
+ * consumer, and no test on the join.
+ *
+ * The assembly had to be extracted from GetDynamicMeshElements to be reachable
+ * at all -- see FlowVizVolumeRayMarch::MakeDispatchContext. This test calls that
+ * production function; it does not rebuild the context, which would only assert
+ * that its own copy works.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizDispatchContextTest,
+	"FlowViz.Scene.DispatchContext",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizDispatchContextTest::RunTest(const FString& Parameters)
+{
+	// Distinct, non-default values throughout. A payload field that matches the
+	// context's own default cannot show that it was copied.
+	FFlowVizVolumeProxyDynamicData Data;
+	Data.bHasParameters = true;
+	Data.Parameters.ValueRangeMin = -7.5f;
+	Data.Parameters.ValueRangeMax = 21.25f;
+	Data.FrameSelection.FrameA = 3;
+	Data.FrameSelection.FrameB = 4;
+	Data.FrameSelection.Alpha = 0.25f;
+	Data.RenderSettings.SetCompositeMode(EFlowVizCompositeMode::Average);
+	Data.RenderSettings.SetLightingEnabled(true);
+
+	const FMatrix LocalToWorld = FMatrix(
+		FPlane(2.0, 0.0, 0.0, 0.0),
+		FPlane(0.0, 3.0, 0.0, 0.0),
+		FPlane(0.0, 0.0, 5.0, 0.0),
+		FPlane(11.0, 13.0, 17.0, 1.0));
+
+	// Distinct addresses are all this needs: MakeDispatchContext stores the
+	// pointers and never dereferences them. Constructing real slot textures
+	// would require an RHI and would test the texture set, not this join.
+	FFlowVizVolumeSlotTextures SlotA;
+	FFlowVizVolumeSlotTextures SlotB;
+
+	/* == A resident frame B: everything is carried, nothing is degraded ====== */
+	{
+		const FFlowVizVolumeRayMarchContext Context =
+			FlowVizVolumeRayMarch::MakeDispatchContext(
+				/*View=*/nullptr, LocalToWorld, Data, &SlotA, &SlotB);
+
+		/*
+		 * THE HEADLINE ASSERTION -- the link that was missing. Average, not
+		 * Maximum: it is neither the enum's zero nor the value any other case
+		 * here uses, so a context that kept its own default fails, and so does
+		 * one that copied some other test's leftover.
+		 */
+		TestEqual(TEXT("the payload's composite mode reaches the dispatcher's context"),
+			static_cast<int32>(Context.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Average));
+		TestTrue(TEXT("and its lighting flag, which is a separately frozen parameter"),
+			Context.RenderSettings.IsLightingEnabled());
+
+		// The fields that were already carried. Asserted so a refactor of this
+		// assembly cannot fix the settings while dropping something else -- the
+		// exact trade the inline version made invisible.
+		TestEqual(TEXT("the cbuffer block is carried"),
+			Context.Parameters.ValueRangeMax, 21.25f);
+		TestTrue(TEXT("the placement matrix is carried"),
+			Context.LocalToWorld.Equals(LocalToWorld, 1e-9));
+		TestEqual(TEXT("slot A is carried"), Context.SlotA, static_cast<const FFlowVizVolumeSlotTextures*>(&SlotA));
+		TestEqual(TEXT("slot B is carried"), Context.SlotB, static_cast<const FFlowVizVolumeSlotTextures*>(&SlotB));
+		TestEqual(TEXT("with frame B resident the blend weight is the requested one"),
+			Context.Alpha, 0.25f);
+		TestFalse(TEXT("and a fully resident blend is not degraded"),
+			Context.bInterpolationDegraded);
+	}
+
+	/* == Frame B missing: alpha is forced to zero AND the loss is disclosed == */
+	//
+	// Both halves matter and they fail differently. Keeping alpha at 0.25 with
+	// no slot B blends toward a texture that is not there; keeping
+	// bInterpolationDegraded false lets a held frame pass as measured data at
+	// that timestep (VISUAL_QA section 1 rule 5).
+	{
+		const FFlowVizVolumeRayMarchContext Context =
+			FlowVizVolumeRayMarch::MakeDispatchContext(
+				/*View=*/nullptr, LocalToWorld, Data, &SlotA, /*SlotBTextures=*/nullptr);
+
+		TestEqual(TEXT("a missing frame B forces the blend weight to zero"), Context.Alpha, 0.0f);
+		TestTrue(TEXT("and the lost half of the blend is disclosed"),
+			Context.bInterpolationDegraded);
+
+		// The settings must survive the degraded path too. A guard clause that
+		// returned early here would pass every assertion above.
+		TestEqual(TEXT("the composite mode still reaches the context on the degraded path"),
+			static_cast<int32>(Context.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Average));
+	}
+
+	/* == A single-frame display is NOT degraded ============================== */
+	//
+	// The control for the assertion above. Without it, "always report degraded
+	// when slot B is null" passes both cases while crying interpolation on every
+	// non-interpolated frame -- a false disclosure is also a lie about provenance.
+	{
+		FFlowVizVolumeProxyDynamicData Single = Data;
+		Single.FrameSelection.FrameB = INDEX_NONE;
+		Single.FrameSelection.Alpha = 0.0f;
+
+		const FFlowVizVolumeRayMarchContext Context =
+			FlowVizVolumeRayMarch::MakeDispatchContext(
+				/*View=*/nullptr, LocalToWorld, Single, &SlotA, /*SlotBTextures=*/nullptr);
+
+		TestFalse(TEXT("a single-frame display is not reported as a degraded blend"),
+			Context.bInterpolationDegraded);
+	}
+
+	/* == THE IDENTITY CONTROL =============================================== */
+	//
+	// A default payload must produce a context that renders as it always did.
+	// Without this, every assertion above could be satisfied by an assembly that
+	// forced some non-default mode of its own.
+	{
+		const FFlowVizVolumeProxyDynamicData Fresh;
+		const FFlowVizVolumeRayMarchContext Context =
+			FlowVizVolumeRayMarch::MakeDispatchContext(
+				/*View=*/nullptr, FMatrix::Identity, Fresh, /*SlotATextures=*/nullptr, /*SlotBTextures=*/nullptr);
+
+		TestEqual(TEXT("a default payload yields the default composite mode, so wiring this changed no picture"),
+			static_cast<int32>(Context.RenderSettings.GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Alpha));
+		TestFalse(TEXT("and lighting stays off"), Context.RenderSettings.IsLightingEnabled());
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

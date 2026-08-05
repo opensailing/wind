@@ -515,6 +515,42 @@ public:
 	virtual void DispatchVolumeRayMarch(const FFlowVizVolumeRayMarchContext& Context) const = 0;
 };
 
+/**
+ * Everything the game thread hands the proxy each frame, by value.
+ *
+ * DECLARED HERE RATHER THAN IN THE .cpp, and that move is the point of the
+ * struct being public at all. While it was private to FlowVizVolumeComponent.cpp
+ * the only way to check what production marshals was to render a frame and look
+ * at it -- so nothing checked, and RenderSettings was never assigned by any
+ * production code at all. Every shipped frame applied a default-constructed
+ * view model: Alpha compositing, lighting off, sixteen parameters welded to
+ * FillDefaults' constants. Grep proved it: the field was READ at
+ * FlowVizVolumeRayMarchDispatcher.cpp and DECLARED on the context, and had no
+ * writer outside /Tests/.
+ *
+ * The seam below the proxy was already mutation-verified
+ * (FlowViz.Render.SettingsSeam) -- it correctly applies whatever it is handed.
+ * It was being handed nothing. A verified seam under an unwired one renders
+ * exactly as if neither existed, which is why the campaign was green.
+ *
+ * So this type is public, UCFDVizVolumeComponent::MakeProxyDynamicData builds
+ * it, and a test can assert on the payload without an RHI, a scene or a view.
+ */
+struct FFlowVizVolumeProxyDynamicData
+{
+	/** The cbuffer block. Everything in it is LOCAL to the volume. */
+	FFlowVizVolumeShaderParameters Parameters;
+
+	/** Which frames are on screen and how they blend. */
+	FFlowVizVolumeFrameSelection FrameSelection;
+
+	/** How to composite, light and step. The channel that was never written. */
+	FFlowVizRenderSettingsViewModel RenderSettings;
+
+	/** True when Parameters was actually built. False means the field's layout is not known yet - typically before the first upload. */
+	bool bHasParameters = false;
+};
+
 namespace FlowVizVolumeRayMarch
 {
 	/**
@@ -533,6 +569,34 @@ namespace FlowVizVolumeRayMarch
 		return Selection.IsInterpolated() && !bSlotBResident;
 	}
 
+	/**
+	 * Assemble the context for one volume in one view.
+	 *
+	 * A NAMED FUNCTION BECAUSE THE INLINE VERSION WAS UNTESTABLE, and that is
+	 * not a style preference -- it is a measured finding. These assignments used
+	 * to sit inside FFlowVizVolumeSceneProxy::GetDynamicMeshElements, which needs
+	 * a live scene, an RHI and a collector, so nothing could reach them. Deleting
+	 * `Context.RenderSettings = DynamicData.RenderSettings` there left the entire
+	 * 90-test suite green, INCLUDING FlowViz.Scene.ProxySettings, which proves
+	 * only that the payload carries the settings -- not that anyone copies them
+	 * out of it. Two verified halves with an unverified join between them is
+	 * exactly how the settings came to be unwired in the first place.
+	 *
+	 * Declared here rather than in the .cpp so FlowViz.Scene.DispatchContext can
+	 * call the real production assembly instead of restating it. A test that
+	 * rebuilt this context itself would assert that its own copy works, which is
+	 * the mirror-harness mistake recorded in FlowVizVolumeRayMarchDispatcher.h.
+	 *
+	 * @param SlotBTextures null for a non-interpolated display frame, which sets
+	 *        Alpha to zero and may raise bInterpolationDegraded.
+	 */
+	FLOWVIZRUNTIME_API FFlowVizVolumeRayMarchContext MakeDispatchContext(
+		const FSceneView* View,
+		const FMatrix& LocalToWorld,
+		const FFlowVizVolumeProxyDynamicData& DynamicData,
+		const FFlowVizVolumeSlotTextures* SlotATextures,
+		const FFlowVizVolumeSlotTextures* SlotBTextures);
+
 	/** Install the ray-march implementation. Render thread, or before the render thread has work. Pass null to uninstall. */
 	FLOWVIZRUNTIME_API void SetDispatcher(IFlowVizVolumeRayMarchDispatcher* Dispatcher);
 
@@ -543,6 +607,7 @@ namespace FlowVizVolumeRayMarch
 /* -------------------------------------------------------------------------- */
 /* The component                                                                */
 /* -------------------------------------------------------------------------- */
+
 
 /** What one case load produced. Kept whole so a failed reload cannot leave a half-configured component. */
 struct FFlowVizVolumeCaseBinding
@@ -744,6 +809,50 @@ public:
 	 */
 	bool TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const;
 
+	/* --- Render settings ---------------------------------------------------- */
+
+	/**
+	 * How this volume composites, lights and steps.
+	 *
+	 * Lives on the component, not the proxy, because it is game-thread state a
+	 * UI panel or console command edits. It reaches the render thread only
+	 * through MakeProxyDynamicData, by value.
+	 */
+	const FFlowVizRenderSettingsViewModel& GetRenderSettings() const
+	{
+		return RenderSettings;
+	}
+
+	/**
+	 * Replace the render settings and push them to the render thread.
+	 *
+	 * MarkRenderDynamicDataDirty rather than MarkRenderStateDirty: the settings
+	 * change no geometry and no bounds, so recreating the proxy would rebuild
+	 * the hull and re-seed the textures to change a composite mode.
+	 */
+	void SetRenderSettings(const FFlowVizRenderSettingsViewModel& InSettings);
+
+	/**
+	 * Build the frame's marshalled payload for the proxy.
+	 *
+	 * THE WHOLE REASON THIS IS A NAMED, PUBLIC, const FUNCTION rather than six
+	 * lines inside SendRenderDynamicData_Concurrent: the six-lines version is
+	 * only reachable from the render thread with a live proxy, so the only way
+	 * to check what it fills is to render and look -- and looking cannot
+	 * distinguish "settings applied" from "settings defaulted" unless you
+	 * already know what the picture should be. It went unchecked and RenderSettings
+	 * went unassigned. As a function, FlowViz.Scene.ProxySettings asserts on the
+	 * payload directly, and deleting the assignment is a red test rather than a
+	 * subtly different image.
+	 *
+	 * Called by both writers -- the proxy's constructor seed and the per-frame
+	 * push -- so the two cannot drift apart. That drift is not hypothetical:
+	 * the constructor seeded only FrameSelection until 37d2ae7, and a commandlet
+	 * capture (which never ticks, so the per-frame push never runs) rendered a
+	 * blank volume for exactly that reason.
+	 */
+	FFlowVizVolumeProxyDynamicData MakeProxyDynamicData() const;
+
 	/**
 	 * The colour domain, in solver units, for the bound field.
 	 *
@@ -771,6 +880,17 @@ private:
 
 	/** Layout of the most recently uploaded scalar field, needed for the shader parameter block. Invalid before the first upload. */
 	FFlowVizVolumeLayout UploadedScalarLayout;
+
+	/**
+	 * How this volume composites, lights and steps. Game thread; marshalled by
+	 * value in MakeProxyDynamicData.
+	 *
+	 * Default-constructed is an IDENTITY over FillDefaults, so a component
+	 * nobody configures renders exactly as it did before this field existed.
+	 * That is what makes the identity control in FlowViz.Scene.ProxySettings
+	 * meaningful rather than vacuous.
+	 */
+	FFlowVizRenderSettingsViewModel RenderSettings;
 
 	/** Set once ReleaseResources has been enqueued, so IsReadyForFinishDestroy can wait for the render thread exactly once. */
 	bool bResourcesReleased = false;

@@ -173,17 +173,64 @@ IFlowVizVolumeRayMarchDispatcher* FlowVizVolumeRayMarch::GetDispatcher()
 	return FlowVizVolumeRayMarchState::GDispatcher;
 }
 
+FFlowVizVolumeRayMarchContext FlowVizVolumeRayMarch::MakeDispatchContext(
+	const FSceneView* View,
+	const FMatrix& LocalToWorld,
+	const FFlowVizVolumeProxyDynamicData& DynamicData,
+	const FFlowVizVolumeSlotTextures* SlotATextures,
+	const FFlowVizVolumeSlotTextures* SlotBTextures)
+{
+	FFlowVizVolumeRayMarchContext Context;
+	Context.View = View;
+	Context.LocalToWorld = LocalToWorld;
+	Context.Parameters = DynamicData.Parameters;
+
+	/*
+	 * THE ASSIGNMENT THAT DID NOT EXIST. Without it Context.RenderSettings is
+	 * default-constructed and the dispatcher's mutation-verified seam faithfully
+	 * applies nothing: Alpha compositing, lighting off, sixteen parameters at
+	 * FillDefaults' constants, no matter what a panel or console command had set.
+	 *
+	 * The first real headless capture rendered exactly that, and its agent
+	 * reported the frame as "unlit front-to-back alpha compositing -- the only
+	 * thing it can currently be". That was accurate, and this line's absence was
+	 * the reason.
+	 */
+	Context.RenderSettings = DynamicData.RenderSettings;
+
+	Context.SlotA = SlotATextures;
+	Context.SlotB = SlotBTextures;
+	Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
+
+	// Falling back to frame A alone is the right picture - a stored frame is the
+	// only honest thing to draw when half the blend is missing - but the fallback
+	// is PIXEL-IDENTICAL to a genuine single-frame display, so silence here would
+	// let a held frame pass as measured data at that timestep. Report it and let
+	// the marcher or an overlay disclose it (VISUAL_QA section 1 rule 5).
+	Context.bInterpolationDegraded = FlowVizVolumeRayMarch::IsInterpolationDegraded(
+		DynamicData.FrameSelection, /*bSlotBResident=*/Context.SlotB != nullptr);
+
+	return Context;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Marshalled game -> render state                                              */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Everything the proxy needs from the component, BY VALUE.
+/*
+ * FFlowVizVolumeProxyDynamicData IS DECLARED IN THE PUBLIC HEADER, not here.
  *
- * No pointer into the component appears here, and none may be added. A scene
- * proxy outlives some component operations and is destroyed on the render
- * thread; a pointer back into a game-thread UObject is a use-after-free waiting
- * for a garbage collection to happen at the wrong moment.
+ * It used to live in this file, private to this translation unit, and that is
+ * how RenderSettings came to have no production writer at all: the only code
+ * that could build the payload was unreachable from any test, so the only way
+ * to ask what it contained was to render a frame -- and a defaulted composite
+ * mode renders a perfectly plausible picture. See the type's comment.
+ *
+ * Everything the proxy needs is still BY VALUE. No pointer into the component
+ * appears in it, and none may be added: a scene proxy outlives some component
+ * operations and is destroyed on the render thread, so a pointer back into a
+ * game-thread UObject is a use-after-free waiting for a garbage collection at
+ * the wrong moment.
  *
  * The texture set is the one exception, and it is not an exception to the rule:
  * FFlowVizVolumeTextureSet is not a UObject, it is owned for the component's
@@ -191,19 +238,9 @@ IFlowVizVolumeRayMarchDispatcher* FlowVizVolumeRayMarch::GetDispatcher()
  * before the component is collected (see UCFDVizVolumeComponent::BeginDestroy
  * and IsReadyForFinishDestroy). The proxy holds it as a raw pointer because the
  * alternative - copying RHI references per frame - would defeat the persistent
- * texture requirement in plan.md section 9.
+ * texture requirement in plan.md section 9. It is held by the PROXY, not
+ * marshalled in the payload.
  */
-struct FFlowVizVolumeProxyDynamicData
-{
-	/** The cbuffer block. Everything in it is LOCAL to the volume. */
-	FFlowVizVolumeShaderParameters Parameters;
-
-	/** Which frames are on screen and how they blend. */
-	FFlowVizVolumeFrameSelection FrameSelection;
-
-	/** True when Parameters was actually built. False means the field's layout is not known yet - typically before the first upload. */
-	bool bHasParameters = false;
-};
 
 /* -------------------------------------------------------------------------- */
 /* The scene proxy                                                              */
@@ -283,9 +320,14 @@ public:
 		 * simply leaves the proxy in the state it used to always be in, so the
 		 * dynamic-data push remains the authority; this only removes the gap
 		 * before the first one arrives.
+		 *
+		 * BUILT BY THE SAME FUNCTION THE PER-FRAME PUSH USES, so the seed and the
+		 * push cannot fill different fields. They already had, twice: this seed
+		 * copied only FrameSelection until 37d2ae7, and neither writer ever set
+		 * RenderSettings, so every frame composited with a default-constructed
+		 * view model no matter which path filled it.
 		 */
-		DynamicData.FrameSelection = Component->GetFrameSelection();
-		DynamicData.bHasParameters = Component->TryMakeShaderParameters(DynamicData.Parameters);
+		DynamicData = Component->MakeProxyDynamicData();
 	}
 
 	/** Render thread. Replaces the marshalled copy wholesale, so there is no intermediate half-updated state. */
@@ -410,23 +452,16 @@ public:
 
 					if (const FFlowVizVolumeSlotTextures* TexturesA = SlotATextures)
 					{
-						FFlowVizVolumeRayMarchContext Context;
-						Context.View = View;
-						Context.LocalToWorld = LocalToWorld;
-						Context.Parameters = DynamicData.Parameters;
-						Context.SlotA = TexturesA;
-						Context.SlotB = TextureSet->GetSlotTextures(SlotB);
-						Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
-
-						// Falling back to frame A alone is the right picture -
-						// a stored frame is the only honest thing to draw when
-						// half the blend is missing - but the fallback is
-						// PIXEL-IDENTICAL to a genuine single-frame display, so
-						// silence here would let a held frame pass as measured
-						// data at that timestep. Report it and let the marcher
-						// or an overlay disclose it (VISUAL_QA section 1 rule 5).
-						Context.bInterpolationDegraded = FlowVizVolumeRayMarch::IsInterpolationDegraded(
-							DynamicData.FrameSelection, /*bSlotBResident=*/Context.SlotB != nullptr);
+						// Assembled by a named function, not inline, so the
+						// assignments are reachable from a test. Inline, dropping
+						// any one of them was invisible: FlowViz.Scene.ProxySettings
+						// proved the payload carried the settings and the whole
+						// 90-test suite stayed green with the context assignment
+						// deleted. See FlowVizVolumeRayMarch::MakeDispatchContext.
+						const FFlowVizVolumeRayMarchContext Context =
+							FlowVizVolumeRayMarch::MakeDispatchContext(
+								View, LocalToWorld, DynamicData,
+								TexturesA, TextureSet->GetSlotTextures(SlotB));
 
 						Dispatcher->DispatchVolumeRayMarch(Context);
 						bRayMarchDispatched = true;
@@ -1029,6 +1064,29 @@ void UCFDVizVolumeComponent::GetUsedMaterials(TArray<UMaterialInterface*>& OutMa
 	}
 }
 
+FFlowVizVolumeProxyDynamicData UCFDVizVolumeComponent::MakeProxyDynamicData() const
+{
+	FFlowVizVolumeProxyDynamicData Data;
+	Data.FrameSelection = GetFrameSelection();
+	Data.bHasParameters = TryMakeShaderParameters(Data.Parameters);
+
+	// The channel that had no writer. Copied, never referenced: this crosses to
+	// the render thread and the component may be edited or collected meanwhile.
+	Data.RenderSettings = RenderSettings;
+
+	return Data;
+}
+
+void UCFDVizVolumeComponent::SetRenderSettings(const FFlowVizRenderSettingsViewModel& InSettings)
+{
+	RenderSettings = InSettings;
+
+	// Nothing here changes geometry or bounds, so the proxy does not need
+	// rebuilding -- only its marshalled copy needs replacing. MarkRenderStateDirty
+	// would recreate the proxy and re-seed the hull to change a composite mode.
+	MarkRenderDynamicDataDirty();
+}
+
 void UCFDVizVolumeComponent::SendRenderDynamicData_Concurrent()
 {
 	Super::SendRenderDynamicData_Concurrent();
@@ -1045,10 +1103,8 @@ void UCFDVizVolumeComponent::SendRenderDynamicData_Concurrent()
 	PublishDisplayFrames();
 
 	// Built on the game thread, moved to the render thread BY VALUE. The proxy
-	// never reads the component.
-	FFlowVizVolumeProxyDynamicData Data;
-	Data.FrameSelection = GetFrameSelection();
-	Data.bHasParameters = TryMakeShaderParameters(Data.Parameters);
+	// never reads the component. Same builder the proxy's constructor seed uses.
+	FFlowVizVolumeProxyDynamicData Data = MakeProxyDynamicData();
 
 	FFlowVizVolumeSceneProxy* VolumeProxy = static_cast<FFlowVizVolumeSceneProxy*>(SceneProxy);
 	ENQUEUE_RENDER_COMMAND(FlowVizVolumeUpdateDynamicData)(
