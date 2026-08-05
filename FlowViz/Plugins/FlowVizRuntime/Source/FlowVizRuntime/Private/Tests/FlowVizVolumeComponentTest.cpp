@@ -718,6 +718,21 @@ bool FFlowVizVolumeComponentTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/*
+ * THE "IS ANYTHING WIRED IN PRODUCTION?" TEST DELIBERATELY DOES NOT LIVE HERE.
+ *
+ * It is FlowViz.Render.Wiring, in FlowVizRenderWiringTest.cpp. I wrote a version
+ * of it in this file first and deleted it: a third agent had independently
+ * written a stronger one, and two tests asserting the same thing means the
+ * weaker one eventually gets "fixed" to match a mock and stops checking.
+ *
+ * It cannot live in THIS file for a structural reason. Every other test here
+ * installs a dispatcher double as a precondition, and automation tests in one
+ * file share a global that those tests mutate. A wiring test's whole subject is
+ * what module startup left in that global, so it has to be somewhere nothing
+ * sets it first. Keeping it out of this file is what keeps it honest.
+ */
+
 /**
  * The seam onto the ray-marcher, tested for the one property that matters
  * before the marcher exists: **the component must be able to say that nothing
