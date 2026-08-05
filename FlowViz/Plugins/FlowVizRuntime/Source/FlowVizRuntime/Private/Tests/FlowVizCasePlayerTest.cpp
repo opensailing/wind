@@ -1356,6 +1356,46 @@ bool FFlowVizCasePlayerTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("diagnostics report alpha"), Diag.Selection.Alpha, 0.5, 1.0e-9);
 		TestEqual(TEXT("diagnostics report the physical time"), Diag.PhysicalTime, 0.075, 1.0e-12);
 		TestEqual(TEXT("diagnostics report the frame count"), Diag.FrameCount, 20);
+
+		// WHAT THIS CATCHES THAT NOTHING ELSE HERE DOES. Every assertion above
+		// reads Diag.Selection - what the playhead WANTS. Nothing read
+		// Diag.Display - what the renderer may actually SAMPLE. The struct's own
+		// comment says why both are carried: "showing only one would make a
+		// stalled loader indistinguishable from a stopped playhead, which is
+		// precisely the thing a diagnostics panel is for."
+		//
+		// That comment named a hazard and no assertion covered it. A mutant that
+		// copies Selection into Display - the panel reporting the wanted frame as
+		// though it were on screen, with bStale hardcoded false - passed all four
+		// FlowViz.Playback tests (drop_diag_display SURVIVED). It is the precise
+		// failure the comment describes, and it is the WORST failure a
+		// diagnostics panel can have: it is the instrument you would reach for to
+		// diagnose a stall, reporting that nothing is stalled.
+		//
+		// Found by grepping my own prose for two-state hazard words
+		// ("indistinguishable", "look identical"). A comment describing a hazard
+		// is a receipt for a debt, not a payment.
+		Player.GetCache().Reset();
+		Player.SeekToFrame(11);
+		const FFlowVizPlaybackDiagnostics Stalled = Player.GetDiagnostics();
+
+		TestEqual(TEXT("the panel reports the playhead's wanted frame"),
+			Stalled.Selection.FrameA, 11);
+		TestNotEqual(TEXT("the panel does NOT report the wanted frame as shown"),
+			Stalled.Display.FrameA, Stalled.Selection.FrameA);
+		TestTrue(TEXT("the panel discloses that the display is stale"),
+			Stalled.Display.bStale);
+
+		// And it must stop saying so once the frame actually arrives, or "stale"
+		// is a constant rather than a readout.
+		Player.Tick(0.0);
+		TestTrue(TEXT("the stalled frame loads"), Player.WaitForPendingLoads(120.0));
+		Player.Tick(0.0);
+		const FFlowVizPlaybackDiagnostics CaughtUp = Player.GetDiagnostics();
+		TestEqual(TEXT("the caught-up panel shows the frame the playhead wants"),
+			CaughtUp.Display.FrameA, CaughtUp.Selection.FrameA);
+		TestFalse(TEXT("the caught-up panel no longer reports staleness"),
+			CaughtUp.Display.bStale);
 	}
 
 	Player.Close();
