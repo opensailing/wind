@@ -541,6 +541,60 @@ bool FFlowVizVolumeComponentTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("and is not interpolating"), DefaultSelection.FrameB, INDEX_NONE);
 		TestFalse(TEXT("so nothing claims to be an interpolated frame"), DefaultSelection.IsInterpolated());
 
+		/* -- What counts as an interpolated frame ----------------------------- */
+
+		// VISUAL_QA section 1 rule 5: "a temporally interpolated frame says so on
+		// screen." The predicate that answers it must be true exactly when the
+		// displayed frame was SYNTHESIZED - i.e. is not any stored frame.
+		//
+		// Both failure directions are real and neither is visible on screen:
+		// disclosing a blend that did not happen tells a scientist a stored
+		// measurement is derived, and failing to disclose one that did tells them
+		// synthesized data is measured. The second is the direction rule 5 exists
+		// to prevent, so the boundaries are asserted rather than assumed.
+		{
+			FFlowVizVolumeFrameSelection Selection;
+
+			// No second frame: whatever alpha says, there is nothing to blend with.
+			Selection.FrameA = 3;
+			Selection.FrameB = INDEX_NONE;
+			Selection.Alpha = 0.5f;
+			TestFalse(TEXT("with no second frame, nothing is interpolated whatever alpha says"),
+				Selection.IsInterpolated());
+
+			// A genuine blend, the case the rule is about.
+			Selection.FrameB = 4;
+			Selection.Alpha = 0.5f;
+			TestTrue(TEXT("a half-way blend of two distinct frames IS interpolated"),
+				Selection.IsInterpolated());
+
+			// ALPHA 0 AND ALPHA 1 ARE BOTH EXACT LANDINGS. At alpha 0 the displayed
+			// frame is stored frame A; at alpha 1 it is stored frame B. Neither was
+			// synthesized, so neither may claim to be.
+			Selection.Alpha = 0.0f;
+			TestFalse(TEXT("alpha 0 is exactly stored frame A, not a blend"),
+				Selection.IsInterpolated());
+
+			Selection.Alpha = 1.0f;
+			TestFalse(TEXT("alpha 1 is exactly stored frame B, not a blend"),
+				Selection.IsInterpolated());
+
+			// Just inside each boundary must still count, or a scrub that stops one
+			// float from a stored frame would hide a real blend.
+			Selection.Alpha = 1.0f - UE_KINDA_SMALL_NUMBER;
+			TestTrue(TEXT("just short of alpha 1 is still a blend"), Selection.IsInterpolated());
+			Selection.Alpha = UE_KINDA_SMALL_NUMBER;
+			TestTrue(TEXT("just past alpha 0 is still a blend"), Selection.IsInterpolated());
+
+			// Blending a frame with ITSELF is the identity at every alpha - the
+			// result is that stored frame exactly, so there is nothing to disclose.
+			Selection.FrameA = 7;
+			Selection.FrameB = 7;
+			Selection.Alpha = 0.5f;
+			TestFalse(TEXT("blending a frame with itself yields that frame, so it is not interpolated"),
+				Selection.IsInterpolated());
+		}
+
 		/* -- The scene proxy -------------------------------------------------- */
 
 		// The component must actually reach the renderer. A proxy that is never

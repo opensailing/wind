@@ -139,10 +139,28 @@ struct FFlowVizVolumeFrameSelection
 	/** Blend weight toward FrameB, [0,1]. Meaningless when FrameB is INDEX_NONE. */
 	float Alpha = 0.0f;
 
-	/** True when this display frame is interpolated, which VISUAL_QA section 1 rule 5 requires be disclosed on screen. */
+	/**
+	 * True when the displayed frame was SYNTHESIZED rather than stored - which
+	 * VISUAL_QA section 1 rule 5 requires be disclosed on screen.
+	 *
+	 * The bounds are exclusive at BOTH ends, and the two frames must differ,
+	 * because each excluded case is an exact landing on a stored frame:
+	 * alpha 0 is frame A, alpha 1 is frame B, and blending a frame with itself
+	 * is that frame at every alpha. None of the three synthesized anything, so
+	 * disclosing interpolation for them would tell a scientist that a stored
+	 * measurement is derived.
+	 *
+	 * The opposite error - failing to disclose a real blend - is the one the
+	 * rule exists to prevent, and is why this is a predicate with tested
+	 * boundaries rather than an `Alpha > 0` convenience. Neither direction is
+	 * visible on screen; both are lies about the data's provenance.
+	 */
 	bool IsInterpolated() const
 	{
-		return FrameB != INDEX_NONE && Alpha > 0.0f;
+		return FrameB != INDEX_NONE
+			&& FrameB != FrameA
+			&& Alpha > 0.0f
+			&& Alpha < 1.0f;
 	}
 };
 
