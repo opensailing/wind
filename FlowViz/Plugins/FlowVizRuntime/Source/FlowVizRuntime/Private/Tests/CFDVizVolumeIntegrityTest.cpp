@@ -590,6 +590,30 @@ bool FCFDVizVolumeIntegrityTest::RunTest(const FString& Parameters)
 			Bytes, ECFDVizError::SizeMismatch);
 	}
 	{
+		// THE SAME RULE, ISOLATED FROM ITS NEIGHBOUR.
+		//
+		// The case above does not actually pin the derived-size equality. With
+		// codec 'none' the entry must also satisfy compressedBytes ==
+		// uncompressedBytes, and poking only uncompressedBytes breaks BOTH rules
+		// at once - so deleting the geometry check still leaves the stored-size
+		// check to fire, with the same SizeMismatch code, and the assertion above
+		// cannot tell which one spoke. A differential mutation run caught this:
+		// the mutant that removes the geometry equality survives the case above
+		// and is killed only by this one.
+		//
+		// Here compressedBytes and uncompressedBytes AGREE with each other (24 and
+		// 24) and disagree only with the geometry, which demands 48. Every
+		// neighbouring guard is satisfied - the span is in bounds, the codec rule
+		// holds - so the derived-size equality is the only thing left that can
+		// reject this file. If it is ever weakened, this file opens and the test
+		// goes red.
+		TArray<uint8> Bytes = CvfIntegrityTest::MakeCvf();
+		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 28, 24); // compressedBytes
+		CvfIntegrityTest::PokeU32(Bytes, CvfIntegrityTest::Entry0 + 32, 24); // uncompressedBytes
+		ExpectOpenRejects(TEXT("a self-consistent size pair that still contradicts the geometry"),
+			Bytes, ECFDVizError::SizeMismatch);
+	}
+	{
 		// A hostile size field: 4 GB claimed for a 4-voxel brick. It must be
 		// caught by the derived-size equality, not by an allocation failure - a
 		// reader that allocated first and failed second would be a trivial denial
