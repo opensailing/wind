@@ -98,13 +98,26 @@ bool FFlowVizProbePanelBindingTest::RunTest(const FString& Parameters)
 
 	/* == Rename ============================================================== */
 	{
-		const TSharedPtr<SFlowVizNumericEntry> NameBox = Panel->GetProbeNameBox(0);
-		if (!TestTrue(TEXT("the panel built a name field on row 0"), NameBox.IsValid()))
+		/*
+		 * ROW 1, NOT ROW 0, AND THAT IS THE WHOLE POINT.
+		 *
+		 * This block originally edited row 0, and a mutation campaign showed it
+		 * could not fail: a handler hard-wired to rename GetProbes()[0] is an
+		 * IDENTITY MAP when the row under test is already row 0. Both the "it
+		 * renamed" assertion and the "it left the other row alone" guard passed
+		 * on the broken handler, because renaming the first probe and renaming
+		 * the edited probe are the same act on that fixture.
+		 *
+		 * Editing a row that is NOT first is what separates them.
+		 */
+		const TSharedPtr<SFlowVizNumericEntry> NameBox = Panel->GetProbeNameBox(1);
+		if (!TestTrue(TEXT("the panel built a name field on row 1"), NameBox.IsValid()))
 		{
 			return false;
 		}
 
-		const FString Before = Probes.GetProbes()[0].Name;
+		const FString FirstBefore = Probes.GetProbes()[0].Name;
+		const FString Before = Probes.GetProbes()[1].Name;
 		NameBox->SimulateCommit(FText::FromString(TEXT("Inlet centre")));
 
 		TestNotEqual(
@@ -112,12 +125,12 @@ bool FFlowVizProbePanelBindingTest::RunTest(const FString& Parameters)
 				 "fail"),
 			Before, FString(TEXT("Inlet centre")));
 		TestEqual(TEXT("committing a name renames that probe"),
-			Probes.GetProbes()[0].Name, FString(TEXT("Inlet centre")));
-
-		// AND IT RENAMED THE RIGHT ONE. A handler acting on row 0 regardless of
-		// which row was edited would pass the assertion above.
-		TestNotEqual(TEXT("renaming row 0 left row 1's name alone"),
 			Probes.GetProbes()[1].Name, FString(TEXT("Inlet centre")));
+
+		// AND IT RENAMED THE RIGHT ONE. A handler that acts on GetProbes()[0]
+		// regardless of which row was edited fails HERE and nowhere else.
+		TestEqual(TEXT("renaming row 1 left row 0's name untouched"),
+			Probes.GetProbes()[0].Name, FirstBefore);
 	}
 
 	/* == Visibility is a toggle, not a delete ================================ */
