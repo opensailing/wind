@@ -567,11 +567,36 @@ struct FFlowVizDisplaySelection
 	 * confirms it and proves nothing. That is how the "disclosure-only" reading
 	 * arose. Fields here span sign changes and several decades.
 	 *
+	 * The choice is a REAL TRADE, not a free win, and the two-product form is
+	 * preferred here on the merits rather than because it is better everywhere:
+	 *
+	 *   mad          monotonic in t, but not exact at t == 1
+	 *   two-product  exact at both endpoints, but NOT monotonic in t
+	 *
+	 * The two-product form can step backwards as t advances by one ULP - on
+	 * a=1, b=2 it does so at 62503 of 3e6 consecutive t. Note that boundedness
+	 * and monotonicity are different properties: the result never leaves
+	 * [min, max], so a sweep that checks only bounds finds nothing and reads as
+	 * a clean bill of health.
+	 *
+	 * That wobble is accepted here because of its SIZE. It is 1 ULP
+	 * (1.19e-07 of the A..B span), which is far below one step of any
+	 * pseudocolor ramp, and it is non-monotonic only in the sense that a value
+	 * repeats or retreats by that ULP - the field is still visually smooth. The
+	 * mad form's endpoint error is not comparable: at a = -1000, b = 0.001 it
+	 * is 2.3e-2 relative, a wrong scalar pseudocolored as measurement.
+	 * A 1-ULP wobble in a smooth interior is a rounding artifact; a wrong
+	 * endpoint is a false measurement. Only the second is a provenance lie.
+	 *
 	 * The temporal blend is not written yet. When it is, it must use the
 	 * two-product form, and the collapse above must still happen so the pair
 	 * and the disclosure agree.
 	 *
-	 * Verified by compiling both forms and sweeping, not by inspection.
+	 * Verified by compiling both forms and sweeping, not by inspection. Every
+	 * sweep behind these numbers needs its coverage checked before it is
+	 * believed: a shared loop guard, a fixed decimal t-step instead of
+	 * consecutive floats, and an a/b range inside a factor of two each produced
+	 * a confident zero here before being corrected.
 	 */
 	double Alpha = 0.0;
 
