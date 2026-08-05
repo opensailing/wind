@@ -45,8 +45,19 @@ device rather than passing). 17/17 mutants killed.
 component, case actor, scene proxy, bounds, box hull, and the winding
 correction for the negative-determinant solver transform. The transfer
 function (`8dd1b29`): colour and opacity LUT, domain mapping, GPU resource.
-The ray-march shader and playback layer are in progress. 47/47 tests pass,
-and the three GPU device tests pass against a real Metal device under `RHI=1`.
+The ray-march shader (`8a178c4`): the repo's first `.usf`, a compute shader
+that writes a quantitative `OutValue` UAV — field value, alpha, invalid-reason
+bits, step count — alongside the image, so the pass can be checked on numbers
+rather than on whether a picture looks plausible. 47/47 tests pass, all three
+GPU device tests execute for real against an Apple M4 Metal device under
+`RHI=1` (verified independently: no skip block, zero shader compile errors).
+
+**What the device test does and does not establish.** It proves the pass
+dispatches, the shader compiled on Metal for both permutations, and the GPU
+reads back the cbuffer bytes the CPU wrote. It does **not** prove the marching
+loop produces correct imagery. Alpha/max/min/average compositing, iso-surface,
+gradients, lighting, crop box, clip planes and jitter are all implemented and
+compile, and none has been exercised against a populated volume. See item 2a.
 
 **Not done, and this is still the gap that matters.** Nothing has been drawn.
 Every piece above is verified against its own contract — cbuffer layout,
@@ -62,6 +73,31 @@ against a real frame.** That is the release bar this project is measured
 against, and every claim about how it looks remains unmade rather than merely
 unproven. A green test suite is not a rendered image, and this file should
 keep saying so until an image exists.
+
+### 2a. Nothing has marched a populated volume
+
+The gap immediately below the one above, and the one to close first.
+
+Every ray-march feature is verified against its *interface* — the cbuffer
+round-trips, the shader compiles, the pass dispatches, the flag colours are
+distinct. Not one of them has been run over a volume with data in it. The
+marching loop itself, which is where compositing, iso-surface extraction,
+gradient estimation and clipping actually happen, is unexercised.
+
+This is a correctness gap, not a polish one. A loop that steps by the largest
+voxel spacing instead of the smallest, composites back-to-front, or samples at
+cell corners instead of centres will still dispatch, still compile, still
+round-trip its constants, and still produce a picture. Some of those pictures
+look entirely reasonable.
+
+The fix is a fixture volume holding an analytic field whose correct integral
+is known in closed form — a linear ramp, a Gaussian blob, a plane at a known
+iso-value — marched with assertions on the quantitative `OutValue` UAV rather
+than on pixels. That makes a wrong loop fail on a number instead of on
+somebody's judgement of an image, which is the only kind of visual claim this
+project accepts.
+
+Until then, treat "the ray-marcher works" as unmade. It compiles and it runs.
 
 ## Correctness gaps
 
