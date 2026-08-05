@@ -61,6 +61,45 @@ The authoritative gate is UnrealBuildTool. If `Build.sh` prints
 `Result: Succeeded`, the code compiles. Do not "fix" clangd diagnostics by
 changing correct UE code.
 
+### An anonymous namespace is NOT per-file in this module
+
+This is the trap most likely to bite anyone adding a reader, and it already
+broke the build once (`9d5d5ac`).
+
+FlowVizRuntime builds as a **unity build**: UBT generates
+`Intermediate/.../Module.FlowVizRuntime.cpp`, which `#include`s every `.cpp` in
+the module into a single translation unit. So this, in two different files:
+
+```cpp
+namespace   // "private to this file" -- it is not
+{
+    constexpr int64 OffsetFlags = 20;   // CVF, section 4.1
+}
+```
+
+...collides with a sibling's `OffsetFlags = 16` (CVM). Whichever file the
+generated include list names first wins, and the other reader silently parses
+its own format using the wrong byte offsets. Not a crash — a wrong volume.
+
+Give file-local format constants a **named namespace** (`namespace CvfLayout`)
+or a distinct prefix (`CvmOffsetFlags`). Both are in use; either is fine.
+
+**Assert your offsets at compile time.** The collision was caught only because
+the CVF reader pins its layout:
+
+```cpp
+static_assert(OffsetFlags == 20 && OffsetFrameIndex == 24, "CVF header: ...");
+```
+
+which failed with `expression evaluates to '16 == 20'` and named the problem
+outright. Readers without such assertions would have shipped a silent misparse.
+
+To inspect what actually got concatenated:
+
+```sh
+grep include FlowViz/Plugins/FlowVizRuntime/Intermediate/Build/Mac/arm64/UnrealEditor/Development/FlowVizRuntime/Module.FlowVizRuntime.cpp
+```
+
 ## Running C++ tests
 
 ```bash
