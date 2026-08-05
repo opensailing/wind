@@ -99,8 +99,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="emit the report as JSON instead of text",
     )
 
+    # ``inspect`` is the name plan section 7 lists; ``info`` is what this
+    # package shipped first. Both reach the same handler rather than one being
+    # renamed, because renaming breaks whatever already types the other.
     info = subparsers.add_parser(
-        "info", help="summarise a case directory or a single .cvf file"
+        "info",
+        aliases=["inspect"],
+        help="summarise a case directory or a single .cvf file",
     )
     info.add_argument("target", type=Path, help="a case root or a .cvf file")
 
@@ -798,6 +803,7 @@ def read_all_values(path: Path):
 _COMMANDS = {
     "validate": _validate,
     "info": _info,
+    "inspect": _info,
     "known-values": _known_values,
     "generate-mock": _generate_mock,
     "extract": _extract,

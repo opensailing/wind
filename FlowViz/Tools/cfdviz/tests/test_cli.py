@@ -291,3 +291,35 @@ def test_a_zstd_file_is_rejected_through_the_cli_with_the_exact_message(
     status, out, err = run(capsys, "validate", str(valid_case))
     assert status != 0
     assert ZSTD_REJECTION_MESSAGE in (out + err)
+
+
+# ---------------------------------------------------------------------------
+# inspect, the name the plan uses for info
+# ---------------------------------------------------------------------------
+
+def test_inspect_is_accepted_as_a_name_for_info(capsys, valid_case: Path):
+    """Plan section 7 lists ``inspect``; this package shipped ``info``.
+
+    Rather than rename and break whatever already types ``info``, both names
+    reach the same handler. The assertion is that the *output* is identical,
+    not merely that both exit zero -- an alias wired to a different or empty
+    handler would pass a status check.
+    """
+    status_info, out_info, _ = run(capsys, "info", str(valid_case))
+    status_inspect, out_inspect, _ = run(capsys, "inspect", str(valid_case))
+
+    assert status_info == 0
+    assert status_inspect == 0
+    assert out_inspect == out_info
+    assert out_inspect.strip(), "inspect produced no output at all"
+
+
+def test_inspect_reports_a_missing_path_the_same_way_info_does(capsys, tmp_path: Path):
+    """The alias must share the error convention too, not just the happy path."""
+    missing = str(tmp_path / "absent.cvf")
+    status_info, out_info, err_info = run(capsys, "info", missing)
+    status_inspect, out_inspect, err_inspect = run(capsys, "inspect", missing)
+
+    assert status_inspect == status_info != 0
+    assert (out_inspect + err_inspect) == (out_info + err_info)
+    assert "Traceback" not in (out_inspect + err_inspect)
