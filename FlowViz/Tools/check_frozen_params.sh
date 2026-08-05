@@ -8,11 +8,16 @@
 # The shader may implement six composite modes and handle all six correctly --
 # this checker is about whether anything can SELECT them.
 #
-# Measured 2026-08-05: 13 of 66 parameters were frozen this way, including
+# Measured 2026-08-05: 16 of 74 parameters were frozen this way, including
 # CompositeMode (welded to Alpha) and bEnableLighting (welded to 0), which made
 # four of the five modes required by OPENFOAM_PARAVIEW_PARITY.md unreachable and
 # the entire gradient-lighting path dead. The suite was green throughout,
 # because every test writes the parameter itself.
+#
+# The denominator was 73 until the extractor was fixed to parse
+# SHADER_PARAMETER_ARRAY: one row had been dropped silently, so the count
+# described this script's vocabulary rather than the header. Hence the UNSCORED
+# on any row it cannot parse -- see step 1.
 #
 # THAT is why writes from Private/Tests/ do not count here. A test that supplies
 # the input cannot discover that nothing else supplies it, so counting test
@@ -62,10 +67,37 @@ trap 'rm -rf "${WORK}"' EXIT
 # as a parameter -- and since nothing ever assigns to a macro, it reports frozen
 # in perpetuity. Measured on the real header, which is exactly this form.
 grep -rhoE '(^|[^A-Z_])SHADER_PARAMETER[A-Z_]*\([^)]*\)' "${MODULE_DIR}" --include='*.h' 2>/dev/null \
-    | grep -vE '(BEGIN|END)_SHADER_PARAMETER' \
-    | sed -E 's/.*,[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\)$/\1/' \
-    | grep -E '^[A-Za-z_][A-Za-z0-9_]*$' \
-    | sort -u > "${WORK}/declared.txt"
+    | grep -vE '(BEGIN|END)_SHADER_PARAMETER' > "${WORK}/rows.txt"
+
+# SHADER_PARAMETER_ARRAY carries a THIRD field -- (FVector4f, ClipPlanes,
+# [MaxClipPlanes]) -- so the trailing-field rule lands on the bracket instead of
+# the name. Its own rule, applied first.
+sed -E 's/.*SHADER_PARAMETER_ARRAY\([^,]*,[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*,.*/\1/; t
+         s/.*,[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\)$/\1/' \
+    "${WORK}/rows.txt" > "${WORK}/names_raw.txt"
+
+grep -E '^[A-Za-z_][A-Za-z0-9_]*$' "${WORK}/names_raw.txt" | sort -u > "${WORK}/declared.txt"
+
+# A row that yielded no identifier is a declaration form this script has no rule
+# for. It must be REPORTED, never discarded.
+#
+# Found 2026-08-05 by counting: the checker said "16 of 73" while the header
+# holds 74 rows. The missing one was SHADER_PARAMETER_ARRAY, dropped by the
+# name-shape filter without a word -- so the number read as a full census while
+# one parameter had never been examined at all. That is the same defect this
+# checker exists to find, in the checker. Silence about what a scan could not
+# parse is indistinguishable from a scan that found nothing wrong.
+grep -vE '^[A-Za-z_][A-Za-z0-9_]*$' "${WORK}/names_raw.txt" > "${WORK}/unparsed.txt"
+if [[ -s "${WORK}/unparsed.txt" ]]; then
+    echo "check_frozen_params: UNSCORED" >&2
+    echo "  $(wc -l < "${WORK}/unparsed.txt" | tr -d ' ') SHADER_PARAMETER row(s) matched but yielded no" >&2
+    echo "  parameter name. This script has no rule for their declaration form, so" >&2
+    echo "  it cannot say whether they are frozen -- and dropping them would report" >&2
+    echo "  a census of everything it happens to understand as a census of the code." >&2
+    echo >&2
+    sed 's/^/  /' "${WORK}/unparsed.txt" >&2
+    exit 2
+fi
 
 PARAM_COUNT=$(wc -l < "${WORK}/declared.txt" | tr -d ' ')
 
@@ -127,7 +159,7 @@ while IFS= read -r f; do
         }
         { print }
     ' "${f}" 2>/dev/null \
-        | grep -ohE '(\.|->)[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=([^=]|$)' \
+        | grep -ohE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' \
         | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' >> "${WORK}/written.txt"
 done < "${WORK}/prod_files.txt"
 sort -u -o "${WORK}/written.txt" "${WORK}/written.txt"

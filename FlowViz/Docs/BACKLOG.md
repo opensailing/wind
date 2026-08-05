@@ -434,11 +434,11 @@ of it, in flags the shader is never given.** Not verified: anything needing a
 rendered-output comparison for the disclosure flags, since no consumer exists to
 render one. Per 2c's own method note, treat these counts as a lower bound.
 
-### 2e. 13 render parameters are frozen at their defaults — found 2026-08-05
+### 2e. 16 render parameters are frozen at their defaults — found 2026-08-05
 
 2d ended on "the shader honours every flag it is handed; every gap found is
 upstream of it, in flags the shader is never given." This is that sentence
-counted. **16 of the 73 declared shader parameters have exactly one non-test
+counted. **16 of the 74 declared shader parameters have exactly one non-test
 writer, `FlowVizRayMarch::FillDefaults`, and it writes a literal constant to
 each:**
 
@@ -514,6 +514,28 @@ Two near-misses in method, both worth keeping:
   parameter name. **The positive control is the only reason that was caught**;
   the 16 zeroes were the answer being sought and would have been believed. Re-run
   with a working counter: controls 3, 4, 5, 2 — and 0 disagreements across all 16.
+
+**A third near-miss, in the guard itself — found 2026-08-05, one day after it
+was committed.** The checker reported "16 of 73" while the header declares 74
+rows. `SHADER_PARAMETER_ARRAY(FVector4f, ClipPlanes, [MaxClipPlanes])` carries a
+third field, so the trailing-field rule landed on the bracket, the name-shape
+filter rejected the result, and the row was discarded **without a word**. The
+denominator described the extractor's vocabulary rather than the header. It was
+found only because writing `UI_CONTROLS.md` required listing the wired
+parameters by hand, and that list disagreed with the tool by one.
+
+The array parsing is the smaller half of the fix. The larger half: a
+`SHADER_PARAMETER` row that matches but yields no identifier is now **UNSCORED**,
+naming the row. A guard against unexamined parameters that silently skipped a
+parameter it could not parse had the exact defect it exists to find. Two
+regression tests cover it — one for the array form, one for a declaration form
+the extractor has no rule for at all, which is the case that generalises to the
+next macro nobody has anticipated.
+
+The frozen set did not change: `ClipPlanes` has a real production writer
+(`FlowVizClipViewModel`, via `ClipPlanes[Index] =`, which the writer scan also
+had to be taught to see). The finding above stands; only the denominator was
+wrong.
 
 Tracked as #39.
 

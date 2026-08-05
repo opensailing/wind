@@ -327,5 +327,68 @@ check "an implausibly small extraction is UNSCORED, not clean" \
 check "a missing directory is an error, not a pass" \
     "2:unknown" "$(run_on "${WORK}/does_not_exist")"
 
+# --- A row the extractor cannot parse must not vanish -------------------------
+#
+# Found 2026-08-05 by probing the checker's own output against the real header:
+# it reported "16 of 73" while the header declares 74 rows. SHADER_PARAMETER_ARRAY
+# carries a third field -- `(FVector4f, ClipPlanes, [MaxClipPlanes])` -- so the
+# trailing-field pattern lands on the bracket and the name-shape filter dropped
+# the line. Silently. The count measured the regex's vocabulary, not the code.
+#
+# That is the same defect class this checker exists to find: a number that reads
+# as coverage while the thing it counts was never examined. Two requirements
+# follow, and the second matters more than the first.
+
+declare_array() {  # declare_array <dir> <name> <extent>
+    local d="$1" name="$2" extent="$3"
+    printf '\tSHADER_PARAMETER_ARRAY(FVector4f, %s, [%s])\n' \
+        "${name}" "${extent}" >> "${d}/Public/Render/Shader.h"
+}
+
+# 1. The array parameter is a real parameter. Frozen when only the defaults
+#    writes it -- ClipPlanes in the real module is written by the clip view model
+#    via `OutParameters.ClipPlanes[Index] =`, which the writer scan must also see.
+D="${WORK}/array_frozen"; new_tree "${D}"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+declare_array  "${D}" ClipPlanes 'FlowVizRayMarch::MaxClipPlanes'
+# The array write must go INSIDE the defaults body. Appending it after
+# write_defaults puts it past the closing brace, where the body tracker
+# correctly reads it as a production writer -- the fixture would then be
+# testing brace tracking and reporting on array extraction.
+printf 'void FlowVizRayMarch::FillDefaults(FParams& OutParameters)\n{\n' \
+    > "${D}/Private/Render/Shader.cpp"
+for p in CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta; do
+    printf '\tOutParameters.%s = 0;\n' "${p}" >> "${D}/Private/Render/Shader.cpp"
+done
+printf '\tOutParameters.ClipPlanes[Index] = FVector4f(0,0,0,0);\n}\n' \
+    >> "${D}/Private/Render/Shader.cpp"
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+check "an array parameter written only by the defaults is frozen" \
+    "1:frozen" "$(run_on "${D}")"
+
+D="${WORK}/array_written"; new_tree "${D}"
+declare_params  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+declare_array   "${D}" ClipPlanes 'FlowVizRayMarch::MaxClipPlanes'
+write_defaults  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+printf '\tOutParameters.ClipPlanes[Written] = FVector4f(A,B,C,D);\n}\n' \
+    >> "${D}/Private/UI/ViewModel.cpp"
+check "a subscripted write counts as a production writer" \
+    "0:clean" "$(run_on "${D}")"
+
+# 2. THE ONE THAT GENERALISES. A declaration form nobody has thought of yet must
+#    be REPORTED, not discarded. This fixture uses a shape the current extractor
+#    has no rule for; the checker may not answer clean or frozen, because it
+#    cannot know which. Without this, the next macro form to appear repeats
+#    exactly the failure above and nothing says so.
+D="${WORK}/unparseable_row"; new_tree "${D}"
+declare_params "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+printf '\tSHADER_PARAMETER_STRUCT_INCLUDE(FSomeOther, %s)\n' '' \
+    >> "${D}/Public/Render/Shader.h"
+write_defaults  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+check "a SHADER_PARAMETER row the extractor cannot parse is UNSCORED, not dropped" \
+    "2:unscored" "$(run_on "${D}")"
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
