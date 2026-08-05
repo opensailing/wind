@@ -6,6 +6,7 @@
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "Render/FlowVizVolumeRayMarchDispatcher.h"
 #include "ShaderCore.h"
 
 DEFINE_LOG_CATEGORY(LogFlowViz);
@@ -31,10 +32,20 @@ void FFlowVizRuntimeModule::StartupModule()
 	// Fail loudly at startup rather than silently mis-validating every CFDViz file.
 	// CFDVizCrc32C::SelfCheck logs the specific mismatch on failure.
 	ensureMsgf(CFDViz::Crc32C::SelfCheck(), TEXT("CFDViz CRC-32C self-check failed; see the log above."));
+
+	// INSTALL THE RAY-MARCH DISPATCHER. Without this line the ray-marcher and the
+	// volume component are two finished halves of a feature with nothing between
+	// them: FFlowVizVolumeSceneProxy::GetDynamicMeshElements guards its dispatch
+	// on FlowVizVolumeRayMarch::GetDispatcher() and draws nothing when it is
+	// null, which is what a volume in a real map did while the suite was green.
+	// Every rendering test installed its own dispatcher as a precondition, so no
+	// test could observe that production installed none.
+	FlowVizVolumeRayMarchProduction::Register();
 }
 
 void FFlowVizRuntimeModule::ShutdownModule()
 {
+	FlowVizVolumeRayMarchProduction::Unregister();
 	ResetAllShaderSourceDirectoryMappings();
 }
 
