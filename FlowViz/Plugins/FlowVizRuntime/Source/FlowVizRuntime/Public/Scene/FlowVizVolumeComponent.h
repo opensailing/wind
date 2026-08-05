@@ -438,6 +438,26 @@ struct FFlowVizVolumeRayMarchContext
 	 * playhead's position in time, so it is the same class of provenance lie.
 	 * Surfaced here so the marcher, or an overlay above it, can say so rather
 	 * than each call site having to re-derive it from a null SlotB.
+	 *
+	 * NOTHING CONSUMES THIS FLAG YET, SO VISUAL_QA SECTION 1 RULE 5 IS NOT
+	 * SATISFIED TODAY. The producing side is correct and tested; the reading
+	 * side does not exist. Grep outside /Tests/ returns this declaration, the
+	 * single assignment in the proxy, and no reader at all - no shader, no
+	 * overlay, no HUD. Rule 5 requires the frame say so ON SCREEN, and a bool
+	 * that reaches a struct nobody reads discloses nothing to a user.
+	 *
+	 * Recorded here rather than left implicit because this is the exact shape of
+	 * the defect that made the ray-march seam invisible: two well-tested halves
+	 * and no wiring between them. Found by auditing my own file for the pattern
+	 * the coordinator named - it is specifically the SECOND branch of a
+	 * documented hazard that goes untested, because writing the hazard down
+	 * satisfies the urge that would otherwise have produced the test. This
+	 * comment names one branch (the fallback is the right picture) and the
+	 * other (it must be disclosed); only the first is implemented.
+	 *
+	 * DO NOT let the presence of this flag be read as evidence the disclosure
+	 * works. A test asserting the flag is set proves the producer, never the
+	 * pixel. Whoever wires the consumer should assert on rendered output.
 	 */
 	bool bInterpolationDegraded = false;
 };
