@@ -29,7 +29,10 @@
  * recognised falls back to the documented default, which is visible.
  */
 
-namespace
+// Named rather than anonymous: see the note in FlowVizClipViewModel.cpp. Under a
+// unity build these helpers share a translation unit with the sibling view
+// models, and an anonymous namespace would collide with their same-named ones.
+namespace FlowVizSessionLocal
 {
 	/* --- Key names, in one place ------------------------------------------ */
 
@@ -219,6 +222,8 @@ namespace
 		return Value;
 	}
 }
+
+using namespace FlowVizSessionLocal;
 
 const TCHAR* FlowVizSession::GetFormatName()
 {

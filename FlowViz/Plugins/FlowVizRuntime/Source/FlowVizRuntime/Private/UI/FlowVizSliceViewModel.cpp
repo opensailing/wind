@@ -12,7 +12,10 @@
  * orientation logic be checked against something real instead of against itself.
  */
 
-namespace
+// Named rather than anonymous: see the note in FlowVizClipViewModel.cpp. Under a
+// unity build these helpers share a translation unit with the sibling view
+// models, and an anonymous namespace would collide with their same-named ones.
+namespace FlowVizSliceViewModelLocal
 {
 	FCFDVizResult MakeNoDomainResult()
 	{
@@ -26,6 +29,8 @@ namespace
 		return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y) && FMath::IsFinite(V.Z);
 	}
 }
+
+using namespace FlowVizSliceViewModelLocal;
 
 /* ========================================================================== */
 /* Domain                                                                      */

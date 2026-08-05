@@ -19,7 +19,10 @@
  *   value: a partially-applied setting would display as accepted.
  */
 
-namespace
+// Named rather than anonymous: see the note in FlowVizClipViewModel.cpp. Under a
+// unity build these helpers share a translation unit with the sibling view
+// models, and an anonymous namespace would collide with their same-named ones.
+namespace FlowVizTimelineViewModelLocal
 {
 	/** One place for "there is nothing to drive", so the message is identical from every entry point. */
 	FCFDVizResult MakeNoCaseResult()
@@ -36,6 +39,8 @@ namespace
 			TEXT("The timeline view model is not bound to a player"));
 	}
 }
+
+using namespace FlowVizTimelineViewModelLocal;
 
 /* ========================================================================== */
 /* Binding                                                                     */

@@ -14,7 +14,10 @@
  * model and one produced through the render layer cannot disagree about it.
  */
 
-namespace
+// Named rather than anonymous: see the note in FlowVizClipViewModel.cpp. Under a
+// unity build these helpers share a translation unit with the sibling view
+// models, and an anonymous namespace would collide with their same-named ones.
+namespace FlowVizTransferFunctionViewModelLocal
 {
 	FCFDVizResult MakeUnboundResult()
 	{
@@ -50,6 +53,8 @@ namespace
 		}
 	}
 }
+
+using namespace FlowVizTransferFunctionViewModelLocal;
 
 FFlowVizTransferFunctionViewModel::FFlowVizTransferFunctionViewModel()
 {

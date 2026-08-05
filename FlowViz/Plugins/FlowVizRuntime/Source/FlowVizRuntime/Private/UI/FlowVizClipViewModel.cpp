@@ -14,7 +14,13 @@
  * a plausible wrong half of the domain and read as a data problem.
  */
 
-namespace
+// NAMED, not anonymous. Unreal compiles this module as a unity build, which
+// concatenates several .cpp files into one translation unit. Two anonymous
+// namespaces in the same TU are the SAME namespace, so identically named
+// helpers in sibling view models are a redefinition error rather than two
+// private helpers. A file-unique namespace name keeps them apart no matter how
+// UBT chunks the module.
+namespace FlowVizClipViewModelLocal
 {
 	FCFDVizResult MakeNoDomainResult()
 	{
@@ -35,6 +41,8 @@ namespace
 		return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y) && FMath::IsFinite(V.Z);
 	}
 }
+
+using namespace FlowVizClipViewModelLocal;
 
 /* ========================================================================== */
 /* FFlowVizClipPlane                                                           */
