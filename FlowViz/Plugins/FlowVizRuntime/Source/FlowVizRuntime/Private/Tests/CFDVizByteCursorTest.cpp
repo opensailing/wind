@@ -352,6 +352,26 @@ bool FCFDVizByteCursorTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("negative zero still compares equal to positive zero"),
 			NegativeZero == 0.0f);
 
+		// The same case for ReadDouble, and it is not redundant. Every other
+		// double fixture here is 0x7FF0000123456789 -- a NaN whose sign bit is
+		// already CLEAR. On that input "clear the sign bit" is the identity
+		// map, so no assertion over it can distinguish the two, exactly the way
+		// a one-component array makes an index transposition unobservable.
+		// A mutation run scored the float sign bit killed and the double sign
+		// bit SURVIVED, and the asymmetry was in the fixtures, not the code.
+		const uint8 NegativeZeroDoubleBytes[8] = { 0, 0, 0, 0, 0, 0, 0, 0x80 };
+		double NegativeZeroDouble = 1.0;
+		FByteCursor NegZeroDoubleCursor(TArrayView<const uint8>(NegativeZeroDoubleBytes, 8));
+		TestTrue(TEXT("negative zero double reads"),
+			NegZeroDoubleCursor.ReadDouble(NegativeZeroDouble));
+		uint64 NegativeZeroDoubleBits = 0;
+		FMemory::Memcpy(&NegativeZeroDoubleBits, &NegativeZeroDouble,
+			sizeof(NegativeZeroDoubleBits));
+		TestEqual(TEXT("negative zero double keeps its sign bit"),
+			NegativeZeroDoubleBits, 0x8000000000000000ull);
+		TestTrue(TEXT("negative zero double still compares equal to positive zero"),
+			NegativeZeroDouble == 0.0);
+
 		// An ordinary finite value, so the float path is not tested exclusively
 		// on exotic bit patterns. 1.0f is 0x3F800000.
 		const uint8 OneBytes[4] = { 0x00, 0x00, 0x80, 0x3F };

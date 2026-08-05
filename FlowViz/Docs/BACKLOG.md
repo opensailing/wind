@@ -62,6 +62,37 @@ value comparison vacuous.
 Kept here rather than deleted because the entry explains why rule 12 was
 `Partial` in `ARCHITECTURE.md` for as long as it was.
 
+### 4a. ~~The CVA element index was unobservable~~ — closed 2026-08-05
+
+Two mutants of `FCFDVizArrayReader::GetElementIndex` — entity/component
+transposed, and the entity upper bound dropped — survived the bridge campaign
+at `e3da2bd`. Neither was a missing assertion. Every `.cva` the generator wrote
+had `componentCount == 1`, and on one component
+
+    Entity * ComponentCount + Component  ==  Component * ValueCount + Entity
+
+so the transposition *is* the identity map. No assertion over that data could
+have killed it. `5cab6f6` changed the data — a three-component wall-shear
+array — and added no C++ at all.
+
+Confirmed by differential, not by argument. Same mutant, same filter, same
+assertions, same harness; only the sample data differs between the arms:
+
+| | `e3da2bd` (1 component) | `5cab6f6` (3 components) |
+| --- | --- | --- |
+| transposition | SURVIVED | **killed** |
+| dropped upper bound | SURVIVED | SURVIVED under `KnownValues` |
+
+`git diff` between the two arms touches only `Samples/` and the Python
+generator — `CFDVizArrayReader.h` and the tests are byte-identical — which is
+what makes the flip attributable to the data.
+
+The dropped upper bound is **killed** by `FlowViz.CFDViz.ArrayReader`
+(`killed 2  SURVIVED 0`). It survives the bridge filter because the bridge
+samples only in-range entities and so cannot observe a past-the-end read. That
+is a correct division of labour between the two suites, not a gap. The
+question `5cab6f6` left open is now answered.
+
 ### 5. Nothing wires the length unit into the coordinate adapter
 
 `FCFDVizUnits::TryGetLengthInMeters` and `MakeSolverToUnrealTransform` both
