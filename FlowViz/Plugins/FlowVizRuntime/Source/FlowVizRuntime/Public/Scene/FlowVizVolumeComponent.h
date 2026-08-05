@@ -221,19 +221,45 @@ struct FFlowVizVolumeRayMarchContext
 	 * (1-t)*A + t*B is exact on 100% at both t == 0 and t == 1. An FMA does not
 	 * rescue it - the subtraction is already rounded before the multiply-add -
 	 * and when (B-A) overflows, the mad form yields NaN at t == 0 and Inf at
-	 * t == 1 where the two-product form is still exact. Neither form leaves the
-	 * [min(A,B), max(A,B)] bracket, so the two-product form costs no
-	 * monotonicity to gain this.
+	 * t == 1 where the two-product form is still exact. The t == 0 NaN is the
+	 * worse end: that is the NON-interpolated case, so a field with extreme
+	 * outliers produces NaN voxels even when nobody is blending.
 	 *
-	 * This matters beyond one ULP because a wrong endpoint value is a scalar the
-	 * solver never produced, pseudocolored as though it were measured, at a
-	 * timestep the UI may simultaneously report as un-interpolated. That is
-	 * VISUAL_QA section 1 rule 1: if it is on screen it is in the data.
+	 * THE TRADE IS REAL AND TWO-SIDED - this form is chosen on magnitude, not
+	 * because it is free. Boundedness (staying within [min(A,B), max(A,B)]) and
+	 * monotonicity (t increases => the result never goes backwards) are
+	 * different properties. Both forms are bounded. Only the mad form is
+	 * monotone; (1-t)*A + t*B can retreat as t advances:
 	 *
-	 * Testing this needs a fixture with mixed signs and several decades of
-	 * range. Drawing A and B from within a factor of two makes (B-A) exact by
-	 * Sterbenz's lemma, so both forms pass by construction and the test cannot
-	 * fail - 2e6 such pairs report zero failures and prove nothing.
+	 *     A=1, B=2:        774,339 backwards steps in 5e7 increasing t
+	 *     A=1, B=1+1ULP: 1,048,577
+	 *     mad form:              0, on every pair tested
+	 *
+	 * The retreat is ALWAYS exactly 1 ULP - 1.19e-07 of the A..B span. One step
+	 * of an 8-bit colormap is 3.9e-03 of the span and a 16-bit step is 1.5e-05,
+	 * so the wobble is four to five orders of magnitude below anything that can
+	 * change a displayed color. The mad form's endpoint error on A=-1000,
+	 * B=0.001 is 2.3e-02 RELATIVE - five orders the other way.
+	 *
+	 * So: a 1-ULP retreat in a smooth interior is a rounding artifact that
+	 * cannot reach a pixel. A wrong endpoint is a scalar the solver never
+	 * produced, pseudocolored as measured data, at a timestep the UI may
+	 * simultaneously report as un-interpolated. Only the second is a provenance
+	 * lie (VISUAL_QA section 1 rule 1). That asymmetry is the justification; if
+	 * someone argues for the mad form on monotonicity grounds, this is the
+	 * answer - not a claim that it has no cost.
+	 *
+	 * MEASURING ANY OF THIS IS ITSELF A TRAP - a sweep reporting zero failures
+	 * is not a result until its coverage is separately demonstrated. Between two
+	 * agents this rule produced five confident zeros from broken fixtures:
+	 * drawing A and B within a factor of two (Sterbenz makes (B-A) exact, so
+	 * both forms pass by construction); walking consecutive floats from 0.0f,
+	 * which after 3e6 steps reaches only t = 4.2e-39 and never leaves the
+	 * subnormals - 0.28% of [0,1]; a uniform grid too coarse to resolve the
+	 * retreat, clean at 3e6 samples and 774,339 failures at 5e7; a loop guard
+	 * that broke after the first pair; and skipping duplicate t values while
+	 * leaving the previous value stale, which silently drops every comparison.
+	 * Verify the fixture can produce a failure before believing it found none.
 	 */
 	float Alpha = 0.0f;
 
