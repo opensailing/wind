@@ -233,7 +233,10 @@ struct FFlowVizVolumeRayMarchContext
 	 *
 	 *     A=1, B=2:        774,339 backwards steps in 5e7 increasing t
 	 *     A=1, B=1+1ULP: 1,048,577
-	 *     mad form:              0, on every pair tested
+	 *     A=0.1, B=0.9:          0 on that uniform grid, 7,030 under anchored
+	 *                            consecutive-float sampling - the grid, not the
+	 *                            pair, is what made it look monotone
+	 *     mad form:              0 everywhere, structurally (see below)
 	 *
 	 * The retreat is ALWAYS exactly 1 ULP. DO NOT conclude from that it cannot
 	 * reach a pixel - it can, and an earlier draft of this comment claimed
@@ -248,14 +251,27 @@ struct FFlowVizVolumeRayMarchContext
 	 *         colour index. 1/128 = 0.781%, i.e. exactly the boundary-
 	 *         straddle rate, not an artifact.
 	 *       The mad form reverses the colour index 0 times on the same sweep.
+	 *       That zero is STRUCTURAL, not an unfired harness: for fixed (B-A),
+	 *       A + t*(B-A) is monotone in t, so there is nothing to quantise. Its
+	 *       raw retreat count is 0 on the same samples where two-product fires.
 	 *
-	 * So the honest statement is: a 1-ULP retreat flips a colour index about one
-	 * time in (floats per colour level), anywhere, at any window - rarely, but
-	 * not never, and narrowing the window raises the rate until under-resolution
-	 * makes it certain. It is a sub-quantum wobble at the format's resolution
-	 * limit; the visible consequence is at most a one-level flicker on a
-	 * boundary voxel, and it is bounded, so it can never place a value outside
-	 * A..B.
+	 * The straddle rate is ULP(value)/level_width. Where the window sits inside
+	 * ONE binade that reduces to 1/(floats per level) - which is why [1,2] fits
+	 * 1/128 to four digits - but it does NOT generalise, and the simple form is
+	 * wrong as soon as the window spans several exponents:
+	 *
+	 *     window [0.1,0.9], 16-bit, spans exponents 123..126 (ULP varies 8x)
+	 *       1/(floats per level) predicts 0.244%
+	 *       ULP-weighted E[ULP]/level_width predicts    0.094%
+	 *       measured                                    0.100%
+	 *
+	 * So the honest statement is: a 1-ULP retreat flips a colour index at a rate
+	 * of about ULP/level_width where the retreats actually occur - rarely, but
+	 * not never, at any window, and narrowing the window raises the rate until
+	 * under-resolution makes it certain. It is a sub-quantum wobble at the
+	 * format's resolution limit; the visible consequence is at most a one-level
+	 * flicker on a boundary voxel, and it is bounded, so it can never place a
+	 * value outside A..B.
 	 *
 	 * The mad form's endpoint error on A=-1000, B=0.001 is 2.3e-02 RELATIVE -
 	 * five orders of magnitude larger, present at EVERY window, and it puts on
@@ -293,16 +309,35 @@ struct FFlowVizVolumeRayMarchContext
 	 *       signed and unsigned, wrong across zero: reported a 1.79e9-ULP
 	 *       retreat on a step that was actually going UP.
 	 *
-	 * The second kind is the more dangerous one when agents review each other,
-	 * because a fabricated finding arrives as a correction to a colleague and
-	 * carries more social force than a silent zero. Both kinds were caught the
-	 * same way: a number too clean or too large to be plausible for the physics,
-	 * checked against a second independent harness rather than re-read.
+	 *   A CORRECT number contradicting the prose beside it -
+	 *     - An earlier draft of this comment measured colour reversals on a
+	 *       well-resolved window and, in the same paragraph, concluded that
+	 *       pixels are affected only where the window is under-resolved. The
+	 *       measurement refuted the sentence next to it and was shipped anyway,
+	 *       because it had been gathered to support a conclusion already
+	 *       written.
+	 *     - The "mad form: 0 retreats" line in the table above is the same
+	 *       shape and survived three revisions: this comment recorded 0 for
+	 *       A=0.1,B=0.9 while asserting the two-product form retreats in
+	 *       general. Both are true - it retreats there only under anchored
+	 *       consecutive-float sampling, not the uniform grid that produced the
+	 *       table - but nothing in the text said so, so the table read as a
+	 *       counterexample to its own paragraph.
+	 *
+	 * The invented finding is the most dangerous when agents review each other,
+	 * because it arrives as a correction to a colleague and carries more social
+	 * force than a silent zero. But the contradiction species is the most
+	 * durable: it survives review precisely because the number is real, and
+	 * re-running the measurement confirms it every time. It is caught only by
+	 * reading the numbers against the claim they are cited for.
 	 *
 	 * So: verify the fixture CAN produce a failure before believing it found
-	 * none, and verify a dramatic result against a second implementation before
-	 * believing it found one. Sample size is not coverage - a big clean number
-	 * is what makes a broken harness convincing.
+	 * none; verify a dramatic result against a second implementation before
+	 * believing it found one; and when a number sits next to a sentence, check
+	 * that it supports that sentence rather than merely appearing near it.
+	 * Sample size is not coverage - a big clean number is what makes a broken
+	 * harness convincing - and a number that does not fit the claim it is cited
+	 * for IS the finding.
 	 */
 	float Alpha = 0.0f;
 
