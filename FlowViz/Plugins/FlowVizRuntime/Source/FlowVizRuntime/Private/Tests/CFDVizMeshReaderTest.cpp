@@ -833,6 +833,77 @@ bool FCFDVizMeshReaderPatchTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("and no indices"), Indices.Num(), 0);
 	}
 
+	/*
+	 * THE OTHER HALF OF THE SAME SENTENCE. The header says BuildForPatch "FAILS
+	 * rather than returning an empty mesh when the patch is not present, OR WHEN
+	 * THE MESH CARRIES NO PATCH IDS AT ALL." Those are two distinct guards in
+	 * the implementation (CFDVizMeshReader.cpp, the !bHasPatchIds branch above
+	 * the count check), and only the first had a test.
+	 *
+	 * The two are not interchangeable. On a mesh with no patchIds array,
+	 * CountTrianglesInPatch returns 0 for EVERY id, so a BuildForPatch that
+	 * fell through to the count check would still fail - but a BuildForPatch
+	 * that had been "helpfully" changed to return an empty mesh for an
+	 * unpartitioned mesh would hand the caller a silent nothing. That is the
+	 * exact confusion the comment names: an empty result wearing the costume of
+	 * a patch the user hid.
+	 *
+	 * The float64 fixture is used because it genuinely has flag bit 1 clear -
+	 * FlowViz.CFDViz.MeshReader.Float64 asserts "no patch IDs" against it - so
+	 * this drives the real guard rather than a synthesized one.
+	 */
+	{
+		FCFDVizMeshReader Unpartitioned;
+		FCFDVizMeshLoadOptions Options;
+		Options.bRetainDoublePrecisionPositions = true;
+		const FCFDVizResult LoadResult = Unpartitioned.LoadFromMemory(
+			TArrayView<const uint8>(Float64CvmBytes, UE_ARRAY_COUNT(Float64CvmBytes)),
+			TEXT("f64.cvm"), Options);
+
+		if (TestTrue(TEXT("the float64 mesh (which has no patchIds array) loads"), LoadResult.IsOk()))
+		{
+			// The precondition this case rests on. Without it the assertion
+			// below could be passing for the absent-patch reason instead.
+			TestFalse(TEXT("and it genuinely carries no patch IDs"),
+				Unpartitioned.GetHeader().HasPatchIds());
+
+			TArray<FVector3f> Positions;
+			TArray<uint32> Indices;
+			const FCFDVizResult PatchResult = Unpartitioned.BuildForPatch(0, Positions, Indices);
+			TestFalse(TEXT("a mesh with NO patchIds array fails a patch extraction rather than "
+						   "returning an empty mesh that would pass as a hidden patch"),
+				PatchResult.IsOk());
+			TestEqual(TEXT("and leaves no positions behind"), Positions.Num(), 0);
+			TestEqual(TEXT("and no indices"), Indices.Num(), 0);
+
+			// The message must name the real cause. "patch 0 is missing" would
+			// send the reader looking for a patch that was never the problem.
+			TestTrue(TEXT("and the failure says the mesh carries no patchIds, not that the "
+						  "patch is absent"),
+				PatchResult.Message.Contains(TEXT("no patchIds")));
+		}
+	}
+
+	/*
+	 * An unloaded reader must fail too, for the same reason and with its own
+	 * message. Every output is reset before the guard returns, so a caller that
+	 * reused its arrays cannot be handed the previous patch's geometry under
+	 * this call's name.
+	 */
+	{
+		FCFDVizMeshReader Empty;
+		TArray<FVector3f> Positions;
+		TArray<uint32> Indices;
+		Positions.Add(FVector3f(9.0f, 9.0f, 9.0f));
+		Indices.Add(42u);
+
+		const FCFDVizResult PatchResult = Empty.BuildForPatch(7, Positions, Indices);
+		TestFalse(TEXT("an unloaded reader fails a patch extraction"), PatchResult.IsOk());
+		TestEqual(TEXT("and the caller's stale positions are cleared, not left to be drawn"),
+			Positions.Num(), 0);
+		TestEqual(TEXT("and its stale indices too"), Indices.Num(), 0);
+	}
+
 	// Bounds-checked accessors.
 	{
 		uint32 A = 0, B = 0, C = 0;

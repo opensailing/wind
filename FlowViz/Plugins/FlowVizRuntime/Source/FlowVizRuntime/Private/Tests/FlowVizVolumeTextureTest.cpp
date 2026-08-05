@@ -822,6 +822,66 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		Empty.FrameIndex = 0;
 		TestFalse(TEXT("a payload with no field at all is rejected"), Empty.Validate().IsOk());
 		TestEqual(TEXT("and totals zero bytes"), Empty.GetTotalBytes(), (int64)0);
+
+		/*
+		 * THE HALF-FILLED PAIR, which is the second branch of "absent".
+		 *
+		 * Validate treats a buffer as PRESENT only when its layout is valid, and
+		 * skips it otherwise. Skipping is right for a genuinely absent field -
+		 * the vector slot on a scalar-only payload is the normal case, asserted
+		 * above. But the implementation's own comment says why the skip cannot
+		 * be unconditional: "an invalid layout with bytes attached is a caller
+		 * that filled one half of a pair; it must not pass as 'absent'."
+		 *
+		 * Only the absent half had a test. The two are indistinguishable from
+		 * inside Validate unless the byte count is examined.
+		 *
+		 * WHAT HAPPENS IF THIS GUARD GOES, traced rather than assumed, because a
+		 * comment claiming downstream behaviour nobody checked is the same
+		 * species of false receipt this audit exists to find. Validate is the
+		 * gate in EnqueueUpload (FlowVizVolumeTexture.cpp, the first statement);
+		 * pass it and the payload reaches UploadOnRenderThread, whose per-target
+		 * loop begins `if (!Target.PayloadLayout->IsValid()) { continue; }`. An
+		 * orphaned VectorBytes therefore has no valid layout, is SKIPPED, leaves
+		 * bAllOk true, and the slot is marked bHasContent = true. The frame
+		 * displays scalar-only, as complete, and no branch on that path logs
+		 * anything. So the guard under test is the ONLY thing standing between a
+		 * caller's forgotten layout and a silently dropped vector field.
+		 *
+		 * Both directions, because a rejection keyed on "bytes present" alone
+		 * would break the legitimate absent case that the assertions above rely
+		 * on.
+		 */
+		FFlowVizVolumeUpload HalfPair;
+		HalfPair.FrameIndex = 3;
+		HalfPair.ScalarLayout = Scalar;
+		HalfPair.ScalarBytes.Init(0, 32);
+		HalfPair.StatusLayout = Status;
+		HalfPair.StatusBytes.Init(FlowVizVoxelStatus::Valid, 16);
+		TestTrue(TEXT("the control payload validates before the vector half is added"),
+			HalfPair.Validate().IsOk());
+
+		// Bytes without a layout. VectorLayout stays default-constructed, which
+		// is exactly what a caller who forgot to set it would leave behind.
+		HalfPair.VectorBytes.Init(0, 96);
+		const FCFDVizResult HalfResult = HalfPair.Validate();
+		TestFalse(TEXT("a buffer with bytes but no valid layout is REJECTED, not silently "
+					   "treated as absent - otherwise a dropped vector field uploads and "
+					   "displays as a scalar-only frame with nothing reporting the loss"),
+			HalfResult.IsOk());
+		TestEqual(TEXT("and it is a SizeMismatch, naming the disagreement"),
+			static_cast<int32>(HalfResult.Error), static_cast<int32>(ECFDVizError::SizeMismatch));
+		TestTrue(TEXT("and the message names the vector buffer, not the scalar one that is fine"),
+			HalfResult.Message.Contains(TEXT("vector")));
+
+		// The other direction: clearing the bytes restores a genuinely absent
+		// field. Without this the check above would also pass against a Validate
+		// that rejected every payload with an invalid layout, which would
+		// outlaw the scalar-only case the renderer depends on.
+		HalfPair.VectorBytes.Reset();
+		TestTrue(TEXT("clearing the orphaned bytes makes the field genuinely absent again, "
+					  "so a scalar-only payload is still legal"),
+			HalfPair.Validate().IsOk());
 	}
 
 	/* == Buffer rotation ==================================================== */

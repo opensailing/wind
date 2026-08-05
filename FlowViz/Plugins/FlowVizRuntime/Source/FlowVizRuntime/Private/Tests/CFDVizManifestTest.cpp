@@ -280,6 +280,58 @@ bool FCFDVizManifestParseTest::RunTest(const FString& Parameters)
 				TestEqual(TEXT("to main"), Grid->Id, FName(TEXT("main")));
 			}
 		}
+
+		/*
+		 * THE SECOND BRANCH OF THE LOOKUP CONTRACT, for the three lookups that
+		 * had only their first.
+		 *
+		 * CFDVizManifest.h states it for all five: "@return nullptr when nothing
+		 * matches. Never a default-constructed object - 'no such field' must not
+		 * be indistinguishable from 'a field with no data'." Before this block,
+		 * only FindField and FindFieldByNumericId had a TestNull behind that
+		 * sentence. FindGrid and FindMesh had NO test at all, in either
+		 * direction, and FindDerivedField had only its match case (line ~1157).
+		 *
+		 * The distinction is load bearing precisely because the failure is
+		 * quiet: a lookup that returned a pointer to a static default would give
+		 * the caller a grid with zero dimensions or a mesh with no path, and the
+		 * renderer would draw an empty domain while believing the case was fine.
+		 * That is the same shape as "a patch the user hid" in the mesh reader -
+		 * absent data wearing the costume of present-but-empty data.
+		 *
+		 * Both directions per function, because a TestNull alone also passes
+		 * against a function that has been broken to return nullptr always.
+		 */
+		const FCFDVizGridDescriptor* MainGrid = Case.FindGrid(FName(TEXT("main")));
+		if (TestNotNull(TEXT("FindGrid resolves a declared grid id"), MainGrid))
+		{
+			TestEqual(TEXT("and it is the grid that was declared, not a default"),
+				MainGrid->Geometry.Dimensions, FIntVector(4, 3, 2));
+		}
+		TestNull(TEXT("FindGrid returns nullptr for an undeclared grid id, never a "
+					  "default-constructed grid that would render as an empty domain"),
+			Case.FindGrid(FName(TEXT("nosuchgrid"))));
+
+		const FCFDVizMesh* ObstacleMesh = Case.FindMesh(FName(TEXT("obstacle")));
+		if (TestNotNull(TEXT("FindMesh resolves a declared mesh id"), ObstacleMesh))
+		{
+			TestEqual(TEXT("and it carries the declared path, not an empty one"),
+				ObstacleMesh->Path, FString(TEXT("meshes/obstacle.cvm")));
+		}
+		TestNull(TEXT("FindMesh returns nullptr for an undeclared mesh id, never a "
+					  "default-constructed mesh with an empty path"),
+			Case.FindMesh(FName(TEXT("nosuchmesh"))));
+
+		// FindGridForField forwards to FindGrid, so an unresolvable GridId must
+		// come back null rather than as a grid the field was never sampled on.
+		// Driven with a synthetic field because every field in this manifest
+		// resolves - the failing input cannot be reached through the fixture.
+		FCFDVizField Dangling;
+		Dangling.Id = FName(TEXT("dangling"));
+		Dangling.GridId = FName(TEXT("nosuchgrid"));
+		TestNull(TEXT("a field naming a grid the case does not declare resolves to nullptr, "
+					  "so a dangling cross-reference cannot pass as a valid sampling grid"),
+			Case.FindGridForField(Dangling));
 	}
 
 	// --- mesh and patches --------------------------------------------------
@@ -1169,6 +1221,15 @@ bool FCFDVizManifestOptionalTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("recommended range present"), Speed->Display.RecommendedRange.IsSet());
 			TestEqual(TEXT("range max"), Speed->Display.RecommendedRange.GetValue().Y, 5.0);
 		}
+
+		// The other half of the same sentence in CFDVizManifest.h. A derived
+		// field is an EXPRESSION - a default-constructed one carries an empty
+		// expression, and a sampler handed that would evaluate nothing and
+		// report no error, which is the "field with no data" the header forbids
+		// this from being confused with.
+		TestNull(TEXT("an undeclared derived-field id finds nothing, never a derived field "
+					  "with an empty expression"),
+			Case.FindDerivedField(FName(TEXT("nosuchderived"))));
 	}
 
 	// --- structures ---------------------------------------------------------
