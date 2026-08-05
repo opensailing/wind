@@ -41,13 +41,27 @@ cbuffer block. Covered by `FlowVizVolumeTextureTest` (pure, `-nullrhi`) and
 `FlowVizVolumeDeviceTest` (RHI, skips with a logged reason when there is no
 device rather than passing). 17/17 mutants killed.
 
-**Not done, and this is the gap that matters.** Nothing *consumes* that
-contract. `Shaders/` holds only `FlowVizCommon.ush`; there is no ray-march
-`.usf`, no scene proxy, no component, no actor, no transfer function, no
-playback. **Nothing has ever been rendered, so no visual review has ever run
-against a real frame** — which is the release bar this project is measured
-against, and every claim about how it looks remains unmade rather than
-unproven.
+**Also done, as of 2026-08-05.** The scene layer (`d4cddbe`): volume
+component, case actor, scene proxy, bounds, box hull, and the winding
+correction for the negative-determinant solver transform. The transfer
+function (`8dd1b29`): colour and opacity LUT, domain mapping, GPU resource.
+The ray-march shader and playback layer are in progress. 47/47 tests pass,
+and the three GPU device tests pass against a real Metal device under `RHI=1`.
+
+**Not done, and this is still the gap that matters.** Nothing has been drawn.
+Every piece above is verified against its own contract — cbuffer layout,
+texture strides, index winding, LUT interpolation — and *none* of that is
+evidence about pixels. The component's scene proxy currently draws only a
+wireframe bounding box: with no dispatcher registered, the volume renders
+nothing at all, and the proxy deliberately exposes `WasRayMarchDispatched()`
+so "nothing was registered" stays distinguishable from "marched and drew
+nothing". Those are the same black screen with unrelated causes.
+
+So: **nothing has ever been rendered, and no visual review has ever run
+against a real frame.** That is the release bar this project is measured
+against, and every claim about how it looks remains unmade rather than merely
+unproven. A green test suite is not a rendered image, and this file should
+keep saying so until an image exists.
 
 ## Correctness gaps
 
