@@ -39,24 +39,24 @@ namespace
 	/* correctly in one place and wrongly in the other produces an error message  */
 	/* that points at the wrong field.                                           */
 	/* ---------------------------------------------------------------------- */
-	constexpr int64 OffsetMagic = 0;
-	constexpr int64 OffsetMajorVersion = 8;
-	constexpr int64 OffsetMinorVersion = 10;
-	constexpr int64 OffsetEndianMarker = 12;
-	constexpr int64 OffsetFlags = 16;
-	constexpr int64 OffsetHeaderBytes = 20;
-	constexpr int64 OffsetVertexCount = 24;
-	constexpr int64 OffsetTriangleCount = 32;
-	constexpr int64 OffsetPositionsOffset = 40;
-	constexpr int64 OffsetNormalsOffset = 48;
-	constexpr int64 OffsetIndicesOffset = 56;
-	constexpr int64 OffsetPatchIdsOffset = 64;
-	constexpr int64 OffsetNodeIdsOffset = 72;
-	constexpr int64 OffsetHeaderCrc = CFDViz::CvmHeaderCrcOffset; // 80
-	constexpr int64 OffsetReserved = 84;
-	constexpr int64 ReservedBytes = 12;
+	constexpr int64 CvmOffsetMagic = 0;
+	constexpr int64 CvmOffsetMajorVersion = 8;
+	constexpr int64 CvmOffsetMinorVersion = 10;
+	constexpr int64 CvmOffsetEndianMarker = 12;
+	constexpr int64 CvmOffsetFlags = 16;
+	constexpr int64 CvmOffsetHeaderBytes = 20;
+	constexpr int64 CvmOffsetVertexCount = 24;
+	constexpr int64 CvmOffsetTriangleCount = 32;
+	constexpr int64 CvmOffsetPositionsOffset = 40;
+	constexpr int64 CvmOffsetNormalsOffset = 48;
+	constexpr int64 CvmOffsetIndicesOffset = 56;
+	constexpr int64 CvmOffsetPatchIdsOffset = 64;
+	constexpr int64 CvmOffsetNodeIdsOffset = 72;
+	constexpr int64 CvmOffsetHeaderCrc = CFDViz::CvmHeaderCrcOffset; // 80
+	constexpr int64 CvmOffsetReserved = 84;
+	constexpr int64 CvmReservedBytes = 12;
 
-	static_assert(OffsetReserved + ReservedBytes == CFDViz::CvmHeaderBytes, "The CVM header must be exactly 96 bytes with no gap after the reserved block.");
+	static_assert(CvmOffsetReserved + CvmReservedBytes == CFDViz::CvmHeaderBytes, "The CVM header must be exactly 96 bytes with no gap after the reserved block.");
 	static_assert(CFDViz::HeaderCrcFieldBytes == 4, "The header CRC field is a uint32.");
 
 	/** Longest list of patch IDs quoted back in an error, so a mesh with thousands does not produce an unreadable message. */
@@ -334,11 +334,11 @@ uint32 FCFDVizMeshHeader::ComputeHeaderCrc(TArrayView<const uint8> HeaderBytes)
 	// handles its own pre/post conditioning when chained.
 	const uint8 ZeroedCrcField[4] = { 0, 0, 0, 0 };
 
-	uint32 Crc = CFDViz::Crc32C::Compute(Bytes, OffsetHeaderCrc);
+	uint32 Crc = CFDViz::Crc32C::Compute(Bytes, CvmOffsetHeaderCrc);
 	Crc = CFDViz::Crc32C::Compute(ZeroedCrcField, CFDViz::HeaderCrcFieldBytes, Crc);
 	Crc = CFDViz::Crc32C::Compute(
-		Bytes + OffsetHeaderCrc + CFDViz::HeaderCrcFieldBytes,
-		CFDViz::CvmHeaderBytes - OffsetHeaderCrc - CFDViz::HeaderCrcFieldBytes,
+		Bytes + CvmOffsetHeaderCrc + CFDViz::HeaderCrcFieldBytes,
+		CFDViz::CvmHeaderBytes - CvmOffsetHeaderCrc - CFDViz::HeaderCrcFieldBytes,
 		Crc);
 	return Crc;
 }
@@ -357,7 +357,7 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 				TEXT("file is %d bytes, shorter than the %lld-byte CVM header"),
 				HeaderBytes.Num(), static_cast<long long>(CFDViz::CvmHeaderBytes)),
 			FilePath,
-			OffsetMagic);
+			CvmOffsetMagic);
 	}
 
 	const uint8* const Bytes = HeaderBytes.GetData();
@@ -371,10 +371,10 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 			ECFDVizError::BadMagic,
 			TEXT("bad magic; expected 'CFDMESH1'. This is not a CVM mesh file."),
 			FilePath,
-			OffsetMagic);
+			CvmOffsetMagic);
 	}
 
-	const uint32 EndianMarker = ReadUInt32LE(Bytes, OffsetEndianMarker);
+	const uint32 EndianMarker = ReadUInt32LE(Bytes, CvmOffsetEndianMarker);
 	if (EndianMarker != CFDViz::EndianMarker)
 	{
 		// Format rule 1.1: reject foreign byte order, never byte-swap it. A
@@ -385,11 +385,11 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 				TEXT("byte order not supported: endianMarker is 0x%08X, expected 0x%08X. CFDViz is little-endian only."),
 				EndianMarker, CFDViz::EndianMarker),
 			FilePath,
-			OffsetEndianMarker);
+			CvmOffsetEndianMarker);
 	}
 
-	const uint16 MajorVersion = ReadUInt16LE(Bytes, OffsetMajorVersion);
-	const uint16 MinorVersion = ReadUInt16LE(Bytes, OffsetMinorVersion);
+	const uint16 MajorVersion = ReadUInt16LE(Bytes, CvmOffsetMajorVersion);
+	const uint16 MinorVersion = ReadUInt16LE(Bytes, CvmOffsetMinorVersion);
 	if (!CFDViz::IsSupportedMajorVersion(MajorVersion))
 	{
 		// A newer minor is accepted (format rule 1.4); a different major is not.
@@ -399,10 +399,10 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 				TEXT("unsupported major version %u; this reader implements CVM %u.x"),
 				static_cast<uint32>(MajorVersion), static_cast<uint32>(CFDViz::SupportedMajorVersion)),
 			FilePath,
-			OffsetMajorVersion);
+			CvmOffsetMajorVersion);
 	}
 
-	const uint32 DeclaredHeaderBytes = ReadUInt32LE(Bytes, OffsetHeaderBytes);
+	const uint32 DeclaredHeaderBytes = ReadUInt32LE(Bytes, CvmOffsetHeaderBytes);
 	if (static_cast<int64>(DeclaredHeaderBytes) != CFDViz::CvmHeaderBytes)
 	{
 		return FCFDVizResult::Fail(
@@ -411,10 +411,10 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 				TEXT("headerBytes is %u, expected %lld"),
 				DeclaredHeaderBytes, static_cast<long long>(CFDViz::CvmHeaderBytes)),
 			FilePath,
-			OffsetHeaderBytes);
+			CvmOffsetHeaderBytes);
 	}
 
-	const uint32 Flags = ReadUInt32LE(Bytes, OffsetFlags);
+	const uint32 Flags = ReadUInt32LE(Bytes, CvmOffsetFlags);
 	const uint32 UnknownFlags = Flags & ~CFDViz::Cvm::KnownFlags;
 	if (UnknownFlags != 0)
 	{
@@ -427,24 +427,24 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 				TEXT("unknown flag bits 0x%08X set; this file uses a CVM feature this reader does not implement (flags=0x%08X)"),
 				UnknownFlags, Flags),
 			FilePath,
-			OffsetFlags);
+			CvmOffsetFlags);
 	}
 
-	for (int64 Index = 0; Index < ReservedBytes; ++Index)
+	for (int64 Index = 0; Index < CvmReservedBytes; ++Index)
 	{
-		if (Bytes[OffsetReserved + Index] != 0)
+		if (Bytes[CvmOffsetReserved + Index] != 0)
 		{
 			return FCFDVizResult::Fail(
 				ECFDVizError::InvalidHeader,
 				FString::Printf(
 					TEXT("reserved header bytes [%lld, %lld) are not zero"),
-					static_cast<long long>(OffsetReserved), static_cast<long long>(CFDViz::CvmHeaderBytes)),
+					static_cast<long long>(CvmOffsetReserved), static_cast<long long>(CFDViz::CvmHeaderBytes)),
 				FilePath,
-				OffsetReserved + Index);
+				CvmOffsetReserved + Index);
 		}
 	}
 
-	const uint32 StoredCrc = ReadUInt32LE(Bytes, OffsetHeaderCrc);
+	const uint32 StoredCrc = ReadUInt32LE(Bytes, CvmOffsetHeaderCrc);
 	if (bVerifyCrc)
 	{
 		const uint32 ComputedCrc = ComputeHeaderCrc(HeaderBytes);
@@ -456,7 +456,7 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 					TEXT("header CRC-32C mismatch: stored 0x%08X, computed 0x%08X. The header is corrupt."),
 					StoredCrc, ComputedCrc),
 				FilePath,
-				OffsetHeaderCrc);
+				CvmOffsetHeaderCrc);
 		}
 	}
 
@@ -464,13 +464,13 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 	Parsed.MajorVersion = MajorVersion;
 	Parsed.MinorVersion = MinorVersion;
 	Parsed.Flags = Flags;
-	Parsed.VertexCount = ReadUInt64LE(Bytes, OffsetVertexCount);
-	Parsed.TriangleCount = ReadUInt64LE(Bytes, OffsetTriangleCount);
-	Parsed.PositionsOffset = ReadUInt64LE(Bytes, OffsetPositionsOffset);
-	Parsed.NormalsOffset = ReadUInt64LE(Bytes, OffsetNormalsOffset);
-	Parsed.IndicesOffset = ReadUInt64LE(Bytes, OffsetIndicesOffset);
-	Parsed.PatchIdsOffset = ReadUInt64LE(Bytes, OffsetPatchIdsOffset);
-	Parsed.NodeIdsOffset = ReadUInt64LE(Bytes, OffsetNodeIdsOffset);
+	Parsed.VertexCount = ReadUInt64LE(Bytes, CvmOffsetVertexCount);
+	Parsed.TriangleCount = ReadUInt64LE(Bytes, CvmOffsetTriangleCount);
+	Parsed.PositionsOffset = ReadUInt64LE(Bytes, CvmOffsetPositionsOffset);
+	Parsed.NormalsOffset = ReadUInt64LE(Bytes, CvmOffsetNormalsOffset);
+	Parsed.IndicesOffset = ReadUInt64LE(Bytes, CvmOffsetIndicesOffset);
+	Parsed.PatchIdsOffset = ReadUInt64LE(Bytes, CvmOffsetPatchIdsOffset);
+	Parsed.NodeIdsOffset = ReadUInt64LE(Bytes, CvmOffsetNodeIdsOffset);
 	Parsed.HeaderCrc32C = StoredCrc;
 
 	// Section 5.2: an absent array's offset MUST be 0. A stale non-zero offset
@@ -484,9 +484,9 @@ FCFDVizResult FCFDVizMeshHeader::Parse(
 		int64 HeaderFieldOffset;
 	};
 	const FOptionalArray OptionalArrays[] = {
-		{ TEXT("normalsOffset"), Parsed.NormalsOffset, Parsed.HasNormals(), OffsetNormalsOffset },
-		{ TEXT("patchIdsOffset"), Parsed.PatchIdsOffset, Parsed.HasPatchIds(), OffsetPatchIdsOffset },
-		{ TEXT("nodeIdsOffset"), Parsed.NodeIdsOffset, Parsed.HasNodeIds(), OffsetNodeIdsOffset },
+		{ TEXT("normalsOffset"), Parsed.NormalsOffset, Parsed.HasNormals(), CvmOffsetNormalsOffset },
+		{ TEXT("patchIdsOffset"), Parsed.PatchIdsOffset, Parsed.HasPatchIds(), CvmOffsetPatchIdsOffset },
+		{ TEXT("nodeIdsOffset"), Parsed.NodeIdsOffset, Parsed.HasNodeIds(), CvmOffsetNodeIdsOffset },
 	};
 	for (const FOptionalArray& Array : OptionalArrays)
 	{
@@ -608,7 +608,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 			ECFDVizError::AllocationTooLarge,
 			FString::Printf(TEXT("vertexCount %s is not addressable"), *UInt64ToString(ParsedHeader.VertexCount)),
 			Path,
-			OffsetVertexCount);
+			CvmOffsetVertexCount);
 	}
 	if (!TryToInt64(ParsedHeader.TriangleCount, TriangleCount))
 	{
@@ -616,7 +616,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 			ECFDVizError::AllocationTooLarge,
 			FString::Printf(TEXT("triangleCount %s is not addressable"), *UInt64ToString(ParsedHeader.TriangleCount)),
 			Path,
-			OffsetTriangleCount);
+			CvmOffsetTriangleCount);
 	}
 
 	/* -- bounds checks, before any allocation ----------------------------- */
@@ -644,7 +644,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 				ECFDVizError::AllocationTooLarge,
 				FString::Printf(TEXT("vertexCount %lld overflows when expanded to XYZ components"), static_cast<long long>(VertexCount)),
 				Path,
-				OffsetVertexCount);
+				CvmOffsetVertexCount);
 		}
 
 		int64 IndexEntries = 0;
@@ -654,11 +654,11 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 				ECFDVizError::AllocationTooLarge,
 				FString::Printf(TEXT("triangleCount %lld overflows when expanded to corner indices"), static_cast<long long>(TriangleCount)),
 				Path,
-				OffsetTriangleCount);
+				CvmOffsetTriangleCount);
 		}
 
 		FCFDVizResult SpanResult = ValidateArraySpan(
-			TEXT("positions"), ParsedHeader.PositionsOffset, OffsetPositionsOffset,
+			TEXT("positions"), ParsedHeader.PositionsOffset, CvmOffsetPositionsOffset,
 			PositionComponents, ParsedHeader.GetPositionComponentBytes(),
 			FileSize, Path, PositionsOffset, PositionsBytes);
 		if (!SpanResult.IsOk())
@@ -667,7 +667,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 		}
 
 		SpanResult = ValidateArraySpan(
-			TEXT("indices"), ParsedHeader.IndicesOffset, OffsetIndicesOffset,
+			TEXT("indices"), ParsedHeader.IndicesOffset, CvmOffsetIndicesOffset,
 			IndexEntries, CFDViz::Cvm::IndexBytes,
 			FileSize, Path, IndicesOffset, IndicesBytes);
 		if (!SpanResult.IsOk())
@@ -678,7 +678,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 		if (ParsedHeader.HasNormals())
 		{
 			SpanResult = ValidateArraySpan(
-				TEXT("normals"), ParsedHeader.NormalsOffset, OffsetNormalsOffset,
+				TEXT("normals"), ParsedHeader.NormalsOffset, CvmOffsetNormalsOffset,
 				PositionComponents, CFDViz::Cvm::NormalComponentBytes,
 				FileSize, Path, NormalsOffset, NormalsBytes);
 			if (!SpanResult.IsOk())
@@ -693,7 +693,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 			// bug: on a closed mesh the two counts are close enough that the file
 			// still loads and every patch lands on the wrong triangles.
 			SpanResult = ValidateArraySpan(
-				TEXT("patchIds"), ParsedHeader.PatchIdsOffset, OffsetPatchIdsOffset,
+				TEXT("patchIds"), ParsedHeader.PatchIdsOffset, CvmOffsetPatchIdsOffset,
 				TriangleCount, CFDViz::Cvm::PatchIdBytes,
 				FileSize, Path, PatchIdsOffset, PatchIdsBytes);
 			if (!SpanResult.IsOk())
@@ -706,7 +706,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 		{
 			// One uint64 per VERTEX - the mirror image of patchIds above.
 			SpanResult = ValidateArraySpan(
-				TEXT("nodeIds"), ParsedHeader.NodeIdsOffset, OffsetNodeIdsOffset,
+				TEXT("nodeIds"), ParsedHeader.NodeIdsOffset, CvmOffsetNodeIdsOffset,
 				VertexCount, CFDViz::Cvm::NodeIdBytes,
 				FileSize, Path, NodeIdsOffset, NodeIdsBytes);
 			if (!SpanResult.IsOk())
@@ -728,7 +728,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 					TEXT("vertexCount %lld exceeds the %lld vertices this reader can address"),
 					static_cast<long long>(VertexCount), static_cast<long long>(MaxElements)),
 				Path,
-				OffsetVertexCount);
+				CvmOffsetVertexCount);
 		}
 		if (IndexEntries > MaxElements)
 		{
@@ -738,7 +738,7 @@ FCFDVizResult FCFDVizMeshReader::LoadInternal(
 					TEXT("triangleCount %lld needs %lld corner indices, more than this reader can address"),
 					static_cast<long long>(TriangleCount), static_cast<long long>(IndexEntries)),
 				Path,
-				OffsetTriangleCount);
+				CvmOffsetTriangleCount);
 		}
 	}
 
@@ -1035,7 +1035,7 @@ FCFDVizResult FCFDVizMeshReader::BuildForPatch(
 				TEXT("cannot extract patch %u: this mesh carries no patchIds array (flag bit 1 is clear, or patch IDs were not requested at load)"),
 				PatchId),
 			SourcePath,
-			OffsetPatchIdsOffset);
+			CvmOffsetPatchIdsOffset);
 	}
 
 	const int32 TriangleNum = GetTriangleCount();
@@ -1051,7 +1051,7 @@ FCFDVizResult FCFDVizMeshReader::BuildForPatch(
 				TEXT("patchIds has %d entries but the mesh has %d triangles; patchIds is one value per triangle"),
 				PatchIds.Num(), TriangleNum),
 			SourcePath,
-			OffsetPatchIdsOffset);
+			CvmOffsetPatchIdsOffset);
 	}
 
 	const int32 MatchingTriangles = CountTrianglesInPatch(PatchId);
@@ -1084,7 +1084,7 @@ FCFDVizResult FCFDVizMeshReader::BuildForPatch(
 				PatchId,
 				Available.IsEmpty() ? TEXT("none") : *AvailableText),
 			SourcePath,
-			OffsetPatchIdsOffset);
+			CvmOffsetPatchIdsOffset);
 	}
 
 	const bool bEmitNormals = OutNormals != nullptr && bHasNormals && Normals.Num() == Positions.Num();

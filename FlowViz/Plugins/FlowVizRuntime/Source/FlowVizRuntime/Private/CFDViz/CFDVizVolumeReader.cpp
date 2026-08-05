@@ -8,8 +8,18 @@
 
 namespace
 {
+namespace CvfLayout
+{
 	/* ---------------------------------------------------------------------- */
 	/* On-disk offsets - format section 4.1 (header) and 4.3 (directory entry)  */
+	/*                                                                          */
+	/* NAMESPACED DELIBERATELY. This module builds as a UE unity build: every    */
+	/* reader .cpp is concatenated into one translation unit, so an anonymous    */
+	/* namespace is NOT per-file here. CVF's `OffsetFlags` is 20 and CVM's is    */
+	/* 16; sharing the enclosing scope silently gave one reader the other's      */
+	/* layout, and whichever file the generated Module.*.cpp included first won. */
+	/* The static_asserts below caught it, which is the only reason it was not   */
+	/* a runtime misparse. Every new reader gets its own layout namespace.       */
 	/*                                                                          */
 	/* These constants ARE the format. They are named and used by the parser    */
 	/* below so that a failure can report the byte offset of the field that     */
@@ -93,6 +103,11 @@ namespace
 	static_assert(EntryOffsetComponentMax + CFDViz::MaxCvfComponentCount * 4 == EntryOffsetPayloadCrc, "CVF entry: componentMax is float32[4].");
 	static_assert(EntryOffsetPayloadCrc + 4 == EntryOffsetReserved, "CVF entry: payloadCrc32c is a uint32.");
 	static_assert(EntryOffsetReserved + EntryReservedBytes == CFDViz::CvfDirectoryEntryBytes, "A CVF directory entry must be exactly 80 bytes with no gap after the reserved block.");
+}	// namespace CvfLayout
+
+	// Unqualified below, but now unambiguously CVF's: a sibling reader's
+	// same-named constant no longer resolves here.
+	using namespace CvfLayout;
 
 	/** Every offset in a header error message points at a field, so the offsets are useful only if they are exact. */
 	FString FormatBrickCoordinate(const FIntVector& Coordinate)
