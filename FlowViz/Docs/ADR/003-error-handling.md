@@ -81,7 +81,7 @@ the invariant this ADR asserts: **no value that originated in a file reaches a
 ### Bounds checks are written to survive hostile arithmetic
 
 Rule 12 says "before allocation," which is necessary but not sufficient: the
-check itself must not overflow. `FCFDVizByteCursor::CanRead` is written
+check itself must not overflow. `CFDViz::FByteCursor::CanRead` is written
 
 ```cpp
 Count <= Size - Offset      // not: Offset + Count <= Size

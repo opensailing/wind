@@ -9,24 +9,24 @@ that came out of a real investigation cite what was checked.
 
 ## Release-blocking
 
-### 1. No case data exists anywhere in the repository
+### 1. ~~No case data exists anywhere in the repository~~ — closed 2026-08-04
 
-`python -m cfdviz generate-mock` is specified in `plan.md` §537 and §769 and is
-**not implemented**. There is no `.cvf`, `.cvm` or `.cva` file in the tree and
-no manifest for a real case.
+`python -m cfdviz generate-mock` is implemented, its 591-line suite passes
+31/31, and `Samples/MockCylinderWake.cfdviz` is committed (`208b426`):
+56×28×6 cells, 20 frames, 160 field files, 320 bricks, 3.4 MiB. `cfdviz
+validate` reports OK and `known-values --check` reports all 81 samples
+matching.
 
-This is the item that blocks the most: every renderer milestone (C, D, E) needs
-a case to display, the packaged application must ship a low-resolution sample
-per §3, and the blind visual review cannot produce a candidate frame without
-one. It is also what makes several tests below untestable rather than merely
-untested.
+This was the item that blocked the most — every renderer milestone needs a
+case to display, the packaged application must ship a low-resolution sample
+per `plan.md` §3, and the blind visual review cannot produce a candidate frame
+without one.
 
-*Generator done; data still absent.* `cfdviz.mock` is implemented and its
-591-line suite passes 31/31 (verified independently 2026-08-04). What remains
-is the part the item is actually about: **no case has been generated and
-committed, and nothing has ever been written by Python and read back by
-Unreal.** Until that round trip runs, the two implementations are only believed
-to agree.
+**What that does and does not establish.** The checks above are Python reading
+what Python wrote, which cannot detect a shared misunderstanding of the spec.
+The cross-language claim rests on `CFDVizKnownValuesTest.cpp` — Unreal decoding
+the committed case and comparing against the values Python recorded. See item 3
+below for its current state.
 
 ### 2. Milestone C is unstarted
 
