@@ -77,6 +77,45 @@ retry. Its message contains `Global\UnrealBuildTool_Mutex_…`, and in zsh
 stream as binary and silently matches nothing. A retry loop piping through
 `echo` therefore sees no conflict and proceeds as though the build ran.
 
+### `Result: Succeeded` does not mean anything was compiled
+
+A no-op build prints exactly the same line. Found 2026-08-05: a full-module
+build returned exit 0, printed `Result: Succeeded`, and showed zero `error:`
+lines, while the log read:
+
+```
+Target is up to date
+Using Unreal Build Accelerator local executor to run 0 action(s)
+```
+
+It compiled nothing — a concurrent build had finished seconds earlier. If the
+*point* of your build was to check that new or changed sources compile, that
+run did not answer the question. Check the action count too:
+
+```bash
+grep -aq "Result: Succeeded" "$LOG" || { echo "build failed"; exit 1; }
+grep -aq "run 0 action(s)" "$LOG" && echo "WARNING: compiled nothing"
+```
+
+### A git worktree under `/tmp` cannot be built
+
+`/tmp` is a symlink to `private/tmp`. Unreal Build Accelerator refuses to
+register writes through it (`dir not populated`) and truncates the object
+file. **The error does not name the cause** — it surfaces at link as:
+
+```
+ld: LINKEDIT content 'symbol table' extends beyond end of segment
+```
+
+which reads as a corrupt toolchain or an engine bug and sends you debugging
+the code instead of the path. It also produced repeated UNSCORED mutants in a
+campaign before anyone suspected the directory.
+
+Put worktrees under the home directory instead, e.g.
+`~/projects/wind-worktrees/<name>`. Relocating fixes it with no other change.
+If you ever see a LINKEDIT or symbol-table error, check `pwd -P` for
+`/private/tmp` before investigating anything else.
+
 ### On clangd errors in your IDE
 
 You will very likely see `'CoreMinimal.h' file not found` and a cascade of
@@ -150,6 +189,54 @@ costs real time:
 
 The script treats a filter matching **zero** tests as a failure. The engine
 exits 0 in that case, so a typo'd test path would otherwise read as success.
+
+### A green total can include tests that verified nothing
+
+**Run the `RHI=1` arm before you believe a render claim.** The GPU tests skip
+themselves under the default `-nullrhi`, and the engine records a self-skipped
+test as `Result={Success}` — so they land in the pass count. On 2026-08-05 the
+suite reported `47/47 passed` while three of those 47 had checked nothing
+about the GPU at all.
+
+The summary now names them, so this cannot hide any more:
+
+```
+3 skipped -- these reported success having verified nothing:
+  FlowViz.Render.RayMarchShaderDevice
+  FlowViz.Render.TransferFunctionDevice
+  FlowViz.Render.VolumeDevice
+  (reasons are in the log; GPU tests need RHI=1)
+
+47/47 passed.
+```
+
+A skip does **not** fail the run. Turning the suite red for it would get the
+signal suppressed the first time someone ran without a GPU, which is the
+opposite of the point. But a skipped device test is an unanswered question,
+not a passed one — treat the two arms as separate obligations.
+
+`--summarize <log>` reports on an existing log without launching the editor.
+It exists so the reporting logic is testable over fixture logs
+(`Tools/tests/test_run_tests_summary.sh`) instead of a ~40s engine run.
+
+### Tests failing on a shared tree may be someone else's mutation
+
+This project proves its assertions can fail by deliberately breaking the code
+underneath them. While a break-verify-restore cycle is in flight the tree is
+genuinely red, and from the outside that is indistinguishable from a real
+defect — on 2026-08-05 a cbuffer assertion failed in a way that looked exactly
+like a drifted struct member and was in fact a live falsification cycle.
+
+Before filing a failure seen during a shared-tree run:
+
+```bash
+git status --short                       # unexpected modifications?
+grep -rn "// BROKEN:" <source dirs>      # live sabotage markers
+stat -f '%Sm %N' <the source> <the .dylib>   # was it edited mid-run?
+```
+
+A source file whose mtime matches the second your test reported the failure
+was being edited while you compiled.
 
 ## Running Python tests
 
