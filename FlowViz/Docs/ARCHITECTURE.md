@@ -59,8 +59,8 @@ call.
 | --- | --- | --- |
 | Manifest parser | `Private/CFDViz/CFDVizManifest.cpp` | Done |
 | CVM mesh reader | `Private/CFDViz/CFDVizMeshReader.cpp` | Done — audited 2026-08-04, see below |
-| CVA array reader | `Private/CFDViz/CFDVizArrayReader.cpp` | Done |
-| CVF volume reader | `Private/CFDViz/CFDVizVolumeReader.cpp` | Partial — no committed test |
+| CVA array reader | `Private/CFDViz/CFDVizArrayReader.cpp` | Partial — C++-only coverage, see below |
+| CVF volume reader | `Private/CFDViz/CFDVizVolumeReader.cpp` | Done — `CFDVizVolumeReaderTest.cpp`, `CFDVizVolumeIntegrityTest.cpp` |
 | Payload/codec | `Private/CFDViz/CFDVizPayload.cpp` | Done |
 | CRC-32C | `Private/CFDViz/CFDVizCrc32C.cpp` | Done |
 | Byte cursor | `Private/CFDViz/CFDVizByteCursor.h` | Done — `CFDVizByteCursorTest.cpp` |
@@ -69,14 +69,22 @@ call.
 | Coordinate adapter | `Private/CFDViz/CFDVizTypes.cpp` | Done — belongs to layer E, listed here as it lives beside the readers |
 
 `Done` here means: works, and has a committed automated test. Two rows are
-`Partial` for the same reason — no test of their own:
+`Partial`, for different reasons:
 
-- The **CVF reader** is the reader that decodes the volume every later
-  milestone displays, so this is the most consequential gap in the table.
-- The **byte source** is exercised indirectly by every reader test, but
-  indirect coverage is not a test of its own bounds checking. (The byte
-  *cursor* beside it is no longer in this position: `CFDVizByteCursorTest.cpp`
-  attacks its `CanRead` arithmetic directly.)
+- The **byte source** has no test of its own. It is exercised indirectly by
+  every reader test, but indirect coverage is not a test of its own bounds
+  checking. (The byte *cursor* beside it is no longer in this position:
+  `CFDVizByteCursorTest.cpp` attacks its `CanRead` arithmetic directly.)
+- The **CVA reader** has a committed test, and that test only proves the reader
+  agrees with itself. `CFDVizKnownValuesTest.cpp` is the one place a
+  disagreement between the Python writer and the Unreal reader can surface, and
+  it bridges CVF (51 samples) and CVM (30) but **zero** CVA arrays — not
+  because the bridge cannot carry them, but because `generate-mock` emits no
+  `.cva` files, so `known_values.json`'s `arraySamples` is an empty list. Python
+  populates that key for cases that have arrays (`cfdviz/case.py:746`), so the
+  gap is in the mock generator. A reader and a writer that share a
+  misunderstanding agree perfectly with each other; that is precisely what CVA
+  coverage currently cannot rule out.
 
 ### CVM mesh reader — audit, 2026-08-04
 
