@@ -165,6 +165,21 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	FlowVizRayMarch::FillDefaults(Request.Parameters);
 	FlowVizRayMarch::FillFromVolumeParameters(Context.Parameters, Request.Parameters);
 
+	// AFTER the defaults, BEFORE the textures and the camera.
+	//
+	// After, because the settings are what makes the defaults selectable rather
+	// than welded -- applied first, FillDefaults would overwrite every one of
+	// them and this call would be decoration. Before the texture and camera
+	// rows, because ApplyToRayMarchParameters writes field-by-field and never
+	// assigns the struct, so the ordering is a statement of intent rather than a
+	// requirement; putting it here keeps it next to the call it modifies.
+	//
+	// This is the call that makes the view model reachable. Without it the class
+	// still compiled, still passed FlowViz.UI.RenderSettings, and still left the
+	// shipped renderer with one selectable composite mode -- a writer nobody
+	// reaches leaves the parameter exactly as frozen as before.
+	Context.RenderSettings.ApplyToRayMarchParameters(Request.Parameters);
+
 	if (!FlowVizRayMarch::SetVolumeTextures(
 			Request.Parameters,
 			Request.FieldTexture.GetReference(),
@@ -353,6 +368,22 @@ int32 FlowVizVolumeRayMarchProduction::FDispatcher::NumPendingRequests() const
 {
 	FScopeLock Lock(&RequestLock);
 	return PendingRequests.Num();
+}
+
+bool FlowVizVolumeRayMarchProduction::FDispatcher::PeekRequestParameters(
+	int32 Index,
+	FFlowVizVolumeRayMarchParameters& OutParameters) const
+{
+	FScopeLock Lock(&RequestLock);
+	if (!PendingRequests.IsValidIndex(Index))
+	{
+		return false;
+	}
+
+	// A copy under the lock. Returning a reference would hand out a pointer into
+	// an array the render thread may reallocate on the next dispatch.
+	OutParameters = PendingRequests[Index].Parameters;
+	return true;
 }
 
 FlowVizVolumeRayMarchProduction::FDispatcher& FlowVizVolumeRayMarchProduction::GetProductionDispatcher()

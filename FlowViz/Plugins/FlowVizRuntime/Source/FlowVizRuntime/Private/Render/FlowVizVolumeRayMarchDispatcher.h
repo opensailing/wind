@@ -168,6 +168,25 @@ namespace FlowVizVolumeRayMarchProduction
 		/** How many requests are waiting. Diagnostics only. */
 		int32 NumPendingRequests() const;
 
+		/**
+		 * The parameters of a pending request, as the dispatcher actually built
+		 * them. Returns false if Index is out of range.
+		 *
+		 * WHY THIS EXISTS. Without it a test can only reach the parameter
+		 * assembly by REBUILDING it -- calling FillDefaults, then the settings,
+		 * in the same order the dispatcher does. That mirror passes whether or
+		 * not the dispatcher makes those calls at all: deleting
+		 * `Context.RenderSettings.ApplyToRayMarchParameters` from
+		 * DispatchVolumeRayMarch left the whole suite green at 81/81, measured,
+		 * while the shipped renderer went back to one selectable composite mode.
+		 *
+		 * Reading the queue is the difference between "the view model can
+		 * produce IsoSurface" -- already true, already covered -- and "asking
+		 * the scene for IsoSurface produces a request that says IsoSurface",
+		 * which is the only version of the question the defect could fail.
+		 */
+		bool PeekRequestParameters(int32 Index, FFlowVizVolumeRayMarchParameters& OutParameters) const;
+
 	private:
 		mutable FCriticalSection RequestLock;
 		mutable TArray<FRequest> PendingRequests;
