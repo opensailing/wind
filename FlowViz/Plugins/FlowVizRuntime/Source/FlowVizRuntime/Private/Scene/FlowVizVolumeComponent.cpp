@@ -280,7 +280,18 @@ public:
 	 * Reported rather than assumed because "no marcher is registered" and "the
 	 * marcher ran and drew nothing" are the same black screen with nothing in
 	 * common as fixes. VISUAL_QA section 3 rule 6 forbids calling an unrendered
-	 * feature working; this is what makes that checkable.
+	 * feature working.
+	 *
+	 * THIS DOES NOT MAKE THAT CHECKABLE TODAY, which is what the last line used
+	 * to claim. FFlowVizVolumeSceneProxy is private to this .cpp, so this
+	 * accessor has no caller and cannot acquire one from outside: the answer is
+	 * computed correctly and is unreachable. Exposing it means marshalling the
+	 * flag back to the component (render thread writes, game thread reads, so
+	 * an atomic), not merely calling this.
+	 *
+	 * Kept, rather than deleted, because the write at the dispatch site is the
+	 * only record that a march occurred and deleting it would remove the thing
+	 * a reader needs. Treat it as a stub with a correct value, not a facility.
 	 */
 	bool WasRayMarchDispatched() const
 	{

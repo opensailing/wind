@@ -470,10 +470,22 @@ struct FFlowVizVolumeRayMarchContext
  * shader is a global shader with no per-instance state, and because the
  * component must not link against a file that does not exist yet.
  *
- * WHEN NOTHING IS REGISTERED THE VOLUME IS NOT DRAWN, and the proxy says so via
- * FFlowVizVolumeSceneProxy::WasRayMarchDispatched. That distinction is load
+ * WHEN NOTHING IS REGISTERED THE VOLUME IS NOT DRAWN. That distinction is load
  * bearing: "no marcher wired" and "marcher ran and produced nothing" look
  * identical on screen and have nothing in common as fixes.
+ *
+ * NOTHING CAN ASK WHICH ONE HAPPENED. This comment used to say the proxy
+ * "says so via FFlowVizVolumeSceneProxy::WasRayMarchDispatched". The accessor
+ * exists and returns the right answer, but FFlowVizVolumeSceneProxy is a
+ * private class declared inside FlowVizVolumeComponent.cpp, so no code outside
+ * that one translation unit CAN call it - it is not unwired, it is unreachable.
+ * Grep for the name returns its definition, this paragraph, and no caller.
+ *
+ * So the hazard named above is live and undiagnosable, and the sentence that
+ * used to sit here made it read as solved. Wiring a dispatcher does not fix
+ * this; the accessor stays dead until something deliberately exposes the flag
+ * (an atomic on the component, marshalled back from the render thread).
+ * DO NOT cite this accessor as evidence the two cases are distinguishable.
  */
 class IFlowVizVolumeRayMarchDispatcher
 {
