@@ -328,10 +328,25 @@ bool UFlowVizCaptureLibrary::CaptureToPNG(
 
 	UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(Capture);
 
-	// RTF_RGBA8_SRGB is required, not preferred: ExportRenderTarget and the
-	// image wrappers only produce a PNG for 8-bit formats, and float formats are
-	// silently routed to the EXR/HDR path instead - producing "success" and no
-	// .png file, which is precisely the original symptom in this project.
+	// 8-bit because ReadPixels below fills a TArray<FColor> (BGRA8) and the
+	// FImageView handed to CompressImage declares ERawImageFormat::BGRA8. A
+	// float target would make that declaration a lie about the bytes.
+	//
+	// THE EXR HAZARD DOES NOT APPLY TO THIS FUNCTION, despite what an earlier
+	// version of this comment said. That hazard - float formats silently taking
+	// the EXR/HDR path, producing "success" and no .png - belongs to
+	// ExportRenderTarget, which decides the container from the target's format.
+	// This function never calls it: it reads pixels back itself, passes
+	// TEXT("png") to CompressImage explicitly, and then stats the file. The
+	// container here is chosen by the literal above, not inferred from a format,
+	// so no format could route it to EXR.
+	//
+	// The live instance of that hazard is Tools/capture/_capture_worker.py:252,
+	// which DOES call export_render_target, 77 lines after choosing the format
+	// at :175. It is guarded end to end rather than at the call: the worker
+	// stats the file and verdict.py:113 fails an unwritten PNG, asserted by
+	// tests/test_verdict.py::test_unwritten_file_is_not_a_pass. Keep that guard
+	// if this comment tempts anyone to add a redundant one here.
 	RenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8_SRGB;
 	RenderTarget->ClearColor = FLinearColor::Black;
 	RenderTarget->bAutoGenerateMips = false;
