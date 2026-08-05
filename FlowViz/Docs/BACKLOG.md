@@ -210,6 +210,65 @@ implicated — it is verified working on `L_CapTest` and its `verdict.py`
 explicitly rejects a pure-black frame — which is what makes the blanks evidence
 for this entry rather than against the harness.
 
+### 2c. Three disclosure flags are produced and never consumed — found 2026-08-05
+
+Same shape as 2b and found the same way: sweeping the source for comments that
+name two states a user cannot tell apart, then looking for an assertion on
+*each* branch. In all three the rendering half is implemented and tested and the
+**telling** half stops at the comment. A test asserting a flag is set proves the
+producer and never the pixel, so the coverage looks present exactly at the
+defect.
+
+**(i) `bClampToRange` never reaches the shader — CPU and GPU disagree.** The
+highest-severity of the three, because a user-facing control silently does
+nothing.
+
+- Producer: `Private/Render/FlowVizTransferFunction.cpp:616`. Layout pinned by
+  `static_assert` at `Public/Render/FlowVizTransferFunction.h:799`.
+- Consumers: **none**. `grep -i ClampToRange Plugins/FlowVizRuntime/Shaders`
+  returns 0 hits, and `FFlowVizVolumeRayMarchParameters`
+  (`Public/Render/FlowVizVolumeRayMarchShader.h:165-209`) has no such
+  `SHADER_PARAMETER`.
+- The header states the contract at `:530` — "the shader must not clamp to it
+  unless bClampToRange" — and the shader cannot honour it, returning the
+  under/over colours unconditionally (`FlowVizVolumeRayMarch.usf:424-425`).
+- The CPU path *does* honour it (`FlowVizTransferFunction.cpp:380,383`), so
+  **enabling clamping changes the preview and not the render.** The file's own
+  comment at `:378` names this as "a quantitative lie that looks like a correct
+  render".
+- Existing assertion is producer-only: `FlowVizTransferFunctionTest.cpp:1052`
+  checks the struct field. Nothing asserts a clamped render differs from an
+  unclamped one.
+- Aggravating: the whole `FFlowVizTransferFunctionShaderParameters` cbuffer is
+  built and offset-asserted but never bound by production.
+
+**(ii) `DecodeReason` has zero call sites in the entire plugin, tests included**
+(`Public/Render/FlowVizVolumeRayMarchShader.h:383`). Tests read `OutValue.z`
+through a locally re-declared `ReasonBits()` helper with hand-written magic
+numbers (`FlowVizVolumeMarchTest.cpp:186`), so **the C++ enum and the shader's
+`FLOWVIZ_REASON_*` defines are never checked against each other** — renumbering
+either side is silent. Bit coverage: `VALID` 7 assertions, `MASKED` 2, `NONE` 2;
+`UNKNOWN`, `NaN`, `INFINITE`, `UNDER_RANGE`, `OVER_RANGE` have **zero**. The
+header at `:379` promises "NaN from masked from absent" are separable, and
+`NaN`/`Infinite` both map to `NaNColor` (`FlowVizVolumeRayMarch.usf:420-421`),
+so `.z` is the only discriminator and it is untested.
+
+**(iii) `WasRayMarchDispatched()` has no caller anywhere**
+(`Private/Scene/FlowVizVolumeComponent.cpp:285`). It exists to resolve the exact
+hazard quoted in 2b, and it is structurally unreachable — the proxy is a private
+class inside a .cpp, so nothing outside that translation unit *can* call it.
+**Distinct from 2b:** that gap is `SetDispatcher` having no production caller;
+this is the reporting accessor being dead, which stays dead after the wiring
+lands unless it is deliberately exposed.
+
+Method note, and the reason this entry exists at all: the first sweep used a
+6-term grep and returned 33 sites, which read as exhaustive. The full vocabulary
+(adding `silently`, `plausible`, `reads as`, `plays as`, `passes as`,
+`masquerad`, `wrong file`, `looks like`) returns **293** — `silently` alone
+yields 126. Of those, 14 survived triage as genuine two-state hazards and 9 had
+both branches asserted. **The count measured the auditor's vocabulary, not the
+code.** Sweep `.usf` as well as C++: two of these three terminate in a shader.
+
 ### 3. The CVF volume reader has no committed test
 
 Every other reader has one. This is the reader that decodes the volume every
@@ -468,6 +527,14 @@ above because these are *risks*, not known defects.
 - **Packaged-build parity.** The packaged target ships without
   `FlowVizEditor`. A reversed `#include` would break it at package time rather
   than at desk, and no packaged build has been produced.
+- **Any control the user can set actually reaches the renderer.** `bClampToRange`
+  is confirmed not to (gap 2c(i)): it is produced, offset-asserted, unit-tested,
+  and no shader parameter exists to carry it. That was found by sweeping for
+  producer/consumer gaps, not by a test — nothing in the suite would have failed.
+  The transfer function's other fields travel the same untested route, and the
+  same question is open for every parameter added from here on. **The general
+  form: a struct field with a `static_assert` on its offset and a test on its
+  value has two proofs that it exists and none that anything reads it.**
 
 ## Maintaining this file
 
