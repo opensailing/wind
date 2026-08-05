@@ -8,6 +8,7 @@
 #include "Modules/ModuleManager.h"
 #include "Render/FlowVizVolumeRayMarchDispatcher.h"
 #include "ShaderCore.h"
+#include "UI/FlowVizWorkspaceTab.h"
 
 DEFINE_LOG_CATEGORY(LogFlowViz);
 
@@ -41,10 +42,19 @@ void FFlowVizRuntimeModule::StartupModule()
 	// Every rendering test installed its own dispatcher as a precondition, so no
 	// test could observe that production installed none.
 	FlowVizVolumeRayMarchProduction::Register();
+
+	// REGISTER THE WORKSPACE TAB. The same argument as the line above, applied to
+	// the UI: without this, every Slate panel in this plugin is a definition that
+	// nothing in the running application ever constructs, and no panel test can
+	// tell - each one SNew's its own widget as a precondition of asserting
+	// anything about it. FlowViz.UI.Workspace.Wiring is the test that constructs
+	// nothing and asks the global tab manager what startup left behind.
+	FlowVizWorkspaceTab::Register();
 }
 
 void FFlowVizRuntimeModule::ShutdownModule()
 {
+	FlowVizWorkspaceTab::Unregister();
 	FlowVizVolumeRayMarchProduction::Unregister();
 	ResetAllShaderSourceDirectoryMappings();
 }
