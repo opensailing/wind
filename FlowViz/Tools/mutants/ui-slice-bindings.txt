@@ -1,0 +1,55 @@
+axis_button_not_wired
+--
+				.OnClicked(FOnClicked::CreateSP(this, &SFlowVizSlicePanel::OnAxisClicked, Axis))
+--
+				.OnClicked(FOnClicked())
+
+%%
+axis_button_always_sets_x
+--
+		ViewModel->SetAxisPreset(Axis);
+--
+		ViewModel->SetAxisPreset(EFlowVizSliceAxis::X);
+
+%%
+position_slider_not_wired
+--
+					.OnValueChanged(FOnFloatValueChanged::CreateSP(
+						this, &SFlowVizSlicePanel::OnPositionChanged))
+--
+					.OnValueChanged(FOnFloatValueChanged())
+
+%%
+slab_controls_ignore_thickness
+--
+	return IsBound() && ViewModel->IsSlab();
+--
+	return IsBound();
+
+%%
+thickness_commit_never_reaches_the_model
+--
+	ViewModel->SetThickness(Value);
+--
+	(void)Value;
+
+%%
+interpolation_advisory_never_shows
+--
+	return (IsBound() && ViewModel->IsTrilinear()) ? EVisibility::Visible : EVisibility::Collapsed;
+--
+	return EVisibility::Collapsed;
+
+%%
+interpolation_advisory_always_shows
+--
+	return (IsBound() && ViewModel->IsTrilinear()) ? EVisibility::Visible : EVisibility::Collapsed;
+--
+	return EVisibility::Visible;
+
+%%
+visible_toggle_does_not_toggle
+--
+		ViewModel->SetVisible(!ViewModel->IsVisible());
+--
+		ViewModel->SetVisible(false);

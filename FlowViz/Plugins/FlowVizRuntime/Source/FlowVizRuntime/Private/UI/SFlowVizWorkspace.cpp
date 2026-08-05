@@ -5,6 +5,7 @@
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
+#include "UI/SFlowVizSlicePanel.h"
 #include "UI/SFlowVizTransferFunctionPanel.h"
 #include "UI/SFlowVizTransportBar.h"
 #include "Widgets/Layout/SBorder.h"
@@ -166,10 +167,8 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 						[
 							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("SliceHeading", "Slice"),
-								FlowVizWorkspaceLocal::MakePendingRegion(
-									LOCTEXT("SlicePending",
-										"Slice controls are not built yet. The slice view model "
-										"is complete and tested; no widget drives it.")))
+								SAssignNew(SlicePanel, SFlowVizSlicePanel)
+									.ViewModel(&Model->Slice))
 						]
 
 						+ SScrollBox::Slot()

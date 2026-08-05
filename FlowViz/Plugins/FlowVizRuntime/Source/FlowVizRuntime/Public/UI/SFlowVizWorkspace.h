@@ -8,6 +8,7 @@
 
 struct FFlowVizWorkspaceModel;
 class SFlowVizClipPanel;
+class SFlowVizSlicePanel;
 class SFlowVizTransferFunctionPanel;
 class SFlowVizTransportBar;
 
@@ -63,6 +64,7 @@ public:
 		return TransferFunctionPanel;
 	}
 	TSharedPtr<SFlowVizClipPanel> GetClipPanel() const { return ClipPanel; }
+	TSharedPtr<SFlowVizSlicePanel> GetSlicePanel() const { return SlicePanel; }
 
 private:
 	/**
@@ -78,4 +80,5 @@ private:
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;
 	TSharedPtr<SFlowVizClipPanel> ClipPanel;
+	TSharedPtr<SFlowVizSlicePanel> SlicePanel;
 };
