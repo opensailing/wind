@@ -1279,6 +1279,41 @@ bool FFlowVizTransferFunctionDeviceTest::RunTest(const FString& Parameters)
 		FlushRenderingCommands();
 		TestEqual(TEXT("...and does recreate the texture"), Resource.GetTextureCreateCount(), 2);
 
+		/*
+		 * THE SECOND BRANCH OF THE NULL-TEXTURE EARLY RETURN.
+		 *
+		 * UploadOnRenderThread returns silently when LutTexture is invalid after
+		 * the create block. That return has two causes and the code cannot tell
+		 * them apart:
+		 *
+		 *   1. There is no device. The null RHI returns nothing from
+		 *      CreateTexture, so silence is correct - logging every frame would
+		 *      bury real output under a condition nobody can fix.
+		 *   2. There IS a device and the create FAILED. That is a genuine GPU
+		 *      failure, and the same early return swallows it.
+		 *
+		 * The comment on that return used to justify the silence by saying the
+		 * CPU-side LUT "is what the legend and the probe readout sample."
+		 * Neither a legend nor a probe readout exists anywhere in this plugin,
+		 * so the justification was false and the silence covered case 2 as well
+		 * as case 1 - a false all-clear buying quiet on a real failure path.
+		 *
+		 * We are on a real device here (this test skips under -nullrhi), so the
+		 * texture must EXIST after every successful update. Asserting that is
+		 * what makes case 2 observable: if a create silently fails on this
+		 * device, GetLutTexture returns null and this goes red instead of the
+		 * resource reporting Ok and rendering nothing.
+		 *
+		 * Checked after the RESIZE specifically, because the resize is the only
+		 * path that releases a live texture and builds another. A create that
+		 * fails there leaves the resource holding null while every count and
+		 * every result code still reads exactly like success.
+		 */
+		TestNotNull(TEXT("after a resize on a real device the resource still holds a texture - "
+						 "a null here is a silently swallowed GPU create failure, which the "
+						 "counters and the FCFDVizResult both report as success"),
+			Resource.GetLutTexture());
+
 		Resource.ReleaseResources();
 		FlushRenderingCommands();
 	}

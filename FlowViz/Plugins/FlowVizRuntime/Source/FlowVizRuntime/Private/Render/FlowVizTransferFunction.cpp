@@ -2,6 +2,7 @@
 
 #include "Render/FlowVizTransferFunction.h"
 
+#include "FlowVizRuntime.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -870,9 +871,38 @@ void FFlowVizTransferFunctionResource::UploadOnRenderThread(
 
 	if (!LutTexture.IsValid())
 	{
-		// No device (the null RHI returns nothing from CreateTexture). Not an
-		// error to log every frame: the CPU-side LUT is still correct and is what
-		// the legend and the probe readout sample.
+		/*
+		 * TWO CAUSES, AND THEY ARE NOT THE SAME EVENT.
+		 *
+		 * No device: the null RHI returns nothing from CreateTexture. Silence is
+		 * right - the condition holds for the whole run, and logging it per
+		 * upload would bury real output under something nobody can act on.
+		 *
+		 * A device that FAILED to create: a real GPU failure. The transfer
+		 * function will sample nothing and the volume renders without its
+		 * colour map, while Update() has already returned Ok to the caller and
+		 * both resource counters read exactly like success. Nothing downstream
+		 * can distinguish that from a working frame, so if it is not said here
+		 * it is not said anywhere.
+		 *
+		 * This return used to cover both, justified by a comment claiming the
+		 * CPU-side LUT "is what the legend and the probe readout sample."
+		 * Neither exists in this plugin - the claim was false, and it was
+		 * buying silence on the failure branch as well as the benign one.
+		 * GUsingNullRHI is what separates them; it is checked alongside
+		 * GIsRHIInitialized because the null RHI sets the latter (see
+		 * CheckDeviceSupport above, which draws the same distinction for the
+		 * same reason).
+		 */
+		if (GIsRHIInitialized && !GUsingNullRHI)
+		{
+			UE_LOG(LogFlowViz, Error,
+				TEXT("the transfer-function LUT texture is null after a create on a real "
+					 "device (%d entries). The colour map will not reach the shader and the "
+					 "volume will render without it; the resource's own result code and "
+					 "create count both report success, so this log is the only disclosure."),
+				InLutSize);
+		}
 		return;
 	}
 
