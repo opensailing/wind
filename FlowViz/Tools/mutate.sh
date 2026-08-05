@@ -56,6 +56,31 @@
 #     shared tree is not just a lost result: other agents build that tree, and
 #     one was found still mutated long after its run had ended.
 #
+# ---------------------------------------------------------------------------
+# RUN THIS IN A GIT WORKTREE, AND NOT ONE UNDER /tmp.
+#
+#     mkdir -p ~/projects/wind-worktrees
+#     git worktree add ~/projects/wind-worktrees/<name> HEAD --detach
+#
+# Isolation matters because concurrent campaigns in one tree corrupt each
+# other's verdicts in both directions, and the dangerous direction is a false
+# *killed*: it records a check as verified when something else broke the build.
+# Builds still serialize on UBT's global lock, which is only wall-clock.
+#
+# The /tmp restriction is a separate, macOS-specific trap. /tmp is a symlink to
+# /private/tmp, and Unreal Build Accelerator caches one spelling then looks up
+# the other, so it never writes the shared PCH:
+#
+#     UbaSessionServer - Refusing to register create-for-write '/tmp/...gch': dir not populated
+#     UbaSessionServer - Failed to get file information for /private/tmp/...gch.tmp
+#
+# Every compile then fails with `unable to read PCH file`, and the build ends
+# `Result: Failed (OtherCompilationError)`. This is worth recognising on sight:
+# it is dozens of error: lines that mention no source file you touched, and it
+# looks exactly like a real compile failure. Constraint 3 keeps it from being
+# scored as INVALID -- no error names the mutated file, so it comes back
+# UNSCORED -- but a correct refusal to conclude is still not a verdict.
+#
 set -uo pipefail
 
 SRC="${1:?usage: mutate.sh <source-file> <test-filter> <mutants-file>}"
