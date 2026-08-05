@@ -2,6 +2,7 @@
 
 #include "Render/FlowVizVolumeTexture.h"
 
+#include "CFDViz/CFDVizByteSource.h"
 #include "CFDViz/CFDVizManifest.h"
 #include "CFDViz/CFDVizVolumeReader.h"
 #include "Interfaces/IPluginManager.h"
@@ -365,9 +366,16 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		}
 
 		TArray<uint8> Widened;
-		TestTrue(TEXT("widening succeeds"),
+		// Guarded: the sixteen reads below are at fixed offsets into this buffer,
+		// so a failure here (or a short buffer from a bad pitch) would trip
+		// TArray's bounds assert and kill the editor rather than fail the test.
+		const bool bWidened = TestTrue(TEXT("widening succeeds"),
 			FlowVizVolumeConvert::ExpandComponents(Layout, SourceBytes, Widened).IsOk());
-		TestEqual(TEXT("the widened buffer is 2 voxels * 4 channels * 2 bytes"), Widened.Num(), 16);
+		if (!bWidened
+			|| !TestEqual(TEXT("the widened buffer is 2 voxels * 4 channels * 2 bytes"), Widened.Num(), 16))
+		{
+			return false;
+		}
 
 		// Every stored component survives, in order, bit for bit.
 		TestEqual(TEXT("voxel 0 component 0 survives"), ReadBits16(Widened, 0), (uint16)0x0001);
@@ -941,12 +949,28 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 
 		FFlowVizVolumeLayout ULayout;
 		TArray<uint8> UBytes;
-		TestTrue(TEXT("U builds into texture bytes"),
-			FlowVizVolumeBuild::BuildFieldBytes(UReader, ULayout, UBytes).IsOk());
+		// Guarded for the same reason as the BuildUpload call below: the spot
+		// values that follow index UBytes at fixed offsets up to 75260, and an
+		// empty buffer would trip TArray's bounds assert and take the whole
+		// editor down before any verdict is reported.
+		if (!TestTrue(TEXT("U builds into texture bytes"),
+			FlowVizVolumeBuild::BuildFieldBytes(UReader, ULayout, UBytes).IsOk()))
+		{
+			return false;
+		}
 
 		// 56*28*6 voxels * 4 channels * 2 bytes. NOT 3 channels: a 3-component
 		// field has no portable 3D format and must widen.
-		TestEqual(TEXT("the widened U buffer is 75264 bytes"), UBytes.Num(), 75264);
+		//
+		// GUARDED: this is the size the spot values below assume. A layout bug
+		// that shrinks the buffer (a row pitch computed from the source stride,
+		// say) still returns Ok and still fills what it allocated, so the reads
+		// at 44144..75260 would run off the end and trip TArray's bounds assert -
+		// killing the editor instead of failing the test.
+		if (!TestEqual(TEXT("the widened U buffer is 75264 bytes"), UBytes.Num(), 75264))
+		{
+			return false;
+		}
 		TestEqual(TEXT("the layout agrees"), ULayout.GetTextureVolumeBytes(), (int64)75264);
 		TestEqual(TEXT("U's extent is the cell count, since it is cell-associated"),
 			ULayout.Extent, FIntVector(56, 28, 6));
@@ -984,8 +1008,17 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 			static_cast<int32>(MaskReader.GetHeader().DataType), static_cast<int32>(ECFDVizDataType::UInt8));
 
 		FFlowVizVolumeUpload Upload;
-		TestTrue(TEXT("a full frame assembles from the two readers"),
-			FlowVizVolumeBuild::BuildUpload(UReader, &MaskReader, /*bAsVector*/ true, Upload).IsOk());
+		// GUARDED, not a bare TestTrue. Everything below indexes Upload's buffers
+		// at fixed offsets; if the assembly fails those buffers are EMPTY and the
+		// indexing trips TArray's bounds assert, which kills the editor before it
+		// reports a verdict. A crash is not a test failure - the runner prints
+		// "no tests matched" and a mutation run reading that would score the
+		// mutant as inconclusive rather than killed.
+		if (!TestTrue(TEXT("a full frame assembles from the two readers"),
+			FlowVizVolumeBuild::BuildUpload(UReader, &MaskReader, /*bAsVector*/ true, Upload).IsOk()))
+		{
+			return false;
+		}
 		TestTrue(TEXT("and the assembled payload validates"), Upload.Validate().IsOk());
 		TestEqual(TEXT("the frame index came from the CVF header"), Upload.FrameIndex, 0);
 		TestEqual(TEXT("U landed in the VECTOR slot"), Upload.VectorBytes.Num(), 75264);
@@ -1062,6 +1095,90 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		TArray<uint8> ClosedBytes;
 		TestFalse(TEXT("an unopened reader is refused"),
 			FlowVizVolumeBuild::BuildFieldBytes(Closed, ClosedLayout, ClosedBytes).IsOk());
+	}
+
+	/* == A POINT-associated field sizes the texture with the +1 ============== */
+	{
+		// EVERY committed sample field is cell-associated, so BuildFieldBytes was
+		// only ever exercised on the branch where GetValueCounts() == Dimensions.
+		// Taking Dimensions directly instead of GetValueCounts() therefore changed
+		// nothing any existing assertion could see - it survived mutation. On a
+		// point-associated field it silently drops the last plane on every axis:
+		// a slightly cropped volume that still renders, still uploads, and is
+		// wrong by exactly the half-cell shift the format calls the single most
+		// common visualisation error.
+		//
+		// Hand-built rather than loaded: no committed .cvf is point-associated,
+		// so there is nothing on disk that can distinguish the two.
+		// From `write_cvf(values=v, brick_size=(3,2,4), association='point',
+		//                 dtype='float32', codec=0, dimensions=(2,1,3))`, where
+		// v[i,j,k] = i + 3j + 6k over the 3x2x4 POINT extent.
+		//
+		// Cell dimensions are (2,1,3); point values are (3,2,4) = 24 values, one
+		// float32 component = 96 bytes. A reader that used Dimensions would build
+		// a (2,1,3) extent and 24 bytes.
+		static const uint8 PointCvfBytes[] = {
+			0x43, 0x46, 0x44, 0x56, 0x4F, 0x4C, 0x31, 0x00, 0x80, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+			0x04, 0x03, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+			0x03, 0x00, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00, 0x04, 0x00, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0xD0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x82, 0x29, 0xFC, 0x08, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00,
+			0x04, 0x00, 0x00, 0x00, 0xD0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00,
+			0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x7F, 0x00, 0x00, 0x80, 0x7F,
+			0x00, 0x00, 0x80, 0x7F, 0x00, 0x00, 0xB8, 0x41, 0x00, 0x00, 0x80, 0xFF, 0x00, 0x00, 0x80, 0xFF,
+			0x00, 0x00, 0x80, 0xFF, 0xB0, 0x04, 0x82, 0xFA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40,
+			0x00, 0x00, 0x80, 0x40, 0x00, 0x00, 0xA0, 0x40, 0x00, 0x00, 0xC0, 0x40, 0x00, 0x00, 0xE0, 0x40,
+			0x00, 0x00, 0x00, 0x41, 0x00, 0x00, 0x10, 0x41, 0x00, 0x00, 0x20, 0x41, 0x00, 0x00, 0x30, 0x41,
+			0x00, 0x00, 0x40, 0x41, 0x00, 0x00, 0x50, 0x41, 0x00, 0x00, 0x60, 0x41, 0x00, 0x00, 0x70, 0x41,
+			0x00, 0x00, 0x80, 0x41, 0x00, 0x00, 0x88, 0x41, 0x00, 0x00, 0x90, 0x41, 0x00, 0x00, 0x98, 0x41,
+			0x00, 0x00, 0xA0, 0x41, 0x00, 0x00, 0xA8, 0x41, 0x00, 0x00, 0xB0, 0x41, 0x00, 0x00, 0xB8, 0x41,
+		};
+
+		const FCFDVizMemoryByteSource PointSource(
+			TArrayView<const uint8>(PointCvfBytes, UE_ARRAY_COUNT(PointCvfBytes)), TEXT("point.cvf"));
+		FCFDVizVolumeReader PointReader;
+		if (TestTrue(TEXT("a point-associated .cvf opens"), PointReader.Open(PointSource).IsOk()))
+		{
+			TestTrue(TEXT("the fixture really is point-associated"),
+				PointReader.GetHeader().Association == ECFDVizAssociation::Point);
+			// Independently: cell dims (2,1,3) + 1 per axis.
+			TestEqual(TEXT("its value counts carry the +1"),
+				PointReader.GetHeader().GetValueCounts(), FIntVector(3, 2, 4));
+
+			FFlowVizVolumeLayout PointLayout;
+			TArray<uint8> PointBytes;
+			if (TestTrue(TEXT("a point field assembles"),
+				FlowVizVolumeBuild::BuildFieldBytes(PointReader, PointLayout, PointBytes).IsOk()))
+			{
+				// THE ASSERTION THE SURVIVING MUTANT NEEDED. Using Dimensions
+				// would give (2,1,3) here, and every check below would move with
+				// it - so the extent is asserted against the hand-derived (3,2,4),
+				// not against anything the implementation computed.
+				TestEqual(TEXT("the texture extent is the VALUE count, not the cell count"),
+					PointLayout.Extent, FIntVector(3, 2, 4));
+				// 3*2*4 values * 1 component * 4 bytes. The cell-count mistake
+				// yields 24.
+				TestEqual(TEXT("...so the volume is 96 bytes, not 24"),
+					PointBytes.Num(), 96);
+				TestEqual(TEXT("...and the layout agrees"),
+					PointLayout.GetTextureVolumeBytes(), (int64)96);
+
+				// Spot-check the payload actually reached the buffer in X-fastest
+				// order: v[i,j,k] = i + 3j + 6k, so the LAST value (2,1,3) is 23.
+				// A cropped extent would never contain this voxel at all.
+				const int64 LastOffset = PointLayout.GetTextureVoxelOffset(2, 1, 3);
+				TestEqual(TEXT("the last point value sits at offset 92"), LastOffset, (int64)92);
+				float LastValue = 0.0f;
+				FMemory::Memcpy(&LastValue, PointBytes.GetData() + LastOffset, sizeof(float));
+				TestEqual(TEXT("...and holds 23.0, the corner the cell count would have dropped"),
+					LastValue, 23.0f);
+			}
+		}
 	}
 
 	/* == Device support, without a device ==================================== */
