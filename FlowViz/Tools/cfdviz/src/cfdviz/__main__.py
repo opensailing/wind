@@ -188,7 +188,7 @@ def _known_values(arguments: argparse.Namespace) -> int:
     if not arguments.check:
         path = write_known_values(root)
         bridge = json.loads(path.read_text(encoding="utf-8"))
-        print(f"wrote {path} with {len(bridge['samples'])} samples")
+        print(f"wrote {path} with {_sample_summary(bridge)}")
         return EXIT_OK
 
     path = root / KNOWN_VALUES_NAME
@@ -211,8 +211,26 @@ def _known_values(arguments: argparse.Namespace) -> int:
         for problem in problems:
             print(f"  {problem}", file=sys.stderr)
         return EXIT_INVALID
-    print(f"{path}: {len(bridge.get('samples', []))} samples match")
+    print(f"{path}: {_sample_summary(bridge)} match")
     return EXIT_OK
+
+
+def _sample_summary(bridge: dict) -> str:
+    """``"81 samples (17 field, 34 mesh, 30 array)"``.
+
+    The total alone would be honest but useless, and the field count alone —
+    which is what this printed first — reads as full coverage while saying
+    nothing about whether the geometry was checked. Naming each group means a
+    zero is visible as a zero.
+    """
+    groups = (
+        ("field", len(bridge.get("samples") or [])),
+        ("mesh", len(bridge.get("meshSamples") or [])),
+        ("array", len(bridge.get("arraySamples") or [])),
+    )
+    total = sum(count for _, count in groups)
+    breakdown = ", ".join(f"{count} {name}" for name, count in groups)
+    return f"{total} samples ({breakdown})"
 
 
 _COMMANDS = {

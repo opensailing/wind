@@ -162,6 +162,73 @@ SAMPLE_DIMENSIONS = (4, 3, 2)
 #: "first and last stored frame" sampling (spec 9.3).
 SAMPLE_TIMES = (0.0, 0.5)
 
+#: Vertices and triangles of the sample mesh. **These must stay unequal.**
+#:
+#: ``patchIds`` is one per triangle and ``nodeIds`` is one per vertex (spec 5).
+#: If the two counts matched, a reader that swapped the associations would
+#: produce arrays of exactly the right size full of the wrong numbers, and no
+#: length check anywhere could notice. 5 and 2 keeps that bug loud.
+SAMPLE_VERTEX_COUNT = 5
+SAMPLE_TRIANGLE_COUNT = 2
+
+
+def sample_mesh() -> dict:
+    """Geometry for the sample case's mesh, as plain arrays.
+
+    A flat fan of two triangles over five vertices: the smallest shape that
+    keeps ``vertexCount != triangleCount`` while still sharing an edge between
+    the two triangles, so a winding-order error is visible as a fold rather
+    than as two unrelated triangles.
+    """
+    positions = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.25],
+        ],
+        dtype="<f4",
+    )
+    # The fan is [0,1,4] and [1,2,4], but each triple is stored rotated so that
+    # neither is in ascending order. Rotation preserves CCW winding, so the mesh
+    # is still valid geometry — but a reader that normalises each triangle by
+    # sorting its corners now produces different bytes, which is what spec 5
+    # wants caught. Written ascending, that whole class of bug is invisible.
+    indices = np.array([[1, 4, 0], [4, 1, 2]], dtype="<u4")
+    patch_ids = np.array([10, 20], dtype="<u4")
+    node_ids = np.array([100, 101, 102, 103, 104], dtype="<u8")
+    return {
+        "positions": positions,
+        "indices": indices,
+        "patch_ids": patch_ids,
+        "node_ids": node_ids,
+    }
+
+
+def sample_array_values(frame: int) -> np.ndarray:
+    """A 6-component symmetric tensor per vertex, with a NaN in one component.
+
+    Six components pins the normative Voigt order ``XX YY ZZ XY YZ XZ``
+    (spec 6.3) across the language boundary — the wrong order permutes shear
+    components into each other and every value still looks physically
+    plausible, so nothing but an exact comparison catches it.
+
+    The NaN sits in component 3 (``XY``) only, so that component's
+    ``validCount`` comes out one lower than its neighbours'. That single
+    integer is what catches "NaN quietly became zero".
+    """
+    values = (
+        np.arange(SAMPLE_VERTEX_COUNT * 6, dtype=np.float64).reshape(
+            SAMPLE_VERTEX_COUNT, 6
+        )
+        * 0.5
+        - 2.0
+        + frame
+    ).astype("<f4")
+    values[2, 3] = np.nan
+    return values
+
 
 def sample_manifest() -> dict:
     """A manifest that satisfies the schema and every section 3.1 invariant.
@@ -243,6 +310,19 @@ def sample_manifest() -> dict:
                 },
             },
         ],
+        "meshes": [
+            {
+                "id": "obstacle",
+                "name": "Obstacle",
+                "path": "meshes/obstacle.cvm",
+                "role": "obstacle",
+                "static": True,
+                "patches": [
+                    {"id": 10, "name": "windward", "type": "wall"},
+                    {"id": 20, "name": "leeward", "type": "wall"},
+                ],
+            }
+        ],
     }
 
 
@@ -271,7 +351,9 @@ def build_case(root: Path, manifest: dict | None = None) -> Path:
     Uses the real writers rather than canned bytes: a validator that passes on
     hand-made files but not on the ones this package emits would be worthless.
     """
+    from cfdviz.cva import write_cva
     from cfdviz.cvf import write_cvf
+    from cfdviz.cvm import write_cvm
 
     manifest = sample_manifest() if manifest is None else manifest
     root.mkdir(parents=True, exist_ok=True)
@@ -295,6 +377,28 @@ def build_case(root: Path, manifest: dict | None = None) -> Path:
                 field_numeric_id=entry["numericId"],
                 simulation_time=time,
                 mask=None if entry["id"] == "validMask" else mask_values,
+            )
+
+    for mesh in manifest.get("meshes") or []:
+        geometry = sample_mesh()
+        write_cvm(
+            root / mesh["path"],
+            positions=geometry["positions"],
+            indices=geometry["indices"],
+            patch_ids=geometry["patch_ids"],
+            node_ids=geometry["node_ids"],
+        )
+        # One .cva per frame alongside the mesh it is associated with. The
+        # manifest schema has no slot for these yet (see test_manifest), so the
+        # path is a convention: <mesh id>.<field id>.<frame>.cva
+        for frame, time in enumerate(times):
+            write_cva(
+                root / "meshes" / f"{mesh['id']}.wallShearStress.{frame:06d}.cva",
+                values=sample_array_values(frame),
+                frame_index=frame,
+                simulation_time=time,
+                association="mesh-vertex",
+                field_numeric_id=10,
             )
 
     (root / "manifest.json").write_text(

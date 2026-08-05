@@ -211,6 +211,55 @@ def test_known_values_check_mode_fails_on_a_mismatched_bridge(
     assert "bits" in (out + err)
 
 
+def test_known_values_reports_mesh_and_array_sample_counts(
+    capsys, valid_case: Path
+):
+    """The counts printed must cover every sample the bridge actually holds.
+
+    Printing only ``len(bridge["samples"])`` reads as full coverage while the
+    mesh and array samples go unmentioned — a reader who saw "17 samples match"
+    would have no way to tell whether the geometry was checked at all.
+    """
+    _, write_out, _ = run(capsys, "known-values", str(valid_case))
+    _, check_out, _ = run(capsys, "known-values", str(valid_case), "--check")
+
+    bridge = json.loads((valid_case / "known_values.json").read_text("utf-8"))
+    total = (
+        len(bridge["samples"])
+        + len(bridge["meshSamples"])
+        + len(bridge["arraySamples"])
+    )
+    assert total > len(bridge["samples"]), "the fixture must have mesh/array samples"
+    for label, text in (("write", write_out), ("check", check_out)):
+        # The pytest tmpdir is named after this test, so it contains the word
+        # "mesh". Searching the whole line would match the path and pass no
+        # matter what the tool printed; only the part after the path counts.
+        tail = text.rsplit("known_values.json", 1)[-1]
+        assert str(total) in tail, f"{label} mode does not report all {total} samples"
+        assert f"{len(bridge['meshSamples'])} mesh" in tail, (
+            f"{label} mode does not break out the mesh sample count: {tail!r}"
+        )
+        assert f"{len(bridge['arraySamples'])} array" in tail, (
+            f"{label} mode does not break out the array sample count: {tail!r}"
+        )
+
+
+def test_known_values_check_mode_fails_on_a_mismatched_mesh_sample(
+    capsys, valid_case: Path
+):
+    """A geometry mismatch must reach the exit status, not just the voxel path."""
+    run(capsys, "known-values", str(valid_case))
+    path = valid_case / "known_values.json"
+    bridge = json.loads(path.read_text("utf-8"))
+    triangle = next(s for s in bridge["meshSamples"] if s["kind"] == "triangle")
+    triangle["indices"] = list(reversed(triangle["indices"]))
+    path.write_text(json.dumps(bridge), encoding="utf-8")
+
+    status, out, err = run(capsys, "known-values", str(valid_case), "--check")
+    assert status != 0
+    assert "triangle" in (out + err)
+
+
 def test_known_values_check_mode_does_not_rewrite_the_file(
     capsys, valid_case: Path
 ):

@@ -33,13 +33,16 @@ import numpy as np
 
 from .codecs import CodecError, UnsupportedCodecError, codec_id_from_name
 from .crc32c import CHECK_VALUE, crc32c
+from .cva import CVAError, read_cva
 from .cvf import CVFError, CVFFormatError, CVFReader, read_cvf
+from .cvm import CVMError, read_cvm
 from .manifest import (
     FORMAT_VERSION,
     ManifestError,
     field_by_id,
     frame_path,
     grid_by_id,
+    is_safe_relative_path,
     load_manifest,
     schema_validation_available,
     validate_manifest,
@@ -62,6 +65,11 @@ KNOWN_VALUES_NAME: Final = "known_values.json"
 #: would fail on round-tripping alone; this is loose enough to survive that and
 #: far too tight to hide a real disagreement.
 _STATISTICS_TOLERANCE: Final = 1e-6
+
+#: How many non-finite entities a single array may contribute to the bridge.
+#: Every NaN is worth pinning, but an array that is mostly NaN would otherwise
+#: expand into a bridge file larger than the data it describes.
+_NONFINITE_SAMPLE_LIMIT: Final = 4
 
 
 @dataclass(slots=True)
@@ -725,12 +733,200 @@ def build_known_values(root: Path | str) -> dict[str, Any]:
                     )
                 )
 
+    meshes, mesh_samples = _mesh_samples(root, manifest)
+    array_samples = _array_samples(root, manifest, frames)
+
     return {
         "formatVersion": FORMAT_VERSION,
         "caseId": (manifest.get("case") or {}).get("id"),
         "crc32cCheck": f"0x{CHECK_VALUE:08X}",
         "samples": samples,
+        "meshes": meshes,
+        "meshSamples": mesh_samples,
+        "arraySamples": array_samples,
     }
+
+
+def _spread(count: int, wanted: int = 3) -> list[int]:
+    """Up to ``wanted`` indices spread across ``[0, count)``, ends included.
+
+    The ends matter more than the middle: an off-by-one in a reader's loop
+    bounds shows up at index 0 or ``count - 1`` and nowhere else.
+    """
+    if count <= 0:
+        return []
+    if count <= wanted:
+        return list(range(count))
+    step = (count - 1) / (wanted - 1)
+    return sorted({int(round(index * step)) for index in range(wanted)})
+
+
+def _mesh_samples(root: Path, manifest: dict[str, Any]) -> tuple[list[dict[str, Any]],
+                                                                list[dict[str, Any]]]:
+    """Sample every declared mesh: positions, triangles, patchIds, nodeIds.
+
+    ``vertexCount`` and ``triangleCount`` are recorded per mesh because they are
+    the fastest way for a reader to discover it has swapped the two
+    associations — ``patchIds`` is per-triangle and ``nodeIds`` per-vertex, and
+    a reader that confuses them produces plausible arrays of the wrong length.
+    """
+    meshes: list[dict[str, Any]] = []
+    samples: list[dict[str, Any]] = []
+
+    for entry in manifest.get("meshes") or []:
+        if not isinstance(entry, dict):
+            continue
+        relative = entry.get("path")
+        if not isinstance(relative, str) or not is_safe_relative_path(relative):
+            continue
+        path = root / relative
+        if not path.is_file():
+            continue
+
+        mesh = read_cvm(path)
+        mesh_id = str(entry.get("id"))
+        meshes.append({
+            "id": mesh_id,
+            "path": relative,
+            "vertexCount": mesh.vertex_count,
+            "triangleCount": mesh.triangle_count,
+            "hasNormals": mesh.normals is not None,
+            "hasPatchIds": mesh.patch_ids is not None,
+            "hasNodeIds": mesh.node_ids is not None,
+        })
+
+        for vertex in _spread(mesh.vertex_count):
+            for component in range(3):
+                samples.append({
+                    "kind": "position",
+                    "mesh": mesh_id,
+                    "vertex": vertex,
+                    "component": component,
+                    "componentName": "XYZ"[component],
+                    "value": _readable_value(mesh.positions[vertex][component]),
+                    "bits": _bits_of(mesh.positions[vertex][component]),
+                })
+
+        for triangle in _spread(mesh.triangle_count):
+            # The whole triple in stored order. Corner order is data: winding is
+            # CCW seen from outside (spec 5), so a reader that rotates or
+            # reverses a triangle flips its facing while keeping every vertex.
+            samples.append({
+                "kind": "triangle",
+                "mesh": mesh_id,
+                "triangle": triangle,
+                "indices": [int(v) for v in mesh.indices[triangle]],
+            })
+
+        if mesh.patch_ids is not None:
+            for triangle in _spread(mesh.triangle_count):
+                samples.append({
+                    "kind": "patchId",
+                    "mesh": mesh_id,
+                    "triangle": triangle,
+                    "value": int(mesh.patch_ids[triangle]),
+                })
+
+        if mesh.node_ids is not None:
+            for vertex in _spread(mesh.vertex_count):
+                samples.append({
+                    "kind": "nodeId",
+                    "mesh": mesh_id,
+                    "vertex": vertex,
+                    "value": int(mesh.node_ids[vertex]),
+                })
+
+    return meshes, samples
+
+
+def _array_samples(root: Path, manifest: dict[str, Any],
+                   frames: Sequence[int]) -> list[dict[str, Any]]:
+    """Sample every ``.cva`` sitting beside a declared mesh.
+
+    CFDViz 1.0's manifest has no slot for mesh-associated arrays — ``meshes[]``
+    carries only geometry, and ``fields[]`` is grid storage whose
+    ``mesh-vertex`` / ``mesh-element`` associations spec 3.2 reserves for a
+    future version. So the files are discovered on disk rather than read out of
+    the manifest, and each sample records the path it came from.
+
+    Both the payload and the statistics are sampled. They fail differently:
+    payload bits catch a transposed or mis-strided read, while ``validCount``
+    catches NaN handling, which is invisible in the payload of a reader that
+    coerces NaN to zero *after* counting.
+    """
+    samples: list[dict[str, Any]] = []
+    directory = root / "meshes"
+    if not directory.is_dir():
+        return samples
+
+    for path in sorted(directory.glob("*.cva")):
+        relative = path.relative_to(root).as_posix()
+        array = read_cva(path)
+        if array.frame_index not in frames:
+            continue
+
+        names = array.component_names
+        for entity in _nonfinite_rows(array.values, _spread(array.value_count)):
+            for component in range(array.component_count):
+                value = array.values[entity][component]
+                samples.append({
+                    "kind": "value",
+                    "path": relative,
+                    "frame": array.frame_index,
+                    "entity": entity,
+                    "component": component,
+                    "componentName": names[component],
+                    "value": _readable_value(value),
+                    "bits": _bits_of(value),
+                })
+
+        statistics = array.frame_statistics
+        if statistics is None:
+            continue
+        for component in range(array.component_count):
+            samples.append({
+                "kind": "statistics",
+                "path": relative,
+                "frame": array.frame_index,
+                "component": component,
+                "componentName": names[component],
+                # Statistics are float64 on disk (spec 6.4) and compared by bits
+                # like everything else: a mean that differs in the last place is
+                # a real disagreement, not a formatting artefact.
+                "minimum": _statistic(statistics.minimum[component]),
+                "maximum": _statistic(statistics.maximum[component]),
+                "mean": _statistic(statistics.mean[component]),
+                "validCount": int(statistics.valid_count[component]),
+            })
+    return samples
+
+
+def _nonfinite_rows(values: np.ndarray, chosen: Sequence[int]) -> list[int]:
+    """``chosen`` plus every entity holding a non-finite value.
+
+    A spread of indices can miss the NaN entirely, and then the only trace of it
+    in the bridge is ``validCount`` — which says one value was excluded but not
+    which one, nor which bit pattern arrived. Sampling the row directly pins
+    both. Non-finite entities are rare by construction, so this stays bounded in
+    practice; the cap keeps a pathological all-NaN array from inflating the
+    bridge into something nobody reads.
+    """
+    picked = set(chosen)
+    if values.size:
+        rows = np.nonzero(~np.isfinite(values).all(axis=1))[0]
+        picked.update(int(row) for row in rows[:_NONFINITE_SAMPLE_LIMIT])
+    return sorted(picked)
+
+
+def _statistic(value: np.generic) -> dict[str, Any]:
+    """One float64 statistic, as both a readable number and exact bits.
+
+    An all-NaN component stores the ``+inf`` / ``-inf`` sentinel (spec 6.4), and
+    ``mean`` is NaN — none of which JSON can express, so ``value`` goes null and
+    ``bits`` carries it.
+    """
+    number = np.float64(value)
+    return {"value": _readable_value(number), "bits": _bits_of(number)}
 
 
 def write_known_values(root: Path | str) -> Path:
@@ -851,4 +1047,226 @@ def verify_known_values(root: Path | str, bridge: dict[str, Any]) -> list[str]:
                 f"{component}): bits are {actual}, the bridge expects "
                 f"{sample.get('bits')!r}"
             )
+
+    problems.extend(_verify_mesh_samples(root, manifest, bridge))
+    problems.extend(_verify_array_samples(root, bridge))
     return problems
+
+
+def _verify_mesh_samples(root: Path, manifest: dict[str, Any],
+                         bridge: dict[str, Any]) -> list[str]:
+    """Check every ``meshSamples`` entry against the ``.cvm`` files on disk."""
+    problems: list[str] = []
+    samples = bridge.get("meshSamples")
+    if not isinstance(samples, list):
+        return problems
+
+    declared = {
+        str(entry.get("id")): entry
+        for entry in (manifest.get("meshes") or [])
+        if isinstance(entry, dict)
+    }
+    cache: dict[str, Any] = {}
+
+    def mesh_for(mesh_id: str, index: int) -> Any:
+        if mesh_id in cache:
+            return cache[mesh_id]
+        entry = declared.get(mesh_id)
+        if entry is None:
+            problems.append(
+                f"meshSamples[{index}]: mesh {mesh_id!r} is not declared in the manifest"
+            )
+            cache[mesh_id] = None
+            return None
+        relative = entry.get("path")
+        if not isinstance(relative, str) or not is_safe_relative_path(relative):
+            problems.append(
+                f"meshSamples[{index}]: mesh {mesh_id!r} has no safe path"
+            )
+            cache[mesh_id] = None
+            return None
+        try:
+            cache[mesh_id] = read_cvm(root / relative)
+        except (CVMError, OSError) as exc:
+            problems.append(f"meshSamples[{index}]: {relative}: {exc}")
+            cache[mesh_id] = None
+        return cache[mesh_id]
+
+    # Counts first: a swapped per-vertex/per-triangle association shows up here
+    # as a single clear disagreement instead of as a scatter of wrong values.
+    for entry in bridge.get("meshes") or []:
+        if not isinstance(entry, dict):
+            continue
+        mesh = mesh_for(str(entry.get("id")), -1)
+        if mesh is None:
+            continue
+        for key, actual in (("vertexCount", mesh.vertex_count),
+                            ("triangleCount", mesh.triangle_count)):
+            if entry.get(key) != actual:
+                problems.append(
+                    f"mesh {entry.get('id')!r}: {key} is {actual}, the bridge expects "
+                    f"{entry.get(key)!r}"
+                )
+
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            problems.append(f"meshSamples[{index}] is not an object")
+            continue
+        kind = sample.get("kind")
+        mesh = mesh_for(str(sample.get("mesh")), index)
+        if mesh is None:
+            continue
+        label = f"meshSamples[{index}] ({kind} on {sample.get('mesh')!r})"
+
+        if kind == "position":
+            vertex, component = sample.get("vertex"), sample.get("component")
+            if not _in_range(vertex, mesh.vertex_count) or not _in_range(component, 3):
+                problems.append(f"{label}: vertex/component out of range")
+                continue
+            actual = _bits_of(mesh.positions[vertex][component])
+            if actual != sample.get("bits"):
+                problems.append(
+                    f"{label} vertex {vertex} component {component}: bits are "
+                    f"{actual}, the bridge expects {sample.get('bits')!r}"
+                )
+        elif kind == "triangle":
+            triangle = sample.get("triangle")
+            if not _in_range(triangle, mesh.triangle_count):
+                problems.append(f"{label}: triangle index out of range")
+                continue
+            actual_indices = [int(v) for v in mesh.indices[triangle]]
+            if actual_indices != sample.get("indices"):
+                problems.append(
+                    f"{label} triangle {triangle}: corners are {actual_indices}, the "
+                    f"bridge expects {sample.get('indices')!r} (order is significant; "
+                    "winding is CCW from outside)"
+                )
+        elif kind == "patchId":
+            triangle = sample.get("triangle")
+            if mesh.patch_ids is None:
+                problems.append(f"{label}: the mesh stores no patchIds")
+                continue
+            if not _in_range(triangle, mesh.triangle_count):
+                problems.append(
+                    f"{label}: triangle {triangle!r} is out of range for "
+                    f"{mesh.triangle_count} triangles — patchIds is per-triangle"
+                )
+                continue
+            actual_value = int(mesh.patch_ids[triangle])
+            if actual_value != sample.get("value"):
+                problems.append(
+                    f"{label} triangle {triangle}: patchId is {actual_value}, the "
+                    f"bridge expects {sample.get('value')!r}"
+                )
+        elif kind == "nodeId":
+            vertex = sample.get("vertex")
+            if mesh.node_ids is None:
+                problems.append(f"{label}: the mesh stores no nodeIds")
+                continue
+            if not _in_range(vertex, mesh.vertex_count):
+                problems.append(
+                    f"{label}: vertex {vertex!r} is out of range for "
+                    f"{mesh.vertex_count} vertices — nodeIds is per-vertex"
+                )
+                continue
+            actual_value = int(mesh.node_ids[vertex])
+            if actual_value != sample.get("value"):
+                problems.append(
+                    f"{label} vertex {vertex}: nodeId is {actual_value}, the bridge "
+                    f"expects {sample.get('value')!r}"
+                )
+        else:
+            problems.append(f"{label}: unknown mesh sample kind {kind!r}")
+    return problems
+
+
+def _verify_array_samples(root: Path, bridge: dict[str, Any]) -> list[str]:
+    """Check every ``arraySamples`` entry against the ``.cva`` files on disk."""
+    problems: list[str] = []
+    samples = bridge.get("arraySamples")
+    if not isinstance(samples, list):
+        return problems
+
+    cache: dict[str, Any] = {}
+
+    def array_for(relative: Any, index: int) -> Any:
+        if not isinstance(relative, str) or not is_safe_relative_path(relative):
+            problems.append(f"arraySamples[{index}]: unsafe or missing path")
+            return None
+        if relative not in cache:
+            try:
+                cache[relative] = read_cva(root / relative)
+            except (CVAError, CodecError, OSError) as exc:
+                problems.append(f"arraySamples[{index}]: {relative}: {exc}")
+                cache[relative] = None
+        return cache[relative]
+
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            problems.append(f"arraySamples[{index}] is not an object")
+            continue
+        array = array_for(sample.get("path"), index)
+        if array is None:
+            continue
+        component = sample.get("component")
+        if not _in_range(component, array.component_count):
+            problems.append(
+                f"arraySamples[{index}]: component {component!r} is out of range for "
+                f"{array.component_count} components"
+            )
+            continue
+
+        kind = sample.get("kind")
+        label = f"arraySamples[{index}] ({sample.get('path')} component {component}"
+        expected_name = sample.get("componentName")
+        if expected_name is not None and expected_name != array.component_names[component]:
+            problems.append(
+                f"{label}): component {component} is named "
+                f"{array.component_names[component]!r}, the bridge expects "
+                f"{expected_name!r} — the tensor component order disagrees "
+                "(spec 6.3 mandates XX YY ZZ XY YZ XZ)"
+            )
+
+        if kind == "value":
+            entity = sample.get("entity")
+            if not _in_range(entity, array.value_count):
+                problems.append(f"{label}): entity {entity!r} is out of range")
+                continue
+            actual = _bits_of(array.values[entity][component])
+            if actual != sample.get("bits"):
+                problems.append(
+                    f"{label} entity {entity}): bits are {actual}, the bridge expects "
+                    f"{sample.get('bits')!r}"
+                )
+        elif kind == "statistics":
+            statistics = array.frame_statistics
+            if statistics is None:
+                problems.append(f"{label}): the array stores no frame statistics")
+                continue
+            actual_count = int(statistics.valid_count[component])
+            if actual_count != sample.get("validCount"):
+                problems.append(
+                    f"{label}): validCount is {actual_count}, the bridge expects "
+                    f"{sample.get('validCount')!r} — a difference here means NaN was "
+                    "counted differently by the two readers"
+                )
+            for key, values in (("minimum", statistics.minimum),
+                                ("maximum", statistics.maximum),
+                                ("mean", statistics.mean)):
+                expected = sample.get(key)
+                if not isinstance(expected, dict):
+                    continue
+                actual = _bits_of(np.float64(values[component]))
+                if actual != expected.get("bits"):
+                    problems.append(
+                        f"{label}): {key} bits are {actual}, the bridge expects "
+                        f"{expected.get('bits')!r}"
+                    )
+        else:
+            problems.append(f"{label}): unknown array sample kind {kind!r}")
+    return problems
+
+
+def _in_range(value: Any, limit: int) -> bool:
+    """Whether ``value`` is an int usable as an index into ``limit`` entries."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value < limit

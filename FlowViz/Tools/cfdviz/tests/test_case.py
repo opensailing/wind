@@ -441,6 +441,449 @@ def test_validate_checks_known_values_when_present(valid_case: Path):
 
 
 # ---------------------------------------------------------------------------
+# Mesh samples — spec 5, carried in the bridge so the Unreal mesh reader is
+# verified against something other than two implementations reading the same
+# sentence.
+# ---------------------------------------------------------------------------
+
+def test_the_sample_mesh_has_unequal_vertex_and_triangle_counts():
+    """The property that makes every association test below able to fail.
+
+    ``patchIds`` is per-triangle, ``nodeIds`` per-vertex. If the counts were
+    equal, a reader that swapped them would produce correctly-sized arrays of
+    wrong numbers and no length check could tell.
+    """
+    from conftest import SAMPLE_TRIANGLE_COUNT, SAMPLE_VERTEX_COUNT, sample_mesh
+
+    assert SAMPLE_VERTEX_COUNT != SAMPLE_TRIANGLE_COUNT
+    geometry = sample_mesh()
+    assert geometry["positions"].shape[0] == SAMPLE_VERTEX_COUNT
+    assert geometry["indices"].shape[0] == SAMPLE_TRIANGLE_COUNT
+    assert geometry["patch_ids"].shape[0] == SAMPLE_TRIANGLE_COUNT
+    assert geometry["node_ids"].shape[0] == SAMPLE_VERTEX_COUNT
+
+
+def test_known_values_samples_mesh_vertex_positions_by_bits(valid_case: Path):
+    from cfdviz.cvm import read_cvm
+
+    mesh_samples = build_known_values(valid_case)["meshSamples"]
+    positions = [s for s in mesh_samples if s["kind"] == "position"]
+    assert positions, "vertex positions must be sampled"
+
+    stored = read_cvm(valid_case / "meshes/obstacle.cvm").positions
+    for sample in positions:
+        actual = stored[sample["vertex"]][sample["component"]]
+        raw = np.asarray(actual).tobytes()
+        assert sample["bits"] == f"0x{int.from_bytes(raw, 'little'):0{2 * len(raw)}X}"
+
+
+def test_known_values_samples_triangles_with_corner_order_preserved(
+    valid_case: Path,
+):
+    """Spec 5: winding is CCW seen from outside, so corner ORDER is data.
+
+    Sampling the index triple as a set would let a reader rotate or reverse each
+    triangle — flipping its facing — and still pass.
+    """
+    from cfdviz.cvm import read_cvm
+
+    mesh_samples = build_known_values(valid_case)["meshSamples"]
+    triangles = [s for s in mesh_samples if s["kind"] == "triangle"]
+    assert triangles, "triangles must be sampled"
+
+    stored = read_cvm(valid_case / "meshes/obstacle.cvm").indices
+    for sample in triangles:
+        expected = [int(v) for v in stored[sample["triangle"]]]
+        assert sample["indices"] == expected, "corner order must match exactly"
+
+    # And the fixture must actually be order-sensitive, or the check above is
+    # satisfied by any permutation.
+    assert any(
+        s["indices"] != sorted(s["indices"]) for s in triangles
+    ), "no sampled triangle has a non-sorted corner order; the check cannot fail"
+
+
+def test_known_values_samples_patch_ids_per_triangle(valid_case: Path):
+    from conftest import SAMPLE_TRIANGLE_COUNT
+    from cfdviz.cvm import read_cvm
+
+    mesh_samples = build_known_values(valid_case)["meshSamples"]
+    patches = [s for s in mesh_samples if s["kind"] == "patchId"]
+    assert patches, "patchIds must be sampled"
+
+    stored = read_cvm(valid_case / "meshes/obstacle.cvm").patch_ids
+    for sample in patches:
+        assert sample["triangle"] < SAMPLE_TRIANGLE_COUNT
+        assert sample["value"] == int(stored[sample["triangle"]])
+
+    # The LAST triangle must be among them. Bounded by triangleCount alone, a
+    # sampler that walked the vertex count would still emit in-range indices
+    # (there are fewer triangles than vertices) and every value would check out.
+    assert max(s["triangle"] for s in patches) == SAMPLE_TRIANGLE_COUNT - 1
+
+
+def test_known_values_samples_node_ids_per_vertex(valid_case: Path):
+    from conftest import SAMPLE_VERTEX_COUNT
+    from cfdviz.cvm import read_cvm
+
+    mesh_samples = build_known_values(valid_case)["meshSamples"]
+    nodes = [s for s in mesh_samples if s["kind"] == "nodeId"]
+    assert nodes, "nodeIds must be sampled"
+
+    stored = read_cvm(valid_case / "meshes/obstacle.cvm").node_ids
+    for sample in nodes:
+        assert sample["vertex"] < SAMPLE_VERTEX_COUNT
+        assert sample["value"] == int(stored[sample["vertex"]])
+
+    # The mirror of the patchId case, and the one that actually bites: a sampler
+    # that walked triangleCount here would stop at vertex 1 of 5, leave the tail
+    # of the array unsampled, and report nothing wrong.
+    assert max(s["vertex"] for s in nodes) == SAMPLE_VERTEX_COUNT - 1
+
+
+def test_samples_reach_both_ends_of_every_axis(valid_case: Path):
+    """Sampling only index 0 would satisfy every per-value check above.
+
+    Off-by-one errors in a reader's loop bounds live at the ends, so the first
+    and last index of each sampled axis must appear.
+    """
+    from conftest import SAMPLE_TRIANGLE_COUNT, SAMPLE_VERTEX_COUNT
+
+    bridge = build_known_values(valid_case)
+    mesh_samples = bridge["meshSamples"]
+
+    for kind, key, count in (
+        ("position", "vertex", SAMPLE_VERTEX_COUNT),
+        ("nodeId", "vertex", SAMPLE_VERTEX_COUNT),
+        ("triangle", "triangle", SAMPLE_TRIANGLE_COUNT),
+        ("patchId", "triangle", SAMPLE_TRIANGLE_COUNT),
+    ):
+        indices = {s[key] for s in mesh_samples if s["kind"] == kind}
+        assert indices, f"{kind} must be sampled"
+        assert min(indices) == 0, f"{kind} never samples the first entry"
+        assert max(indices) == count - 1, f"{kind} never samples the last entry"
+
+    entities = {s["entity"] for s in bridge["arraySamples"] if s["kind"] == "value"}
+    assert min(entities) == 0
+    assert max(entities) == SAMPLE_VERTEX_COUNT - 1
+
+
+def test_mesh_samples_record_both_counts(valid_case: Path):
+    """A reader that swapped the two associations would disagree here first."""
+    from conftest import SAMPLE_TRIANGLE_COUNT, SAMPLE_VERTEX_COUNT
+
+    mesh = build_known_values(valid_case)["meshes"][0]
+    assert mesh["id"] == "obstacle"
+    assert mesh["vertexCount"] == SAMPLE_VERTEX_COUNT
+    assert mesh["triangleCount"] == SAMPLE_TRIANGLE_COUNT
+
+
+def test_verify_known_values_detects_a_swapped_patch_and_node_association(
+    valid_case: Path,
+):
+    """The differential test the unequal counts exist to make possible."""
+    from conftest import sample_mesh
+    from cfdviz.cvm import write_cvm
+
+    bridge = build_known_values(valid_case)
+    assert verify_known_values(valid_case, bridge) == []
+
+    geometry = sample_mesh()
+    # patchIds now carries what nodeIds should, truncated to triangle count.
+    write_cvm(
+        valid_case / "meshes/obstacle.cvm",
+        positions=geometry["positions"],
+        indices=geometry["indices"],
+        patch_ids=geometry["node_ids"][: len(geometry["patch_ids"])].astype("<u4"),
+        node_ids=geometry["node_ids"],
+    )
+    problems = verify_known_values(valid_case, bridge)
+    assert problems
+    assert any("patchId" in p for p in problems)
+
+
+def test_verify_known_values_detects_a_moved_vertex(valid_case: Path):
+    from conftest import sample_mesh
+    from cfdviz.cvm import write_cvm
+
+    bridge = build_known_values(valid_case)
+    geometry = sample_mesh()
+    geometry["positions"][0, 0] += np.float32(0.5)
+    write_cvm(
+        valid_case / "meshes/obstacle.cvm",
+        positions=geometry["positions"],
+        indices=geometry["indices"],
+        patch_ids=geometry["patch_ids"],
+        node_ids=geometry["node_ids"],
+    )
+    problems = verify_known_values(valid_case, bridge)
+    assert any("position" in p for p in problems)
+
+
+def test_verify_known_values_detects_a_reversed_triangle(valid_case: Path):
+    """Reversing a triangle keeps every vertex and flips the facing."""
+    from conftest import sample_mesh
+    from cfdviz.cvm import write_cvm
+
+    bridge = build_known_values(valid_case)
+    geometry = sample_mesh()
+    geometry["indices"][0] = geometry["indices"][0][::-1]
+    write_cvm(
+        valid_case / "meshes/obstacle.cvm",
+        positions=geometry["positions"],
+        indices=geometry["indices"],
+        patch_ids=geometry["patch_ids"],
+        node_ids=geometry["node_ids"],
+    )
+    problems = verify_known_values(valid_case, bridge)
+    assert any("triangle" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
+# Mesh array samples — spec 6
+# ---------------------------------------------------------------------------
+
+def test_known_values_samples_array_payload_by_entity_and_component(
+    valid_case: Path,
+):
+    from cfdviz.cva import read_cva
+
+    array_samples = build_known_values(valid_case)["arraySamples"]
+    payload = [s for s in array_samples if s["kind"] == "value"]
+    assert payload, "array payload must be sampled"
+
+    for sample in payload:
+        stored = read_cva(valid_case / sample["path"]).values
+        actual = stored[sample["entity"]][sample["component"]]
+        raw = np.asarray(actual).tobytes()
+        assert sample["bits"] == f"0x{int.from_bytes(raw, 'little'):0{2 * len(raw)}X}"
+
+
+def test_array_samples_pin_the_symmetric_tensor_component_order(valid_case: Path):
+    """Spec 6.3: XX YY ZZ XY YZ XZ, not the other common Voigt order.
+
+    The wrong order permutes shear components into each other and every value
+    stays physically plausible, so only an exact per-component comparison
+    catches it. Recording the component *name* alongside the index is what makes
+    the bridge assert the order rather than merely the values.
+    """
+    from cfdviz.cva import SYMMETRIC_TENSOR_COMPONENT_ORDER
+
+    array_samples = build_known_values(valid_case)["arraySamples"]
+    payload = [s for s in array_samples if s["kind"] == "value"]
+    named = {s["component"]: s["componentName"] for s in payload}
+
+    assert len(named) == 6, "every component of the tensor must be sampled"
+    for index, name in named.items():
+        assert name == SYMMETRIC_TENSOR_COMPONENT_ORDER[index]
+    assert tuple(named[i] for i in range(6)) == ("XX", "YY", "ZZ", "XY", "YZ", "XZ")
+
+
+def test_known_values_samples_array_statistics_per_component(valid_case: Path):
+    from cfdviz.cva import read_cva
+
+    array_samples = build_known_values(valid_case)["arraySamples"]
+    stats = [s for s in array_samples if s["kind"] == "statistics"]
+    assert stats, "array statistics must be sampled"
+
+    for sample in stats:
+        stored = read_cva(valid_case / sample["path"]).frame_statistics
+        index = sample["component"]
+        assert sample["validCount"] == int(stored.valid_count[index])
+        for key, array in (("minimum", stored.minimum),
+                           ("maximum", stored.maximum),
+                           ("mean", stored.mean)):
+            raw = np.float64(array[index]).tobytes()
+            assert sample[key]["bits"] == f"0x{int.from_bytes(raw, 'little'):016X}"
+
+
+def test_a_nan_component_reports_a_lower_valid_count(valid_case: Path):
+    """The single integer that catches "NaN quietly became zero".
+
+    Component 3 of the sample array carries one NaN; every other component is
+    fully valid. If a reader coerced NaN to 0.0 the count would come back equal
+    to its neighbours' and the payload bits alone would not say so.
+    """
+    from conftest import SAMPLE_VERTEX_COUNT
+
+    array_samples = build_known_values(valid_case)["arraySamples"]
+    stats = {
+        s["component"]: s
+        for s in array_samples
+        if s["kind"] == "statistics" and s["frame"] == 0
+    }
+    assert stats[3]["validCount"] == SAMPLE_VERTEX_COUNT - 1
+    for index in (0, 1, 2, 4, 5):
+        assert stats[index]["validCount"] == SAMPLE_VERTEX_COUNT
+    assert stats[3]["validCount"] < stats[0]["validCount"]
+
+
+def test_verify_known_values_detects_nan_coerced_to_zero(valid_case: Path):
+    """Differential: rewrite the array with the NaN replaced by 0.0."""
+    from conftest import sample_array_values
+    from cfdviz.cva import write_cva
+
+    bridge = build_known_values(valid_case)
+    assert verify_known_values(valid_case, bridge) == []
+
+    values = sample_array_values(0)
+    values[2, 3] = np.float32(0.0)
+    write_cva(
+        valid_case / "meshes/obstacle.wallShearStress.000000.cva",
+        values=values, frame_index=0, simulation_time=0.0,
+        association="mesh-vertex", field_numeric_id=10,
+    )
+    problems = verify_known_values(valid_case, bridge)
+    assert problems
+    assert any("validCount" in p for p in problems), problems
+
+
+def test_verify_known_values_detects_a_permuted_tensor_component_order(
+    valid_case: Path,
+):
+    """Swapping two shear components leaves every value plausible."""
+    from conftest import sample_array_values
+    from cfdviz.cva import write_cva
+
+    bridge = build_known_values(valid_case)
+    values = sample_array_values(0)
+    # XY <-> YZ: the exact confusion the two Voigt conventions produce.
+    values[:, [3, 4]] = values[:, [4, 3]]
+    write_cva(
+        valid_case / "meshes/obstacle.wallShearStress.000000.cva",
+        values=values, frame_index=0, simulation_time=0.0,
+        association="mesh-vertex", field_numeric_id=10,
+    )
+    problems = verify_known_values(valid_case, bridge)
+    assert problems
+
+
+def test_the_nan_itself_is_sampled_in_the_payload(valid_case: Path):
+    """``validCount`` alone leaves the NaN's own bits unpinned.
+
+    The statistic says "one value was not finite"; only a payload sample says
+    *which* value and that it arrived as a quiet NaN rather than as a signalling
+    one or as some other non-finite bit pattern.
+    """
+    array_samples = build_known_values(valid_case)["arraySamples"]
+    payload = [
+        s for s in array_samples
+        if s["kind"] == "value" and s["frame"] == 0
+        and s["entity"] == 2 and s["component"] == 3
+    ]
+    assert payload, "the entity carrying the NaN must be sampled"
+    sample = payload[0]
+    assert sample["value"] is None, "JSON cannot express NaN; value must be null"
+    bits = int(sample["bits"], 16)
+    assert np.isnan(np.frombuffer(bits.to_bytes(4, "little"), dtype="<f4")[0])
+
+
+def test_verify_known_values_detects_an_altered_payload_value(valid_case: Path):
+    """The payload comparison must fire on its own, not ride on the statistics.
+
+    Changing a value also moves that component's min/max/mean, and those problem
+    strings mention "bits" too — so a loose substring assertion here stays green
+    with the payload branch deleted. The check must name the entity, which only
+    the payload branch does.
+    """
+    from conftest import sample_array_values
+    from cfdviz.cva import write_cva
+
+    bridge = build_known_values(valid_case)
+    values = sample_array_values(0)
+    values[0, 0] = np.float32(99.5)
+    write_cva(
+        valid_case / "meshes/obstacle.wallShearStress.000000.cva",
+        values=values, frame_index=0, simulation_time=0.0,
+        association="mesh-vertex", field_numeric_id=10,
+    )
+    problems = verify_known_values(valid_case, bridge)
+    assert any("entity 0" in p and "bits" in p for p in problems), problems
+
+
+def test_verify_known_values_rejects_a_wrong_component_name(valid_case: Path):
+    """The bridge asserts the Voigt order, so a renamed component must fail."""
+    bridge = build_known_values(valid_case)
+    for sample in bridge["arraySamples"]:
+        if sample["component"] == 3:
+            sample["componentName"] = "YZ"
+            break
+    problems = verify_known_values(valid_case, bridge)
+    assert any("XY" in p for p in problems), problems
+
+
+@pytest.mark.parametrize("key", ["minimum", "maximum", "mean"])
+def test_verify_known_values_rejects_a_wrong_statistic(valid_case: Path, key: str):
+    bridge = build_known_values(valid_case)
+    for sample in bridge["arraySamples"]:
+        if sample["kind"] == "statistics":
+            sample[key]["bits"] = "0x0000000000000000"
+            break
+    problems = verify_known_values(valid_case, bridge)
+    assert any(key in p for p in problems), problems
+
+
+def test_verify_known_values_rejects_a_wrong_mesh_count(valid_case: Path):
+    bridge = build_known_values(valid_case)
+    bridge["meshes"][0]["vertexCount"] += 1
+    problems = verify_known_values(valid_case, bridge)
+    assert any("vertexCount" in p for p in problems), problems
+
+
+def test_verify_known_values_rejects_an_unknown_sample_kind(valid_case: Path):
+    """Silently skipping an unrecognised kind turns a typo into false coverage."""
+    bridge = build_known_values(valid_case)
+    bridge["meshSamples"].append({"kind": "patchID", "mesh": "obstacle", "triangle": 0})
+    bridge["arraySamples"].append({
+        "kind": "values",
+        "path": "meshes/obstacle.wallShearStress.000000.cva",
+        "component": 0,
+    })
+    problems = verify_known_values(valid_case, bridge)
+    assert sum("unknown" in p for p in problems) == 2, problems
+
+
+@pytest.mark.parametrize(
+    ("kind", "key", "index"),
+    [
+        # 3 is a valid VERTEX index but out of range for 2 triangles: the exact
+        # shape of a bridge built by a reader that swapped the associations.
+        ("patchId", "triangle", 3),
+        ("nodeId", "vertex", 9),
+        ("position", "vertex", 9),
+        ("triangle", "triangle", 9),
+    ],
+)
+def test_verify_known_values_reports_an_out_of_range_index(
+    valid_case: Path, kind: str, key: str, index: int
+):
+    """Out of range must be a problem string, not an IndexError out of the tool."""
+    bridge = build_known_values(valid_case)
+    sample = next(s for s in bridge["meshSamples"] if s["kind"] == kind)
+    sample[key] = index
+    problems = verify_known_values(valid_case, bridge)
+    assert any("range" in p for p in problems), problems
+
+
+def test_verify_known_values_reports_an_out_of_range_entity(valid_case: Path):
+    bridge = build_known_values(valid_case)
+    sample = next(s for s in bridge["arraySamples"] if s["kind"] == "value")
+    sample["entity"] = 99
+    problems = verify_known_values(valid_case, bridge)
+    assert any("range" in p for p in problems), problems
+
+
+def test_mesh_and_array_samples_survive_a_write_read_round_trip(valid_case: Path):
+    """The bridge on disk must verify, not just the in-memory object."""
+    from cfdviz.case import write_known_values
+
+    path = write_known_values(valid_case)
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    assert loaded["meshSamples"] and loaded["arraySamples"]
+    assert verify_known_values(valid_case, loaded) == []
+
+
+# ---------------------------------------------------------------------------
 # Report rendering
 # ---------------------------------------------------------------------------
 
