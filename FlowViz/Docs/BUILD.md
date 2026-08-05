@@ -365,11 +365,17 @@ conclude a live campaign was abandoned. `mutation_guard.sh` strips pids from the
 refusal for that reason.
 
 `Tools/mutation_guard.sh`, installed as `.git/hooks/pre-commit`, refuses every
-commit in the checkout while that file exists. Install it once per clone:
+commit in the checkout while that file exists:
 
 ```bash
 cp FlowViz/Tools/mutation_guard.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 ```
+
+The hook is a **copy**, so fixing the source does not update it — run that line
+again after any change to `mutation_guard.sh`, and in every new clone and
+worktree. `Tools/tests/test_mutation_guard.sh` checks the installed copy against
+the source and prints the reinstall command when they diverge; it caught the
+live hook running a version two commits behind while its own suite was green.
 
 It lives under `.git/` so it survives the sweeping `git checkout -- .` a mutation
 run ends with, and so it can never itself be staged. It is a file rather than a
