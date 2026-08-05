@@ -50,6 +50,33 @@ the three modules takes roughly 15 seconds on the reference machine.
 
 Targets are `FlowVizEditor` (editor) and `FlowViz` (game/packaged).
 
+### `Build.sh` exits 0 even when the build FAILS
+
+Verified on the reference machine (2026-08-04): a run that printed
+`Result: Failed (ConflictingInstance)` still returned exit code `0`.
+
+**Never branch on `$?`, and never chain with `&&`.** Redirect to a log and
+grep the text:
+
+```bash
+LOG=/tmp/flowviz_build.log
+"/Users/Shared/Epic Games/UE_5.8/Engine/Build/BatchFiles/Mac/Build.sh" \
+    FlowVizEditor Mac Development \
+    -project="$PWD/FlowViz/FlowViz.uproject" > "$LOG" 2>&1
+grep -aq "Result: Succeeded" "$LOG" || { echo "build failed"; exit 1; }
+```
+
+This matters most for anything that *scores* a build. A mutation-testing
+harness keyed on the exit code records every mutant as killed while proving
+nothing — a result that reads as thorough coverage and is worthless.
+
+Use `grep -a`. `Result: Failed (ConflictingInstance)` means another
+UnrealBuildTool instance holds the global mutex — not your error; sleep and
+retry. Its message contains `Global\UnrealBuildTool_Mutex_…`, and in zsh
+`echo "$OUT"` turns that `\U` into a NUL byte, after which grep treats the
+stream as binary and silently matches nothing. A retry loop piping through
+`echo` therefore sees no conflict and proceeds as though the build ran.
+
 ### On clangd errors in your IDE
 
 You will very likely see `'CoreMinimal.h' file not found` and a cascade of
