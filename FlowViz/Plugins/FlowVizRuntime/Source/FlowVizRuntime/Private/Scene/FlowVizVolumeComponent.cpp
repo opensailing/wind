@@ -340,14 +340,54 @@ public:
 			// The ray-march itself. Everything handed over is either a copy or a
 			// resource the component owns for its whole life; no game-thread
 			// pointer crosses.
-			if (IFlowVizVolumeRayMarchDispatcher* Dispatcher = FlowVizVolumeRayMarch::GetDispatcher())
+			/*
+			 * WHY THE DISPATCH DID NOT HAPPEN, SAID OUT LOUD.
+			 *
+			 * Four things must hold before a march is issued, and until this
+			 * block existed all four failed the same way: silently, leaving the
+			 * proxy's opaque hull on screen. A headless capture of that frame is
+			 * a picture of a box, and it is not distinguishable by eye from a
+			 * correctly marched volume that happens to be dense. The first real
+			 * capture run failed exactly here and the log could not say which
+			 * condition was responsible.
+			 *
+			 * Logged ONCE per proxy rather than per frame - at 60fps per view
+			 * this would otherwise bury the log - and at Warning, because a
+			 * volume that is in the scene and not marching is a defect every
+			 * time, never an expected state.
+			 */
+			IFlowVizVolumeRayMarchDispatcher* Dispatcher = FlowVizVolumeRayMarch::GetDispatcher();
+			const int32 SlotAIndex = (TextureSet != nullptr)
+				? TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameA)
+				: INDEX_NONE;
+			const FFlowVizVolumeSlotTextures* SlotATextures = (TextureSet != nullptr)
+				? TextureSet->GetSlotTextures(SlotAIndex)
+				: nullptr;
+
+			if (!bLoggedDispatchBlocker
+				&& (Dispatcher == nullptr || !DynamicData.bHasParameters
+					|| TextureSet == nullptr || SlotATextures == nullptr))
+			{
+				bLoggedDispatchBlocker = true;
+				UE_LOG(LogFlowViz, Warning,
+					TEXT("Volume ray-march SKIPPED and the hull is all this frame contains. ")
+					TEXT("dispatcher=%s bHasParameters=%s textureSet=%s frameA=%d slotA=%d slotATextures=%s"),
+					Dispatcher != nullptr ? TEXT("installed") : TEXT("MISSING"),
+					DynamicData.bHasParameters ? TEXT("yes") : TEXT("NO - no dynamic-data push has arrived, or TryMakeShaderParameters failed"),
+					TextureSet != nullptr ? TEXT("present") : TEXT("MISSING"),
+					DynamicData.FrameSelection.FrameA,
+					SlotAIndex,
+					SlotATextures != nullptr ? TEXT("resident") : TEXT("NOT RESIDENT - the upload has not landed on the render thread"));
+			}
+
+			if (Dispatcher != nullptr)
 			{
 				if (DynamicData.bHasParameters && TextureSet != nullptr)
 				{
-					const int32 SlotA = TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameA);
+					const int32 SlotA = SlotAIndex;
 					const int32 SlotB = TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameB);
 
-					if (const FFlowVizVolumeSlotTextures* TexturesA = TextureSet->GetSlotTextures(SlotA))
+					if (const FFlowVizVolumeSlotTextures* TexturesA = SlotATextures)
 					{
 						FFlowVizVolumeRayMarchContext Context;
 						Context.View = View;
@@ -532,6 +572,9 @@ private:
 
 	/** Mutable because GetDynamicMeshElements is const; this is a diagnostic, not render state. */
 	mutable bool bRayMarchDispatched = false;
+
+	/** One warning per proxy, not one per frame per view. See the dispatch gate. */
+	mutable bool bLoggedDispatchBlocker = false;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -944,6 +987,25 @@ FPrimitiveSceneProxy* UCFDVizVolumeComponent::CreateSceneProxy()
 	}
 
 	return new FFlowVizVolumeSceneProxy(this);
+}
+
+void UCFDVizVolumeComponent::GetUsedMaterials(TArray<UMaterialInterface*>& OutMaterials, bool bGetDebugMaterials) const
+{
+	// MUST MIRROR BuildHullMeshBatch's choice, including its fallback. A list
+	// that names only DebugMeshMaterial would still drop the batch on a
+	// configuration where GEngine->DebugMeshMaterial is null and the hull falls
+	// back to the default surface material.
+	if (bGetDebugMaterials)
+	{
+		if (GEngine != nullptr && GEngine->DebugMeshMaterial != nullptr)
+		{
+			OutMaterials.Add(GEngine->DebugMeshMaterial);
+		}
+		else
+		{
+			OutMaterials.Add(UMaterial::GetDefaultMaterial(MD_Surface));
+		}
+	}
 }
 
 void UCFDVizVolumeComponent::SendRenderDynamicData_Concurrent()

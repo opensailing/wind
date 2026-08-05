@@ -7,6 +7,7 @@
 #include "CFDViz/CFDVizManifest.h"
 #include "RenderCommandFence.h"
 #include "Render/FlowVizVolumeTexture.h"
+#include "UI/FlowVizRenderSettingsViewModel.h"
 
 #include "FlowVizVolumeComponent.generated.h"
 
@@ -197,6 +198,24 @@ struct FFlowVizVolumeRayMarchContext
 
 	/** The cbuffer block: everything is LOCAL to the volume. See FFlowVizVolumeShaderParameters. */
 	FFlowVizVolumeShaderParameters Parameters;
+
+	/**
+	 * How to composite, light and step this volume.
+	 *
+	 * SEPARATE FROM Parameters ON PURPOSE. That struct is the shared cbuffer
+	 * prefix, pinned byte-for-byte by a static_assert against the ray-march
+	 * parameters, and it carries geometry and format only -- it has never had a
+	 * row for CompositeMode. So there was no channel through which a caller
+	 * could ask for anything but the welded default, and sixteen shader
+	 * parameters had FillDefaults as their only non-test writer: five of the six
+	 * composite modes unreachable, the whole gradient-lighting path dead. This
+	 * field is that channel. Docs/BACKLOG.md item 2e.
+	 *
+	 * DEFAULT-CONSTRUCTED IS AN IDENTITY over FillDefaults, so a context that
+	 * ignores this field renders exactly as before. FlowViz.Render.SettingsSeam
+	 * asserts that first, as the control for every other assertion in it.
+	 */
+	FFlowVizRenderSettingsViewModel RenderSettings;
 
 	/** Textures for display frame A. Never null when a dispatch is issued. */
 	const FFlowVizVolumeSlotTextures* SlotA = nullptr;
@@ -689,6 +708,22 @@ public:
 
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
 	virtual void SendRenderDynamicData_Concurrent() override;
+
+	/**
+	 * Declare the hull's material so FMeshBatch::Validate does not reject it.
+	 *
+	 * The proxy draws its hull with GEngine->DebugMeshMaterial. Every mesh batch
+	 * is checked against this list (PrimitiveSceneProxy.cpp:1770), and a batch
+	 * whose material is missing from it trips an ensure and is DROPPED:
+	 *
+	 *   "PrimitiveComponent tried to render with Material DebugMeshMaterial,
+	 *    which was not present in the component's GetUsedMaterials results"
+	 *
+	 * That fired on every frame of the first headless capture. It is a debug
+	 * material, so it is returned only when bGetDebugMaterials is set - which is
+	 * what the validator passes.
+	 */
+	virtual void GetUsedMaterials(TArray<UMaterialInterface*>& OutMaterials, bool bGetDebugMaterials = false) const override;
 	virtual void OnUnregister() override;
 	virtual void BeginDestroy() override;
 	virtual bool IsReadyForFinishDestroy() override;
