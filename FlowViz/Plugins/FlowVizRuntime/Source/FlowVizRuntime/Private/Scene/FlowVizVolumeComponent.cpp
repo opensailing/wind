@@ -262,9 +262,30 @@ public:
 
 		FlowVizVolumeBox::MakeBoxGeometry(PhysicalSize, bReverseWinding, BoxGeometry);
 
-		// Seeded from the component so the very first frame after the proxy is
-		// created is not blank while it waits for a dynamic-data push.
+		/*
+		 * Seeded from the component so the very first frame after the proxy is
+		 * created is not blank while it waits for a dynamic-data push.
+		 *
+		 * THE PARAMETERS ARE PART OF THAT SEED. Until this line existed only
+		 * FrameSelection was copied, so a freshly created proxy carried
+		 * bHasParameters == false and the dispatch gate refused it -- the frame
+		 * WAS blank, in exactly the way the comment above promised it would not
+		 * be, and the hull rendered on its own.
+		 *
+		 * That is not a theoretical window. A commandlet capture never ticks:
+		 * MarkRenderDynamicDataDirty queues an end-of-frame update, and a script
+		 * that spawns an actor and captures immediately gets its proxy built and
+		 * photographed inside one flush. The first real headless capture logged
+		 * "bHasParameters=NO ... slotATextures=resident" -- the textures had
+		 * landed and the parameters had not, because nothing had pushed them.
+		 *
+		 * TryMakeShaderParameters is const and cheap, and returning false here
+		 * simply leaves the proxy in the state it used to always be in, so the
+		 * dynamic-data push remains the authority; this only removes the gap
+		 * before the first one arrives.
+		 */
 		DynamicData.FrameSelection = Component->GetFrameSelection();
+		DynamicData.bHasParameters = Component->TryMakeShaderParameters(DynamicData.Parameters);
 	}
 
 	/** Render thread. Replaces the marshalled copy wholesale, so there is no intermediate half-updated state. */
