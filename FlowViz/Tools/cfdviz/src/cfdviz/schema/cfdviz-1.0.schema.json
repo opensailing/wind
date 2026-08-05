@@ -48,7 +48,7 @@
     "structures": {
       "type": "array",
       "items": { "$ref": "#/$defs/structure" },
-      "description": "Reserved for mesh-associated (FEA) results, section 6.5. Empty in 1.0 sample cases."
+      "description": "Reserved for mesh-associated (FEA) results; see CFDVIZ_FORMAT.md section 6.5. Empty in 1.0 sample cases, where CVA files are discovered at meshes/*.cva instead."
     },
     "provenance": { "$ref": "#/$defs/provenance" }
   },
@@ -478,7 +478,7 @@
     "structure": {
       "type": "object",
       "required": ["id", "mesh"],
-      "description": "Reserved association between a CVM mesh and mesh-associated (CVA) results, plan section 6.5. No 1.0 UI renders every result type.",
+      "description": "Reserved association between a CVM mesh and mesh-associated (CVA) results; see CFDVIZ_FORMAT.md section 6.5. Optional in 1.0: readers MUST validate it when present and MUST NOT require it, because CVA files are also discovered at meshes/*.cva.",
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
         "name": { "type": "string" },

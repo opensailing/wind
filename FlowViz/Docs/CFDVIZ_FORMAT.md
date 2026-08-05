@@ -389,6 +389,38 @@ flags are set.
 `validCount` counts non-NaN entries per component, so a partially invalid field
 still reports honest statistics rather than silently averaging NaN.
 
+### 6.5 Associating a CVA with a mesh
+
+A `.cva` is **not declared in `manifest.fields[]`**, and this is deliberate.
+`fields[]` describes grid storage: every entry names a `grid`, and §3.2 requires
+1.0 to *reject* the `mesh-vertex` and `mesh-element` associations a CVA carries.
+A CVA declared as a field would therefore be a manifest that 1.0 must refuse.
+
+`manifest.structures[]` is the slot that binds a mesh to its results. Each entry
+names a `mesh` by id and may name `displacementField`, `velocityField`,
+`stressField` and `strainField`. It is **reserved in 1.0**: readers MUST parse
+and validate it when present, and MUST NOT require it.
+
+**Discovery convention.** Because `structures[]` is optional in 1.0, a case may
+carry CVA files that nothing in the manifest points at. Both implementations
+resolve these the same way, and a reader MUST follow it or the two will disagree
+about what a case contains:
+
+```
+meshes/*.cva        relative to the case root, matched non-recursively
+```
+
+Each discovered path is recorded verbatim in `known_values.json` so the C++ and
+Python readers can be compared file by file. `§1.3` path-traversal rules apply
+unchanged: a discovered path that escapes the case root MUST be rejected, not
+clamped.
+
+**This is a 1.0 limitation, not the intended end state.** The better fix is a
+first-class manifest slot for mesh-associated arrays, which is a breaking change
+deferred to 1.1 — see the note in `structures[]` in `schema/manifest.schema.json`.
+Until then, *discovery is normative*: a reader that only honours `structures[]`
+will silently miss arrays that a conforming writer emitted.
+
 ---
 
 ## 7. Compression codecs — deviation from the original plan
