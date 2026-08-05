@@ -233,10 +233,15 @@ struct FFlowVizVolumeRayMarchContext
 	 *
 	 *     A=1, B=2:        774,339 backwards steps in 5e7 increasing t
 	 *     A=1, B=1+1ULP: 1,048,577
-	 *     A=0.1, B=0.9:          0 on that uniform grid, 7,030 under anchored
-	 *                            consecutive-float sampling - the grid, not the
-	 *                            pair, is what made it look monotone
+	 *     A=0.1, B=0.9:          0 on that uniform grid, thousands under
+	 *                            anchored consecutive-float sampling
 	 *     mad form:              0 everywhere, structurally (see below)
+	 *
+	 * TREAT THOSE COUNTS AS EXISTENCE PROOFS, NOT RATES. Each is specific to its
+	 * sampling of t, and the counts move by orders of magnitude with the grid -
+	 * the A=0.1 pair looks perfectly monotone on one sweep and retreats
+	 * thousands of times on another. What they establish is that the retreat is
+	 * real and reachable; they do not characterise how often it occurs.
 	 *
 	 * The retreat is ALWAYS exactly 1 ULP. DO NOT conclude from that it cannot
 	 * reach a pixel - it can, and an earlier draft of this comment claimed
@@ -245,33 +250,44 @@ struct FFlowVizVolumeRayMarchContext
 	 * window happens to span A..B, and a quantisation boundary can fall between
 	 * any two adjacent floats, so SOME 1-ULP retreats straddle one:
 	 *
-	 *     A=1, B=2, window [1,2], 16-bit: 8.4e6 floats over 65,536 levels
-	 *       = 128 floats per level, comfortably resolved - and still
-	 *         774,339 raw retreats, of which 6,050 (0.781%) reverse the
-	 *         colour index. 1/128 = 0.781%, i.e. exactly the boundary-
-	 *         straddle rate, not an artifact.
-	 *       The mad form reverses the colour index 0 times on the same sweep.
-	 *       That zero is STRUCTURAL, not an unfired harness: for fixed (B-A),
-	 *       A + t*(B-A) is monotone in t, so there is nothing to quantise. Its
-	 *       raw retreat count is 0 on the same samples where two-product fires.
+	 *     A=1, B=2, window [1,2], 16-bit - 128 floats per colour level, i.e.
+	 *       comfortably resolved, NOT a degenerate window - and a 1-ULP retreat
+	 *       still reverses the displayed colour index. Concretely:
+	 *       t = 0.00478371978, value 1.00478375 -> 1.00478363, index 314 -> 313.
+	 *       The mad form holds 314 across the same step.
+	 *       That mad zero is STRUCTURAL, not an unfired harness: for fixed
+	 *       (B-A), A + t*(B-A) is monotone in t, so there is nothing for the
+	 *       quantiser to reverse. Its raw retreat count is 0 on the same samples
+	 *       where two-product fires. A theorem, not a sample - do not "repair"
+	 *       that control thinking it is dead.
 	 *
-	 * The straddle rate is ULP(value)/level_width. Where the window sits inside
-	 * ONE binade that reduces to 1/(floats per level) - which is why [1,2] fits
-	 * 1/128 to four digits - but it does NOT generalise, and the simple form is
-	 * wrong as soon as the window spans several exponents:
+	 * NO RATE IS QUOTED HERE ON PURPOSE. Three closed forms were proposed across
+	 * two agents - 1/(floats per level), E[ULP]/level_width, and a lattice
+	 * equidistribution model - and all three were refuted by measurement,
+	 * including by their own authors' controls. The reason none of them work is
+	 * that the retreating values are a sparse periodic lattice rather than a
+	 * continuum, so every density argument assumes phases that do not exist.
 	 *
-	 *     window [0.1,0.9], 16-bit, spans exponents 123..126 (ULP varies 8x)
-	 *       1/(floats per level) predicts 0.244%
-	 *       ULP-weighted E[ULP]/level_width predicts    0.094%
-	 *       measured                                    0.100%
+	 * Worse, the measured rate is not a property of the window at all. On
+	 * [0.1,0.9] at 16-bit, varying ONLY where the t sweep starts:
 	 *
-	 * So the honest statement is: a 1-ULP retreat flips a colour index at a rate
-	 * of about ULP/level_width where the retreats actually occur - rarely, but
-	 * not never, at any window, and narrowing the window raises the rate until
-	 * under-resolution makes it certain. It is a sub-quantum wobble at the
-	 * format's resolution limit; the visible consequence is at most a one-level
-	 * flicker on a boundary voxel, and it is bounded, so it can never place a
-	 * value outside A..B.
+	 *     11-13 of 16 anchors produce ZERO raw retreats
+	 *     among anchors that do fire, the rate ranges 0.00% .. 0.83%
+	 *     pooling more anchors does not converge: the pooled rate reads
+	 *       exactly 0.0000% across 11,250 raw retreats and only then jumps
+	 *       to 0.14% when the sweep reaches a different region
+	 *
+	 * A quantity that does not converge under refinement is not a measurement of
+	 * the window; it is a measurement of the sampling choice. Any single-anchor
+	 * percentage - including every one an earlier draft of this comment quoted -
+	 * is real arithmetic about nothing generalisable.
+	 *
+	 * WHAT IS ACTUALLY TRUE, and all that should be relied on: the retreat is
+	 * always exactly 1 ULP; it CAN flip a displayed colour index by one level,
+	 * in ordinary well-resolved windows, not only degenerate ones; it happens
+	 * rarely, more often as the window narrows, and with certainty once the
+	 * window holds fewer distinct floats than colour levels; and it is bounded,
+	 * so it can never place a value outside [min(A,B), max(A,B)].
 	 *
 	 * The mad form's endpoint error on A=-1000, B=0.001 is 2.3e-02 RELATIVE -
 	 * five orders of magnitude larger, present at EVERY window, and it puts on
@@ -309,6 +325,15 @@ struct FFlowVizVolumeRayMarchContext
 	 *       signed and unsigned, wrong across zero: reported a 1.79e9-ULP
 	 *       retreat on a step that was actually going UP.
 	 *
+	 *   A well-formed measurement of a quantity that IS NOT WELL DEFINED -
+	 *     - The colour-reversal "rate" above. Two agents measured it repeatedly,
+	 *       with agreeing independent quantisers, and proposed three closed
+	 *       forms for it. Every measurement was correct. The quantity itself
+	 *       does not exist: it varies from 0.00% to 0.83% with nothing but the
+	 *       choice of where the t sweep starts, and does not converge as
+	 *       anchors or samples are added. No amount of instrument-checking
+	 *       finds this, because the instrument is fine.
+	 *
 	 *   A CORRECT number contradicting the prose beside it -
 	 *     - An earlier draft of this comment measured colour reversals on a
 	 *       well-resolved window and, in the same paragraph, concluded that
@@ -333,11 +358,16 @@ struct FFlowVizVolumeRayMarchContext
 	 *
 	 * So: verify the fixture CAN produce a failure before believing it found
 	 * none; verify a dramatic result against a second implementation before
-	 * believing it found one; and when a number sits next to a sentence, check
-	 * that it supports that sentence rather than merely appearing near it.
+	 * believing it found one; when a number sits next to a sentence, check that
+	 * it supports that sentence rather than merely appearing near it; and before
+	 * fitting a model to a measurement, check that the measurement CONVERGES
+	 * under refinement - if it moves with an arbitrary sampling choice, there is
+	 * nothing there to model.
+	 *
 	 * Sample size is not coverage - a big clean number is what makes a broken
-	 * harness convincing - and a number that does not fit the claim it is cited
-	 * for IS the finding.
+	 * harness convincing. A number that does not fit the claim it is cited for
+	 * IS the finding. And three failed models in a row is evidence about the
+	 * quantity, not about the models.
 	 */
 	float Alpha = 0.0f;
 
