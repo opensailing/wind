@@ -1,0 +1,35 @@
+// Copyright FlowViz contributors. All Rights Reserved.
+//
+// Shared declarations for FlowViz shaders, included as:
+//
+//     #include "/Plugin/FlowViz/FlowVizCommon.ush"
+//
+// FlowVizRuntime.cpp maps /Plugin/FlowViz to this directory during
+// StartupModule. That mapping asserts the directory exists, so this file also
+// serves as the thing that keeps the directory in git: an empty Shaders/ is
+// untracked, and a checkout without it crashes the module before any test
+// runs. Tools/tests/test_checkout_is_complete.sh pins that.
+
+#pragma once
+
+// Volume fields are stored in _UINT texture formats, never UNORM (ADR 002 and
+// Render/FlowVizVolumeTexture.cpp). A UNORM sampler would hand the shader
+// value/255 and a quantised field would arrive silently rescaled, so integer
+// samples are converted here, explicitly, where the scale factor is visible.
+#define FLOWVIZ_UNORM8_SCALE  (1.0f / 255.0f)
+#define FLOWVIZ_UNORM16_SCALE (1.0f / 65535.0f)
+
+// A 3-component field widens to 4 channels on upload -- there is no portable
+// 3-channel 3D texture format -- and the pad channel carries a quiet NaN so a
+// shader that reads it gets an obviously wrong number rather than a plausible
+// zero. Anything reading .w from a widened field is a bug; this makes it one
+// that shows up on screen.
+#define FLOWVIZ_PAD_IS_NAN 1
+
+// True when the sampled value is a NaN, including the pad channel above.
+// Written as a self-comparison because Metal's isnan() is unavailable in some
+// shader stages and this form survives fast-math on the paths FlowViz uses.
+bool FlowVizIsNaN(float Value)
+{
+	return !(Value == Value);
+}
