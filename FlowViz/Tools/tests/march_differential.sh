@@ -169,7 +169,65 @@ run_arm "average-is-sum" KILL \
     's/else                                            \{ ReportedValue = SumValue \/ float\(ValidCount\); \}/else                                            { ReportedValue = SumValue; }/' \
     "Average is the MEAN of the samples"
 
-# 6. THE IDENTITY CONTROL, and the most important arm here.
+# 6. The iso-surface snapped to the sample lattice. The crossing is what keeps
+#    the surface off the voxel grid; without it the surface stair-steps, which
+#    is the most visible artefact this renderer can produce - and it still
+#    renders a complete, smoothly-lit, entirely plausible surface.
+#    The mutation ALSO reports the sample rather than the iso value, because
+#    THit alone only moves the shading position: the reported scalar is set to
+#    IsoValue unconditionally, so a THit-only mutant would leave the value
+#    assertion green and be caught by lighting instead. The needle is the
+#    non-integer assertion, which is the one that names lattice snapping.
+run_arm "iso-snaps-to-lattice" KILL \
+    's/const float THit = PrevT \+ Alpha \* \(T - PrevT\);/const float THit = T;/;s/\t\t\t\t\t\tReportedValue = IsoValue;/\t\t\t\t\t\tReportedValue = Sample.Value;/' \
+    "the reported value is NOT an integer"
+
+# 6b. The iso crossing test fires on samples that do NOT bracket the surface.
+#     An iso value above the entire field must find nothing; a renderer that
+#     accepts any pair paints a surface through empty data.
+run_arm "iso-hits-without-bracket" KILL \
+    's/if \(bHavePrev && \(Signed == 0\.0f \|\| \(PrevSigned \* Signed\) < 0\.0f\)\)/if (bHavePrev)/' \
+    "finds NO surface"
+
+# 7. THE GRADIENT AXIS SWAP. X and Z exchanged in the central difference. This
+#    lights the volume from the wrong side and looks completely reasonable -
+#    no assertion about value, alpha, steps or status can see it, and neither
+#    can an eye that has not been shown the correct image beside it. Here the
+#    X:Y ratio moves from 0.25 to 16.
+run_arm "gradient-axis-swapped" KILL \
+    's/\t\t\(XP\.Value - XN\.Value\) \* 0\.5f \* InvVoxelSpacing\.x,\n\t\t\(YP\.Value - YN\.Value\) \* 0\.5f \* InvVoxelSpacing\.y,\n\t\t\(ZP\.Value - ZN\.Value\) \* 0\.5f \* InvVoxelSpacing\.z\);/\t\t(ZP.Value - ZN.Value) * 0.5f * InvVoxelSpacing.z,\n\t\t(YP.Value - YN.Value) * 0.5f * InvVoxelSpacing.y,\n\t\t(XP.Value - XN.Value) * 0.5f * InvVoxelSpacing.x);/' \
+    "matching the analytic 8:32"
+
+# 7b. One spacing for all three axes. The gradient is then wrong by up to 4x per
+#     axis on this fixture and every shaded normal tilts - the anisotropy rule
+#     again, but in the lighting rather than the step.
+run_arm "gradient-one-spacing" KILL \
+    's/\t\t\(YP\.Value - YN\.Value\) \* 0\.5f \* InvVoxelSpacing\.y,/\t\t(YP.Value - YN.Value) * 0.5f * InvVoxelSpacing.x,/' \
+    "matching the analytic 8:32"
+
+# 8. Clip planes ignored entirely. Renders the whole domain, which is a picture
+#    that looks right unless you know a plane was requested.
+run_arm "clip-planes-ignored" KILL \
+    's/\t\tbHit = FlowVizApplyClipPlanes\(Origin, Dir, TMin, TMax\);/\t\tbHit = true;/' \
+    "raises the minimum by exactly 8 voxels"
+
+# 8b. The second plane REPLACES the first instead of intersecting with it. With
+#     one plane the image is identical, so only a two-plane test can see this.
+# This arm SURVIVED its first run, and the survival was correct: the assertion
+# it targeted ("STILL in effect under the second") could not distinguish max()
+# from assignment, because on that config TMin is written once with a value that
+# already exceeds the box entry. The needle now points at the tight-then-loose
+# pair, where the two orders give 8 voxels and 4 voxels respectively.
+run_arm "clip-planes-replace" KILL \
+    's/\t\t\tTMin = max\(TMin, THit\);   \/\/ entering the kept half-space/\t\t\tTMin = THit;/' \
+    "OVERWROTE TMin"
+
+# The same bug on the OTHER accumulator, which no arm reached before.
+run_arm "clip-planes-replace-max" KILL \
+    's/\t\t\tTMax = min\(TMax, THit\);   \/\/ leaving it/\t\t\tTMax = THit;/' \
+    "not 12"
+
+# 9. THE IDENTITY CONTROL, and the most important arm here.
 #
 #    A change that alters the source text but provably not the rendered result:
 #    a comment, plus a statement that assigns a variable its own value. If this

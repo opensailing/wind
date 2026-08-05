@@ -46,6 +46,13 @@
  *     every mutation among them survive a green suite. The control below asserts
  *     the three are mutually distinct BEFORE anything else is believed.
  *
+ * BECAUSE THE FIELD IS LINEAR, ITS GRADIENT IS A CONSTANT: (8, 32, 512) in
+ * local units, everywhere in the domain. That is what makes lighting DIRECTION
+ * checkable here. The three components are distinct powers of two in the ratio
+ * 1 : 4 : 64, so a swapped axis in the gradient - which lights the volume from
+ * the wrong side and looks entirely reasonable - moves a measured ratio by at
+ * least 4x. See the gradient block for how three renders recover the normal.
+ *
  * THE GEOMETRY IS DELIBERATELY ANISOTROPIC AND DELIBERATELY NOT UNIT. Spacing
  * (0.125, 0.5, 0.25) over 16 x 8 x 4 cells gives physical size (2, 4, 1) and
  * UVW scale (0.5, 0.25, 1.0) - three distinct spacings, three distinct extents,
@@ -94,6 +101,29 @@ namespace FlowVizMarchFixture
 		return Grid;
 	}
 
+	/**
+	 * THE ANALYTIC GRADIENT, which is what makes the lighting-direction block
+	 * possible at all.
+	 *
+	 * f = i + 16j + 128k is LINEAR, so df/di is 1, 16 and 128 per voxel and the
+	 * gradient in local units is the same vector EVERYWHERE in the domain:
+	 *
+	 *     grad f = (1/0.125, 16/0.5, 128/0.25) = (8, 32, 512)
+	 *
+	 * Constant means the expected normal does not depend on where the ray hit,
+	 * so a lighting assertion does not have to first prove the hit position.
+	 * The three components are distinct powers of two in the ratio 1 : 4 : 64,
+	 * so an axis swap is not a subtle shading difference - it is a different
+	 * number, and the ratios below separate every swap by at least 4x.
+	 */
+	constexpr float GradX = 8.0f;
+	constexpr float GradY = 32.0f;
+	constexpr float GradZ = 512.0f;
+
+	/** Matches FillDefaults. Read back out of NdotL, so they must agree. */
+	constexpr float Ambient = 0.35f;
+	constexpr float Diffuse = 0.65f;
+
 	/** What the test dispatches. One entry per row of the results array. */
 	struct FMarchConfig
 	{
@@ -102,6 +132,20 @@ namespace FlowVizMarchFixture
 		bool bMaskedStatus = false;
 		bool bLighting = false;
 		float CropMinX = 0.0f;
+
+		/*
+		 * Second pass only. The iso value is stated RELATIVE to the centre ray's
+		 * row constant, which the test reads back from the first pass rather
+		 * than deriving from the camera. An absolute iso value would require
+		 * this file to recompute which (j,k) row the centre pixel lands on,
+		 * i.e. to restate the framing code it is supposed to be checking.
+		 */
+		bool  bIso = false;
+		float IsoOffset = 0.0f;
+		FVector3f LightDir = FVector3f(0.0f, 0.0f, 1.0f);
+		int32 NumClip = 0;
+		FVector4f Clip0 = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+		FVector4f Clip1 = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
 	};
 
 	/** A single dispatch's readback, both targets. */
@@ -118,6 +162,23 @@ namespace FlowVizMarchFixture
 		const FLinearColor& ValueAt(int32 X, int32 Y) const { return At(Value, X, Y); }
 		const FLinearColor& ColorAt(int32 X, int32 Y) const { return At(Color, X, Y); }
 	};
+
+	/**
+	 * The diffuse multiplier the shader applied, recovered from a rendered pixel.
+	 *
+	 * The LUT's GREEN channel is the constant 0.5 at every entry, so green is
+	 * 0.5 * (Ambient + Diffuse * NdotL) and NOTHING ELSE. Red and blue vary with
+	 * the LUT index and would confound a change in shading with a change in the
+	 * sampled value; green cannot. This is what lets the block below read NdotL
+	 * off an image without inverting the transfer function.
+	 */
+	static float ShadeMultiplier(const FLinearColor& Pixel) { return Pixel.G / 0.5f; }
+
+	/** The NdotL that produced a given multiplier. Inverse of Ambient + Diffuse * NdotL. */
+	static float RecoveredNdotL(const FLinearColor& Pixel)
+	{
+		return (ShadeMultiplier(Pixel) - Ambient) / Diffuse;
+	}
 
 	/** OutValue channel meanings, named rather than spelled .R/.G/.B/.A at every use. */
 	static float ReportedValue(const FLinearColor& Pixel) { return Pixel.R; }
@@ -277,6 +338,18 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 	FString SetupError;
 
+	// Filled by pass one, consumed by pass two. See FMarchConfig::IsoOffset for
+	// why the iso configs cannot be built until the first pass has run.
+	TArray<FMarchConfig> SecondPassConfigs;
+	TArray<FMarchResult> SecondPassResults;
+
+	// One render command, parameterised by which config list to run, so pass two
+	// goes through byte-for-byte the same setup, upload, dispatch and readback as
+	// pass one. A second bespoke path here could differ from the first in a way
+	// that made the iso results incomparable with the values they are stated
+	// relative to.
+	const auto RunPass = [&](const TArray<FMarchConfig>& PassConfigs, TArray<FMarchResult>& PassResults)
+	{
 	ENQUEUE_RENDER_COMMAND(FlowVizVolumeMarch)(
 		[&](FRHICommandListImmediate& RHICmdList)
 		{
@@ -339,10 +412,10 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 					LutWidth * sizeof(FFloat16Color), reinterpret_cast<const uint8*>(Lut.GetData()));
 			}
 
-			for (int32 ConfigIndex = 0; ConfigIndex < NumConfigs; ++ConfigIndex)
+			for (int32 ConfigIndex = 0; ConfigIndex < PassConfigs.Num(); ++ConfigIndex)
 			{
-				const FMarchConfig& Config = Configs[ConfigIndex];
-				FMarchResult& Result = Results[ConfigIndex];
+				const FMarchConfig& Config = PassConfigs[ConfigIndex];
+				FMarchResult& Result = PassResults[ConfigIndex];
 
 				FRDGBuilder GraphBuilder(RHICmdList);
 
@@ -373,6 +446,14 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 				Params->bEnableLighting = Config.bLighting ? 1u : 0u;
 				Params->CropBoxMin = FVector3f(Config.CropMinX, 0.0f, 0.0f);
 				Params->CropBoxMax = FVector3f(1.0f, 1.0f, 1.0f);
+
+				// Second-pass fields. Zero-valued for every pass-one config, so
+				// the pass-one results are unchanged by this block existing.
+				Params->IsoValue = Config.IsoOffset;
+				Params->LightDirection = Config.LightDir.GetSafeNormal();
+				Params->NumClipPlanes = static_cast<uint32>(Config.NumClip);
+				Params->ClipPlanes[0] = Config.Clip0;
+				Params->ClipPlanes[1] = Config.Clip1;
 
 				// NEAREST, not filtered. A filtered fetch blends neighbouring
 				// voxels, and then a sample no longer decodes to the voxel it
@@ -437,6 +518,13 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 		});
 
 	FlushRenderingCommands();
+	};
+
+	{
+		TArray<FMarchConfig> FirstPass;
+		FirstPass.Append(Configs, NumConfigs);
+		RunPass(FirstPass, Results);
+	}
 
 	if (!SetupError.IsEmpty())
 	{
@@ -761,6 +849,435 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 					   "reports"),
 			static_cast<double>(ReportedValue(UnlitValue)),
 			static_cast<double>(ReportedValue(Results[CfgMin].ValueAt(CentreX, CentreY))), 1e-4);
+	}
+
+	/* == Pass two: iso-surface, lighting direction, clip planes ============== */
+	/*
+	 * These need an iso value that lands INSIDE the centre ray's row, and the row
+	 * constant is a property of the framing. Reading it back from pass one rather
+	 * than recomputing it here is deliberate: a test that derived the row from the
+	 * camera parameters would restate the projection code it is checking, and
+	 * would agree with it even when both were wrong.
+	 */
+
+	const float CentreRowMin = ReportedValue(Results[CfgMin].ValueAt(CentreX, CentreY));
+
+	// Halfway along the crossing, and deliberately NOT on a voxel value: x.5
+	// cannot be hit by any sample, so a reported IsoValue can only have come from
+	// the linear-crossing branch. Landing it on an integer would let a renderer
+	// that snapped to the nearest sample produce the same answer.
+	const float IsoTarget = CentreRowMin + 7.5f;
+
+	{
+		const FMarchConfig IsoConfigs[] = {
+			// The surface exists on the centre ray, between voxels 7 and 8.
+			{ TEXT("IsoHit"),   EFlowVizCompositeMode::IsoSurface, false, false, 0.0f,
+			  true, IsoTarget },
+			// Above every value in the domain, so no crossing exists anywhere.
+			{ TEXT("IsoMiss"),  EFlowVizCompositeMode::IsoSurface, false, false, 0.0f,
+			  true, FieldMax + 100.0f },
+			// The same surface, lit from each axis in turn. Three renders that
+			// differ ONLY in LightDirection, so a difference between them is a
+			// property of the normal and of nothing else.
+			{ TEXT("IsoLitX"),  EFlowVizCompositeMode::IsoSurface, false, true, 0.0f,
+			  true, IsoTarget, FVector3f(1.0f, 0.0f, 0.0f) },
+			{ TEXT("IsoLitY"),  EFlowVizCompositeMode::IsoSurface, false, true, 0.0f,
+			  true, IsoTarget, FVector3f(0.0f, 1.0f, 0.0f) },
+			{ TEXT("IsoLitZ"),  EFlowVizCompositeMode::IsoSurface, false, true, 0.0f,
+			  true, IsoTarget, FVector3f(0.0f, 0.0f, 1.0f) },
+			// Clip planes, in LOCAL units. dot(N, LocalPos) + D >= 0 is kept, so
+			// (1,0,0,-1) keeps local x >= 1.0, which is voxel index 8 - the SAME
+			// cut the crop box makes at 0.5, expressed in a different space. That
+			// equivalence is the assertion.
+			{ TEXT("ClipMin"),  EFlowVizCompositeMode::Minimum, false, false, 0.0f,
+			  false, 0.0f, FVector3f(0.0f, 0.0f, 1.0f), 1,
+			  FVector4f(1.0f, 0.0f, 0.0f, -1.0f) },
+			// A second plane facing the other way: keep local x <= 1.5, i.e.
+			// voxel 12 and below. Two planes together must intersect, not replace.
+			{ TEXT("ClipBoth"), EFlowVizCompositeMode::Maximum, false, false, 0.0f,
+			  false, 0.0f, FVector3f(0.0f, 0.0f, 1.0f), 2,
+			  FVector4f(1.0f, 0.0f, 0.0f, -1.0f), FVector4f(-1.0f, 0.0f, 0.0f, 1.5f) },
+			// TWO planes on the SAME side, tight first and LOOSE SECOND. This
+			// ordering is the whole point: it is what makes the accumulating
+			// max() load-bearing rather than decorative. See the assertion.
+			{ TEXT("ClipMinPair"), EFlowVizCompositeMode::Minimum, false, false, 0.0f,
+			  false, 0.0f, FVector3f(0.0f, 0.0f, 1.0f), 2,
+			  FVector4f(1.0f, 0.0f, 0.0f, -1.0f), FVector4f(1.0f, 0.0f, 0.0f, -0.5f) },
+			// The same shape on the far side, exercising the min() accumulator:
+			// keep x <= 1.0, then the LOOSER x <= 1.5.
+			{ TEXT("ClipMaxPair"), EFlowVizCompositeMode::Maximum, false, false, 0.0f,
+			  false, 0.0f, FVector3f(0.0f, 0.0f, 1.0f), 2,
+			  FVector4f(-1.0f, 0.0f, 0.0f, 1.0f), FVector4f(-1.0f, 0.0f, 0.0f, 1.5f) },
+			// A plane whose kept half-space excludes the whole domain. The ray
+			// must be rejected outright rather than clamped to an empty interval.
+			{ TEXT("ClipAll"),  EFlowVizCompositeMode::Minimum, false, false, 0.0f,
+			  false, 0.0f, FVector3f(0.0f, 0.0f, 1.0f), 1,
+			  FVector4f(1.0f, 0.0f, 0.0f, -100.0f) },
+		};
+		SecondPassConfigs.Append(IsoConfigs, UE_ARRAY_COUNT(IsoConfigs));
+	}
+
+	enum { IsoHit = 0, IsoMiss = 1, IsoLitX = 2, IsoLitY = 3, IsoLitZ = 4,
+		   ClipMin = 5, ClipBoth = 6, ClipMinPair = 7, ClipMaxPair = 8, ClipAll = 9 };
+
+	SecondPassResults.SetNum(SecondPassConfigs.Num());
+	RunPass(SecondPassConfigs, SecondPassResults);
+
+	if (!SetupError.IsEmpty())
+	{
+		AddError(FString::Printf(TEXT("The second pass could not be set up, so iso-surface, "
+									  "lighting direction and clipping were NOT verified: %s"),
+			*SetupError));
+		return false;
+	}
+
+	for (int32 Index = 0; Index < SecondPassConfigs.Num(); ++Index)
+	{
+		if (!TestTrue(*FString::Printf(TEXT("second-pass config '%s' dispatched and read back"),
+				SecondPassConfigs[Index].Name),
+				SecondPassResults[Index].bDispatched
+					&& SecondPassResults[Index].Value.Num() == OutputW * OutputH))
+		{
+			AddError(TEXT("Nothing in the iso-surface, gradient or clipping blocks was verified."));
+			return false;
+		}
+	}
+
+	/* == The iso-surface is found between samples ============================ */
+	/*
+	 * WHAT THIS BLOCK CATCHES THAT NOTHING ELSE DOES: an iso-surface snapped to
+	 * the sample lattice, and a miss reported as a hit.
+	 *
+	 * The linear-crossing branch is what keeps an iso-surface off the lattice and
+	 * free of stair-stepping - the single most visible artefact this renderer can
+	 * produce. It compiled and dispatched but had never run. IsoTarget is x.5, a
+	 * value no sample takes, so a renderer that reported the nearest sample would
+	 * report an integer here and this block would catch it.
+	 */
+	{
+		const FLinearColor& Hit = SecondPassResults[IsoHit].ValueAt(CentreX, CentreY);
+		const FLinearColor& Miss = SecondPassResults[IsoMiss].ValueAt(CentreX, CentreY);
+
+		// --- THE CONTROL, FIRST ---
+		// The whole block is vacuous if the surface was never crossed.
+		if (TestTrue(*FString::Printf(
+					TEXT("CONTROL: the iso ray marched and produced an opaque hit (alpha %.3f, "
+						 "%d steps). Without a crossing, every assertion below would be comparing "
+						 "two empty pixels"),
+					ReportedAlpha(Hit), StepCount(Hit)),
+				ReportedAlpha(Hit) > 0.0f && StepCount(Hit) > 0))
+		{
+			TestEqual(*FString::Printf(
+					TEXT("the iso-surface reports the REQUESTED value %.4f, not the nearest "
+						 "sample. The target is deliberately x.5, which no voxel takes, so an "
+						 "integer here means the crossing was snapped to the sample lattice and "
+						 "the surface would stair-step"),
+					IsoTarget),
+				static_cast<double>(ReportedValue(Hit)), static_cast<double>(IsoTarget), 1e-3);
+
+			TestTrue(*FString::Printf(
+					TEXT("...and the reported value is NOT an integer (%.4f), stated separately so "
+						 "the failure names lattice snapping even if the target moves"),
+					ReportedValue(Hit)),
+				FMath::Abs(ReportedValue(Hit) - FMath::RoundToFloat(ReportedValue(Hit))) > 0.1f);
+
+			// A crossing at 7.5 of 15 is halfway, so the ray must stop around
+			// half its steps in. Running to the far wall means the break never
+			// fired and the surface is the LAST crossing rather than the first -
+			// which for a closed surface renders the back face.
+			const int32 FullSteps = StepCount(Results[CfgMax].ValueAt(CentreX, CentreY));
+			TestTrue(*FString::Printf(
+					TEXT("the iso ray STOPPED at the surface (%d steps vs %d for a full crossing). "
+						 "Marching to the far wall means the first crossing did not terminate the "
+						 "loop, so a closed surface would show its back face"),
+					StepCount(Hit), FullSteps),
+				StepCount(Hit) < FullSteps);
+		}
+
+		// A miss is not a hit with alpha zero: it must report nothing found.
+		TestTrue(*FString::Printf(
+				TEXT("an iso value above the whole field finds NO surface (alpha %.3f, value "
+					 "%.3f). A hit here would mean the crossing test fires on samples that do not "
+					 "bracket the surface"),
+				ReportedAlpha(Miss), ReportedValue(Miss)),
+			ReportedAlpha(Miss) == 0.0f);
+
+		TestTrue(*FString::Printf(
+				TEXT("...and the missing ray still MARCHED (%d steps), which is what proves the "
+					 "miss came from finding no crossing rather than from never entering the "
+					 "volume"), StepCount(Miss)),
+			StepCount(Miss) > 0);
+	}
+
+	/* == The gradient points where the field actually rises =================== */
+	/*
+	 * WHAT THIS BLOCK CATCHES THAT NOTHING ELSE DOES: a normal that points the
+	 * wrong way.
+	 *
+	 * The existing lighting test proves lighting RAN and did not corrupt the
+	 * reported scalar. It says nothing about direction, and a volume lit from the
+	 * wrong side looks entirely reasonable - it is only wrong next to the data.
+	 * An axis swapped in FlowVizGradient, or one spacing used for all three axes,
+	 * survives every other assertion in this file.
+	 *
+	 * HOW A DIRECTION BECOMES A NUMBER. The field is linear, so the gradient is
+	 * the constant (8, 32, 512) everywhere - no dependence on the hit position,
+	 * which is what makes this checkable without first proving where the ray hit.
+	 * Three renders differ ONLY in LightDirection, along +X, +Y and +Z. For a unit
+	 * light along an axis, NdotL is that component of the unit normal, so the
+	 * three renders recover the normal's components directly and their RATIOS are
+	 * the gradient's ratios: 8 : 32 : 512 = 1 : 4 : 64. Normalisation cancels, so
+	 * this tests DIRECTION and is indifferent to the gradient's magnitude.
+	 *
+	 * Measured separations for the bugs this targets: X<->Z swap moves the X:Y
+	 * ratio from 0.25 to 16, X<->Y to 4, and dividing all three axes by one
+	 * spacing to 0.0625. The tightest is 4x. The tolerance below is 5%.
+	 */
+	{
+		const FLinearColor& LitX = SecondPassResults[IsoLitX].ColorAt(CentreX, CentreY);
+		const FLinearColor& LitY = SecondPassResults[IsoLitY].ColorAt(CentreX, CentreY);
+		const FLinearColor& LitZ = SecondPassResults[IsoLitZ].ColorAt(CentreX, CentreY);
+
+		const float NdotLX = RecoveredNdotL(LitX);
+		const float NdotLY = RecoveredNdotL(LitY);
+		const float NdotLZ = RecoveredNdotL(LitZ);
+
+		// --- THE CONTROLS, FIRST, AND THERE ARE TWO ---
+		//
+		// A control that cannot fail is the same bug one level up. Both of these
+		// are written to be capable of failing on this fixture: the first fails
+		// if lighting is off or the surface was missed, the second fails if the
+		// normal happens to be axis-aligned, which would make two of the three
+		// renders identical and the ratios undefined.
+		const bool bLitHit = ReportedAlpha(SecondPassResults[IsoLitX].ValueAt(CentreX, CentreY)) > 0.0f;
+
+		if (TestTrue(TEXT("CONTROL: the lit iso renders produced an opaque surface, so there is a "
+						  "shaded pixel to read a normal from"),
+				bLitHit)
+			&& TestTrue(*FString::Printf(
+					TEXT("CONTROL: the three axis lights give DISTINCT shading (NdotL = %.6f, "
+						 "%.6f, %.6f). If any two matched, the normal would be degenerate on this "
+						 "fixture and the ratios below could not distinguish an axis swap"),
+					NdotLX, NdotLY, NdotLZ),
+				NdotLX != NdotLY && NdotLY != NdotLZ && NdotLX != NdotLZ))
+		{
+			// saturate() clamps NdotL to [0,1]. A clamped component carries no
+			// direction information, so a ratio taken across one would be
+			// comparing two constants and could not fail.
+			//
+			// THE BOUND IS 1.0 EXACTLY, NOT A BAND BELOW IT. The correct normal
+			// here is (0.0155927, 0.0623707, 0.9979312): Z really is within
+			// 0.00207 of unity, because the gradient is 64x steeper in Z than in
+			// X and the surface is very nearly Z-facing. An earlier version of
+			// this control demanded < 0.99 and rejected that correct value - it
+			// was testing an arbitrary threshold rather than the property it
+			// names. A saturate() clamp produces EXACTLY 1.0, so exactly 1.0 is
+			// what distinguishes clamped from merely steep. The margin survives
+			// the round trip: 0.00207 of NdotL is 6.7e-4 in the green channel,
+			// four orders above float32 resolution at that magnitude.
+			const bool bUnclamped =
+				NdotLX > 0.0f && NdotLX < 1.0f && NdotLY > 0.0f && NdotLY < 1.0f
+				&& NdotLZ > 0.0f && NdotLZ < 1.0f;
+
+			if (TestTrue(*FString::Printf(
+						TEXT("CONTROL: no recovered component is clamped by saturate() (%.6f, "
+							 "%.6f, %.6f all strictly inside (0,1); a clamp reads exactly 1.0). A "
+							 "clamped component is a constant, and a ratio of constants cannot "
+							 "detect a swapped axis"),
+						NdotLX, NdotLY, NdotLZ),
+					bUnclamped))
+			{
+				// grad = (8, 32, 512): X:Y is 0.25, Y:Z is 0.0625.
+				const float RatioXY = NdotLX / NdotLY;
+				const float RatioYZ = NdotLY / NdotLZ;
+
+				TestTrue(*FString::Printf(
+						TEXT("the gradient's X:Y ratio is %.5f, matching the analytic 8:32 = 0.25. "
+							 "An X<->Y swap gives 4.0 and an X<->Z swap 16.0; dividing every axis "
+							 "by a single spacing gives 0.0625. Each is more than 4x from the "
+							 "correct answer, so this is a direction check, not a tolerance"),
+						RatioXY),
+					FMath::Abs(RatioXY - 0.25f) < 0.0125f);
+
+				TestTrue(*FString::Printf(
+						TEXT("the gradient's Y:Z ratio is %.5f, matching the analytic 32:512 = "
+							 "0.0625. A Y<->Z swap gives 16.0"),
+						RatioYZ),
+					FMath::Abs(RatioYZ - 0.0625f) < 0.00313f);
+
+				// Direction, not just proportion: the field INCREASES along every
+				// axis, so the surface normal (which points down-gradient) must
+				// face the negative octant. All three NdotL positive under
+				// positive-axis lights is what says so. A normal that was not
+				// negated points the other way and lights the surface from
+				// behind - a sign error that leaves the ratios above intact.
+				TestTrue(*FString::Printf(
+						TEXT("all three components of the normal have the same sign (NdotL %.4f, "
+							 "%.4f, %.4f all positive). The field rises along every axis, so a "
+							 "normal pointing down-gradient must face one octant; a dropped "
+							 "negation reverses all three and lights the surface from behind "
+							 "while leaving the ratios above unchanged"),
+						NdotLX, NdotLY, NdotLZ),
+					NdotLX > 0.0f && NdotLY > 0.0f && NdotLZ > 0.0f);
+
+				// The Z component dominates by 64:1, so the shading is nearly
+				// fully lit from +Z and nearly dark from +X. Stated as an
+				// absolute so the failure names the anisotropy rather than a ratio.
+				TestTrue(*FString::Printf(
+						TEXT("lighting along the steepest axis (+Z, gradient %.0f) shades far "
+							 "brighter than along the shallowest (+X, gradient %.0f): NdotL %.4f "
+							 "vs %.4f. Equal shading would mean the gradient ignored per-axis "
+							 "spacing"),
+						GradZ, GradX, NdotLZ, NdotLX),
+					NdotLZ > 4.0f * NdotLX);
+			}
+		}
+	}
+
+	/* == Clip planes cut in local units, and compose ========================== */
+	/*
+	 * WHAT THIS BLOCK CATCHES THAT NOTHING ELSE DOES: a clip plane in the wrong
+	 * space, a second plane that replaces the first, and an empty clip that
+	 * renders anyway.
+	 *
+	 * The plane (1,0,0,-1) keeps local x >= 1.0. The crop box at 0.5 keeps the
+	 * far half of a domain 2.0 across, which is ALSO local x >= 1.0. Two
+	 * different parameters, two different spaces, one geometric cut - so the two
+	 * renders must agree exactly. That equivalence is a stronger statement than
+	 * either alone: a plane evaluated in UVW or world units still cuts something,
+	 * and still looks like a clipped volume, but stops matching the crop box.
+	 */
+	{
+		const FLinearColor& Clipped = SecondPassResults[ClipMin].ValueAt(CentreX, CentreY);
+		const FLinearColor& Cropped = Results[CfgCrop].ValueAt(CentreX, CentreY);
+		const FLinearColor& Uncropped = Results[CfgMin].ValueAt(CentreX, CentreY);
+
+		if (TestTrue(*FString::Printf(
+					TEXT("CONTROL: the clipped ray still marches (%d steps) and found valid data. "
+						 "A clip that rejected everything would make the comparison below vacuous"),
+					StepCount(Clipped)),
+				StepCount(Clipped) > 0 && (ReasonBits(Clipped) & 1u) != 0u))
+		{
+			TestEqual(*FString::Printf(
+					TEXT("a clip plane at local x >= 1.0 raises the minimum by exactly 8 voxels "
+						 "(%.3f -> %.3f). A plane evaluated in UVW, voxel indices or world units "
+						 "cuts somewhere else and still produces a plausible clipped image"),
+					ReportedValue(Uncropped), ReportedValue(Clipped)),
+				static_cast<double>(ReportedValue(Clipped) - ReportedValue(Uncropped)), 8.0, 1e-4);
+
+			TestEqual(TEXT("...and lands on exactly the same voxel as the CROP BOX at 0.5, which "
+						   "is the same cut expressed in domain fractions. Two parameters in two "
+						   "spaces must agree on one piece of geometry"),
+				static_cast<double>(ReportedValue(Clipped)),
+				static_cast<double>(ReportedValue(Cropped)), 1e-4);
+		}
+
+		// Two planes must INTERSECT their half-spaces. A second plane that
+		// overwrote TMin/TMax instead of narrowing them would leave the maximum
+		// at the far wall, which is the uncropped answer.
+		const FLinearColor& Both = SecondPassResults[ClipBoth].ValueAt(CentreX, CentreY);
+		const float UnclippedMax = ReportedValue(Results[CfgMax].ValueAt(CentreX, CentreY));
+
+		if (TestTrue(*FString::Printf(TEXT("CONTROL: the doubly-clipped ray still marches (%d "
+										   "steps)"), StepCount(Both)),
+				StepCount(Both) > 0 && (ReasonBits(Both) & 1u) != 0u))
+		{
+			TestTrue(*FString::Printf(
+					TEXT("a second plane keeping local x <= 1.5 lowers the maximum below the "
+						 "unclipped %.1f (got %.1f). An unchanged maximum means the second plane "
+						 "REPLACED the first rather than intersecting with it, so only one plane "
+						 "would ever take effect"),
+					UnclippedMax, ReportedValue(Both)),
+				ReportedValue(Both) < UnclippedMax);
+
+			TestTrue(*FString::Printf(
+					TEXT("...and the first plane is STILL in effect under the second (minimum %.1f "
+						 "is at or above the +8 voxel cut). This is the other order of the same "
+						 "replacement bug"),
+					ReportedValue(Both)),
+				ReportedValue(Both) >= ReportedValue(Uncropped) + 8.0f - 1e-4f);
+		}
+
+		/*
+		 * THE TIGHTER OF TWO PLANES ON ONE SIDE MUST WIN, WHICHEVER ORDER THEY ARRIVE
+		 * IN. The two assertions above cannot establish this, and a differential run
+		 * proved it: replacing `TMin = max(TMin, THit)` with `TMin = THit` SURVIVED
+		 * them both. On the configs above each accumulator is written exactly once,
+		 * and the value it writes already exceeds the box-entry TMin - so max() and
+		 * plain assignment agree, and the mutant is an identity map. The assertion
+		 * named the bug and could not see it.
+		 *
+		 * What is needed is a SECOND write to the SAME accumulator that would move
+		 * it the WRONG WAY. ClipMinPair keeps x >= 1.0 and then x >= 0.5: both
+		 * narrow TMin, and the looser one comes second. Intersecting keeps the
+		 * tighter 1.0 (minimum +8); overwriting takes the later 0.5 (minimum +4).
+		 * ClipMaxPair is the mirror image on the min() accumulator. Neither can be
+		 * satisfied by an identity map, because the two orders give different
+		 * numbers by construction.
+		 */
+		{
+			const FLinearColor& MinPair = SecondPassResults[ClipMinPair].ValueAt(CentreX, CentreY);
+			const FLinearColor& MaxPair = SecondPassResults[ClipMaxPair].ValueAt(CentreX, CentreY);
+
+			if (TestTrue(*FString::Printf(
+						TEXT("CONTROL: the tight-then-loose ray still marches (%d steps) and found "
+							 "valid data"), StepCount(MinPair)),
+					StepCount(MinPair) > 0 && (ReasonBits(MinPair) & 1u) != 0u))
+			{
+				TestEqual(*FString::Printf(
+						TEXT("two planes both keeping a MINIMUM x, tight (>=1.0) then LOOSE "
+							 "(>=0.5), intersect to the tight one: the minimum rises by 8 voxels, "
+							 "not 4. A second plane that OVERWROTE TMin instead of accumulating "
+							 "max() would take the looser plane simply because it came last, and "
+							 "every assertion above still passes - only the order distinguishes "
+							 "them (%.3f -> %.3f)"),
+						ReportedValue(Uncropped), ReportedValue(MinPair)),
+					static_cast<double>(ReportedValue(MinPair) - ReportedValue(Uncropped)),
+					8.0, 1e-4);
+
+				TestEqual(TEXT("...and it agrees exactly with the SINGLE tight plane, which is the "
+							   "same half-space. Adding a redundant looser plane must change "
+							   "nothing at all"),
+					static_cast<double>(ReportedValue(MinPair)),
+					static_cast<double>(ReportedValue(Clipped)), 1e-4);
+			}
+
+			if (TestTrue(*FString::Printf(
+						TEXT("CONTROL: the max-side pair still marches (%d steps) and found valid "
+							 "data"), StepCount(MaxPair)),
+					StepCount(MaxPair) > 0 && (ReasonBits(MaxPair) & 1u) != 0u))
+			{
+				// The mirror image, on the other accumulator. Keeping x <= 1.0 caps
+				// the maximum at voxel 8; the looser x <= 1.5 would cap it at 12.
+				//
+				// The boundary voxel is INCLUDED, symmetrically with the minimum
+				// side: the crop box at 0.5 is the cut at local x = 1.0 and raises
+				// the minimum TO voxel 8, so the opposing cut at the same plane must
+				// leave the maximum AT voxel 8. An earlier version of this line
+				// predicted 7, treating one boundary as exclusive and the other as
+				// inclusive; the measured 8 is what the two sides agreeing requires.
+				TestEqual(*FString::Printf(
+						TEXT("two planes both keeping a MAXIMUM x, tight (<=1.0) then LOOSE "
+							 "(<=1.5), intersect to the tight one: the maximum is 8 above the row "
+							 "constant, not 12. This is the same replacement bug on the min() "
+							 "accumulator, which the max() assertion above cannot reach (%.3f)"),
+						ReportedValue(MaxPair)),
+					static_cast<double>(ReportedValue(MaxPair) - ReportedValue(Uncropped)),
+					8.0, 1e-4);
+			}
+		}
+
+		// A plane that excludes the domain must reject the ray, not march an
+		// empty interval. Zero steps AND no valid reason bit: "never entered" is
+		// a different answer from "entered and found nothing", and the renderer
+		// distinguishes them elsewhere.
+		const FLinearColor& All = SecondPassResults[ClipAll].ValueAt(CentreX, CentreY);
+		TestEqual(TEXT("a clip plane whose kept half-space excludes the whole domain rejects the "
+					   "ray outright and takes zero steps"),
+			StepCount(All), 0);
+		TestEqual(TEXT("...and reports REASON_NONE, i.e. 'the ray never entered' rather than "
+					   "'entered and found nothing usable'"),
+			static_cast<int32>(ReasonBits(All)), 0);
 	}
 
 	return true;

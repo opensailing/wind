@@ -74,11 +74,11 @@ against, and every claim about how it looks remains unmade rather than merely
 unproven. A green test suite is not a rendered image, and this file should
 keep saying so until an image exists.
 
-### 2a. The marching loop is exercised; iso-surface and gradients are not
+### 2a. The marching loop is exercised, including iso-surface, gradients and clipping
 
-**Largely closed** by `3ad8e54` (`FlowViz.Render.VolumeMarch`). Recorded here
-in full because what remains open is narrower than it was and needs saying
-precisely.
+**Closed** by `3ad8e54` and its follow-up (`FlowViz.Render.VolumeMarch`).
+Recorded here in full because the *shape* of the evidence is what matters, not
+the fact that a test passes.
 
 **What now runs over real data.** A 16×8×4 fixture whose field is its own
 voxel index, `f(i,j,k) = i + 16j + 128k`, so a sampled value *decodes* to the
@@ -97,31 +97,76 @@ voxel" separable assertions. Verified against closed forms, not pictures:
   a control asserting the *colour* changed, so the invariance cannot hold
   because lighting never ran
 
+**Iso-surface, gradients and clipping now run too**, added in the follow-up:
+
+- **Iso-surface extraction**, at a value deliberately ending in `.5` so no
+  sample can take it. A renderer that snapped to the nearest lattice value
+  would report an integer and is caught; the reported value can only have come
+  from the linear-crossing branch. A second config sets the iso above the whole
+  field and must find nothing, so "found a surface" is separable from "found
+  the right surface".
+- **Gradient estimation, and therefore lighting *direction*.** Because the
+  field is linear, `∇f` is the constant `(8, 32, 512)` in local units
+  *everywhere* — so the expected normal does not depend on where the ray hit,
+  and the assertion does not first have to prove the hit position. Three
+  renders differing ONLY in `LightDirection` recover the normal's components,
+  and their ratios are the gradient's ratios: exactly `1 : 4 : 64`.
+  Normalisation cancels, so this tests direction and is indifferent to
+  magnitude. A swapped axis moves a measured ratio by at least 4×.
+- **Clip planes**, as a cross-space equivalence. The plane `(1,0,0,-1)` and the
+  crop box at `0.5` are the same geometric cut expressed in two different
+  parameter spaces, so they must agree exactly — a stronger statement than
+  either alone, because a plane evaluated in UVW or world units still produces
+  a plausible clipped image.
+
 Each of those was verified by differential (`Tools/tests/march_differential.sh`,
-7/7) rather than by having passed once. The identity-control arm — a no-op
-edit inside the marching loop that must not change the image — is the one that
-makes the rest mean anything. It killed on the first campaign, which condemned
-every verdict in it: the harness was scoring "the filter matched no tests" as
-a kill, so nothing had been tested at all.
+now **14/14**) rather than by having passed once. The identity-control arm — a
+no-op edit inside the marching loop that must not change the image — is the one
+that makes the rest mean anything. It killed on the first campaign, which
+condemned every verdict in it: the harness was scoring "the filter matched no
+tests" as a kill, so nothing had been tested at all.
 
-**What is still unexercised.** Three things, and none of them is covered by
-the above:
+**A campaign found a vacuous assertion, which is what campaigns are for.** The
+arm replacing `TMin = max(TMin, THit)` with `TMin = THit` — a second clip plane
+*overwriting* the first instead of intersecting with it — SURVIVED, against an
+assertion whose text explicitly claimed to catch that bug. The cause was the
+fixture, not the wording: every clip config wrote `TMin` exactly once, with a
+value that already exceeded the box-entry `TMin`, so `max()` and plain
+assignment agreed and the mutant was an identity map.
 
-- **Iso-surface extraction.** The linear-crossing branch never runs in these
-  configs. It is the mode most likely to be subtly wrong — a crossing computed
-  between the wrong bracketing pair still yields a smooth, plausible surface.
-- **Gradient estimation and therefore lighting *direction*.** The lighting arm
-  proves lighting altered the colour and did not touch the value. It does not
-  prove the normal points anywhere correct. `FlowVizGradient` samples six
-  neighbours at ±`VoxelSpacing`; an axis swapped there lights the volume from
-  the wrong side and looks entirely reasonable.
-- **Clip planes.** Compiled, dispatched, never given a plane.
+The fix is a fixture in which the accumulator is written TWICE with the LOOSER
+value SECOND (keep `x >= 1.0`, then `x >= 0.5`). Intersecting keeps the tight
+plane, +8 voxels; overwriting takes the looser one simply because it came last,
++4. The two orders differ by construction. The mirror case on the `min()`
+accumulator got its own config and its own arm, since an assertion on one
+accumulator cannot reach the other. Generally: **`max`/`min` narrowing is
+indistinguishable from assignment unless something writes the accumulator a
+second time, pointing the wrong way.**
 
-The fixture and its decode-to-voxel trick extend to all three; the work is
-adding configs, not new machinery.
+Two of the author's own errors are worth recording, because both produced
+confident wrong numbers rather than visible failures:
 
-Treat "the ray-marcher works" as made for compositing, stepping, cropping and
-status — and unmade for iso-surface, gradients and clipping.
+- A control asserted no recovered normal component was clamped by `saturate()`,
+  written as `< 0.99`. It failed on a CORRECT render: the true Z component is
+  `0.9979`, because the gradient is 64× steeper in Z. A `saturate()` clamp
+  produces *exactly* `1.0`, so `< 1.0` is the test that names the property;
+  `0.99` was an invented margin. A control is itself a check and can be wrong
+  in the ordinary ways.
+- The max-side clip was predicted to cap the maximum 7 above the row constant;
+  it measured 8. The boundary voxel is *included*, symmetrically with the crop
+  box at `0.5` raising the minimum TO voxel 8. The shader was right and the
+  prediction assumed one boundary exclusive and the other inclusive.
+
+A third was a near miss with no red test to catch it: a pre-flight probe run
+with `sed` reported that both new clip mutations matched nothing, which would
+have licensed dismissing the genuine SURVIVED verdict as a harness artifact.
+The harness applies mutations with `perl -0pi`; re-probed with `perl`, both
+changed exactly one line. **Probe with the tool that runs it**, and give the
+probe a positive control.
+
+Treat "the ray-marcher works" as made for compositing, stepping, cropping,
+status, iso-surface, gradients and clipping — and still unmade for anything
+about how it *looks*, which no assertion in this file addresses.
 
 ## Correctness gaps
 
