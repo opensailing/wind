@@ -269,6 +269,25 @@ yields 126. Of those, 14 survived triage as genuine two-state hazards and 9 had
 both branches asserted. **The count measured the auditor's vocabulary, not the
 code.** Sweep `.usf` as well as C++: two of these three terminate in a shader.
 
+**293 was also a floor.** A third tier was then predicted on the grounds that
+both earlier vocabularies describe an *ambiguous* result and neither describes a
+*wrong* one. Measured: `stale` 45, `quietly` 15, `no error` 9, `fall(s) back`
+13, `previous frame` 6, `unreported` 2 — **~90 further hits, none in either
+earlier sweep.** Two people independently widening a pattern still did not reach
+the ceiling; each tier feels exhaustive from inside it. Treat any hazard-sweep
+count as a lower bound and say so when reporting one.
+
+**A second and worse shape to sweep for: prose claiming a hazard is already
+HANDLED.** A comment naming an untested hazard leaves a debt an auditor can
+find; a comment saying the hazard is handled *by a named mechanism* turns the
+auditor away. 2c(iii) is exactly this — two comments said the black-screen
+ambiguity was diagnosable via `WasRayMarchDispatched`, which has no caller and
+is unreachable from outside its translation unit. The mechanism existed, which
+is what let the claim survive review. **Grep such a mechanism for CALLERS, not
+for its definition;** existence is neither reachability nor a consumer. Terms:
+`so a test can`, `which makes that checkable`, `says so via`, `is what
+guarantees`, `can be distinguished by`.
+
 ### 3. The CVF volume reader has no committed test
 
 Every other reader has one. This is the reader that decodes the volume every
