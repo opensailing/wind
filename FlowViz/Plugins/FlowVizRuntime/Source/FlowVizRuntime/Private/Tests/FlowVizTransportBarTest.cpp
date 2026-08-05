@@ -271,12 +271,54 @@ bool FFlowVizTransportBarBindingTest::RunTest(const FString& Parameters)
 
 	/* == Rule 7: the fidelity badge discloses what is on screen ============= */
 	{
-		// The badge must never be empty. An empty badge is indistinguishable from
-		// "no disclosure", which is what rule 7 forbids.
+		/*
+		 * THE BADGE MUST TRACK THE VIEW MODEL, NOT MERELY BE NON-EMPTY.
+		 *
+		 * "Not empty" was the original assertion here and it was not a check.
+		 * Mutation proved it: replacing GetBadgeText's whole lookup with a
+		 * hard-coded EXACT left this green (Tools/mutants/ui-transport-bindings.txt,
+		 * `badge_always_exact`, SURVIVED). A badge frozen on "EXACT" is precisely
+		 * the rule 7 failure - it presents interpolated or stale pixels as stored
+		 * data - so the one defect the assertion existed to catch was the one it
+		 * could not see.
+		 *
+		 * So: drive the view model to two DIFFERENT badge states and require the
+		 * widget's text to differ. Any constant fails this, whatever the constant.
+		 */
+		Workspace.CloseCase();
+		TestEqual(TEXT("precondition: a closed case badges as NoCase"),
+			Workspace.Timeline.GetBadge(), EFlowVizFrameBadge::NoCase);
+		const FText ClosedBadge = Bar->GetBadgeText();
+
+		const FCFDVizResult ReopenResult = Workspace.OpenCase(CaseDir);
+		if (!TestTrue(*FString::Printf(TEXT("re-opening the sample case succeeds: %s"),
+					*ReopenResult.ToString()),
+				ReopenResult.IsOk()))
+		{
+			return false;
+		}
+
+		// An open case is anything BUT NoCase - which exact value depends on what
+		// has finished decoding, and asserting a specific one would make this test
+		// about decode timing rather than about the badge.
+		if (!TestNotEqual(TEXT("precondition: an open case does not badge as NoCase"),
+				Workspace.Timeline.GetBadge(), EFlowVizFrameBadge::NoCase))
+		{
+			return false;
+		}
+		const FText OpenBadge = Bar->GetBadgeText();
+
+		// THE LOAD-BEARING ASSERTION.
 		TestFalse(
-			TEXT("the fidelity badge always says something, so an interpolated frame is never "
-				 "presented as though it were stored data (engineering rule 7)"),
-			Bar->GetBadgeText().IsEmpty());
+			*FString::Printf(
+				TEXT("the badge follows the view model rather than being a constant; closed "
+					 "'%s' vs open '%s' (engineering rule 7: what is on screen must be "
+					 "disclosed, and a frozen badge discloses nothing)"),
+				*ClosedBadge.ToString(), *OpenBadge.ToString()),
+			ClosedBadge.EqualTo(OpenBadge));
+
+		// Still never empty: a blank badge reads as "nothing to disclose".
+		TestFalse(TEXT("the badge always says something"), OpenBadge.IsEmpty());
 
 		// The readouts likewise. A blank frame counter reads as a broken widget.
 		TestFalse(TEXT("the frame counter is populated"), Bar->GetFrameCounterText().IsEmpty());
