@@ -5,18 +5,41 @@ renders against. **It is intentionally empty in source control.**
 
 ## Why nothing is committed here
 
-The references that matter are film frames and AAA game captures — *Avatar: The
-Way of Water* water and smoke, Houdini/Mantra and Arnold fluid renders,
-real-time volumetrics from shipped titles. Those are other people's
-copyrighted work. Using them locally to judge our own output is ordinary
-comparative evaluation; redistributing them in a public repository is not
-something this project gets to decide unilaterally. So they stay out of git,
-and `.gitignore` keeps them out by accident as well as on purpose.
+The `presentation/` references that matter are film frames and AAA game
+captures — *Avatar: The Way of Water* water and smoke, Houdini/Mantra and
+Arnold fluid renders, real-time volumetrics from shipped titles. Those are
+other people's copyrighted work. Using them locally to judge our own output is
+ordinary comparative evaluation; redistributing them in a public repository is
+not something this project gets to decide unilaterally. So they stay out of
+git, and `.gitignore` keeps them out by accident as well as on purpose.
 
 The consequence is worth stating plainly: **a clean checkout cannot run a real
-blind comparison until someone puts images here.** That is a limitation of the
-harness, not a detail to paper over. A review run against an empty corpus has
-not compared anything.
+blind comparison for the Presentation profile until someone puts images here.**
+That is a limitation of the harness, not a detail to paper over. A review run
+against an empty corpus has not compared anything.
+
+## Scientific references are generated, not downloaded
+
+The `scientific/` half has no such problem. A ParaView- or Tecplot-grade figure
+of *our own* sample case is ours to make, so we make it:
+
+```sh
+python3 FlowViz/Tools/capture/make_reference_figures.py
+```
+
+That writes three 1920×1080 figures into `scientific/` — velocity magnitude at
+the cylinder mid-plane, signed spanwise vorticity showing the shed street, and
+a maximum-intensity projection through the depth as the closest 2D analogue of
+the volume ray-marcher. They are still gitignored; regenerate rather than
+commit. `--resolution W H` matches whatever the render under review emits, and
+`--frame` picks the timestep.
+
+Being generated does not make them a soft target. They satisfy every hard
+requirement in `VISUAL_QA.md` §1 — perceptually uniform ramp by default, the
+diverging map centered on zero and not on the data midpoint, a scalar legend
+carrying field name and units and numeric range, invalid cells in a color no
+part of the ramp can reach, and a stated global range. A render that loses to
+them lost to a fair opponent.
 
 ## What to put here
 
