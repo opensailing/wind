@@ -549,8 +549,29 @@ struct FFlowVizDisplaySelection
 	 * which is the same (F, F, 0) spelling TryBracket already uses for an exact
 	 * landing. Then the two predicates agree on every input.
 	 *
-	 * Verified by narrowing sweep, not by inspection; see the note in the
-	 * seam adapter when it lands.
+	 * AND THE COLLAPSE IS NOT MERELY COSMETIC, which corrects an earlier note
+	 * here that called this a disclosure-only bug. Whether a collapsed alpha
+	 * also moves a PIXEL depends on which blend the shader writes:
+	 *
+	 *     a + t*(b-a)        the mad/HLSL-lerp form: NOT exact at t == 1
+	 *     (1-t)*a + t*b      the two-product form:   exact at t == 1
+	 *
+	 * The first form is wrong at t = 1.0f whenever (b-a) is not representable,
+	 * which happens at ordinary CFD magnitudes, not just extreme ones:
+	 * a = -1000, b = 0.001 returns 0.000976562 rather than b. So with the mad
+	 * form a narrowed alpha renders a value the solver never produced, at a
+	 * timestep the UI simultaneously reports as un-interpolated.
+	 *
+	 * The identity DOES hold for both forms when a and b are within a factor of
+	 * two (Sterbenz: b-a is then exact), so a sweep drawn from a narrow range
+	 * confirms it and proves nothing. That is how the "disclosure-only" reading
+	 * arose. Fields here span sign changes and several decades.
+	 *
+	 * The temporal blend is not written yet. When it is, it must use the
+	 * two-product form, and the collapse above must still happen so the pair
+	 * and the disclosure agree.
+	 *
+	 * Verified by compiling both forms and sweeping, not by inspection.
 	 */
 	double Alpha = 0.0;
 
