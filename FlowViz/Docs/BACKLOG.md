@@ -165,14 +165,45 @@ Listed here so the next person to find it reads the ADR before "fixing" it.
 
 ## Process and tooling
 
-### 7. A clean checkout cannot run a real blind visual review
+### 7. Only the Presentation half of the blind review is still blocked
 
-`Tools/capture/references/` is empty by design: the reference stills are
-third-party film and AAA frames that are not committed. The harness
-(`blind.py`, `review.py`) is implemented and tested, and `review.iterate()`
-refuses to grade against an empty corpus rather than reporting an unopposed
-pass. But until someone drops images in, the review cannot run at all. See
+Narrowed 2026-08-05. This entry used to say a clean checkout could not run a
+blind review at all. That is now true of only one of the two profiles.
+
+**Scientific: unblocked.** `Tools/capture/make_reference_figures.py` generates
+the corpus on demand from the committed `MockCylinderWake.cfdviz` sample —
+three 1920×1080 figures (velocity magnitude, signed vorticity on a
+zero-centred diverging map, vorticity-magnitude MIP). The PNGs are *not*
+committed; `.gitignore:31` catches them and the generator is what ships, so a
+clean checkout runs one command instead of needing files it cannot obtain.
+Colormaps come from `cfdviz.colormaps.build_lut` rather than matplotlib, and
+a test asserts matplotlib's own viridis would *fail* — the two differ by up to
+103/255 in a channel, which is exactly the cross-implementation drift the
+two-language design exists to catch.
+
+Verified independently rather than taken on report: 88/88 capture tests pass,
+the figures regenerate with the stated ranges, and a metadata scan written
+without using the project's own `blind.audit()` confirms no `tEXt`/`iTXt`/
+`tIME` chunk survives to leak which image is which. The vorticity figure was
+looked at: six alternating cores with five sign changes, blue above the
+centreline and red below — a Kármán street, not noise.
+
+The checks were mutation-tested and three initially SURVIVED, including a NaN
+painted as the colormap minimum: `exact_color_count` had been scanning the
+whole PNG, and the legend's own invalid swatch cleared the threshold by
+itself. Now counted only inside the data axes, with a second assertion that
+the swatch is still present, so the test distinguishes the two regions. Final
+18/18.
+
+**Presentation: still blocked, and correctly so.** Those references are
+third-party film and AAA frames. They are not committed, cannot be, and no
+generator can substitute for them. `review.iterate()` still refuses to grade
+against an empty corpus rather than reporting an unopposed pass. See
 `Tools/capture/references/README.md`.
+
+**What this does not establish.** No FlowViz render has been compared against
+any of it. The figures are verified as good *references*; the first actual
+blind run has not happened, because nothing has been rendered yet (item 2).
 
 ### 8. `Build.sh` exits 0 when the build fails
 
