@@ -176,15 +176,25 @@ extras and the code degrades gracefully without them. **zstandard is
 deliberately not a dependency** — see
 [ADR 005](ADR/005-compression-codec.md).
 
-## Generating sample data
+## Sample data
+
+`FlowViz/Samples/MockCylinderWake.cfdviz` is **committed** (3.39 MiB), so a
+fresh checkout has a case to load without running anything first. Regenerate it
+byte-identically with:
 
 ```bash
 PYTHONPATH=FlowViz/Tools/cfdviz/src python3 -m cfdviz generate-mock \
     --low-res --output FlowViz/Samples/MockCylinderWake.cfdviz
 ```
 
-`--low-res` produces the small case that is small enough for source control and
-that the packaged application auto-loads. Omit it for the full-resolution case.
+`--low-res` is the small preset that fits in source control. Omit it for the
+full-resolution case (128 x 64 x 24, 90 frames), which is far too large to
+commit. Every generation parameter is exposed as a flag — see `--help` — and
+the output is deterministic: the same parameters always produce the same bytes,
+including the case UUID.
+
+The data is a closed-form analytic construction, **not a solved flow**. The
+manifest says so, in those words, and that wording is asserted by a test.
 
 Validate any case with:
 
@@ -193,6 +203,22 @@ PYTHONPATH=FlowViz/Tools/cfdviz/src python3 -m cfdviz validate <case>
 ```
 
 which exits non-zero and names the offending file and byte offset on failure.
+
+Two more commands help when a case looks wrong in the renderer but valid to the
+validator:
+
+```bash
+# One field at one frame: a summary, one voxel, or a .npy in its stored dtype
+python3 -m cfdviz extract <case> --frame 12 --field U --voxel 40 14 3
+
+# Decode everything and report throughput, in DECODED bytes rather than
+# file size, so the number is comparable across codecs
+python3 -m cfdviz benchmark-read <case>
+```
+
+`extract --voxel` reports `masked` separately from the value, because a cell
+inside the obstacle holding NaN and a cell whose value is genuinely NaN are
+different bugs.
 
 ## Cross-language format agreement
 
