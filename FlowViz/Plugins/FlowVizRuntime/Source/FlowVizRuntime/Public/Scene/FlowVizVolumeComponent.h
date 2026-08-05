@@ -372,6 +372,20 @@ struct FFlowVizVolumeRayMarchContext
 	 *       (The "mad form: 0" line is NOT an instance of this species - that
 	 *       zero is structural, and the theorem is given below.)
 	 *
+	 *   A GUARD that cannot fail, protecting a fixture that cannot fire -
+	 *     Found by the playback agent in their own seam test, and it is the
+	 *     inverse of the usual defect. They wrote a guard to PROVE a fixture
+	 *     reached the hazard it claimed to test: TestEqual((float)Alpha, 0.0f).
+	 *     It passed against 1.4e-45 - because UE's float TestEqual carries a
+	 *     1e-4 tolerance, so an exactness check written with a tolerant
+	 *     comparator asserts nothing. The fixture was also wrong (1e-45 does
+	 *     not narrow to zero; the smallest float subnormal is 1.4013e-45), so
+	 *     the guard would have certified a hazard that was never exercised.
+	 *     A tolerant comparator in an exactness guard is unfalsifiable. And the
+	 *     guard is the LAST place anyone looks, because it is the thing you add
+	 *     after being burned - it carries the authority of a lesson learned.
+	 *     Guards need their own controls, exactly like the measurements do.
+	 *
 	 * The invented finding is the most dangerous when agents review each other,
 	 * because it arrives as a correction to a colleague and carries more social
 	 * force than a silent zero. But the contradiction species is the most
