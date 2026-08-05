@@ -58,7 +58,7 @@ call.
 | Component | File | Status |
 | --- | --- | --- |
 | Manifest parser | `Private/CFDViz/CFDVizManifest.cpp` | Done |
-| CVM mesh reader | `Private/CFDViz/CFDVizMeshReader.cpp` | Done |
+| CVM mesh reader | `Private/CFDViz/CFDVizMeshReader.cpp` | Done — audited 2026-08-04, see below |
 | CVA array reader | `Private/CFDViz/CFDVizArrayReader.cpp` | Done |
 | CVF volume reader | `Private/CFDViz/CFDVizVolumeReader.cpp` | Partial — no committed test |
 | Payload/codec | `Private/CFDViz/CFDVizPayload.cpp` | Done |
@@ -73,10 +73,36 @@ call.
 
 - The **CVF reader** is the reader that decodes the volume every later
   milestone displays, so this is the most consequential gap in the table.
-- The **byte source/cursor** is exercised indirectly by every reader test, but
-  indirect coverage is not a test of its bounds checking. Its whole job is
-  refusing to read past the end of a buffer (rule 12), and no committed test
-  puts that behaviour under direct attack.
+- The **byte source** is exercised indirectly by every reader test, but
+  indirect coverage is not a test of its own bounds checking. (The byte
+  *cursor* beside it is no longer in this position: `CFDVizByteCursorTest.cpp`
+  attacks its `CanRead` arithmetic directly.)
+
+### CVM mesh reader — audit, 2026-08-04
+
+`CFDVizMeshReaderTest.cpp` was read against format §5.1–5.3 rather than
+assumed adequate. The five existing cases (`Layout`, `Float64`,
+`OffsetProbes`, `Rejection`, `Patches`) are sound, and two of their choices are
+load-bearing enough to be worth not undoing: the golden fixture uses **4
+vertices and 2 triangles** so that confusing the per-vertex `nodeIds` with the
+per-triangle `patchIds` reads the wrong element count instead of producing
+correctly-sized garbage; and `OffsetProbes` permutes the five header offsets
+differentially rather than asserting parsed values, which is what catches a
+transposed offset block.
+
+The audit found **three behaviours the reader validates and no test exercised**
+— each one enforced in `CFDVizMeshReader.cpp` and, until now, free to be
+deleted without turning any test red:
+
+| Behaviour | Enforced at | Now covered by |
+| --- | --- | --- |
+| `headerBytes` must equal 96 | `CFDVizMeshReader.cpp:405` | six wrong sizes either side, plus a control that 96 still loads |
+| `reserved[12]` must be zero | `CFDVizMeshReader.cpp:432` | all twelve bytes separately, so a loop bound one short is caught |
+| a non-empty array may not start inside the header | `CFDVizMeshReader.cpp:175` | offsets 0/1/40/95 rejected, and 96 — the first legal byte — accepted |
+
+Each addition carries a paired assertion in the opposite direction. Without
+one, a reader that rejected *every* file would satisfy the rejection cases and
+the check could not fail.
 
 Adapters named in §5 as *reserved*, deliberately not built:
 `FCFDVizLiveDataSource`, `FCFDVizOpenFOAMAdapter`, `FCFDVizVTKAdapter`. §5A is
