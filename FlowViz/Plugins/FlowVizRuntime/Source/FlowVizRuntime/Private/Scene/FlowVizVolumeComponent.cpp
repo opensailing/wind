@@ -705,6 +705,22 @@ FFlowVizVolumeFrameSelection UCFDVizVolumeComponent::GetFrameSelection() const
 	return Selection;
 }
 
+void UCFDVizVolumeComponent::PublishDisplayFrames()
+{
+	if (!TextureSet.IsValid())
+	{
+		return;
+	}
+
+	const FFlowVizVolumeFrameSelection Selection = GetFrameSelection();
+
+	// Both frames, not just A. During a blend the shader reads B every bit as
+	// often as A, so pinning only A leaves the second half of every interpolated
+	// frame evictable - which is exactly the frame a prefetch is most likely to
+	// take, since it is the one nearest the playhead's direction of travel.
+	TextureSet->SetDisplayFrames(Selection.FrameA, Selection.FrameB);
+}
+
 bool UCFDVizVolumeComponent::TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const
 {
 	if (!HasRenderableVolume() || !UploadedScalarLayout.IsValid())
@@ -815,6 +831,12 @@ void UCFDVizVolumeComponent::SendRenderDynamicData_Concurrent()
 	{
 		return;
 	}
+
+	// Pin before publishing. The selection about to reach the render thread is
+	// the one the proxy will sample, so the pin must be in place before the
+	// proxy can act on it - not a tick later, which is a window a prefetch can
+	// fit inside.
+	PublishDisplayFrames();
 
 	// Built on the game thread, moved to the render thread BY VALUE. The proxy
 	// never reads the component.

@@ -355,6 +355,24 @@ public:
 	/** What is on screen this tick. Frame 0 when no frame source is attached and a case is bound. */
 	FFlowVizVolumeFrameSelection GetFrameSelection() const;
 
+	/**
+	 * Pin the currently displayed frames in the texture set so eviction cannot
+	 * take them.
+	 *
+	 * The proxy samples BOTH display frames every frame during a blend, but
+	 * FFlowVizVolumeTextureSet's eviction policy only knows which frames are in
+	 * use because this is called. Without it, ChooseUploadSlot may hand a
+	 * prefetch the very slot the shader is about to read.
+	 *
+	 * That failure needs a prefetch in flight WHILE two frames are displayed, so
+	 * it appears under scrubbing and not in a paused screenshot - and it presents
+	 * as a torn or stale frame, which reads as a decode bug rather than an
+	 * eviction bug. Called automatically whenever the selection is published to
+	 * the render thread; exposed because the pin is part of what "these frames
+	 * are on screen" means, not a private detail.
+	 */
+	void PublishDisplayFrames();
+
 	/** The multi-buffered textures this component owns. Never null once constructed. */
 	FFlowVizVolumeTextureSet& GetTextureSet()
 	{

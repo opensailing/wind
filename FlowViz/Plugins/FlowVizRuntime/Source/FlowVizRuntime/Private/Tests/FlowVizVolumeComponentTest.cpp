@@ -91,6 +91,31 @@ namespace FlowVizVolumeComponentTestHelpers
 	}
 
 	/**
+	 * A frame source that reports one fixed selection.
+	 *
+	 * Stands in for the case player, which owns real frame selection. This is not
+	 * a stub pretending to be a player - it exists so the component's OWN
+	 * behaviour (what it pins, what it publishes) can be tested against a
+	 * selection chosen by the test rather than by a peer's timeline.
+	 */
+	class FFixedFrameSource final : public IFlowVizVolumeFrameSource
+	{
+	public:
+		FFixedFrameSource(int32 InFrameA, int32 InFrameB, float InAlpha)
+			: Selection{InFrameA, InFrameB, InAlpha}
+		{
+		}
+
+		virtual FFlowVizVolumeFrameSelection GetFrameSelection() const override
+		{
+			return Selection;
+		}
+
+	private:
+		FFlowVizVolumeFrameSelection Selection;
+	};
+
+	/**
 	 * Outward local normal of face F of a [0,Size] box, in the same face order
 	 * FlowVizVolumeBox::MakeBoxGeometry emits: -X, +X, -Y, +Y, -Z, +Z.
 	 *
@@ -593,6 +618,54 @@ bool FFlowVizVolumeComponentTest::RunTest(const FString& Parameters)
 			Selection.Alpha = 0.5f;
 			TestFalse(TEXT("blending a frame with itself yields that frame, so it is not interpolated"),
 				Selection.IsInterpolated());
+		}
+
+		/* -- Displayed frames are pinned against eviction --------------------- */
+
+		// The proxy samples BOTH display frames every frame during an
+		// interpolated blend. FFlowVizVolumeTextureSet's eviction policy refuses
+		// to overwrite a slot holding a pinned frame - but it only knows what is
+		// pinned because someone called SetDisplayFrames.
+		//
+		// If the component never pins, ChooseUploadSlot is free to evict a slot
+		// the shader is about to read, and the next prefetch takes it. The result
+		// is a torn or stale frame under scrubbing only - the case where a
+		// prefetch is in flight while two frames are displayed - so it is
+		// invisible in a paused screenshot and looks like a decode bug rather
+		// than an eviction bug.
+		{
+			FFlowVizVolumeTextureSet& Textures = Volume->GetTextureSet();
+
+			// Frame 0 is what GetFrameSelection reports with no player attached,
+			// so it is what the proxy would sample right now.
+			Volume->PublishDisplayFrames();
+
+			TestEqual(TEXT("the component pins the frame it displays, so eviction cannot take it"),
+				Textures.GetDisplayFrameA(), 0);
+			TestEqual(TEXT("and pins no second frame when it is not interpolating"),
+				Textures.GetDisplayFrameB(), INDEX_NONE);
+
+			// THE HALF THAT ACTUALLY DISCRIMINATES. The assertions above cannot
+			// tell "pins both frames" from "pins only A", because B is INDEX_NONE
+			// either way when nothing is interpolating - so on their own they
+			// would pass for a component that leaves every blended-toward frame
+			// evictable. A frame source that IS interpolating separates them.
+			const TSharedPtr<FFixedFrameSource> Source = MakeShared<FFixedFrameSource>(3, 4, 0.5f);
+			Volume->SetFrameSource(Source);
+			Volume->PublishDisplayFrames();
+
+			TestEqual(TEXT("while blending, frame A is pinned"), Textures.GetDisplayFrameA(), 3);
+			TestEqual(TEXT("AND SO IS FRAME B - the shader reads it just as often"),
+				Textures.GetDisplayFrameB(), 4);
+
+			// Detaching must release the pins, or a scrubbed-away frame stays
+			// resident forever and the ring silently loses a slot.
+			Volume->SetFrameSource(nullptr);
+			Volume->PublishDisplayFrames();
+			TestEqual(TEXT("detaching the source returns to the held frame"),
+				Textures.GetDisplayFrameA(), 0);
+			TestEqual(TEXT("and releases the second pin, so the ring keeps its slot"),
+				Textures.GetDisplayFrameB(), INDEX_NONE);
 		}
 
 		/* -- The scene proxy -------------------------------------------------- */
