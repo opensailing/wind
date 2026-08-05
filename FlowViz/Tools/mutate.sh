@@ -29,9 +29,10 @@
 # str.replace so no character is special.
 #
 # ---------------------------------------------------------------------------
-# Four constraints, every one of them learned by getting a wrong answer first
+# Five constraints, every one of them learned by getting a wrong answer first
 # and believing it. Constraint 2 has now been learned twice, from opposite
-# directions, which is why its logic is the only part of this script under test.
+# directions, which is why the parts of this script that decide anything --
+# classification and parsing -- are the parts under test.
 #
 #  1. Build.sh EXITS 0 WHEN IT FAILS. Only the printed "Result:" line is
 #     authoritative. Never trust $? from a UE build.
@@ -70,6 +71,19 @@
 #  4. THE SOURCE IS RESTORED ON EVERY EXIT PATH, via trap. A mutant left in a
 #     shared tree is not just a lost result: other agents build that tree, and
 #     one was found still mutated long after its run had ended.
+#
+#  5. THIS CAMPAIGN'S MUTANT LIST BELONGS TO THIS CAMPAIGN. Parsing wrote the
+#     records to a fixed /tmp filename and the scoring loop read from that same
+#     fixed name, so two campaigns running at once shared one list. A payload
+#     campaign was observed scoring a GPU texture mutant it had never been
+#     given, while its own second mutant silently disappeared. That it surfaced
+#     as a harmless SKIP was luck: the foreign pattern did not match the file
+#     being mutated. One that DID match would have been applied, built, scored
+#     and reported under another mutant's name -- a verdict that looks exactly
+#     like a result and is about something else entirely. The records now go to
+#     a mktemp file, and parsing lives in Tools/parse_mutants.py where
+#     Tools/tests/test_mutant_isolation.sh runs two parses concurrently and
+#     checks neither sees the other's mutants.
 #
 # ---------------------------------------------------------------------------
 # RUN THIS IN A GIT WORKTREE, AND NOT ONE UNDER /tmp.
@@ -181,21 +195,28 @@ fi
 
 KILLED=0; SURVIVED=0; INVALID=0; UNSCORED=0; SKIPPED=0
 
-# Read the records: name / -- / from / -- / to, separated by %%.
-python3 - "${MUTANTS}" <<'PY' > /tmp/mutate_records.tsv
-import sys, json
-records = open(sys.argv[1], encoding='utf-8').read().split('\n%%\n')
-for record in records:
-    if not record.strip():
-        continue
-    parts = record.split('\n--\n')
-    if len(parts) != 3:
-        sys.stderr.write("malformed record:\n%s\n" % record[:200])
-        sys.exit(2)
-    name, frm, to = (p.strip('\n') for p in parts)
-    print('\t'.join(json.dumps(x) for x in (name.strip(), frm, to)))
-PY
-[[ -s /tmp/mutate_records.tsv ]] || { echo "no mutants parsed"; exit 2; }
+# Constraint 5: this campaign's mutant list belongs to this campaign.
+#
+# Parsing used to write to /tmp/mutate_records.tsv -- a fixed name -- and the
+# loop below read from that same fixed name. Two campaigns at once shared one
+# file, and a payload campaign was seen scoring a GPU texture mutant it had
+# never been given while its own second mutant silently vanished. It showed up
+# as a harmless SKIP only because the foreign pattern happened not to match;
+# one that matched would have been applied, built, scored, and reported under
+# the wrong name in the wrong campaign.
+#
+# So the records go to a per-run temporary file, and parsing lives in
+# parse_mutants.py where Tools/tests/test_mutant_isolation.sh exercises it
+# concurrently. RECORDS is created by mktemp, so two campaigns cannot collide
+# even if they start in the same second.
+RECORDS="$(mktemp -t mutate_records)"
+cleanup() { restore; rm -f "${RECORDS}"; }
+trap cleanup EXIT INT TERM
+
+if ! python3 "${PROJECT_DIR}/Tools/parse_mutants.py" "${MUTANTS}" > "${RECORDS}"; then
+    echo "ABORT: could not parse ${MUTANTS}; no verdict would mean anything."
+    exit 2
+fi
 
 while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
     NAME=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${NAME_J}")
@@ -239,7 +260,7 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
         grep -aE "error:" "${BUILD_LOG}" | head -2 | sed 's/^/            /'
         UNSCORED=$((UNSCORED+1))
     fi
-done < /tmp/mutate_records.tsv
+done < "${RECORDS}"
 
 cp "${BACKUP}" "${SRC}"
 echo
