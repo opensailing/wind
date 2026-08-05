@@ -536,6 +536,19 @@ Rules:
    - a voxel whose value is `NaN`, if the case contains one.
 4. A reader that cannot reproduce every `bits` entry exactly has failed,
    regardless of how close `value` looks.
+5. Mesh samples (`meshSamples`) MUST include, for at least one mesh, a
+   `patchId` sample whose mesh has **more than one distinct patch ID** and a
+   **vertex count different from its triangle count**. `patchIds` is per
+   triangle and `nodeIds` is per vertex, and those are the easiest two arrays
+   in this format to confuse. On a mesh where the counts are equal and every
+   triangle carries the same patch, indexing the array by vertex instead of by
+   triangle returns the right answer by accident and the sample proves nothing.
+
+   > In the shipped `MockCylinderWake` case this is `boundaries` (24 vertices,
+   > 12 triangles, patches 1/2/3), **not** `obstacle` — `obstacle` has 96
+   > vertices, 96 triangles, and patch 4 on every one of them, so its three
+   > `patchId` samples pass under any indexing. They are still worth keeping as
+   > a decode check; they simply do not carry this property.
 
 ---
 
