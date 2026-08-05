@@ -731,14 +731,17 @@ namespace FlowVizVolumeComponentTestHelpers
 		mutable int32 CallCount = 0;
 		mutable FMatrix SeenLocalToWorld = FMatrix::Identity;
 		mutable FFlowVizVolumeShaderParameters SeenParameters;
+		mutable bool bSeenInterpolationDegraded = false;
 
 		virtual void DispatchVolumeRayMarch(const FFlowVizVolumeRayMarchContext& Context) const override
 		{
 			++CallCount;
 			SeenLocalToWorld = Context.LocalToWorld;
 			SeenParameters = Context.Parameters;
+			bSeenInterpolationDegraded = Context.bInterpolationDegraded;
 		}
 	};
+
 }
 
 bool FFlowVizVolumeRayMarchSeamTest::RunTest(const FString& Parameters)
@@ -769,6 +772,54 @@ bool FFlowVizVolumeRayMarchSeamTest::RunTest(const FString& Parameters)
 	FlowVizVolumeRayMarch::SetDispatcher(nullptr);
 	TestNull(TEXT("and it can be uninstalled, so a test cannot leak one into the next"),
 		FlowVizVolumeRayMarch::GetDispatcher());
+
+	/* == A blend that lost its second half must SAY so ======================= */
+	{
+		// The context defaults to "not degraded", so a dispatcher that never
+		// looks at the flag sees the honest answer for the common case.
+		const FFlowVizVolumeRayMarchContext Default;
+		TestFalse(TEXT("a fresh context does not claim a degraded blend"),
+			Default.bInterpolationDegraded);
+
+		// Asked for a real blend, frame B is resident: nothing degraded.
+		FFlowVizVolumeFrameSelection Blend;
+		Blend.FrameA = 3;
+		Blend.FrameB = 4;
+		Blend.Alpha = 0.5f;
+		TestTrue(TEXT("a mid-blend selection is genuinely interpolated"), Blend.IsInterpolated());
+		TestFalse(TEXT("and with frame B resident it is not degraded"),
+			FlowVizVolumeRayMarch::IsInterpolationDegraded(Blend, /*bSlotBResident=*/true));
+
+		// THE CASE THIS EXISTS FOR. Same request, frame B evicted or not yet
+		// uploaded. The render falls back to frame A alone, which is pixel-wise
+		// identical to a genuine non-interpolated frame - so if this is not
+		// reported, a held frame is indistinguishable from measured data at that
+		// timestep.
+		TestTrue(TEXT("but a blend whose frame B is missing IS degraded"),
+			FlowVizVolumeRayMarch::IsInterpolationDegraded(Blend, /*bSlotBResident=*/false));
+
+		// Not a blend to begin with: a missing frame B is the normal state and
+		// degradation would be a false alarm. Without this case the rule
+		// "report whenever SlotB is null" would pass every other assertion here
+		// while crying interpolation on every single-frame display.
+		FFlowVizVolumeFrameSelection Single;
+		Single.FrameA = 3;
+		Single.FrameB = INDEX_NONE;
+		Single.Alpha = 0.0f;
+		TestFalse(TEXT("a single-frame display is not interpolated"), Single.IsInterpolated());
+		TestFalse(TEXT("so its absent frame B is not a degraded blend"),
+			FlowVizVolumeRayMarch::IsInterpolationDegraded(Single, /*bSlotBResident=*/false));
+
+		// An exact landing on a stored frame carries FrameB but is not a blend,
+		// so losing B costs nothing and must not be reported either.
+		FFlowVizVolumeFrameSelection Landed;
+		Landed.FrameA = 3;
+		Landed.FrameB = 4;
+		Landed.Alpha = 0.0f;
+		TestFalse(TEXT("an exact landing is not interpolated"), Landed.IsInterpolated());
+		TestFalse(TEXT("so it is not degraded when frame B is missing"),
+			FlowVizVolumeRayMarch::IsInterpolationDegraded(Landed, /*bSlotBResident=*/false));
+	}
 
 	return true;
 }

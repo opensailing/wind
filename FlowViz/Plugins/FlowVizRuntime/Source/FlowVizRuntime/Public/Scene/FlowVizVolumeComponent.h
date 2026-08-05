@@ -206,6 +206,28 @@ struct FFlowVizVolumeRayMarchContext
 
 	/** Blend weight toward SlotB. Zero when SlotB is null. */
 	float Alpha = 0.0f;
+
+	/**
+	 * True when an interpolated frame was REQUESTED but could not be produced,
+	 * because frame B's voxels were not resident when this dispatch was built.
+	 *
+	 * The display silently falls back to frame A alone. That fallback is correct
+	 * as a rendering decision - a stored frame is the only honest thing to draw
+	 * when the blend's second half is missing - but it is NOT correct to keep
+	 * quiet about, and the two cases are indistinguishable on screen:
+	 *
+	 *   - a genuine non-interpolated frame, which is measured data, and
+	 *   - a blend that degraded to its A end, which is what the user asked for
+	 *     minus the part that did not arrive.
+	 *
+	 * VISUAL_QA section 1 rule 5 requires a synthesized frame disclose itself.
+	 * The inverse - a frame the user believes is a blend but which is actually a
+	 * single stored frame held while the cache catches up - misreports the
+	 * playhead's position in time, so it is the same class of provenance lie.
+	 * Surfaced here so the marcher, or an overlay above it, can say so rather
+	 * than each call site having to re-derive it from a null SlotB.
+	 */
+	bool bInterpolationDegraded = false;
 };
 
 /**
@@ -232,6 +254,22 @@ public:
 
 namespace FlowVizVolumeRayMarch
 {
+	/**
+	 * Did a requested blend lose its second half?
+	 *
+	 * A named primitive rather than an expression inlined at the dispatch site,
+	 * because the dispatch site lives in GetDynamicMeshElements - render thread,
+	 * needs an RHI and a scene - so a test that drove it would self-skip without
+	 * RHI=1 and cover nothing (repo memory note green-totals-can-hide-skips).
+	 * Testing the primitive directly is only meaningful if the primitive IS the
+	 * production code; a copy of this rule living in the test file would pass
+	 * while the shipping expression rotted underneath it.
+	 */
+	inline bool IsInterpolationDegraded(const FFlowVizVolumeFrameSelection& Selection, bool bSlotBResident)
+	{
+		return Selection.IsInterpolated() && !bSlotBResident;
+	}
+
 	/** Install the ray-march implementation. Render thread, or before the render thread has work. Pass null to uninstall. */
 	FLOWVIZRUNTIME_API void SetDispatcher(IFlowVizVolumeRayMarchDispatcher* Dispatcher);
 

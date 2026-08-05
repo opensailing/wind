@@ -335,6 +335,16 @@ public:
 						Context.SlotB = TextureSet->GetSlotTextures(SlotB);
 						Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
 
+						// Falling back to frame A alone is the right picture -
+						// a stored frame is the only honest thing to draw when
+						// half the blend is missing - but the fallback is
+						// PIXEL-IDENTICAL to a genuine single-frame display, so
+						// silence here would let a held frame pass as measured
+						// data at that timestep. Report it and let the marcher
+						// or an overlay disclose it (VISUAL_QA section 1 rule 5).
+						Context.bInterpolationDegraded = FlowVizVolumeRayMarch::IsInterpolationDegraded(
+							DynamicData.FrameSelection, /*bSlotBResident=*/Context.SlotB != nullptr);
+
 						Dispatcher->DispatchVolumeRayMarch(Context);
 						bRayMarchDispatched = true;
 					}
