@@ -674,11 +674,25 @@ def build_known_values(root: Path | str) -> dict[str, Any]:
                 samples.append(
                     _sample(field_id, frame, middle, 0, values[middle][0], "interior")
                 )
-                if components > 1:
+                # EVERY remaining component, not just the last one.
+                #
+                # This sampled only component `components - 1`, which on a
+                # 3-component field left component 1 pinned by nothing. That is
+                # the exact set a swizzle typo gets wrong: `float4(v.x, v.z,
+                # v.z, 1)` is correct at components 0 and 2 and wrong in the
+                # middle, so it passed the whole bridge. Replacing component 1
+                # of every voxel with component 2 produced no complaint at all.
+                #
+                # The ends still earn their own notes -- off-by-one bounds
+                # errors live there and a reviewer reads for them -- but the
+                # middle is a distinct failure mode, not a weaker version of
+                # the same one.
+                for component in range(1, components):
+                    note = "last-component" if component == components - 1 else "component"
                     samples.append(
                         _sample(
-                            field_id, frame, middle, components - 1,
-                            values[middle][components - 1], "last-component",
+                            field_id, frame, middle, component,
+                            values[middle][component], note,
                         )
                     )
 

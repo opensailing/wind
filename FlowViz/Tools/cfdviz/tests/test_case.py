@@ -31,6 +31,7 @@ from cfdviz.case import (
     verify_known_values,
 )
 from cfdviz.crc32c import CHECK_VALUE
+from cfdviz.manifest import load_manifest
 
 
 # ---------------------------------------------------------------------------
@@ -913,3 +914,115 @@ def test_empty_report_is_not_ok_by_default():
     report = ValidationReport(root=Path("."))
     report.error("something went wrong")
     assert not report.ok
+
+
+# ---------------------------------------------------------------------------
+# Every component of a vector field, not just the ends
+# ---------------------------------------------------------------------------
+#
+# `_field_samples` pinned component 0 ("interior") and component C-1
+# ("last-component"). On a 3-component field that leaves component 1 pinned by
+# nothing at all, and component 1 of `U` and `vorticity` holds distinct,
+# non-zero data. A reader correct at both ends and wrong in the middle passed
+# the whole bridge.
+#
+# That is not a hypothetical shape of bug. It is the single most common one in
+# a volume path: a swizzle typo. `float4(v.x, v.z, v.z, 1)` reads correctly at
+# components 0 and 2 and returns the wrong number at component 1, which is
+# exactly the set the bridge failed to look at. The same hole covers "the
+# middle component is dropped and the rest shift up", which any per-component
+# copy loop with a bad bound produces.
+#
+# The end-sampling is not wrong -- ends are where off-by-one bounds errors
+# live, and they should stay. The middle is a different failure mode and needs
+# its own sample.
+
+def test_known_values_samples_every_component_of_a_vector_field(valid_case: Path):
+    """No component of a multi-component field may go unsampled.
+
+    Stated over every component rather than "component 1 specifically" so the
+    check keeps meaning if a 6-component symmetric tensor is ever stored as a
+    grid field: the interior components of that are 1 through 4.
+    """
+    from collections import defaultdict
+
+    bridge = build_known_values(valid_case)
+    manifest = load_manifest(valid_case)
+
+    pinned = defaultdict(set)
+    for sample in bridge["samples"]:
+        if sample.get("component") is not None:
+            pinned[sample["field"]].add(sample["component"])
+
+    checked = 0
+    for entry in manifest["fields"]:
+        count = entry.get("componentCount", 1)
+        if count <= 1:
+            continue
+        checked += 1
+        missing = set(range(count)) - pinned[entry["id"]]
+        assert not missing, (
+            f"field {entry['id']} has {count} components but the bridge never "
+            f"samples component(s) {sorted(missing)}; a reader wrong only "
+            f"there passes every comparison"
+        )
+
+    assert checked, (
+        "no multi-component field in the fixture, so this test asserted "
+        "nothing -- the case must carry a vector field for the bridge to check"
+    )
+
+
+def test_a_middle_component_swizzle_is_caught_by_the_bridge(valid_case: Path):
+    """The differential: the bug the gap hid must now make the bridge fail.
+
+    The test above asserts a property believed sufficient -- that every
+    component is sampled. This one asserts the consequence, which is the thing
+    actually wanted: corrupt ONLY the middle component of one voxel and require
+    `verify_known_values` to report it.
+
+    Both are kept deliberately. The property test says what the generator must
+    do and reads as a rule; this one is the proof that satisfying the rule buys
+    the detection it was adopted for. Before component 1 was sampled this test
+    failed while every other bridge test passed.
+    """
+    from cfdviz.cvf import read_cvf, write_cvf
+
+    manifest = load_manifest(valid_case)
+    entry = next(
+        f for f in manifest["fields"] if f.get("componentCount", 1) >= 3
+    )
+    bridge = build_known_values(valid_case)
+
+    path = valid_case / entry["storage"]["pathPattern"].format(frame=0)
+    original = read_cvf(path)
+    values = original.values.copy()
+
+    # A swizzle, not random noise: component 1 takes component 2's value, which
+    # is what `v.xzz` does. Components 0 and 2 are left exactly as they were,
+    # so anything the bridge already checked still agrees -- only the
+    # previously-unsampled middle is wrong.
+    values[..., 1] = values[..., 2]
+
+    write_cvf(
+        path,
+        values=values,
+        dtype=entry["dataType"],
+        association=entry["association"],
+        codec={"none": 0, "zstd": 1, "lz4": 2, "zlib": 3}[
+            entry["storage"]["codec"]
+        ],
+        brick_size=tuple(entry["storage"].get("brickSize", (32, 32, 32))),
+        frame_index=0,
+        field_numeric_id=entry["numericId"],
+        simulation_time=float(manifest["timeline"]["times"][0]),
+    )
+
+    problems = verify_known_values(valid_case, bridge)
+    assert problems, (
+        "the middle component of every voxel was replaced by the last "
+        "component and the bridge reported nothing"
+    )
+    assert any("component 1" in p or "component=1" in p for p in problems), (
+        f"the bridge failed, but not about component 1: {problems}"
+    )

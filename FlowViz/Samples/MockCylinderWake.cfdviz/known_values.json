@@ -89,6 +89,19 @@
         14,
         3
       ],
+      "component": 1,
+      "value": 0.52392578125,
+      "bits": "0x3831",
+      "note": "component"
+    },
+    {
+      "frame": 0,
+      "field": "U",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
       "component": 2,
       "value": -0.1397705078125,
       "bits": "0xB079",
@@ -132,6 +145,19 @@
       "value": 4.03515625,
       "bits": "0x4409",
       "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "U",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 1,
+      "value": -0.499755859375,
+      "bits": "0xB7FF",
+      "note": "component"
     },
     {
       "frame": 19,
@@ -349,6 +375,19 @@
         14,
         3
       ],
+      "component": 1,
+      "value": -0.30126953125,
+      "bits": "0xB4D2",
+      "note": "component"
+    },
+    {
+      "frame": 0,
+      "field": "vorticity",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
       "component": 2,
       "value": -0.09259033203125,
       "bits": "0xADED",
@@ -392,6 +431,19 @@
       "value": -0.30078125,
       "bits": "0xB4D0",
       "note": "interior"
+    },
+    {
+      "frame": 19,
+      "field": "vorticity",
+      "voxel": [
+        28,
+        14,
+        3
+      ],
+      "component": 1,
+      "value": -0.01509857177734375,
+      "bits": "0xA3BB",
+      "note": "component"
     },
     {
       "frame": 19,
