@@ -1852,4 +1852,330 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Sparse volumes: absence, NaN background, zlib, payload CRC                    */
+/* -------------------------------------------------------------------------- */
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCFDVizVolumeReaderSparseTest,
+	"FlowViz.CFDViz.VolumeReader.Sparse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FCFDVizVolumeReaderSparseTest::RunTest(const FString& Parameters)
+{
+	using namespace CvfReaderTest;
+
+	// The bit-flip case below deliberately hands a damaged deflate stream to the
+	// engine decompressor, which logs at Error severity and would otherwise fail
+	// this test. Declaring it expected keeps that log intact - it is the correct
+	// thing for the engine to say - while letting the test assert the reader's
+	// response to it.
+	//
+	// The count of ONE is itself an assertion, not a mute. That block makes THREE
+	// decode attempts on the corrupt payload (ReadBrick, ReadDense, then ReadBrick
+	// with bVerifyCrc=false), but only the last reaches inflate: the other two are
+	// refused by the CRC check before any decompression is attempted. A reader
+	// that decoded first and validated afterwards would emit three of these and
+	// fail here. Occurrences=0 would accept any number and assert nothing.
+	AddExpectedError(TEXT("Failed to uncompress memory"),
+		EAutomationExpectedErrorFlags::Contains, 1);
+
+	// The sparse fixture: same (5,3,6) geometry, but float32, ONE component,
+	// zlib, and only brick (0,0,0) present. Its values are v = x + 0.5y - 2z,
+	// chosen so every voxel is distinct, half of them are negative, and none is
+	// an integer that a uint8 path could accidentally reproduce.
+	const auto SparseValueAt = [](int32 X, int32 Y, int32 Z) -> float
+	{
+		return static_cast<float>(X) + 0.5f * static_cast<float>(Y) - 2.0f * static_cast<float>(Z);
+	};
+
+	const FCFDVizMemoryByteSource Source(
+		TArrayView<const uint8>(SparseCvfBytes, sizeof(SparseCvfBytes)), TEXT("sparse.cvf"));
+	FCFDVizVolumeReader Reader;
+	if (!TestTrue(TEXT("the sparse fixture opens"), Reader.Open(Source).IsOk()))
+	{
+		return false;
+	}
+
+	const FCFDVizVolumeHeader& Header = Reader.GetHeader();
+	TestTrue(TEXT("the sparse flag is set"), Header.IsSparse());
+	TestEqual(TEXT("only one brick is stored"), Reader.GetBrickCount(), 1);
+	TestEqual(TEXT("...of the eight the tiling describes"),
+		Header.GetTotalBrickCount(), static_cast<int64>(8));
+	TestEqual(TEXT("one component"), static_cast<int32>(Header.ComponentCount), 1);
+	TestTrue(TEXT("float32 storage"), Header.DataType == ECFDVizDataType::Float32);
+	TestTrue(TEXT("zlib codec"), Header.Codec == ECFDVizCodec::Zlib);
+
+	// --- the background is NaN, and must survive as a BIT PATTERN ------------
+	//
+	// This is the assertion the whole fixture exists for. NaN != NaN, so a
+	// reader that materialised the background by comparing floats, or that
+	// round-tripped it through a computation, cannot produce the right bytes.
+	// Rule 1.7 says preserve it bit-exactly.
+	{
+		TArray<uint8> Pattern;
+		if (TestTrue(TEXT("the background voxel pattern is available"),
+			Reader.GetBackgroundVoxelBytes(Pattern).IsOk()))
+		{
+			if (TestEqual(TEXT("...and is one float32"), Pattern.Num(), 4))
+			{
+				uint32 Bits = 0;
+				FMemory::Memcpy(&Bits, Pattern.GetData(), 4);
+				// 0x7FC00000 is the exact quiet-NaN the writer stored. Asserting
+				// the BITS, not `FMath::IsNaN`, is the point: any NaN would pass
+				// an IsNaN check, including one this reader invented itself.
+				TestEqual(TEXT("...with the stored NaN's exact bits"),
+					static_cast<int64>(Bits), static_cast<int64>(0x7FC00000u));
+			}
+		}
+	}
+
+	// --- a voxel inside the ONE present brick decodes through zlib ----------
+	//
+	// The positive control for everything below. If this failed, "absent voxels
+	// are NaN" would be satisfied by a reader that returned NaN for everything.
+	{
+		TArray<uint8> Voxel;
+		for (const FIntVector& At : {
+			FIntVector(0, 0, 0),	// first voxel of the volume
+			FIntVector(2, 1, 3),	// last voxel of the present brick
+			FIntVector(1, 0, 2),	// interior
+			FIntVector(2, 1, 0) })
+		{
+			if (TestTrue(*FString::Printf(TEXT("voxel (%d,%d,%d) reads"), At.X, At.Y, At.Z),
+				Reader.ReadVoxel(At.X, At.Y, At.Z, Voxel).IsOk()))
+			{
+				TestEqual(TEXT("...as one float32"), Voxel.Num(), 4);
+				float Value = 0.0f;
+				FMemory::Memcpy(&Value, Voxel.GetData(), 4);
+				TestEqual(
+					*FString::Printf(TEXT("...with the value x + 0.5y - 2z at (%d,%d,%d)"), At.X, At.Y, At.Z),
+					Value, SparseValueAt(At.X, At.Y, At.Z));
+			}
+		}
+	}
+
+	// --- a voxel in an ABSENT brick is the background, bit for bit ----------
+	{
+		TArray<uint8> Voxel;
+		for (const FIntVector& At : {
+			FIntVector(3, 0, 0),	// brick (1,0,0) - absent
+			FIntVector(0, 2, 0),	// brick (0,1,0) - absent
+			FIntVector(0, 0, 4),	// brick (0,0,1) - absent
+			FIntVector(4, 2, 5) })	// brick (1,1,1) - absent, last voxel
+		{
+			if (TestTrue(*FString::Printf(TEXT("absent voxel (%d,%d,%d) still reads"), At.X, At.Y, At.Z),
+				Reader.ReadVoxel(At.X, At.Y, At.Z, Voxel).IsOk()))
+			{
+				uint32 Bits = 0;
+				FMemory::Memcpy(&Bits, Voxel.GetData(), 4);
+				TestEqual(
+					*FString::Printf(TEXT("...as the background NaN bits at (%d,%d,%d)"), At.X, At.Y, At.Z),
+					static_cast<int64>(Bits), static_cast<int64>(0x7FC00000u));
+			}
+		}
+	}
+
+	// --- ReadDense agrees with ReadVoxel everywhere -------------------------
+	//
+	// The two paths reconstruct the volume by different code: ReadVoxel decodes
+	// one brick and indexes into it, ReadDense fills a background pattern and
+	// memcpys brick rows over it. A disagreement between them is the bug that
+	// makes a picture look right in one view and wrong in another, and neither
+	// path alone can detect it.
+	{
+		TArray<uint8> Dense;
+		if (TestTrue(TEXT("ReadDense returns the volume"), Reader.ReadDense(Dense).IsOk()))
+		{
+			TestEqual(TEXT("...of 5*3*6 float32"), Dense.Num(), 5 * 3 * 6 * 4);
+
+			int32 Mismatches = 0;
+			int32 BackgroundCount = 0;
+			for (int32 Z = 0; Z < 6; ++Z)
+			{
+				for (int32 Y = 0; Y < 3; ++Y)
+				{
+					for (int32 X = 0; X < 5; ++X)
+					{
+						const int32 Flat = X + 5 * Y + 15 * Z;
+						uint32 Bits = 0;
+						FMemory::Memcpy(&Bits, Dense.GetData() + Flat * 4, 4);
+
+						// Present brick (0,0,0) spans x<3, y<2, z<4.
+						const bool bPresent = X < 3 && Y < 2 && Z < 4;
+						if (bPresent)
+						{
+							float Value = 0.0f;
+							FMemory::Memcpy(&Value, &Bits, 4);
+							if (Value != SparseValueAt(X, Y, Z))
+							{
+								++Mismatches;
+							}
+						}
+						else
+						{
+							if (Bits != 0x7FC00000u)
+							{
+								++Mismatches;
+							}
+							++BackgroundCount;
+						}
+					}
+				}
+			}
+			TestEqual(TEXT("every voxel of the dense volume is exactly right"), Mismatches, 0);
+			// 90 total - 24 in the present brick. Asserted so that a reader which
+			// returned an all-background volume could not pass the loop above by
+			// having nothing to compare.
+			TestEqual(TEXT("...and 66 of the 90 came from the background"), BackgroundCount, 66);
+		}
+	}
+
+	// --- section 4.4.7: +inf/-inf is "no data", not a range ------------------
+	{
+		const TArray<FCFDVizBrickEntry>& Bricks = Reader.GetBrickEntries();
+		if (TestEqual(TEXT("one directory entry"), Bricks.Num(), 1))
+		{
+			float Min = 0.0f;
+			float Max = 0.0f;
+			if (TestTrue(TEXT("component 0 HAS a range"), Bricks[0].TryGetComponentRange(0, Min, Max)))
+			{
+				// Hand-checked against the decoded payload: min at (0,0,3),
+				// max at (2,1,0).
+				TestEqual(TEXT("...whose min is -6.0"), Min, -6.0f);
+				TestEqual(TEXT("...whose max is 2.5"), Max, 2.5f);
+			}
+			// Components 1..3 were never written, so their slots hold the
+			// inverted +inf/-inf sentinel. Returning it as a range would give a
+			// caller a colour scale of [+inf, -inf], which renders as a blank
+			// screen with no error anywhere.
+			for (int32 Component : { 1, 2, 3 })
+			{
+				TestFalse(
+					*FString::Printf(TEXT("component %d's inf sentinel is refused, not returned"), Component),
+					Bricks[0].TryGetComponentRange(Component, Min, Max));
+			}
+			TestFalse(TEXT("a component index past 3 is refused"),
+				Bricks[0].TryGetComponentRange(4, Min, Max));
+			TestFalse(TEXT("a negative component index is refused"),
+				Bricks[0].TryGetComponentRange(-1, Min, Max));
+		}
+	}
+
+	// --- the payload CRC is over the COMPRESSED bytes as stored -------------
+	{
+		TestTrue(TEXT("the untouched fixture passes every CRC"), Reader.VerifyAllCrcs().IsOk());
+
+		TArray<int32> Failed;
+		TestTrue(TEXT("...and no brick is reported bad"), Reader.VerifyAllPayloadCrcs(Failed).IsOk());
+		TestEqual(TEXT("...so the failed list is empty"), Failed.Num(), 0);
+		TestTrue(TEXT("...brick 0 individually too"), Reader.VerifyBrickCrc(0).IsOk());
+	}
+	{
+		// Flip ONE bit in the middle of the zlib stream. A single bit is chosen
+		// over a byte because it is what a real disk or network error looks
+		// like, and because it proves the CRC is computed over the payload
+		// rather than merely read from the entry.
+		TArray<uint8> Bytes = CopyOfCvf(SparseCvfBytes, sizeof(SparseCvfBytes));
+		Bytes[SparsePayloadOffset + 30] ^= 0x01;
+
+		const FCFDVizMemoryByteSource Corrupt(Bytes, TEXT("bitflip.cvf"));
+		FCFDVizVolumeReader CorruptReader;
+		// Open still succeeds: the directory is intact and payloads are not read
+		// at Open. That is the behaviour being pinned - corruption is caught at
+		// USE, not hidden by refusing to open the file.
+		if (TestTrue(TEXT("a file with a corrupt payload still OPENS"), CorruptReader.Open(Corrupt).IsOk()))
+		{
+			const FCFDVizResult Verify = CorruptReader.VerifyBrickCrc(0);
+			TestFalse(TEXT("VerifyBrickCrc catches the flipped bit"), Verify.IsOk());
+			TestTrue(TEXT("...as PayloadCrcMismatch"),
+				Verify.Error == ECFDVizError::PayloadCrcMismatch);
+
+			TArray<int32> Failed;
+			TestFalse(TEXT("VerifyAllPayloadCrcs catches it too"),
+				CorruptReader.VerifyAllPayloadCrcs(Failed).IsOk());
+			if (TestEqual(TEXT("...naming exactly one brick"), Failed.Num(), 1))
+			{
+				TestEqual(TEXT("...brick 0"), Failed[0], 0);
+			}
+
+			// And a decode must refuse rather than hand back whatever inflate
+			// produced from corrupt input.
+			TArray<uint8> Raw;
+			TestFalse(TEXT("ReadBrick refuses the corrupt payload"),
+				CorruptReader.ReadBrick(0, Raw).IsOk());
+			TestFalse(TEXT("ReadDense refuses it as well"),
+				CorruptReader.ReadDense(Raw).IsOk());
+
+			// With the CRC check skipped this STILL fails, because the flipped
+			// bit is inside the deflate stream and inflate itself rejects it.
+			// Worth pinning: the reader must surface that as a decode failure
+			// rather than returning a short or partly-filled buffer.
+			TArray<uint8> Unverified;
+			const FCFDVizResult Skipped = CorruptReader.ReadBrick(0, Unverified, /*bVerifyCrc=*/false);
+			TestFalse(TEXT("a corrupt deflate stream fails even with bVerifyCrc=false"), Skipped.IsOk());
+			TestEqual(TEXT("...and yields no bytes rather than a partial buffer"), Unverified.Num(), 0);
+		}
+	}
+	{
+		// Corrupt the STORED CRC instead of the payload. Same mismatch, opposite
+		// side of the comparison - this fails if the reader compares the stored
+		// value against itself, which is the classic way a checksum check ends
+		// up tautological.
+		TArray<uint8> Bytes = CopyOfCvf(SparseCvfBytes, sizeof(SparseCvfBytes));
+		const int32 CrcAt = 128 + CvfTestEntryOffsetPayloadCrc;
+		Bytes[CrcAt] ^= 0xFF;
+
+		const FCFDVizMemoryByteSource Corrupt(Bytes, TEXT("bad-stored-crc.cvf"));
+		FCFDVizVolumeReader CorruptReader;
+		if (TestTrue(TEXT("a file with a wrong stored CRC opens"), CorruptReader.Open(Corrupt).IsOk()))
+		{
+			TestTrue(TEXT("a wrong stored payload CRC is a mismatch"),
+				CorruptReader.VerifyBrickCrc(0).Error == ECFDVizError::PayloadCrcMismatch);
+
+			// The payload here is INTACT - only the stored checksum is wrong -
+			// so this is the case that isolates the CRC check from decoding.
+			TArray<uint8> Raw;
+			TestFalse(TEXT("ReadBrick refuses it while verifying"),
+				CorruptReader.ReadBrick(0, Raw).IsOk());
+
+			// THE CONTROL, and the reason the two corruptions are tested
+			// separately: with verification off the SAME file decodes cleanly.
+			// That is what proves the refusal above came from the CRC check
+			// rather than from anything else about the file.
+			TArray<uint8> Unverified;
+			if (TestTrue(TEXT("...but bVerifyCrc=false skips the check and decodes"),
+				CorruptReader.ReadBrick(0, Unverified, /*bVerifyCrc=*/false).IsOk()))
+			{
+				TestEqual(TEXT("...to the full 24-voxel brick"), Unverified.Num(), 24 * 4);
+				float First = 0.0f;
+				FMemory::Memcpy(&First, Unverified.GetData(), 4);
+				TestEqual(TEXT("...whose first value is still 0.0"), First, 0.0f);
+				float Last = 0.0f;
+				FMemory::Memcpy(&Last, Unverified.GetData() + 23 * 4, 4);
+				TestEqual(TEXT("...and whose last is still -3.5"), Last, -3.5f);
+			}
+		}
+	}
+
+	// --- an out-of-range brick or voxel index is refused, never clamped -----
+	{
+		TArray<uint8> Scratch;
+		TestFalse(TEXT("brick index 1 does not exist in a 1-entry directory"),
+			Reader.VerifyBrickCrc(1).IsOk());
+		TestFalse(TEXT("...nor can it be read"), Reader.ReadBrick(1, Scratch).IsOk());
+		TestFalse(TEXT("a negative brick index is refused"), Reader.ReadBrick(-1, Scratch).IsOk());
+		TestFalse(TEXT("a voxel past the X extent is refused"), Reader.ReadVoxel(5, 0, 0, Scratch).IsOk());
+		TestFalse(TEXT("a voxel past the Y extent is refused"), Reader.ReadVoxel(0, 3, 0, Scratch).IsOk());
+		TestFalse(TEXT("a voxel past the Z extent is refused"), Reader.ReadVoxel(0, 0, 6, Scratch).IsOk());
+		TestFalse(TEXT("a negative voxel index is refused"), Reader.ReadVoxel(-1, 0, 0, Scratch).IsOk());
+		// The control: the last legal voxel on every axis DOES read, so the
+		// bounds above are refusing one past the end rather than being off by
+		// one in the strict direction.
+		TestTrue(TEXT("the last legal voxel (4,2,5) reads"), Reader.ReadVoxel(4, 2, 5, Scratch).IsOk());
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
