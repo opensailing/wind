@@ -33,7 +33,7 @@ the enum validated by CAST rather than by the view model -- 99 becomes a live mo
 	Settings.SetCompositeMode(static_cast<EFlowVizCompositeMode>(CompositeMode)); // MUTANT
 	if (false)
 %%
-the negative guard dropped -- -1 casts to a huge uint32
+EQUIVALENT, PROVEN -- expected to SURVIVE, see test_equivalent_mutants.py MODE_CASES. Negative guard dropped.
 --
 	if (CompositeMode < 0
 		|| !Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode)))

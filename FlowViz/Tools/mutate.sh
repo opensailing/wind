@@ -189,7 +189,41 @@ MARKER="$(git rev-parse --git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
 } > "${MARKER}" 2>/dev/null || true
 
 restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; }
-trap restore EXIT INT TERM
+
+# A SIGNAL ENDS THE CAMPAIGN. It used to restore and then carry on, because a
+# trap handler resumes the script unless it exits -- this line was
+# `trap restore EXIT INT TERM`, one handler for all three.
+#
+# Observed live 2026-08-05: a campaign was sent TERM so its mutant list could be
+# corrected, and printed
+#
+#     SURVIVED  the classifier reports Dispatched no matter what
+#
+# for an arm that does not compile. The TERM arrived during that arm's build,
+# restore() put the pristine file back, and the build and suite then ran against
+# UNMUTATED SOURCE. A mutant that cannot build was reported as a coverage gap.
+#
+# That is the dangerous direction. A lost verdict announces itself; a
+# manufactured one sends someone to write a test for a defect that is not there,
+# and the arm it lands on is whichever happened to be building, so nothing about
+# it reads as unusual afterwards.
+#
+# The quieter harm is the marker. mutation_guard.sh (the pre-commit hook) reads
+# it to refuse a commit while a mutation is live, so clearing it with arms still
+# to apply disarms that hook for the rest of the run -- precisely the window in
+# which a live mutant can be committed.
+#
+# Tools/tests/test_mutate_signal.sh pins both spellings: it reproduces the old
+# damage as a control, then asserts the new handler scores nothing further.
+interrupted_notice() {
+    echo >&2
+    echo "INTERRUPTED: signalled mid-campaign. Verdicts printed before this" >&2
+    echo "  line stand; nothing after it was scored, and the remaining arms" >&2
+    echo "  were never run. Re-run to score them." >&2
+}
+on_signal() { restore; interrupted_notice; exit 143; }
+trap restore EXIT
+trap on_signal INT TERM
 
 # Constraint 1: the exit status of Build.sh is meaningless; read the log.
 # classify_build (verdict.sh) decides what the log says, and it is retried on
@@ -351,8 +385,15 @@ KILLED=0; SURVIVED=0; INVALID=0; UNSCORED=0; SKIPPED=0
 # concurrently. RECORDS is created by mktemp, so two campaigns cannot collide
 # even if they start in the same second.
 RECORDS="$(mktemp -t mutate_records)"
+# SAME SPLIT AS THE TRAP ABOVE, and for the same reason. This pair REPLACES the
+# earlier one -- a second `trap ... INT TERM` overrides the first -- so writing
+# it as one handler for all three signals here would reinstate the defect for
+# every arm in the loop below, which is the entire campaign. The split has to be
+# repeated, not merely established once.
 cleanup() { restore; rm -f "${RECORDS}"; }
-trap cleanup EXIT INT TERM
+on_signal() { cleanup; interrupted_notice; exit 143; }
+trap cleanup EXIT
+trap on_signal INT TERM
 
 if ! python3 "${PROJECT_DIR}/Tools/parse_mutants.py" "${MUTANTS}" > "${RECORDS}"; then
     echo "ABORT: could not parse ${MUTANTS}; no verdict would mean anything."

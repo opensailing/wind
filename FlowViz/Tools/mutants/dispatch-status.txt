@@ -1,15 +1,23 @@
-the classifier reports Dispatched no matter what -- the fail-OPEN direction
+a volume with no marcher at all reports a healthy march -- the fail-OPEN direction
 --
 	if (Dispatcher == nullptr)
 	{
 		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
 	}
 --
-	// MUTANT: the worst direction. A capture that rendered nothing reports a
-	// healthy march, which is the false green VISUAL_QA rule 6 forbids.
-	if (false)
+	if (Dispatcher == nullptr)
 	{
-		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+		// MUTANT: the worst direction. A capture that rendered nothing reports a
+		// healthy march, which is the false green VISUAL_QA rule 6 forbids --
+		// produced by the very facility built to prevent one.
+		//
+		// Written as a WRONG ASSIGNMENT rather than `if (false)`. The dead-branch
+		// form does not compile here: -Werror,-Wunreachable-code rejects the
+		// orphaned body, and an arm that cannot build scores INVALID, which is
+		// indistinguishable in a summary line from an arm nobody wrote. This
+		// form tests the same property -- a null dispatcher must never report
+		// Dispatched -- and reaches a verdict.
+		Status.Reason = EFlowVizDispatchReason::Dispatched;
 	}
 %%
 the missing-parameters case reported as a missing dispatcher -- one reason for two fixes
@@ -47,11 +55,17 @@ a non-resident display frame marched anyway -- the null the gate exists to stop
 		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
 	}
 --
-	else if (false)
+	else if (SlotATextures == nullptr)
 	{
-		// MUTANT: the slot check dropped, so a frame whose upload has not landed
-		// is dispatched with a null slot A.
-		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+		// MUTANT: the slot check inverted into a green light, so a frame whose
+		// upload has not landed is dispatched with a null slot A. ShouldDispatch
+		// is what the proxy gates on, so this arm does not merely mislabel the
+		// frame -- it marches it.
+		//
+		// Assignment rather than `else if (false)`, for the reason recorded on
+		// the fail-open arm above: the dead-branch form does not compile under
+		// -Werror,-Wunreachable-code and would score INVALID instead of a verdict.
+		Status.Reason = EFlowVizDispatchReason::Dispatched;
 	}
 %%
 two reasons share a description, so the log cannot tell them apart

@@ -289,6 +289,107 @@ PLAYBACK_CASES = [
 ]
 
 
+# --- SetVolumeCompositeMode: the negative guard -----------------------------
+#
+# One survivor from the FlowViz.Capture campaign. The Blueprint/Python entry
+# point takes a SIGNED int32 -- callers are people typing numbers -- and the
+# view model's setter takes uint32. The guard refuses negatives before the cast.
+
+UINT32_MODULUS = 2**32
+INT32_MAX = 2**31 - 1
+INT32_MIN = -(2**31)
+
+# Alpha=0 .. Diagnostic=5. Pinned to the FLOWVIZ_MODE_* defines in the .usf.
+MODE_MAX = 5
+
+
+def to_uint32(value):
+    """C++ `static_cast<uint32>` of an int32.
+
+    The same trap wrap64 exists for, one width down, and this time the wrap is
+    not a hazard being modelled but the entire mechanism the equivalence rests
+    on. Without it -1 stays -1, `-1 <= 5` is true, and the model reports the
+    mutant as DISTINGUISHED -- claiming a coverage gap that is not there.
+
+    That is the safe direction to fail in, which is why this is the one
+    conversion written out rather than left to Python: a broken wrap here
+    manufactures work instead of retiring a test that catches something.
+
+    Measured against real C++ on this toolchain rather than assumed: -1 ->
+    4294967295, -2 -> 4294967294, INT32_MIN -> 2147483648, 99 -> 99. (The cast
+    is what was measured. The predicates below are the model.)
+    """
+    return value % UINT32_MODULUS
+
+
+MODE_VALUES = (
+    list(range(-8, 12))
+    + [99, INT32_MAX, INT32_MAX - 1, INT32_MIN, INT32_MIN + 1, 2**30, -(2**30)]
+)
+
+
+def sweep_modes(reference, mutant):
+    """First int32 where the two spellings disagree, or None."""
+    for mode in MODE_VALUES:
+        if reference(mode) != mutant(mode):
+            return mode
+    return None
+
+
+def set_mode_by_value(unsigned):
+    """Model of FFlowVizRenderSettingsViewModel::SetCompositeModeByValue.
+
+    An exhaustive switch over the enumerators; anything else is refused. The
+    switch is what makes the claim below hold, so it is modelled rather than
+    assumed away.
+    """
+    return unsigned <= MODE_MAX
+
+
+def accepts_mode_real(mode):
+    """The committed guard: refuse negatives, then let the view model validate."""
+    return mode >= 0 and set_mode_by_value(to_uint32(mode))
+
+
+def mode_mutant_drop_negative_guard(mode):
+    """Campaign verdict: SURVIVED. Claimed equivalent -- every negative int32
+    casts to a uint32 at or above 2^31, which the exhaustive switch refuses
+    anyway, so the dropped clause can never be the deciding one.
+
+    The guard stays in the C++ regardless. Its redundancy is a property of the
+    switch being exhaustive, not of the guard itself, and a mode added without
+    a case label would make it load-bearing again with nothing to announce that.
+    """
+    return set_mode_by_value(to_uint32(mode))
+
+
+def mode_control_signed_compare(mode):
+    """Control: the range check written on the SIGNED value, without the cast.
+
+    Must NOT be equivalent -- this is the hazard the guard is mistaken for, and
+    the one direction where dropping the guard would matter. If the sweep ever
+    calls this equivalent, to_uint32 has stopped wrapping.
+    """
+    return mode <= MODE_MAX
+
+
+def mode_control_cast_without_validation(mode):
+    """Control: validated by cast alone, so 99 becomes a live mode. This arm was
+    KILLED by the suite, so the model must distinguish it too."""
+    return True
+
+
+MODE_CASES = [
+    # (name, mutant, expected_equivalent)
+    ("SetVolumeCompositeMode: the negative guard dropped",
+     mode_mutant_drop_negative_guard, True),
+    ("SetVolumeCompositeMode: range checked on the signed value",
+     mode_control_signed_compare, False),
+    ("SetVolumeCompositeMode: validated by cast alone",
+     mode_control_cast_without_validation, False),
+]
+
+
 def main():
     failures = 0
     print("equivalent-mutant analysis (model of FByteCursor::CanRead):")
@@ -329,7 +430,26 @@ def main():
             print("  FAIL  %s: expected equivalent=%s, got %s (witness %s)"
                   % (name, expect_equivalent, equivalent, witness))
 
-    total = len(CASES) + len(PLAYBACK_CASES)
+    print()
+    print("equivalent-mutant analysis (model of the composite-mode guard):")
+    for name, mutant, expect_equivalent in MODE_CASES:
+        witness = sweep_modes(accepts_mode_real, mutant)
+        equivalent = witness is None
+        if equivalent == expect_equivalent:
+            if equivalent:
+                print("  ok    EQUIVALENT   %s" % name)
+                print("        no int32 in the sweep distinguishes it; a test for")
+                print("        this could not fail, so none is written.")
+            else:
+                print("  ok    DISTINGUISHED %s" % name)
+                print("        mode=%d -> real=%s mutant=%s"
+                      % (witness, accepts_mode_real(witness), mutant(witness)))
+        else:
+            failures += 1
+            print("  FAIL  %s: expected equivalent=%s, got %s (witness %s)"
+                  % (name, expect_equivalent, equivalent, witness))
+
+    total = len(CASES) + len(PLAYBACK_CASES) + len(MODE_CASES)
     print()
     print("equivalence tests: %d passed, %d failed" % (total - failures, failures))
     return 1 if failures else 0
