@@ -235,31 +235,74 @@ struct FFlowVizVolumeRayMarchContext
 	 *     A=1, B=1+1ULP: 1,048,577
 	 *     mad form:              0, on every pair tested
 	 *
-	 * The retreat is ALWAYS exactly 1 ULP - 1.19e-07 of the A..B span. One step
-	 * of an 8-bit colormap is 3.9e-03 of the span and a 16-bit step is 1.5e-05,
-	 * so the wobble is four to five orders of magnitude below anything that can
-	 * change a displayed color. The mad form's endpoint error on A=-1000,
-	 * B=0.001 is 2.3e-02 RELATIVE - five orders the other way.
+	 * The retreat is ALWAYS exactly 1 ULP. DO NOT conclude from that it cannot
+	 * reach a pixel - it can, and an earlier draft of this comment claimed
+	 * otherwise on a bad argument. A ULP is relative to the VALUE; a colormap
+	 * step is relative to the display WINDOW. Comparing them only works when the
+	 * window happens to span A..B, and a quantisation boundary can fall between
+	 * any two adjacent floats, so SOME 1-ULP retreats straddle one:
 	 *
-	 * So: a 1-ULP retreat in a smooth interior is a rounding artifact that
-	 * cannot reach a pixel. A wrong endpoint is a scalar the solver never
-	 * produced, pseudocolored as measured data, at a timestep the UI may
-	 * simultaneously report as un-interpolated. Only the second is a provenance
-	 * lie (VISUAL_QA section 1 rule 1). That asymmetry is the justification; if
-	 * someone argues for the mad form on monotonicity grounds, this is the
-	 * answer - not a claim that it has no cost.
+	 *     A=1, B=2, window [1,2], 16-bit: 8.4e6 floats over 65,536 levels
+	 *       = 128 floats per level, comfortably resolved - and still
+	 *         774,339 raw retreats, of which 6,050 (0.781%) reverse the
+	 *         colour index. 1/128 = 0.781%, i.e. exactly the boundary-
+	 *         straddle rate, not an artifact.
+	 *       The mad form reverses the colour index 0 times on the same sweep.
 	 *
-	 * MEASURING ANY OF THIS IS ITSELF A TRAP - a sweep reporting zero failures
-	 * is not a result until its coverage is separately demonstrated. Between two
-	 * agents this rule produced five confident zeros from broken fixtures:
-	 * drawing A and B within a factor of two (Sterbenz makes (B-A) exact, so
-	 * both forms pass by construction); walking consecutive floats from 0.0f,
-	 * which after 3e6 steps reaches only t = 4.2e-39 and never leaves the
-	 * subnormals - 0.28% of [0,1]; a uniform grid too coarse to resolve the
-	 * retreat, clean at 3e6 samples and 774,339 failures at 5e7; a loop guard
-	 * that broke after the first pair; and skipping duplicate t values while
-	 * leaving the previous value stale, which silently drops every comparison.
-	 * Verify the fixture can produce a failure before believing it found none.
+	 * So the honest statement is: a 1-ULP retreat flips a colour index about one
+	 * time in (floats per colour level), anywhere, at any window - rarely, but
+	 * not never, and narrowing the window raises the rate until under-resolution
+	 * makes it certain. It is a sub-quantum wobble at the format's resolution
+	 * limit; the visible consequence is at most a one-level flicker on a
+	 * boundary voxel, and it is bounded, so it can never place a value outside
+	 * A..B.
+	 *
+	 * The mad form's endpoint error on A=-1000, B=0.001 is 2.3e-02 RELATIVE -
+	 * five orders of magnitude larger, present at EVERY window, and it puts on
+	 * screen a scalar the solver never produced, pseudocolored as measured data,
+	 * at a timestep the UI may simultaneously report as un-interpolated.
+	 *
+	 * That is the comparison, and it is comparative, not absolute: one form has
+	 * a rare one-level flicker that stays inside the data's own range; the other
+	 * fabricates a measurement. Only the second is a provenance lie (VISUAL_QA
+	 * section 1 rule 1). If someone argues for the mad form on monotonicity
+	 * grounds, this is the answer - not "the wobble cannot be seen", which is
+	 * false and loses to the first person who opens a narrow window.
+	 *
+	 * MEASURING ANY OF THIS IS ITSELF A TRAP. Establishing the numbers above took
+	 * two agents seven broken harnesses, every one of which printed a large,
+	 * specific, plausible number:
+	 *
+	 *   Fixtures that could not fail, reporting zero -
+	 *     - A and B drawn within a factor of two: Sterbenz makes (B-A) exact, so
+	 *       both forms pass by construction (2e6 pairs, zero failures).
+	 *     - Walking consecutive floats up from 0.0f: after 3e6 steps t has
+	 *       reached 4.2e-39 and never left the subnormals - 0.28% of [0,1].
+	 *     - A uniform t-grid too coarse to resolve the retreat: clean at 3e6
+	 *       samples, 774,339 failures at 5e7 on the identical pair.
+	 *     - A shared loop guard that broke after the first pair, so seven of
+	 *       eight pairs ran with no samples.
+	 *     - Skipping duplicate t values while leaving the previous value stale,
+	 *       which silently drops every comparison across the skip.
+	 *     - A colour-banding harness whose CONTROL pair had no retreats at the
+	 *       chosen N, so "no banding" was measured with an instrument that could
+	 *       not have shown any.
+	 *
+	 *   An instrument that INVENTED a finding -
+	 *     - A ULP comparator using `if (x < 0) x = 0x80000000 - x`, mixing
+	 *       signed and unsigned, wrong across zero: reported a 1.79e9-ULP
+	 *       retreat on a step that was actually going UP.
+	 *
+	 * The second kind is the more dangerous one when agents review each other,
+	 * because a fabricated finding arrives as a correction to a colleague and
+	 * carries more social force than a silent zero. Both kinds were caught the
+	 * same way: a number too clean or too large to be plausible for the physics,
+	 * checked against a second independent harness rather than re-read.
+	 *
+	 * So: verify the fixture CAN produce a failure before believing it found
+	 * none, and verify a dramatic result against a second implementation before
+	 * believing it found one. Sample size is not coverage - a big clean number
+	 * is what makes a broken harness convincing.
 	 */
 	float Alpha = 0.0f;
 
