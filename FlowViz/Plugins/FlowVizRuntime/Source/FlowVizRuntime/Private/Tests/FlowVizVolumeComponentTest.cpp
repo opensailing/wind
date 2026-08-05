@@ -443,6 +443,45 @@ bool FFlowVizVolumeComponentTest::RunTest(const FString& Parameters)
 		TestNotEqual(TEXT("a default load does not bind the grid's mask field"),
 			Volume->GetCaseBinding().FieldId, FName(TEXT("validMask")));
 
+		/*
+		 * THE OTHER HALF OF THAT RULE, AND THE REASON IT IS HERE.
+		 *
+		 * The line above covers one branch: the mask must not be DISPLAYED as if
+		 * it were data. The second branch is that the mask must still be FOUND
+		 * and forwarded, so masked cells reach the status texture instead of
+		 * being rendered as real values (plan.md section 4 rule 10). LoadFrame
+		 * does that via FindGridForField(...)->HasMaskField(), and nothing in
+		 * this file asserted the lookup resolves - so a change that returned
+		 * null there would keep every other assertion green while silently
+		 * dropping the mask, and invalid cells would render as data.
+		 *
+		 * Found by auditing my own comments for two-state hazards and checking
+		 * that BOTH named branches have an assertion; this one had the first
+		 * only. The mask decision is a pure manifest lookup and runs BEFORE
+		 * EnqueueUpload, so it is checkable without an RHI - testing the branch
+		 * through LoadFrame itself would self-skip under -nullrhi and cover
+		 * nothing (repo memory green-totals-can-hide-skips).
+		 *
+		 * The fixture can fail: MockCylinderWake's grid really does declare
+		 * maskField "validMask", so a broken lookup makes these red rather than
+		 * vacuous.
+		 */
+		const FCFDVizCase& LoadedCase = Volume->GetCaseBinding().Case;
+		const FCFDVizField* const BoundField = LoadedCase.FindField(Volume->GetCaseBinding().FieldId);
+		if (TestNotNull(TEXT("the bound field is present in the loaded case"), BoundField))
+		{
+			const FCFDVizGridDescriptor* const Grid = LoadedCase.FindGridForField(*BoundField);
+			if (TestNotNull(TEXT("the bound field resolves to a grid - the mask lookup's first step"), Grid))
+			{
+				TestTrue(
+					TEXT("that grid DECLARES a mask field, so masked cells can reach the status "
+						 "texture rather than rendering as data"),
+					Grid->HasMaskField());
+				TestEqual(TEXT("and it is the sample's validMask"),
+					Grid->MaskFieldId, FName(TEXT("validMask")));
+			}
+		}
+
 		/* -- Bounds ---------------------------------------------------------- */
 
 		// The component sits at the world origin with an identity transform, so
