@@ -30,11 +30,24 @@ below for its current state.
 
 ### 2. Milestone C is unstarted
 
-`Plugins/FlowVizRuntime/Shaders/` is empty. No scene proxy, no component, no
-uploader. The path is decided in
-[ADR 002](ADR/002-runtime-volume-rendering.md) and none of it is written, so
-nothing has ever been rendered and no visual review has ever run against a real
-frame.
+Partially started as of 2026-08-05. The path is decided in
+[ADR 002](ADR/002-runtime-volume-rendering.md).
+
+**Done.** The GPU volume *data* path: `Private/Render/FlowVizVolumeTexture.cpp`
+takes decoded CVF bytes to a sampleable 3D texture — format choice, strides,
+brick placement, 3→4 widening with a quiet-NaN pad, the fail-closed status
+volume, the cell/point half-voxel transform, and the `static_assert`-pinned
+cbuffer block. Covered by `FlowVizVolumeTextureTest` (pure, `-nullrhi`) and
+`FlowVizVolumeDeviceTest` (RHI, skips with a logged reason when there is no
+device rather than passing). 17/17 mutants killed.
+
+**Not done, and this is the gap that matters.** Nothing *consumes* that
+contract. `Shaders/` holds only `FlowVizCommon.ush`; there is no ray-march
+`.usf`, no scene proxy, no component, no actor, no transfer function, no
+playback. **Nothing has ever been rendered, so no visual review has ever run
+against a real frame** — which is the release bar this project is measured
+against, and every claim about how it looks remains unmade rather than
+unproven.
 
 ## Correctness gaps
 
@@ -181,6 +194,16 @@ above because these are *risks*, not known defects.
   and shimmers in motion has failed the visual bar. Per-ray jitter — needed
   against banding — is a common cause of exactly that. Nothing renders yet, so
   this is unproven rather than untested.
+- **Uploaded texels are what a shader would sample.** `FlowVizVolumeDeviceTest`
+  proves the Metal driver *accepts* the create and the upload and *reports*
+  the format we chose off the created resource. It does not prove the bytes
+  landed where the strides say. There is no 3D texel readback on this path, so
+  verifying uploaded values needs a staging-copy the layer does not have. A
+  stride error that the driver tolerates would pass every test and render a
+  sheared volume. The first version of that test claimed a readback it never
+  performed — the `ReadBack` array was declared and never filled — and the
+  UNORM mutant SURVIVED it; that is how the false claim was found, and it is
+  why this entry is stated narrowly.
 - **Packaged-build parity.** The packaged target ships without
   `FlowVizEditor`. A reversed `#include` would break it at package time rather
   than at desk, and no packaged build has been produced.
