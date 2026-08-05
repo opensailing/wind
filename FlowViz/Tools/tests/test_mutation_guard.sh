@@ -188,6 +188,42 @@ case "${msg}" in
 esac
 check "but the declared purpose is still shown, to identify the owner" "yes" "${shows_purpose}"
 
+# --- the guard that is INSTALLED is the guard that was tested ----------------
+#
+# Every check above runs against a fresh copy of Tools/mutation_guard.sh in a
+# throwaway repo. That is the right way to test behaviour and it is structurally
+# blind to the thing that actually protects this repo: .git/hooks/pre-commit is
+# a COPY, made once at install time. Fix the source and the installed hook does
+# not change.
+#
+# Observed 2026-08-05, immediately after 713d0cd: this suite reported 12/12
+# while the live hook was still the pre-fix version and still leaking a pid into
+# its refusal. A green suite was describing a file that was not in the loop.
+# Same shape as the stale-dylib trap in BUILD.md -- a true measurement of the
+# wrong artifact.
+#
+# Skipped rather than failed when no hook is installed: this suite must stay
+# runnable from a fresh clone and inside the mutation worktrees, where there is
+# no hook to be stale.
+
+INSTALLED="$(git rev-parse --git-dir 2>/dev/null)/hooks/pre-commit"
+if [[ -e "${INSTALLED}" ]]; then
+    if cmp -s "${INSTALLED}" "${GUARD}"; then
+        installed_state="current"
+    else
+        installed_state="stale"
+    fi
+    check "the installed .git/hooks/pre-commit matches Tools/mutation_guard.sh" \
+        "current" "${installed_state}"
+    if [[ "${installed_state}" == "stale" ]]; then
+        echo "        the hook protecting this repo is NOT the one tested above."
+        echo "        reinstall:  cp '${GUARD}' '${INSTALLED}' && chmod +x '${INSTALLED}'"
+    fi
+else
+    echo "  SKIP  no .git/hooks/pre-commit installed -- this checkout is unprotected"
+    echo "        install:  cp '${GUARD}' '${INSTALLED}' && chmod +x '${INSTALLED}'"
+fi
+
 echo
 if [[ ${failures} -eq 0 ]]; then
     echo "mutation_guard.sh: ${checks} checks, all passed"
