@@ -660,16 +660,78 @@ bool FCFDVizKnownValuesTest::RunTest(const FString& Parameters)
 					continue;
 				}
 
-				// validCount is the whole reason a statistics sample is here.
-				// It is the only field that distinguishes a reader which
-				// EXCLUDES non-finite values from one which folds them to zero
-				// and counts them - a difference that is invisible in the
-				// payload and changes every mean the UI displays.
+				// validCount is why a statistics sample exists at all. It is the
+				// only field distinguishing a reader which EXCLUDES non-finite
+				// values from one which folds them to zero and counts them - a
+				// difference invisible in the payload that changes every mean
+				// the UI displays.
 				TestEqual(*FString::Printf(
 						TEXT("array '%s' component %d validCount matches Python"),
 						*RelativePath, Component),
 					static_cast<int64>(Statistics.ValidCount[Component]),
 					static_cast<int64>(ExpectedValidCount));
+
+				// The three moments are compared too, and this is not padding:
+				// a mutation campaign swapped ParseStatisticsSection's maximum
+				// and mean reads and the test above passed anyway. The four
+				// statistics sections are the same size and all full of
+				// plausible doubles, so reading them in the wrong order yields
+				// a reader that works, reports no error, and scales every
+				// colour map in the UI by the wrong number - exactly the defect
+				// CFDVizArrayReader.cpp's own comment warns about.
+				//
+				// Bits again, not values, for the reason given above: these are
+				// doubles that can legitimately be non-finite, and only the bit
+				// pattern separates a preserved NaN from a folded zero.
+				const auto CompareMoment =
+					[&](const TCHAR* Field, const TArray<double>& Values)
+				{
+					const TSharedPtr<FJsonObject>* Moment = nullptr;
+					FString ExpectedText;
+					if (!(*Sample)->TryGetObjectField(Field, Moment) || Moment == nullptr
+						|| !(*Moment)->TryGetStringField(TEXT("bits"), ExpectedText))
+					{
+						AddError(FString::Printf(
+							TEXT("array '%s' statistics sample has no %s.bits"),
+							*RelativePath, Field));
+						return false;
+					}
+
+					uint64 Expected = 0;
+					if (!TestTrue(*FString::Printf(TEXT("array '%s' %s bits parse"),
+							*RelativePath, Field),
+							TryParseHexBits(ExpectedText, Expected)))
+					{
+						return false;
+					}
+
+					if (!Values.IsValidIndex(Component))
+					{
+						AddError(FString::Printf(TEXT("array '%s' has no %s for component %d"),
+							*RelativePath, Field, Component));
+						return false;
+					}
+
+					uint64 Actual = 0;
+					const double Value = Values[Component];
+					FMemory::Memcpy(&Actual, &Value, sizeof(Actual));
+					TestEqual(*FString::Printf(
+							TEXT("array '%s' component %d %s matches Python bit-for-bit"),
+							*RelativePath, Component, Field),
+						Actual, Expected);
+					return true;
+				};
+
+				// All three are evaluated - no short-circuit - so one missing
+				// field does not hide the other two.
+				const bool bMinimum = CompareMoment(TEXT("minimum"), Statistics.Minimum);
+				const bool bMaximum = CompareMoment(TEXT("maximum"), Statistics.Maximum);
+				const bool bMean = CompareMoment(TEXT("mean"), Statistics.Mean);
+				if (!(bMinimum && bMaximum && bMean))
+				{
+					continue;
+				}
+
 				++ComparedArraySamples;
 			}
 			else
