@@ -775,10 +775,23 @@ bool FFlowVizVolumeRayMarchSeamTest::RunTest(const FString& Parameters)
 {
 	using namespace FlowVizVolumeComponentTestHelpers;
 
-	// Nothing installed by default. If a peer's module ever installs one at
-	// startup this fails, which is the correct outcome: it would mean the
-	// "is anything marching?" question has a different answer than this test
-	// assumes and the rest of the file's reasoning needs revisiting.
+	/*
+	 * SAVE AND RESTORE WHATEVER IS INSTALLED - DO NOT ASSUME IT IS NULL.
+	 *
+	 * This test used to say "nothing is installed by default" and read the
+	 * global expecting null. That was true only while production installed no
+	 * dispatcher at all, which was itself the bug (FlowViz.Render.Wiring). Once
+	 * module startup registers a real one, an assertion that the global starts
+	 * null is asserting the DEFECT, and it would have gone red on the commit
+	 * that fixed it - a test failing because the product got fixed.
+	 *
+	 * So: capture whatever is there, restore it on every exit path, and make
+	 * this test's own preconditions explicit by setting null deliberately rather
+	 * than inheriting it. The round-trip assertions below are unchanged and
+	 * still check what they always did - install, read back, uninstall - they
+	 * just no longer depend on the starting state of a global that production
+	 * now owns.
+	 */
 	IFlowVizVolumeRayMarchDispatcher* const Previous = FlowVizVolumeRayMarch::GetDispatcher();
 
 	ON_SCOPE_EXIT
@@ -786,8 +799,10 @@ bool FFlowVizVolumeRayMarchSeamTest::RunTest(const FString& Parameters)
 		FlowVizVolumeRayMarch::SetDispatcher(Previous);
 	};
 
+	// Explicitly cleared by this test, not assumed. This is the one place the
+	// null is a precondition we establish rather than a claim about production.
 	FlowVizVolumeRayMarch::SetDispatcher(nullptr);
-	TestNull(TEXT("with nothing installed, there is no ray-march dispatcher"),
+	TestNull(TEXT("after this test clears it, there is no ray-march dispatcher"),
 		FlowVizVolumeRayMarch::GetDispatcher());
 
 	FRecordingDispatcher Dispatcher;
