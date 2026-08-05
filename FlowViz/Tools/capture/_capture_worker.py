@@ -24,7 +24,13 @@ Job file schema:
             "frame": 0,
             "location": [x, y, z],
             "rotation": [pitch, yaw, roll],
-            "draw_bounding_box": false
+            "draw_bounding_box": false,
+
+            # Optional. Omit for the shipped default (alpha, unlit), which is
+            # what every reference image was captured with.
+            "composite_mode": 4,       # 0 alpha 1 max 2 min 3 avg 4 iso 5 diag
+            "iso_value": 2.5,
+            "lighting": false
           }
         }
       ],
@@ -220,6 +226,47 @@ def spawn_volume(world, spec):
         # than an error: the shot would simply look empty.
         log("VOLUME NOT PLACED: %s" % (error or "spawn_case_actor returned null"))
         return None
+
+    # ------------------------------------------------------------------
+    # Render settings, applied only when the shot asks for them.
+    #
+    # ABSENT MEANS UNTOUCHED, NOT "APPLY THE DEFAULT". Writing the default
+    # explicitly would look identical here and would silently become the
+    # thing that overwrites a setting some future caller applied earlier in
+    # the same shot. Every reference image in the repo was captured with the
+    # engine defaults, so a shot that omits these must render byte-identically
+    # to one captured before this block existed.
+    #
+    # REFUSAL IS FATAL TO THE SHOT, not a warning. A rejected composite mode
+    # leaves the volume in the PREVIOUS mode and renders a complete, plausible
+    # picture -- so continuing would produce a capture labelled "iso-surface"
+    # containing alpha compositing, which is worse than no capture at all. The
+    # critic cannot tell those apart and neither can a reference diff.
+    # ------------------------------------------------------------------
+    mode = spec.get("composite_mode")
+    if mode is not None:
+        if not unreal.FlowVizCaptureLibrary.set_volume_composite_mode(
+                actor, int(mode), float(spec.get("iso_value", 0.0))):
+            log("COMPOSITE MODE REFUSED: %r is not a mode (0 alpha, 1 max, 2 min, "
+                "3 avg, 4 iso, 5 diag). The volume would have rendered in its "
+                "previous mode, which photographs as a successful capture of the "
+                "wrong thing." % (mode,))
+            return None
+        log("composite mode %d, iso %.4f applied"
+            % (int(mode), float(spec.get("iso_value", 0.0))))
+
+    lighting = spec.get("lighting")
+    if lighting is not None:
+        if not unreal.FlowVizCaptureLibrary.set_volume_lighting_enabled(
+                actor, bool(lighting)):
+            log("LIGHTING NOT APPLIED: the actor has no volume component")
+            return None
+        # Logged at every shot that sets it, because VISUAL_QA rule 1 forbids
+        # lighting from modulating apparent scalar value: a lit capture is only
+        # valid for the Presentation profile, and the log is where that shows up
+        # if a Scientific-profile comparison is later run against it.
+        log("gradient lighting %s (Presentation profile; rule 1 forbids this for "
+            "Scientific comparisons)" % ("ON" if lighting else "off"))
 
     # Reported because a volume outside the camera frustum photographs exactly
     # like a volume that failed to render, and the two have nothing in common as

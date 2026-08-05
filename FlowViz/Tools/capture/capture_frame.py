@@ -161,6 +161,47 @@ def normalize(shot):
         # later edit reach backwards into an earlier one.
         normalized["volume"] = dict(volume)
 
+        # Render settings, validated but NOT defaulted.
+        #
+        # Absent stays absent: the worker only writes a setting the shot asked
+        # for, so a shot omitting these renders exactly as it did before the
+        # controls existed -- which is what every reference image in the repo
+        # was captured with.
+        #
+        # Validated because the ENGINE'S refusal is invisible. SetVolumeCompositeMode
+        # rejects an out-of-range mode and keeps the previous one, by design: a
+        # control given a bad number must not become a control that does nothing.
+        # For a capture script that is the worst possible outcome -- the shot
+        # completes, the PNG holds a plausible volume, and it is the wrong mode.
+        # No pixel check, reference diff or blind critic can detect that
+        # afterwards, so it is caught here where the caller still has a stack
+        # trace.
+        mode = volume.get("composite_mode")
+        if mode is not None:
+            # Matches EFlowVizCompositeMode and the FLOWVIZ_MODE_* defines in
+            # the .usf: 0 Alpha, 1 Maximum, 2 Minimum, 3 Average, 4 IsoSurface,
+            # 5 Diagnostic.
+            if not isinstance(mode, int) or isinstance(mode, bool) or not 0 <= mode <= 5:
+                raise ValueError(
+                    "composite_mode must be 0-5 (0 alpha, 1 max, 2 min, 3 avg, "
+                    "4 iso, 5 diag), got %r. The engine would refuse this and "
+                    "render the PREVIOUS mode, producing a successful capture "
+                    "of the wrong thing." % (mode,)
+                )
+
+        iso = volume.get("iso_value")
+        if iso is not None:
+            iso = float(iso)
+            # NaN compares false against everything, so an iso-surface at NaN
+            # finds no crossing and renders empty -- the same picture as a
+            # threshold outside the data range, and a different fix.
+            if not math.isfinite(iso):
+                raise ValueError(
+                    "iso_value must be finite, got %r. A non-finite threshold "
+                    "renders an EMPTY iso-surface, which looks exactly like a "
+                    "threshold outside the data range." % (volume.get("iso_value"),)
+                )
+
     return normalized
 
 

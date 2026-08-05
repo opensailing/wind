@@ -91,3 +91,103 @@ def test_existing_keys_are_unaffected():
     assert result["location"] == [1.0, 2.0, 3.0]
     assert result["fov"] == 42.0
     assert os.path.isabs(result["output"])
+
+
+# ---------------------------------------------------------------------------
+# Render settings
+#
+# The same hazard as the volume spec above, one level in: these keys reach the
+# engine through `dict(volume)`, so forwarding is not the risk. The risk is a
+# VALUE that the engine refuses. A refused composite mode leaves the volume in
+# its previous mode and renders a complete, plausible picture, so a shot
+# labelled "iso-surface" would contain alpha compositing -- and no pixel check,
+# no reference diff and no critic can tell those apart afterwards.
+#
+# Caught here, where the caller still has a stack trace, rather than 90 seconds
+# into an engine launch.
+# ---------------------------------------------------------------------------
+
+VALID_VOLUME = {"case": "/abs/Case.cfdviz", "field": "speed"}
+
+
+def test_render_settings_survive_normalization():
+    """The forwarding assertion, so the rejection tests below are about values."""
+    volume = dict(VALID_VOLUME, composite_mode=4, iso_value=2.5, lighting=True)
+
+    result = normalize(dict(BASE, volume=volume))
+
+    assert result["volume"]["composite_mode"] == 4
+    assert result["volume"]["iso_value"] == 2.5
+    assert result["volume"]["lighting"] is True
+
+
+def test_render_settings_are_absent_when_not_requested():
+    """THE IDENTITY CONTROL, and the reason absent must not mean "the default".
+
+    Every reference image in the repo was captured before these keys existed. A
+    normalize that helpfully filled in composite_mode=0 would look identical
+    here and would make the worker WRITE the default -- turning "untouched" into
+    "explicitly overwritten", which is a different thing the moment anything
+    else sets a mode earlier in the same shot.
+    """
+    result = normalize(dict(BASE, volume=dict(VALID_VOLUME)))
+
+    assert "composite_mode" not in result["volume"]
+    assert "iso_value" not in result["volume"]
+    assert "lighting" not in result["volume"]
+
+
+@pytest.mark.parametrize("mode", [-1, 6, 99, 2**31])
+def test_out_of_range_composite_mode_is_rejected(mode):
+    """Refused, because the engine's refusal renders as a successful capture.
+
+    UFlowVizCaptureLibrary::SetVolumeCompositeMode rejects these and KEEPS the
+    previous mode by design -- a control given a bad number must not become a
+    control that does nothing. That is right for the engine and useless for a
+    capture script: the shot completes, the PNG is full of a plausible volume,
+    and it is the wrong mode.
+    """
+    volume = dict(VALID_VOLUME, composite_mode=mode)
+
+    with pytest.raises(ValueError) as excinfo:
+        normalize(dict(BASE, volume=volume))
+
+    assert "composite_mode" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("mode", [0, 1, 2, 3, 4, 5])
+def test_every_mode_the_shader_implements_is_accepted(mode):
+    """The control for the rejection above.
+
+    Without this, `raise ValueError` on every composite_mode would pass the
+    rejection test and silently make the whole control unusable. Six values,
+    matching EFlowVizCompositeMode and the FLOWVIZ_MODE_* defines in the .usf --
+    if the enum grows a seventh, this test is where the omission surfaces.
+    """
+    result = normalize(dict(BASE, volume=dict(VALID_VOLUME, composite_mode=mode)))
+
+    assert result["volume"]["composite_mode"] == mode
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_iso_value_is_rejected(bad):
+    """NaN compares false against everything, so an iso-surface at NaN finds no
+    crossing and renders EMPTY -- the same picture as a threshold outside the
+    data range, and a completely different fix."""
+    volume = dict(VALID_VOLUME, composite_mode=4, iso_value=bad)
+
+    with pytest.raises(ValueError) as excinfo:
+        normalize(dict(BASE, volume=volume))
+
+    assert "iso_value" in str(excinfo.value)
+
+
+def test_a_finite_iso_value_is_accepted():
+    """The control for the rejection above, and it uses a NEGATIVE value on
+    purpose: a guard written as `if not iso_value` or `if iso_value <= 0` would
+    pass every case above and reject a legitimate threshold on a signed field."""
+    result = normalize(
+        dict(BASE, volume=dict(VALID_VOLUME, composite_mode=4, iso_value=-3.25))
+    )
+
+    assert result["volume"]["iso_value"] == -3.25
