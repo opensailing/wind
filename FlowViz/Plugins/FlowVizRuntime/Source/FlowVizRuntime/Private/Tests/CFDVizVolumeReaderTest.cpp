@@ -59,17 +59,17 @@ namespace CvfReaderTest
 	constexpr int32 HdrBytes = 128;
 
 	/** On-disk offsets within one 80-byte directory entry, from section 4.3. */
-	constexpr int32 EntryOffsetBrickIndex = 0;
-	constexpr int32 EntryOffsetValidSize = 12;
-	constexpr int32 EntryOffsetEntryFlags = 18;
-	constexpr int32 EntryOffsetPayload = 20;
-	constexpr int32 EntryOffsetCompressed = 28;
-	constexpr int32 EntryOffsetUncompressed = 32;
-	constexpr int32 EntryOffsetComponentMin = 36;
-	constexpr int32 EntryOffsetComponentMax = 52;
-	constexpr int32 EntryOffsetPayloadCrc = 68;
-	constexpr int32 EntryOffsetReserved = 72;
-	constexpr int32 EntryBytes = 80;
+	constexpr int32 CvfTestEntryOffsetBrickIndex = 0;
+	constexpr int32 CvfTestEntryOffsetValidSize = 12;
+	constexpr int32 CvfTestEntryOffsetEntryFlags = 18;
+	constexpr int32 CvfTestEntryOffsetPayload = 20;
+	constexpr int32 CvfTestEntryOffsetCompressed = 28;
+	constexpr int32 CvfTestEntryOffsetUncompressed = 32;
+	constexpr int32 CvfTestEntryOffsetComponentMin = 36;
+	constexpr int32 CvfTestEntryOffsetComponentMax = 52;
+	constexpr int32 CvfTestEntryOffsetPayloadCrc = 68;
+	constexpr int32 CvfTestEntryOffsetReserved = 72;
+	constexpr int32 CvfTestEntryBytes = 80;
 
 	/** Where the golden fixture's directory and payloads start. */
 	constexpr int32 GoldenDirectoryOffset = 128;
@@ -340,25 +340,25 @@ namespace CvfReaderTest
 	/** Byte offset of field `Field` inside directory entry `Entry` of the golden fixture. */
 	constexpr int32 GoldenEntryField(int32 Entry, int32 Field)
 	{
-		return GoldenDirectoryOffset + Entry * EntryBytes + Field;
+		return GoldenDirectoryOffset + Entry * CvfTestEntryBytes + Field;
 	}
 
 	/** Re-stamp a brick's payload CRC after its stored bytes or extent were edited. */
 	void ResealBrickCrc(TArray<uint8>& Bytes, int32 Entry)
 	{
-		const int32 Base = GoldenDirectoryOffset + Entry * EntryBytes;
+		const int32 Base = GoldenDirectoryOffset + Entry * CvfTestEntryBytes;
 		int64 Offset = 0;
 		int64 Count = 0;
 		for (int32 Index = 0; Index < 8; ++Index)
 		{
-			Offset |= static_cast<int64>(Bytes[Base + EntryOffsetPayload + Index]) << (Index * 8);
+			Offset |= static_cast<int64>(Bytes[Base + CvfTestEntryOffsetPayload + Index]) << (Index * 8);
 		}
 		for (int32 Index = 0; Index < 4; ++Index)
 		{
-			Count |= static_cast<int64>(Bytes[Base + EntryOffsetCompressed + Index]) << (Index * 8);
+			Count |= static_cast<int64>(Bytes[Base + CvfTestEntryOffsetCompressed + Index]) << (Index * 8);
 		}
 		const uint32 Crc = CFDViz::Crc32C::Compute(Bytes.GetData() + Offset, Count);
-		WriteCvfUInt32At(Bytes, Base + EntryOffsetPayloadCrc, Crc);
+		WriteCvfUInt32At(Bytes, Base + CvfTestEntryOffsetPayloadCrc, Crc);
 	}
 
 	/** float32 bit pattern of one decoded uint8 value, for asserting stored bytes exactly. */
@@ -1024,11 +1024,11 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	// array a field early would report the change on brickIndexZ.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt16At(Bytes, GoldenEntryField(0, EntryOffsetValidSize + 2), 999);
+		WriteUInt16At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetValidSize + 2), 999);
 
 		FCFDVizBrickEntry Entry;
 		const FCFDVizResult Result = FCFDVizBrickEntry::Parse(
-			TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, EntryBytes), Entry);
+			TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, CvfTestEntryBytes), Entry);
 		if (TestTrue(TEXT("the probe entry parses"), Result.IsOk()))
 		{
 			TestEqual(TEXT("validSizeY @14 moved"), Entry.ValidSize.Y, 999);
@@ -1047,12 +1047,12 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	// Moving one and asserting the other stayed is the only way to tell.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 37);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetCompressed), 37);
 
 		FCFDVizBrickEntry Entry;
 		if (TestTrue(TEXT("the probe entry parses"),
 			FCFDVizBrickEntry::Parse(
-				TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, EntryBytes), Entry).IsOk()))
+				TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, CvfTestEntryBytes), Entry).IsOk()))
 		{
 			TestEqual(TEXT("compressedBytes @28 moved"), Entry.CompressedBytes, static_cast<int64>(37));
 			TestEqual(TEXT("uncompressedBytes @32 did not"), Entry.UncompressedBytes, static_cast<int64>(48));
@@ -1064,13 +1064,13 @@ bool FCFDVizVolumeReaderOffsetProbeTest::RunTest(const FString& Parameters)
 	// --- componentMin @36 and componentMax @52 are two distinct float32[4] ---
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteFloatAt(Bytes, GoldenEntryField(0, EntryOffsetComponentMin + 4), -12.5f);	// min[1]
-		WriteFloatAt(Bytes, GoldenEntryField(0, EntryOffsetComponentMax + 4), 77.25f);	// max[1]
+		WriteFloatAt(Bytes, GoldenEntryField(0, CvfTestEntryOffsetComponentMin + 4), -12.5f);	// min[1]
+		WriteFloatAt(Bytes, GoldenEntryField(0, CvfTestEntryOffsetComponentMax + 4), 77.25f);	// max[1]
 
 		FCFDVizBrickEntry Entry;
 		if (TestTrue(TEXT("the probe entry parses"),
 			FCFDVizBrickEntry::Parse(
-				TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, EntryBytes), Entry).IsOk()))
+				TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, CvfTestEntryBytes), Entry).IsOk()))
 		{
 			float Min = 0.0f;
 			float Max = 0.0f;
@@ -1166,7 +1166,7 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 		const int32 CutLengths[] = {
 			HdrBytes,			 // header only: the directory is entirely absent
 			HdrBytes + 1,		 // one byte into the first entry
-			HdrBytes + EntryBytes,	 // exactly one whole entry of the eight
+			HdrBytes + CvfTestEntryBytes,	 // exactly one whole entry of the eight
 			GoldenPayloadOffset - 1,	 // one byte short of a complete directory
 		};
 		for (int32 Length : CutLengths)
@@ -1192,7 +1192,7 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 		// earlier and for a different stated reason: payloadOffset 768 is no
 		// longer inside the file. Asserted here so the check order above is a
 		// deliberate arrangement rather than a gap.
-		const FCFDVizResult Plain = OpenTruncated(HdrBytes + EntryBytes);
+		const FCFDVizResult Plain = OpenTruncated(HdrBytes + CvfTestEntryBytes);
 		TestFalse(TEXT("a plain truncation into the directory is refused too"), Plain.IsOk());
 		TestTrue(TEXT("...as InvalidHeader, from payloadOffset @80"), Plain.Error == ECFDVizError::InvalidHeader);
 		TestEqual(TEXT("...naming byte 80"), Plain.ByteOffset, static_cast<int64>(HdrOffsetPayloadOffset));
@@ -1311,7 +1311,7 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 	{
 		// The same for a brick payload offset, which is checked per entry.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt64At(Bytes, GoldenEntryField(3, EntryOffsetPayload), 0x7FFFFFFFFFFFFF00ULL);
+		WriteCvfUInt64At(Bytes, GoldenEntryField(3, CvfTestEntryOffsetPayload), 0x7FFFFFFFFFFFFF00ULL);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("huge-payload.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1324,7 +1324,7 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 	{
 		FCFDVizBrickEntry Entry;
 		const FCFDVizResult Result = FCFDVizBrickEntry::Parse(
-			TArrayView<const uint8>(GoldenCvfBytes + GoldenDirectoryOffset, EntryBytes - 1), Entry, 128);
+			TArrayView<const uint8>(GoldenCvfBytes + GoldenDirectoryOffset, CvfTestEntryBytes - 1), Entry, 128);
 		TestFalse(TEXT("79 bytes is not a directory entry"), Result.IsOk());
 		TestTrue(TEXT("...as FileTooSmall"), Result.Error == ECFDVizError::FileTooSmall);
 		TestEqual(TEXT("...naming the entry's own file offset"), Result.ByteOffset, static_cast<int64>(128));
@@ -1332,7 +1332,7 @@ bool FCFDVizVolumeReaderTruncationTest::RunTest(const FString& Parameters)
 		// POSITIVE CONTROL at exactly 80.
 		TestTrue(TEXT("exactly 80 bytes parses"),
 			FCFDVizBrickEntry::Parse(
-				TArrayView<const uint8>(GoldenCvfBytes + GoldenDirectoryOffset, EntryBytes), Entry, 128).IsOk());
+				TArrayView<const uint8>(GoldenCvfBytes + GoldenDirectoryOffset, CvfTestEntryBytes), Entry, 128).IsOk());
 	}
 
 	return true;
@@ -1433,13 +1433,13 @@ bool FCFDVizVolumeReaderEdgeBrickTest::RunTest(const FString& Parameters)
 	// size the tiling requires named in the message.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt16At(Bytes, GoldenEntryField(7, EntryOffsetValidSize), 3);	// validSizeX 2 -> 3
+		WriteUInt16At(Bytes, GoldenEntryField(7, CvfTestEntryOffsetValidSize), 3);	// validSizeX 2 -> 3
 		// uncompressedBytes is made consistent with the LIE (3*1*2*2 = 12) so
 		// that the entry is internally coherent and the ONLY thing wrong with it
 		// is its relationship to the tiling. A reader that had no tiling check
 		// but did have the section 4.4.4 size equality would accept this file.
-		WriteCvfUInt32At(Bytes, GoldenEntryField(7, EntryOffsetUncompressed), 12);
-		WriteCvfUInt32At(Bytes, GoldenEntryField(7, EntryOffsetCompressed), 12);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(7, CvfTestEntryOffsetUncompressed), 12);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(7, CvfTestEntryOffsetCompressed), 12);
 		ResealBrickCrc(Bytes, 7);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("padded-edge.cvf"));
@@ -1448,16 +1448,16 @@ bool FCFDVizVolumeReaderEdgeBrickTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("an edge brick claiming a full cube is refused"), Result.IsOk());
 		TestTrue(TEXT("...as SizeMismatch"), Result.Error == ECFDVizError::SizeMismatch);
 		TestEqual(TEXT("...naming that entry's validSize field"),
-			Result.ByteOffset, static_cast<int64>(GoldenEntryField(7, EntryOffsetValidSize)));
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(7, CvfTestEntryOffsetValidSize)));
 	}
 	{
 		// The mirror image: an INTERIOR brick that under-declares. A reader that
 		// only checked "validSize <= brickSize" would accept this and then
 		// reconstruct the volume with a hole in it.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt16At(Bytes, GoldenEntryField(0, EntryOffsetValidSize + 4), 3);	// validSizeZ 4 -> 3
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 36);	// 3*2*3*2
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 36);
+		WriteUInt16At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetValidSize + 4), 3);	// validSizeZ 4 -> 3
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 36);	// 3*2*3*2
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetCompressed), 36);
 		ResealBrickCrc(Bytes, 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("short-interior.cvf"));
@@ -1470,9 +1470,9 @@ bool FCFDVizVolumeReaderEdgeBrickTest::RunTest(const FString& Parameters)
 		// A zero on any axis is refused by the same equality: the expected
 		// remainder is always at least 1, so a zero can never satisfy it.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt16At(Bytes, GoldenEntryField(0, EntryOffsetValidSize), 0);
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 0);
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 0);
+		WriteUInt16At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetValidSize), 0);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 0);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetCompressed), 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("zero-extent.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1551,7 +1551,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("...as InvalidHeader"), Result.Error == ECFDVizError::InvalidHeader);
 		// Entry 1 is brick (1,0,0), the first one outside a 1-wide grid.
 		TestEqual(TEXT("...naming entry 1's brickIndex"),
-			Result.ByteOffset, static_cast<int64>(GoldenEntryField(1, EntryOffsetBrickIndex)));
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(1, CvfTestEntryOffsetBrickIndex)));
 	}
 
 	// --- a brickSize that changes the tiling ---------------------------------
@@ -1572,7 +1572,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// Entry 0 is brick (0,0,0) and now must be 5 wide, not 3.
 		TestTrue(TEXT("...as SizeMismatch"), Result.Error == ECFDVizError::SizeMismatch);
 		TestEqual(TEXT("...naming entry 0's validSize"),
-			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, EntryOffsetValidSize)));
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, CvfTestEntryOffsetValidSize)));
 	}
 
 	// --- brickCount BELOW the tiling is legal (section 4.4.5) ---------------
@@ -1651,10 +1651,10 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	// claims.
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt32At(Bytes, GoldenEntryField(1, EntryOffsetBrickIndex), 0);	// (1,0,0) -> (0,0,0)
-		WriteUInt16At(Bytes, GoldenEntryField(1, EntryOffsetValidSize), 3);	// keep validSize legal for (0,0,0)
-		WriteCvfUInt32At(Bytes, GoldenEntryField(1, EntryOffsetUncompressed), 48);
-		WriteCvfUInt32At(Bytes, GoldenEntryField(1, EntryOffsetCompressed), 48);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(1, CvfTestEntryOffsetBrickIndex), 0);	// (1,0,0) -> (0,0,0)
+		WriteUInt16At(Bytes, GoldenEntryField(1, CvfTestEntryOffsetValidSize), 3);	// keep validSize legal for (0,0,0)
+		WriteCvfUInt32At(Bytes, GoldenEntryField(1, CvfTestEntryOffsetUncompressed), 48);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(1, CvfTestEntryOffsetCompressed), 48);
 		ResealBrickCrc(Bytes, 1);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("duplicate.cvf"));
@@ -1663,13 +1663,13 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("two entries for one brick coordinate are refused"), Result.IsOk());
 		TestTrue(TEXT("...as InvalidHeader"), Result.Error == ECFDVizError::InvalidHeader);
 		TestEqual(TEXT("...naming the SECOND entry, the one that collided"),
-			Result.ByteOffset, static_cast<int64>(GoldenEntryField(1, EntryOffsetBrickIndex)));
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(1, CvfTestEntryOffsetBrickIndex)));
 	}
 
 	// --- the section 4.4.4 size equality, checked BEFORE any allocation ------
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 49);	// 48 + 1
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 49);	// 48 + 1
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("size-lie.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1677,13 +1677,13 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("uncompressedBytes one byte off the derived size is refused"), Result.IsOk());
 		TestTrue(TEXT("...as SizeMismatch"), Result.Error == ECFDVizError::SizeMismatch);
 		TestEqual(TEXT("...naming uncompressedBytes @32 of that entry"),
-			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, EntryOffsetUncompressed)));
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, CvfTestEntryOffsetUncompressed)));
 	}
 	{
 		// A hostile value, to prove the check is not a soft plausibility test:
 		// 4 GB declared for a 24-voxel brick.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetUncompressed), 0xFFFFFFFFu);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetUncompressed), 0xFFFFFFFFu);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("huge-size.cvf"));
 		FCFDVizVolumeReader Reader;
@@ -1697,7 +1697,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		// by definition. A file that says otherwise describes a transformation
 		// it did not perform.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteCvfUInt32At(Bytes, GoldenEntryField(0, EntryOffsetCompressed), 40);
+		WriteCvfUInt32At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetCompressed), 40);
 		ResealBrickCrc(Bytes, 0);
 
 		const FCFDVizMemoryByteSource Source(Bytes, TEXT("codec-none-mismatch.cvf"));
@@ -1706,7 +1706,7 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("codec none with compressed != uncompressed is refused"), Result.IsOk());
 		TestTrue(TEXT("...as SizeMismatch"), Result.Error == ECFDVizError::SizeMismatch);
 		TestEqual(TEXT("...naming compressedBytes @28"),
-			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, EntryOffsetCompressed)));
+			Result.ByteOffset, static_cast<int64>(GoldenEntryField(0, CvfTestEntryOffsetCompressed)));
 	}
 
 	// --- reserved fields the spec pins to zero -------------------------------
@@ -1734,25 +1734,25 @@ bool FCFDVizVolumeReaderConsistencyTest::RunTest(const FString& Parameters)
 	}
 	{
 		TArray<uint8> Bytes = CopyOfGolden();
-		Bytes[GoldenEntryField(0, EntryOffsetReserved) + 7] = 1;
+		Bytes[GoldenEntryField(0, CvfTestEntryOffsetReserved) + 7] = 1;
 
 		FCFDVizBrickEntry Entry;
 		const FCFDVizResult Result = FCFDVizBrickEntry::Parse(
-			TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, EntryBytes), Entry, 128);
+			TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, CvfTestEntryBytes), Entry, 128);
 		TestFalse(TEXT("reserved entry bytes [72,80) must be zero"), Result.IsOk());
-		TestEqual(TEXT("...naming the entry's byte 72"), Result.ByteOffset, static_cast<int64>(128 + EntryOffsetReserved));
+		TestEqual(TEXT("...naming the entry's byte 72"), Result.ByteOffset, static_cast<int64>(128 + CvfTestEntryOffsetReserved));
 	}
 	{
 		// No per-brick flag bits exist in 1.0. An unknown one could change how
 		// the payload decodes, so it is refused rather than ignored.
 		TArray<uint8> Bytes = CopyOfGolden();
-		WriteUInt16At(Bytes, GoldenEntryField(0, EntryOffsetEntryFlags), 0x0001);
+		WriteUInt16At(Bytes, GoldenEntryField(0, CvfTestEntryOffsetEntryFlags), 0x0001);
 
 		FCFDVizBrickEntry Entry;
 		const FCFDVizResult Result = FCFDVizBrickEntry::Parse(
-			TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, EntryBytes), Entry, 128);
+			TArrayView<const uint8>(Bytes.GetData() + GoldenDirectoryOffset, CvfTestEntryBytes), Entry, 128);
 		TestFalse(TEXT("an unknown per-brick flag bit is refused, not ignored"), Result.IsOk());
-		TestEqual(TEXT("...naming the entry's byte 18"), Result.ByteOffset, static_cast<int64>(128 + EntryOffsetEntryFlags));
+		TestEqual(TEXT("...naming the entry's byte 18"), Result.ByteOffset, static_cast<int64>(128 + CvfTestEntryOffsetEntryFlags));
 	}
 
 	// --- header field validation ---------------------------------------------
