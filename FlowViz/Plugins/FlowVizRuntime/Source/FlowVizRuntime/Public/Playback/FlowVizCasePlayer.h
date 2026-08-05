@@ -599,47 +599,40 @@ struct FFlowVizDisplaySelection
 	 * Measured on a comfortably resolved window - a=1, b=2 displayed through
 	 * [1,2] at 16-bit, which is 128 distinct float32 values per colour level:
 	 *
-	 *   two-product   400 colour-index reversals out of 51271 raw retreats
-	 *                 = 0.78%, against a predicted 1/128 = 0.781%
+	 *   two-product   571 colour-index reversals out of 72952 raw retreats
 	 *   mad           0 colour reversals, and 0 RAW retreats
 	 *
-	 * Witness: t = 0.00101479876, value 1.00101483 -> 1.00101471, colour index
-	 * 67 -> 66.
+	 * NO CLOSED-FORM RATE IS OFFERED. Three were tried and all three are refuted;
+	 * they are recorded because two of them reached this file. "1/(floats per
+	 * colour level)" fits [1,2] to four digits and fails off it. Evaluating
+	 * ULP(v)/level_width at the retreating values is also wrong. A third,
+	 * lattice-equidistribution, matched three windows and was refuted by its own
+	 * control. Three failed models is evidence about the QUANTITY, not the
+	 * models: the per-window rate is not stable under refinement of an arbitrary
+	 * sampling choice, so there is nothing well defined there to model.
 	 *
-	 * NO CLOSED-FORM RATE IS OFFERED, and the attempts are recorded because two
-	 * of them are already in this file's history. "1/(floats per colour level)"
-	 * fits [1,2] to four digits and FAILS off it. The obvious repair - evaluate
-	 * ULP(v)/level_width at the values where retreats actually occur - is also
-	 * wrong: on [0.1,0.9] 16-bit it predicts 0.4883% where 0.7811% is measured.
-	 * A third model of mine (a lattice-equidistribution count) matched three
-	 * windows and was then refuted by its own control, predicting 0.0000% where
-	 * 0.0483% and 0.0117% were measured.
+	 * FP CONTRACTION IS WHY OFF-WINDOW NUMBERS DISAGREED. `(1-t)*a + t*b` is not
+	 * one expression - clang contracts it to fmadd by default, and this
+	 * toolchain's C++ default does so (the UE build passes no -ffp-contract).
+	 * The fused and unfused forms are different functions with different retreat
+	 * sets, and the difference is not small:
 	 *
-	 * The reason every density model fails: the retreating values are not a
-	 * continuum but a PERIODIC LATTICE. On [0.1,0.9] t=0.75 the retreats fall on
-	 * exactly every 10th float (gap histogram: one bucket, 19999 of 19999) and
-	 * successive retreating values advance by a fixed 0.0390625 colour levels,
-	 * occupying only 128 or 256 distinct phases within a level. A rate computed
-	 * from average densities assumes phases that do not exist. This is also why
-	 * some anchors measure EXACTLY 0.0000% - when the retreat is smaller than
-	 * the lattice's phase spacing, no sample can straddle a boundary at all,
-	 * which no density model can produce.
+	 *                          fused (fmadd, what UE compiles)   unfused
+	 *   [1,2]   16-bit raw          72952                         72952
+	 *   [0.1,0.9] 16-bit raw        84276 (rev 1067)              12655 (rev 0)
 	 *
-	 * So the rate is strongly window- AND t-dependent, and single-anchor figures
-	 * are not window properties. Pooled over 16 anchors spanning t (the only
-	 * form worth quoting):
+	 * So a sweep of "the two-product form" measures whichever form the compiler
+	 * chose that day. Any figure here without its contraction mode stated is
+	 * uninterpretable, and two peers can measure the same nominal expression at
+	 * the same anchor and get 19999 versus 0 - which happened, and cost a round
+	 * to find. Quote the mode with the number.
 	 *
-	 *   [1,2]     16-bit   571 / 72952  = 0.783%      mad: 0 retreats
-	 *   [0.1,0.9] 16-bit  1067 / 149901 = 0.712%      mad: 0 retreats
-	 *   [1,2]      8-bit     3 / 72952  = 0.004%      mad: 0 retreats
-	 *   [0.1,0.9]  8-bit     3 / 149901 = 0.002%      mad: 0 retreats
-	 *
-	 * An earlier version of this comment quoted "601 of 130955" for [0.1,0.9]
-	 * as confirmation of the 1/fpl model. That number was real but measured at
-	 * one anchor, and single-anchor rates on this window range from 0.0000% to
-	 * 0.7851% depending only on where t starts. It was cited as a second
-	 * confirming data point when arithmetic on it (0.459% vs a predicted 0.244%)
-	 * refutes the model it was cited for.
+	 * WHAT IS INVARIANT ACROSS BOTH MODES, and is the whole basis of the choice:
+	 * mad has ZERO raw retreats in every window and mode tested (36.5M
+	 * comparisons unfused, 1.6M fused, spanning sign changes, 40 decades, and
+	 * 3.4e38 to -3.4e38); two-product retreats in both modes; two-product is
+	 * exact at t == 1 and mad is not (a=-1000, b=0.001 -> 0.0009765625).
+	 * Contraction changes the rate, never the direction of the trade.
 	 *
 	 * The mad form's zero is structural, not a dead reading: a + t*(b-a) is
 	 * monotone in t for a fixed (b-a), so it has no raw retreats to quantize.
@@ -663,9 +656,30 @@ struct FFlowVizDisplaySelection
 	 * contradicted the sentence next to it and got waved through anyway. A
 	 * number that does not fit the claim it is cited for is the finding.
 	 *
+	 * Two later failures on this same line, both worth the reader's caution.
+	 * First, a rate quoted from ONE anchor: on [0.1,0.9] the single-anchor rate
+	 * ranges from 0.0000% to 0.7851% by choice of t alone, so it was correct
+	 * arithmetic about nothing generalisable. Second, and the one that actually
+	 * bit: every per-window figure was measured WITHOUT recording the
+	 * contraction mode, so numbers that looked like disagreements between
+	 * careful people were the same expression compiled two ways. Both are the
+	 * same mistake in different clothes - reporting a number whose meaning
+	 * depends on a condition that was never stated. Before believing a rate
+	 * here, ask what it is a rate OF, and check it converges when you vary the
+	 * sampling; a quantity that moves with an arbitrary choice is not a
+	 * property of the code.
+	 *
 	 * The temporal blend is not written yet. When it is, it must use the
 	 * two-product form, and the collapse above must still happen so the pair
 	 * and the disclosure agree.
+	 *
+	 * NOTE FOR WHOEVER WRITES IT: the real blend runs in HLSL on the GPU, where
+	 * the compiler contracts as aggressively as it likes and there is no
+	 * -ffp-contract to lean on. Do not port a C++ measurement to the shader and
+	 * assume it holds. What transfers is the invariant, not the rate: mad is
+	 * monotone and inexact at t == 1, two-product is exact at both endpoints and
+	 * can retreat 1 ULP. Both remain true fused or unfused, which is exactly why
+	 * the recommendation is stated in those terms and not as a percentage.
 	 *
 	 * Verified by compiling both forms and sweeping, not by inspection. Every
 	 * sweep behind these numbers needs its coverage checked before it is
