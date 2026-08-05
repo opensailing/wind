@@ -74,30 +74,54 @@ against, and every claim about how it looks remains unmade rather than merely
 unproven. A green test suite is not a rendered image, and this file should
 keep saying so until an image exists.
 
-### 2a. Nothing has marched a populated volume
+### 2a. The marching loop is exercised; iso-surface and gradients are not
 
-The gap immediately below the one above, and the one to close first.
+**Largely closed** by `3ad8e54` (`FlowViz.Render.VolumeMarch`). Recorded here
+in full because what remains open is narrower than it was and needs saying
+precisely.
 
-Every ray-march feature is verified against its *interface* — the cbuffer
-round-trips, the shader compiles, the pass dispatches, the flag colours are
-distinct. Not one of them has been run over a volume with data in it. The
-marching loop itself, which is where compositing, iso-surface extraction,
-gradient estimation and clipping actually happen, is unexercised.
+**What now runs over real data.** A 16×8×4 fixture whose field is its own
+voxel index, `f(i,j,k) = i + 16j + 128k`, so a sampled value *decodes* to the
+voxel it came from — which makes "sampled a voxel" and "sampled the RIGHT
+voxel" separable assertions. Verified against closed forms, not pictures:
 
-This is a correctness gap, not a polish one. A loop that steps by the largest
-voxel spacing instead of the smallest, composites back-to-front, or samples at
-cell corners instead of centres will still dispatch, still compile, still
-round-trip its constants, and still produce a picture. Some of those pictures
-look entirely reasonable.
+- the anisotropic step rule, as a number: 33 steps, where the max-spacing bug
+  gives 9
+- Maximum, Minimum and Average, each distinct, with Average proven to be the
+  mean rather than the sum or an endpoint
+- the crop box, in domain fractions: cropping to the far half of X moves the
+  minimum by exactly 8 voxels
+- the status gate, in both its roles — masked voxels excluded from the value,
+  *and* reported in the reason bits so the cause is still nameable
+- VISUAL_QA rule 1: `OutValue.x` bit-identical with lighting on and off, with
+  a control asserting the *colour* changed, so the invariance cannot hold
+  because lighting never ran
 
-The fix is a fixture volume holding an analytic field whose correct integral
-is known in closed form — a linear ramp, a Gaussian blob, a plane at a known
-iso-value — marched with assertions on the quantitative `OutValue` UAV rather
-than on pixels. That makes a wrong loop fail on a number instead of on
-somebody's judgement of an image, which is the only kind of visual claim this
-project accepts.
+Each of those was verified by differential (`Tools/tests/march_differential.sh`,
+7/7) rather than by having passed once. The identity-control arm — a no-op
+edit inside the marching loop that must not change the image — is the one that
+makes the rest mean anything. It killed on the first campaign, which condemned
+every verdict in it: the harness was scoring "the filter matched no tests" as
+a kill, so nothing had been tested at all.
 
-Until then, treat "the ray-marcher works" as unmade. It compiles and it runs.
+**What is still unexercised.** Three things, and none of them is covered by
+the above:
+
+- **Iso-surface extraction.** The linear-crossing branch never runs in these
+  configs. It is the mode most likely to be subtly wrong — a crossing computed
+  between the wrong bracketing pair still yields a smooth, plausible surface.
+- **Gradient estimation and therefore lighting *direction*.** The lighting arm
+  proves lighting altered the colour and did not touch the value. It does not
+  prove the normal points anywhere correct. `FlowVizGradient` samples six
+  neighbours at ±`VoxelSpacing`; an axis swapped there lights the volume from
+  the wrong side and looks entirely reasonable.
+- **Clip planes.** Compiled, dispatched, never given a plane.
+
+The fixture and its decode-to-voxel trick extend to all three; the work is
+adding configs, not new machinery.
+
+Treat "the ray-marcher works" as made for compositing, stepping, cropping and
+status — and unmade for iso-surface, gradients and clipping.
 
 ## Correctness gaps
 

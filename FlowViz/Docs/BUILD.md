@@ -190,6 +190,51 @@ costs real time:
 The script treats a filter matching **zero** tests as a failure. The engine
 exits 0 in that case, so a typo'd test path would otherwise read as success.
 
+### `run_tests.sh` does NOT build. A new test file will not run.
+
+It launches the editor against whatever binary is already on disk. Nothing in
+its output distinguishes "your test passed" from "your test does not exist in
+this binary" — the table simply omits it, and the `N/M passed` line is green
+for the tests that *were* compiled in.
+
+Observed 2026-08-05: a newly added `FlowVizVolumeMarchTest.cpp` produced
+`6/6 passed` with the new test silently absent from the list. Build first, then
+run:
+
+```bash
+"/Users/Shared/Epic Games/UE_5.8/Engine/Build/BatchFiles/Mac/Build.sh" \
+    FlowVizEditor Mac Development \
+    -project="$PWD/FlowViz/FlowViz.uproject" > /tmp/b.log 2>&1
+grep -aq "Result: Succeeded" /tmp/b.log && grep -aoE "run [0-9]+ action\(s\)" /tmp/b.log
+```
+
+**Check the test name you expect is in the output table.** A count is not a
+roster; `7/7` and `6/6` look equally green.
+
+### A non-zero exit does not mean a test failed
+
+`run_tests.sh` uses distinct exit codes, and anything that *scores* a run must
+tell them apart:
+
+| code | meaning |
+|-----:|---------|
+| `1` | a test genuinely failed |
+| `3` | the editor never started — no log was produced |
+| `4` | the filter matched no tests — **nothing ran** |
+| `75` | `build_lock.sh` timed out — the command never ran |
+
+A harness keyed on `$? != 0` scores 3, 4 and 75 as caught bugs. Observed
+2026-08-05: a mutation campaign reported 5 of 6 mutants killed while every arm
+had actually exited 4, having tested nothing at all. The tell was the identity
+control — a no-op mutation that must survive — coming back "killed."
+
+**Always include a control arm that must survive.** Without one, a campaign
+where nothing ran is indistinguishable from a campaign where everything was
+caught. See `Tools/tests/march_differential.sh` for the shape: attribute
+3/4/75 and shader-compile failure as UNSCORED *before* reading any verdict,
+and require each kill to come from the assertion that names the bug rather
+than from any failure at all.
+
 ### A green total can include tests that verified nothing
 
 **Run the `RHI=1` arm before you believe a render claim.** The GPU tests skip
