@@ -417,9 +417,19 @@ struct FFlowVizTransferFunction
 	 * The colour AND opacity for a solver value, as the shader would draw it.
 	 *
 	 * The CPU reference for the shader's behaviour: in-range values sample the
-	 * combined LUT, out-of-range and invalid values take their flag colour. The
-	 * legend, the probe readout and any CPU-side check use this so there is one
-	 * definition of "what colour is this value" rather than one per consumer.
+	 * combined LUT, out-of-range and invalid values take their flag colour.
+	 *
+	 * This comment used to say "the legend, the probe readout and any CPU-side
+	 * check use this, so there is one definition rather than one per consumer."
+	 * THAT WAS FALSE, and it overstated what this function buys. There is no
+	 * legend and no probe readout; the only caller outside this header is
+	 * FlowVizTransferFunctionTest.cpp. One definition shared by one test is not
+	 * the same guarantee as one definition shared by every consumer.
+	 *
+	 * It remains the right place to put that definition. But it is a CPU
+	 * reference NOT CURRENTLY CHECKED AGAINST THE SHADER: nothing compares this
+	 * against what FlowVizVolumeRayMarch.usf actually draws, so the two can drift
+	 * apart and every test here will still pass.
 	 *
 	 * @param Lut A LUT built by BuildLut from THIS transfer function. Passing a LUT
 	 *            from another one is not detectable here and gives wrong colours.
@@ -708,7 +718,22 @@ public:
 		return TransferFunction;
 	}
 
-	/** The CPU-side LUT the resident texture was built from. Empty before the first successful Update. This is what the legend and the probe readout sample. */
+	/**
+	 * The CPU-side LUT the resident texture was built from. Empty before the
+	 * first successful Update.
+	 *
+	 * This comment used to claim "this is what the legend and the probe readout
+	 * sample." THAT WAS FALSE. Neither a legend nor a probe readout exists
+	 * anywhere in this plugin, and every caller of this accessor is in
+	 * FlowVizTransferFunctionTest.cpp. Grep before relying on the claim; a
+	 * consumer that does not exist cannot corroborate the LUT.
+	 *
+	 * Why the correction matters more than the accessor does: the same sentence
+	 * is load-bearing at FlowVizTransferFunction.cpp:875, where "the CPU-side LUT
+	 * is still correct and is what the legend and the probe readout sample" is
+	 * the stated reason NOT to log a missing LUT texture. A reassurance about an
+	 * imaginary consumer is buying silence on a real GPU failure path.
+	 */
 	TArrayView<const FLinearColor> GetLut() const
 	{
 		return Lut;

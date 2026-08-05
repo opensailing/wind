@@ -707,6 +707,26 @@ struct FFlowVizDisplaySelection
 	 * The playhead has moved past what is resident: these pixels are older than
 	 * the timeline position. The UI should say so; it must not be treated as an
 	 * error, since it is the normal state during a scrub.
+	 *
+	 * GAP, FOUND 2026-08-05: NOTHING OUTSIDE /Tests/ READS THIS. It is produced
+	 * correctly and then dropped one function later. The only non-test consumer
+	 * of GetDisplay() is FlowVizPlayback::ToVolumeFrameSelection
+	 * (Private/Playback/FlowVizCaseSeam.cpp), which copies FrameA, FrameB and
+	 * Alpha into FFlowVizVolumeFrameSelection - a struct with NO FIELD to receive
+	 * this one. So a held frame from an earlier time renders under the current
+	 * playhead's label, and the renderer cannot tell it from a fresh frame. That
+	 * is the disclosure failure the flag exists to prevent, still live.
+	 *
+	 * DO NOT READ THE TEST COVERAGE ON THIS FLAG AS EVIDENCE THE DISCLOSURE
+	 * WORKS. The coverage is real and unusually good - both branches, and a
+	 * hardcoded-false mutant was killed in 5b90dc0 - and every bit of it sits
+	 * UPSTREAM of the seam that discards the value. Asserting a flag is set
+	 * proves the producer and never the pixel.
+	 *
+	 * Not fixed here on purpose: the fix needs a field on the seam struct and an
+	 * on-screen indicator, which belongs with the overlay work in flight (the
+	 * same work bInterpolationDegraded is waiting on). Tracked in
+	 * Docs/BACKLOG.md gap 2d.
 	 */
 	bool bStale = false;
 

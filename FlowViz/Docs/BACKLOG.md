@@ -288,6 +288,103 @@ for its definition;** existence is neither reachability nor a consumer. Terms:
 `so a test can`, `which makes that checkable`, `says so via`, `is what
 guarantees`, `can be distinguished by`.
 
+### 2d. Second-branch audit of the remaining hazards — 2026-08-05
+
+Completes the sweep 2b and 2c came out of, over the sites those entries did not
+claim. Format is: hazard, its two branches, status. **Three gaps were closed
+with assertions; two new producer-only defects were found and recorded at the
+field; the rest came back genuinely covered.** A clean result on a hazard is a
+result — the covering test is named below so the next auditor need not
+re-derive it.
+
+**Closed by assertion in this pass** (commit `4742456`; each verified
+falsifiable against a mutant of the specific guard named, and confirmed passing
+on pristine code *first* — red-on-mutant alone is not a kill, it also appears
+when the expectation is simply wrong):
+
+| Hazard | Branch 1 | Branch 2 | Was |
+|---|---|---|---|
+| `CFDVizManifest.h:813` — five lookups return nullptr, "never a default-constructed object" | id matches → right object | id does not match → `nullptr`, not an empty stand-in | `FindGrid`/`FindMesh` had **neither** branch tested — untested public API; `FindDerivedField` had only branch 1 |
+| `CFDVizMeshReader.h:413` — `BuildForPatch` fails rather than returning an empty mesh | absent patch fails | mesh carrying **no patchIds at all** fails, with a message naming that cause | two distinct guards, only the first tested |
+| `FlowVizVolumeTexture.cpp:1142` — "an invalid layout with bytes attached must not pass as absent" | genuinely absent field is skipped | half-filled pair is **rejected** | only the absent half tested |
+
+The third was traced end-to-end rather than assumed: `Validate` gates
+`EnqueueUpload`, and `UploadOnRenderThread`'s per-target loop skips any target
+whose `PayloadLayout` is invalid, leaving `bAllOk` true and the slot marked
+`bHasContent`. A forgotten `VectorLayout` therefore uploads and displays
+scalar-only, as complete, with nothing on that path logging. That guard is the
+only thing in the way.
+
+**New gap (i): `bStale` is dropped at the seam.** Recorded at the field in
+`Public/Playback/FlowVizCasePlayer.h`. Same shape as `bInterpolationDegraded`
+but a different field and struct, and it is the **normal** state during a scrub
+rather than a rare one. The flag is correct and well tested *upstream* — both
+branches, and a hardcoded-false mutant was killed in `5b90dc0` — but the only
+consumer of `GetDisplay()` outside `/Tests/` is `ToVolumeFrameSelection`
+(`Private/Playback/FlowVizCaseSeam.cpp`), whose destination
+`FFlowVizVolumeFrameSelection` has **no field to receive it**. A held frame from
+an earlier time renders under the current playhead's label, and the renderer
+cannot tell that from a fresh frame. Every assertion on this flag sits upstream
+of the seam that discards it. Do not read that coverage as evidence the
+disclosure works.
+
+**New gap (ii): two false all-clears in the transfer function** — the 2c(iii)
+shape, found by the sweep 2c recommended. `Public/Render/FlowVizTransferFunction.h`
+claimed `GetLut()` "is what the legend and the probe readout sample" and that
+`EvaluateColor` gives one definition rather than one per consumer. Neither a
+legend nor a probe readout exists anywhere in the plugin, and both functions
+have **zero consumers outside `/Tests/`**. Both comments corrected in place
+rather than deleted; the false version is the more dangerous artifact and the
+correction is the finding.
+
+*Aggravating, and the reason this outranks an ordinary stale comment:* the same
+claim is load-bearing at the null-RHI early-out in
+`Private/Render/FlowVizTransferFunction.cpp:875`, where "the CPU-side LUT is
+still correct and is what the legend and the probe readout sample" is the stated
+reason **not to log a missing LUT texture**. A false all-clear is buying silence
+on a real GPU failure path. Fixing that call site belongs to the
+transfer-function owner; `Private/Render` was not this auditor's file.
+
+**Audited and genuinely covered** — named so nobody re-audits them:
+
+- Dense-volume prefill, "a partially filled buffer would be indistinguishable
+  from data" — `FlowViz.CFDViz.VolumeReader.Background` and `.Sparse`. Covered
+  twice with **non-zero backgrounds** ((1,2,3) and NaN), which is what stops a
+  zero-filled buffer from passing, plus a `BackgroundCount` anti-vacuity guard.
+- Orphaned scene-capture component, "captures a black frame and reports no
+  error" — `FlowViz.Capture.SpawnSceneCapture` asserts world membership,
+  `IsRegistered()` and `bCaptureEveryFrame == false`, not merely non-null.
+- Degenerate/non-finite extent vs failed load — `FlowViz.Scene.VolumeComponent`,
+  both the zero-area and the non-finite axes.
+- Unpinned frames tearing under scrub — `FlowViz.Scene.VolumeComponent` pins
+  **both** A and B while blending.
+- `bHasStatusTexture` fail-closed, "the branch most likely to be written
+  backwards, because backwards renders a complete, plausible image" —
+  `FlowViz.Render.RayMarchShader` asserts both directions, and the shader
+  honours it at `FlowVizVolumeRayMarch.usf:249,292`.
+- cbuffer drift, "a wrong volume that renders plausibly" — pinned three ways:
+  `static_assert`, a CPU offset table, and a live GPU round-trip through
+  `FLOWVIZ_MODE_DIAGNOSTIC` (`FlowViz.Render.RayMarchShaderDevice`).
+- Shader-compiles vs shader-never-wired — `FlowViz.Render.RayMarchShaderDevice`
+  asserts both permutations are found in the global shader map before it asserts
+  any pixels.
+- Double-vs-float alpha narrowing at the seam — `FlowViz.Playback.Seam`, with a
+  fixture chosen so the narrowing is actually reachable. The model case for what
+  a paid second branch looks like.
+- Stalled loader vs stopped playhead — closed by a peer in `5b90dc0` while this
+  audit was running.
+
+**Scope, honestly.** 293 hits triaged under the wide vocabulary, 14 surviving as
+genuine two-state hazards, 9 of those audited in depth; then a further ~90 under
+the "confidently wrong result" vocabulary (`stale`, `quietly`, `falls back`,
+`previous frame`, `unreported`), 7 survivors; and 57 under the
+false-reassurance vocabulary, 8 of which named a concrete mechanism and so got a
+consumer grep. The `.usf` files were swept directly — 5 hits, all rationale
+prose. **The shader honours every flag it is handed; every gap found is upstream
+of it, in flags the shader is never given.** Not verified: anything needing a
+rendered-output comparison for the disclosure flags, since no consumer exists to
+render one. Per 2c's own method note, treat these counts as a lower bound.
+
 ### 3. The CVF volume reader has no committed test
 
 Every other reader has one. This is the reader that decodes the volume every
