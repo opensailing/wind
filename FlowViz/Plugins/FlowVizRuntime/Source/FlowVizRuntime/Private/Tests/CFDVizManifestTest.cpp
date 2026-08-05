@@ -672,6 +672,72 @@ bool FCFDVizManifestPathTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	// --- containment: the SIBLING-PREFIX escape -----------------------------
+	//
+	// ResolveRelativePath ends in a containment test on the resolved absolute
+	// path. The bug it exists to stop is not "../" - the lexical check above
+	// already refuses every ".." segment - but a sibling directory whose name
+	// begins with the case root's name. With root ".../CFDVizContainment/run",
+	// the path ".../CFDVizContainment/run-evil/data.cvf" literally starts with
+	// the root string, so a StartsWith prefix compare reports it contained.
+	// Only a separator-aware test (FPaths::IsUnderDirectory) rejects it.
+	//
+	// The sibling name must share the root's EXACT prefix ("run" -> "run-evil").
+	// A differently-named sibling is refused by StartsWith too and would prove
+	// nothing about which test is in use.
+	{
+		const FString ContainmentDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("CFDVizContainment"));
+		const FString CaseRoot = FPaths::Combine(ContainmentDir, TEXT("run"));
+		const FString ContextPath = FPaths::Combine(CaseRoot, TEXT("manifest.json"));
+
+		FCFDVizCase Case;
+		if (TestTrue(TEXT("baseline parses under the containment root"),
+			FCFDVizCase::ParseFromString(BaselineManifest, ContextPath, Case).IsOk()))
+		{
+			// CONTROL. Without a path that must SUCCEED, an implementation that
+			// rejected everything would look identical to a correct one.
+			FString Legitimate;
+			const FCFDVizResult LegitimateResult =
+				Case.ResolveRelativePath(TEXT("fields/x.cvf"), Legitimate);
+			if (!TestTrue(TEXT("a legitimate path under the case root still resolves"),
+				LegitimateResult.IsOk()))
+			{
+				AddError(FString::Printf(TEXT("control case failed: %s"), *LegitimateResult.ToString()));
+			}
+			TestTrue(TEXT("and lands inside the case root"),
+				FPaths::IsUnderDirectory(Legitimate, CaseRoot));
+
+			// Build the sibling path by absolute construction rather than by a
+			// relative string: every relative spelling of it needs a ".."
+			// segment, which the lexical check rejects first, so the
+			// containment line would never be reached and the test would pass
+			// for the wrong reason.
+			const FString SiblingRoot = CaseRoot + TEXT("-evil");
+			const FString SiblingFile = FPaths::Combine(SiblingRoot, TEXT("data.cvf"));
+
+			// The precise defect: a prefix compare says "contained", the
+			// separator-aware test says "outside". Asserting both pins which
+			// one the reader must behave like.
+			TestTrue(TEXT("the sibling path does share the case root's string prefix"),
+				SiblingFile.StartsWith(CaseRoot));
+			TestFalse(TEXT("but it is NOT under the case root"),
+				FPaths::IsUnderDirectory(SiblingFile, CaseRoot));
+
+			// Through the reader's own entry point the only relative spelling of
+			// the sibling is "../run-evil/data.cvf", and that is refused by the
+			// LEXICAL check on the ".." segment, before the containment test is
+			// reached. It is asserted here for the behaviour, not as evidence
+			// about which containment test is in use - it is refused either way.
+			FString Escaped;
+			const FCFDVizResult SiblingResult =
+				Case.ResolveRelativePath(TEXT("../run-evil/data.cvf"), Escaped);
+			TestFalse(TEXT("the relative spelling of the sibling escape is refused"),
+				SiblingResult.IsOk());
+			TestTrue(TEXT("as a path traversal"),
+				SiblingResult.Error == ECFDVizError::PathTraversal);
+		}
+	}
+
 	return true;
 }
 
@@ -799,6 +865,72 @@ bool FCFDVizManifestFileTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("and the failure names the file"), BadResult.FilePath.IsEmpty());
 	}
 
+	// BYTE ORDER MARKS. Section 1.2 requires UTF-8 with no BOM, and the Python
+	// reference rejects a BOM by name. A reader that quietly strips one - which
+	// FFileHelper::LoadFileToString does, and which also decodes UTF-16 - would
+	// accept a whole class of file the reference implementation refuses, and the
+	// two readers would disagree about what a valid case is.
+	//
+	// The bytes are written directly rather than through SaveStringToFile,
+	// because its AutoDetect encoding writes no BOM for pure-ASCII content: a
+	// test built that way would assert nothing.
+	{
+		const FString Utf8Ascii = BaselineManifest;
+		TArray<uint8> Ascii;
+		Ascii.Reserve(Utf8Ascii.Len());
+		for (int32 Index = 0; Index < Utf8Ascii.Len(); ++Index)
+		{
+			Ascii.Add(static_cast<uint8>(Utf8Ascii[Index]));
+		}
+
+		// The same bytes with NO BOM must load, so the rejections below are
+		// attributable to the BOM alone and not to the fixture.
+		const FString CleanPath = FPaths::Combine(Dir, TEXT("clean.json"));
+		if (TestTrue(TEXT("a BOM-free manifest is written"),
+			FFileHelper::SaveArrayToFile(Ascii, *CleanPath)))
+		{
+			FCFDVizCase Clean;
+			const FCFDVizResult CleanResult = FCFDVizCase::LoadFromFile(CleanPath, Clean);
+			if (!TestTrue(TEXT("the same bytes without a BOM load"), CleanResult.IsOk()))
+			{
+				AddError(FString::Printf(TEXT("control case failed: %s"), *CleanResult.ToString()));
+			}
+		}
+
+		struct FBomCase
+		{
+			const TCHAR* Name;
+			const TCHAR* FileName;
+			TArray<uint8> Prefix;
+		};
+		const TArray<FBomCase> BomCases = {
+			{ TEXT("UTF-8"), TEXT("bom_utf8.json"), { 0xEF, 0xBB, 0xBF } },
+			{ TEXT("UTF-16 LE"), TEXT("bom_utf16le.json"), { 0xFF, 0xFE } },
+			{ TEXT("UTF-16 BE"), TEXT("bom_utf16be.json"), { 0xFE, 0xFF } },
+		};
+
+		for (const FBomCase& BomCase : BomCases)
+		{
+			TArray<uint8> Bytes = BomCase.Prefix;
+			Bytes.Append(Ascii);
+
+			const FString BomPath = FPaths::Combine(Dir, BomCase.FileName);
+			if (!TestTrue(TEXT("the BOM fixture is written"), FFileHelper::SaveArrayToFile(Bytes, *BomPath)))
+			{
+				continue;
+			}
+
+			FCFDVizCase BomCaseData;
+			const FCFDVizResult BomResult = FCFDVizCase::LoadFromFile(BomPath, BomCaseData);
+			TestFalse(FString::Printf(TEXT("a %s BOM is rejected"), BomCase.Name), BomResult.IsOk());
+			// Offset 0 points at the BOM itself, which is the only thing wrong
+			// with the file - a later offset would send the user hunting through
+			// valid JSON.
+			TestEqual(FString::Printf(TEXT("and the %s failure points at byte 0"), BomCase.Name),
+				BomResult.ByteOffset, static_cast<int64>(0));
+		}
+	}
+
 	return true;
 }
 
@@ -844,8 +976,16 @@ bool FCFDVizManifestStatisticsTest::RunTest(const FString& Parameters)
 			FCFDVizStatistics Converted;
 			TestTrue(TEXT("statistics convert to the shared type"),
 				Stats.TryMakeStatistics(3, Converted));
+			// bValid is what every consumer of FCFDVizStatistics branches on.
+			// A converted statistic that leaves it false is silently discarded
+			// by callers that early-out on it, so the range the manifest
+			// declared never reaches the viewer - a wrong answer with no error.
+			TestTrue(TEXT("and are flagged valid, or every bValid-guarded caller drops them"),
+				Converted.bValid);
 			TestEqual(TEXT("carrying the component minima"), Converted.ComponentMin.Num(), 3);
 			TestEqual(TEXT("value preserved"), Converted.ComponentMin[0], -1.0);
+			TestEqual(TEXT("magnitude minimum carried across"), Converted.MagnitudeMin, 0.0);
+			TestEqual(TEXT("magnitude maximum carried across"), Converted.MagnitudeMax, 3.75);
 			// The manifest does not record counts, so they must stay zero
 			// rather than being invented - a caller must not derive a mean or a
 			// NaN fraction from a manifest-sourced statistic.
@@ -855,8 +995,58 @@ bool FCFDVizManifestStatisticsTest::RunTest(const FString& Parameters)
 			// A component count that disagrees must refuse, not silently pad or
 			// truncate the arrays.
 			FCFDVizStatistics Wrong;
+			// Pre-marked valid so the refusal is provably a refusal: if
+			// TryMakeStatistics returns false it must also leave the output
+			// untouched, or a caller that checks bValid instead of the return
+			// value reads a statistic that was never built.
+			Wrong.bValid = true;
+			Wrong.ComponentMin.Add(99.0);
 			TestFalse(TEXT("a disagreeing component count is refused"),
 				Stats.TryMakeStatistics(2, Wrong));
+			TestEqual(TEXT("and a refused conversion writes nothing"),
+				Wrong.ComponentMin.Num(), 1);
+			TestEqual(TEXT("leaving the caller's value intact"), Wrong.ComponentMin[0], 99.0);
+		}
+	}
+
+	// A HALF-DECLARED MAGNITUDE range: a minimum with no maximum. Same rule as
+	// the component arrays - kept verbatim, flagged unusable. Asserted
+	// separately because bHasMagnitudeRange and bHasComponentRange are
+	// independent flags, and a suite that only checks the component side passes
+	// when the magnitude test is loosened from AND to OR.
+	{
+		const FString Json = MutateManifest(TEXT("\"unit\": \"m/s\","),
+			TEXT("\"unit\": \"m/s\",\n      \"statistics\": {\n")
+			TEXT("        \"globalComponentMin\": [-1.0, -2.0, -3.0],\n")
+			TEXT("        \"globalComponentMax\": [1.0, 2.0, 3.0],\n")
+			TEXT("        \"globalMagnitudeMin\": 0.5\n      },"));
+
+		FCFDVizCase Case;
+		if (TestTrue(TEXT("a half-declared magnitude range still parses"),
+			FCFDVizCase::ParseFromString(Json, FString(), Case).IsOk()))
+		{
+			const FCFDVizField* Velocity = Case.FindField(FName(TEXT("U")));
+			if (TestNotNull(TEXT("U parsed"), Velocity))
+			{
+				TestTrue(TEXT("the component range is still usable"),
+					Velocity->Statistics.bHasComponentRange);
+				TestFalse(TEXT("but a minimum with no maximum is not a magnitude range"),
+					Velocity->Statistics.bHasMagnitudeRange);
+
+				// The declared bound is kept; the ABSENT one must not read as a
+				// number. Reading GlobalMagnitudeMax here would be reading a
+				// default the manifest never stated.
+				TestEqual(TEXT("the declared bound is kept verbatim"),
+					Velocity->Statistics.GlobalMagnitudeMin, 0.5);
+
+				FCFDVizStatistics Converted;
+				TestTrue(TEXT("the component range still converts"),
+					Velocity->Statistics.TryMakeStatistics(3, Converted));
+				double MagMin = 0.0;
+				double MagMax = 0.0;
+				TestFalse(TEXT("without offering a magnitude range"),
+					Converted.TryGetMagnitudeRange(MagMin, MagMax));
+			}
 		}
 	}
 
