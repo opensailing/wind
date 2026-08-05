@@ -590,19 +590,44 @@ struct FFlowVizDisplaySelection
 	 * of [1e6, 1e6+1] and every single 1-ULP step crosses a color boundary
 	 * (200000 of 200000 measured, at both 8- and 16-bit).
 	 *
-	 * That case is real but it is not an argument against this form: only 16
-	 * distinct float32 values exist inside that window, against 256 colour
-	 * levels, so the window is UNDER-RESOLVED and any 1-ULP change crosses a
-	 * boundary for ANY blend form, the mad form included. It is a precision
-	 * limit of the chosen transfer-function window, not a property of the
-	 * interpolation. On a window that float32 can resolve - [0,1] at 16-bit has
-	 * 1.6e4 floats per level - the crossing rate is 781 of 200000 and falls with
-	 * window width.
+	 * That window is also UNDER-RESOLVED - only 16 distinct float32 values exist
+	 * inside it against 256 colour levels - and it is tempting to stop there and
+	 * call the pixel effect an artifact of a degenerate window. THAT IS ALSO
+	 * WRONG, and it was the second bad framing on this line. Under-resolution
+	 * raises the rate to certainty; it is not what causes it.
 	 *
-	 * So the honest statement is the comparative one, not an absolute: a 1-ULP
-	 * retreat is at the resolution limit of the format and affects a pixel only
-	 * where the window is already below that limit; a wrong endpoint is a false
-	 * measurement at any window. Only the second is a provenance lie.
+	 * Measured on a comfortably resolved window - a=1, b=2 displayed through
+	 * [1,2] at 16-bit, which is 128 distinct float32 values per colour level:
+	 *
+	 *   two-product   400 colour-index reversals out of 51271 raw retreats
+	 *                 = 0.78%, against a predicted 1/128 = 0.781%
+	 *   mad           0 colour reversals, and 0 RAW retreats
+	 *
+	 * Witness: t = 0.00101479876, value 1.00101483 -> 1.00101471, colour index
+	 * 67 -> 66. The rate tracks 1/(floats per level) because it is simply the
+	 * chance that a 1-ULP step straddles a quantization boundary - geometric,
+	 * falling with resolution, never reaching zero. At [0.1,0.9] 16-bit (409.6
+	 * floats/level) it is 601 of 130955.
+	 *
+	 * The mad form's zero is structural, not a dead reading: a + t*(b-a) is
+	 * monotone in t for a fixed (b-a), so it has no raw retreats to quantize.
+	 * That zero was checked on the same samples that make two-product fire,
+	 * because "0" from an unfired harness has been wrong here seven times.
+	 *
+	 * So the honest statement is comparative and admits a real cost: the
+	 * two-product form CAN flip a colour index by one level in an ordinary
+	 * window, at roughly one in (floats per level) of its 1-ULP retreats. It is
+	 * still preferred, because a one-level flicker at the format's resolution
+	 * limit is a display artifact, while a wrong endpoint is a wrong scalar
+	 * pseudocolored as measurement at any window. Only the second is a
+	 * provenance lie. Whoever sees the flicker should find it predicted here.
+	 *
+	 * Note that the refutation was already sitting in the previous version of
+	 * this comment: it recorded a nonzero crossing rate on a resolved window
+	 * (781 of 200000) in the same paragraph that concluded pixels are affected
+	 * "only where the window is already below that limit". The measurement
+	 * contradicted the sentence next to it and got waved through anyway. A
+	 * number that does not fit the claim it is cited for is the finding.
 	 *
 	 * The temporal blend is not written yet. When it is, it must use the
 	 * two-product form, and the collapse above must still happen so the pair
