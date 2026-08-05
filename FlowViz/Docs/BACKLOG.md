@@ -75,9 +75,16 @@ value comparison vacuous.
 Kept here rather than deleted because the entry explains why rule 12 was
 `Partial` in `ARCHITECTURE.md` for as long as it was.
 
-Measured 2026-08-05 by a 27-mutant campaign over `CFDVizByteCursor.h`:
-**killed 25, SURVIVED 2, INVALID 0, UNSCORED 1.** Each non-kill is accounted
-for rather than tolerated:
+Measured 2026-08-05 by a 28-mutant campaign over `CFDVizByteCursor.h`:
+**killed 25, SURVIVED 2, INVALID 0, UNSCORED 1** as first run. After the two
+follow-ups below — the sign-bit fixture fixed, the UNSCORED mutant re-scored
+— the standing position is **killed 26, SURVIVED 1, UNSCORED 0** of 28.
+
+That remaining survivor is the equivalent one, and it will stay a survivor
+permanently: no input distinguishes it from the real code, so the honest
+ceiling for this file is 26/28 and not 28/28. An entry claiming 100% here
+would mean a test had been written asserting behaviour the code does not
+have. Each non-kill is accounted for rather than tolerated:
 
 - `ReadDouble: sign bit cleared` — a real gap, now closed. Every double
   fixture was `0x7FF0000123456789`, whose sign bit is already clear, so the
@@ -90,10 +97,21 @@ for rather than tolerated:
   rejects. Verified exhaustively over every small case and the int64 extremes:
   zero disagreements, while the same search finds 45 for the neighbouring
   off-by-one mutant. No test can kill it and none should be written.
-- `ReadIsAllZero: loop one short` — **UNSCORED**, which is not a pass. The
-  test run produced no results, so nothing is known about this mutant. Tracked
-  as its own item; `mutate.sh` correctly exits non-zero on any UNSCORED, so
-  the campaign as a whole did not report success.
+- `ReadIsAllZero: loop one short` — was **UNSCORED**; **re-run 2026-08-05 and
+  killed.** UNSCORED was never a statement about coverage, only that the run
+  produced no result, and re-running it is what turned "unknown" into a fact.
+  The kill comes from the `LastCursor` case, whose comment already claimed
+  that job: "the last byte is the one a loop with an off-by-one never
+  inspects."
+
+  Re-run with all four `ReadIsAllZero` mutants rather than the one, so the
+  three already known killed acted as controls: **killed 4, SURVIVED 0,
+  INVALID 0, UNSCORED 0.** Had the fourth come back UNSCORED again while the
+  other three scored, the fault would have been in that mutant; had all four
+  gone UNSCORED, in the harness. Re-running the single mutant alone could not
+  have distinguished those. The original UNSCORED was therefore a
+  scoring-run failure, not a gap in the suite — no test was needed and none
+  was written.
 
 ### 4a. ~~The CVA element index was unobservable~~ — closed 2026-08-05
 
