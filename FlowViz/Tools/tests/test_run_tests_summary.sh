@@ -214,6 +214,74 @@ check_contains "and the skip is still reported alongside it" \
 "${RUN_TESTS}" --summarize "${WORK}/empty.log" >/dev/null 2>&1
 check "an empty log is an error, not a pass" "4" "$?"
 
+# --- the default log path must not be shared between checkouts ---------------
+#
+# LOG defaulted to a fixed /tmp/flowviz_tests.log. Nine worktrees exist to keep
+# concurrent agents from corrupting each other's verdicts, and every one of them
+# wrote its detail log to that single path -- so the isolation the worktrees buy
+# was given straight back at the last step.
+#
+# Hit 2026-08-05: a run finished at 14:33:23 and the log at that path was dated
+# 14:33:30, containing a different run's editor startup and ZERO test records.
+# The console summary said 49/50 and the file said nothing, because a peer had
+# overwritten it between the run and the read.
+#
+# The danger is not the confusion, it is the direction of the error: an
+# unrelated log at a known-good path reads as evidence about YOUR run. Someone
+# reconciling a suspicious total against it gets a confident wrong answer. Same
+# family as the stale-dylib trap -- a real file, truthfully read, about the
+# wrong run.
+#
+# So the default must be per-checkout. Asserted by running two copies of the
+# script from different fake project directories and requiring the paths differ.
+
+default_log_for() {
+    # Ask the script itself where it would write, with no LOG set, without
+    # launching an engine. Printed by the script rather than recomputed here:
+    # a duplicated formula would pass while the real default stayed shared.
+    ( unset LOG; "$1" --print-log-path 2>/dev/null )
+}
+
+wt_a="${WORK}/checkout-a/Tools"
+wt_b="${WORK}/checkout-b/Tools"
+mkdir -p "${wt_a}" "${wt_b}"
+cp "${RUN_TESTS}" "${wt_a}/run_tests.sh"
+cp "${RUN_TESTS}" "${wt_b}/run_tests.sh"
+
+path_a="$(default_log_for "${wt_a}/run_tests.sh")"
+path_b="$(default_log_for "${wt_b}/run_tests.sh")"
+
+if [[ -z "${path_a}" || -z "${path_b}" ]]; then
+    check "run_tests.sh reports its default log path (--print-log-path)" \
+        "non-empty" "empty"
+else
+    if [[ "${path_a}" == "${path_b}" ]]; then
+        shared="shared"
+    else
+        shared="distinct"
+    fi
+    check "two checkouts get DIFFERENT default log paths" "distinct" "${shared}"
+    [[ "${shared}" == "shared" ]] && echo "        both resolved to: ${path_a}"
+
+    # The control. "Distinct" is also satisfied by a random path per INVOCATION,
+    # which would break --summarize and lose the log between run and read. The
+    # same checkout must resolve to the same place twice.
+    path_a2="$(default_log_for "${wt_a}/run_tests.sh")"
+    if [[ "${path_a}" == "${path_a2}" ]]; then
+        stability="stable"
+    else
+        stability="varies per run"
+    fi
+    check "but one checkout resolves to the SAME path every time" \
+        "stable" "${stability}"
+
+    # An explicit LOG must still win, or the mutation harness and every caller
+    # that pins a path silently writes somewhere else.
+    explicit="$( LOG="${WORK}/explicit.log" "${wt_a}/run_tests.sh" --print-log-path 2>/dev/null )"
+    check "an explicitly set LOG still wins over the default" \
+        "${WORK}/explicit.log" "${explicit}"
+fi
+
 echo
 if [[ "${failures}" -eq 0 ]]; then
     echo "run_tests.sh summary: ${checks}/${checks} checks passed"

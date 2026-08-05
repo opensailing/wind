@@ -36,7 +36,32 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPROJECT="${PROJECT_DIR}/FlowViz.uproject"
 UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 EDITOR_CMD="${UE_ROOT}/Engine/Binaries/Mac/UnrealEditor-Cmd"
-LOG="${LOG:-/tmp/flowviz_tests.log}"
+
+# PER-CHECKOUT, NOT SHARED. This used to default to a fixed
+# /tmp/flowviz_tests.log. Nine worktrees exist so concurrent agents cannot
+# corrupt each other's verdicts, and every one of them wrote its detail log to
+# that one path -- handing back the isolation at the last step.
+#
+# Observed 2026-08-05: a run finished at 14:33:23 and the file at that path was
+# dated 14:33:30, holding a different run's editor startup and zero test
+# records, because a peer overwrote it between the run and the read. The failure
+# direction is what makes it dangerous: an unrelated log sitting at a
+# known-good path reads as evidence about YOUR run, so reconciling a suspicious
+# total against it yields a confident wrong answer.
+#
+# Derived from PROJECT_DIR so it is stable across invocations from the same
+# checkout (--summarize must still find the log a previous run wrote) and
+# distinct between checkouts. An explicit LOG always wins.
+_checkout_tag="$(printf '%s' "${PROJECT_DIR}" | shasum | cut -c1-8)"
+LOG="${LOG:-/tmp/flowviz_tests_${_checkout_tag}.log}"
+
+# Report where the log would go, without launching an engine. The tests assert
+# on this rather than recomputing the formula, so a duplicated expression cannot
+# pass while the real default stays shared.
+if [[ "${1:-}" == "--print-log-path" ]]; then
+    printf '%s\n' "${LOG}"
+    exit 0
+fi
 
 if [[ -n "${SUMMARIZE_ONLY}" ]]; then
     # Reporting only: no engine, and no engine exit code to fold in.
