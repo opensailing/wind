@@ -1,0 +1,33 @@
+the load applies but never pushes -- panels restored, image stale
+--
+	PushToVolume();
+
+	// THE PUSH'S RESULT IS DROPPED rather than folded into the return. A
+--
+	// MUTANT: the push is gone. NOT `if (false) PushToVolume();` - that lets the
+	// compiler prove the body dead and -Wunreachable-code is -Werror here, which
+	// is how session-workspace arm 4 scored INVALID instead of being scored.
+
+	// THE PUSH'S RESULT IS DROPPED rather than folded into the return. A
+%%
+the push is guarded on success -- the relink flow renders the OLD session
+--
+	// UNCONDITIONAL, and the header says why at length: a missing case is
+	// REPORTED and still applies every panel, so a guard on IsOk() would leave
+	// the render stale in exactly the relink flow.
+	PushToVolume();
+--
+	// MUTANT: the prudent-looking guard. This is the whole reason the
+	// MissingCase arm exists -- the happy path still pushes under it.
+	if (Applied.IsOk())
+	{
+		PushToVolume();
+	}
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+FCFDVizResult SFlowVizWorkspace::SaveSession(const FString& FilePath) const
+--
+// MUTANT: identity control, no behaviour change
+FCFDVizResult SFlowVizWorkspace::SaveSession(const FString& FilePath) const
+%%
