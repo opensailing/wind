@@ -192,6 +192,36 @@ source "${PROJECT_DIR}/Tools/verdict.sh"
 cd "${REPO_ROOT}" || exit 2
 [[ -f "${SRC}" ]] || { echo "error: no such source file: ${SRC}" >&2; exit 2; }
 
+# BOTH path arguments are checked here, together, because both resolve against
+# REPO_ROOT and only one of them used to say so.
+#
+# The mutants file was previously first touched at the parse, several hundred
+# lines below -- past the baseline build AND the pristine suite. So the same
+# typo (a path relative to FlowViz/ rather than to the repo root) cost two
+# seconds on argument 1 and ten minutes on argument 3. Observed live
+# 2026-08-06: a clip-seam campaign built and ran the whole suite, then aborted
+# with FileNotFoundError on a mutants file it could have rejected instantly.
+#
+# The late abort was CORRECT -- it refused to score rather than reporting an
+# empty run as a clean one -- so this is a cost fix, not a correctness fix.
+# But the cost is not only the operator's time: between the cd and the parse
+# this script writes the mutation marker and takes the global build lock, so a
+# doomed invocation blocks every other agent's build to reach an error it
+# already had the information to print.
+#
+# -r rather than -f: an unreadable file fails the parse just as surely as an
+# absent one, and reports here rather than as a Python traceback.
+#
+# The message names the resolution root deliberately. "no such file" alone
+# sends the reader off to confirm the file exists -- and it does exist, just
+# not relative to the directory this script cd'd into. Naming the root is what
+# turns the error into a diagnosis.
+[[ -r "${MUTANTS}" ]] || {
+    echo "error: no such mutants file: ${MUTANTS}" >&2
+    echo "       relative paths resolve from ${REPO_ROOT}" >&2
+    exit 2
+}
+
 # Is anyone else editing the file we are about to snapshot and repeatedly
 # overwrite? Checked HERE, before the backup, because the backup is the thing
 # that does the damage: every restore below is a whole-file `cp` from it, so a
