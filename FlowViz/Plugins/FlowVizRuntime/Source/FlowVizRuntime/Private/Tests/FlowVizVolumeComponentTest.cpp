@@ -1438,6 +1438,108 @@ bool FFlowVizDispatchStatusTest::RunTest(const FString& Parameters)
 			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
 	}
 
+	/* == Classifying PUBLISHES. Everything above supplies the answer ========== */
+	//
+	// WHY THIS BLOCK EXISTS: two mutants survived the whole suite.
+	//
+	//   1. deleting the proxy's store to the channel outright
+	//   2. wrapping that store in `if (Status.ShouldDispatch())`, so only
+	//      successes are published and a volume that marched once and then
+	//      stopped keeps reading healthy
+	//
+	// Both are the stale-success direction this facility exists to prevent, and
+	// both survived because every assertion above HANDS ReportDispatchStatus_-
+	// RenderThread the very status the proxy is supposed to compute and publish.
+	// A test that supplies the input cannot discover that production never
+	// produces it -- the same shape as FlowViz.Render.Wiring, where every test
+	// installed its own dispatcher and so none could notice that production
+	// installed none.
+	//
+	// The fix is structural rather than another assertion: publishing is no
+	// longer a separate statement the proxy has to remember, it is what
+	// ClassifyDispatchAndPublish DOES. Mutant 1 now deletes the classification
+	// too, so the volume cannot march at all; mutant 2 has no separate store
+	// left to wrap. The rule is unrepresentable rather than merely checked.
+	//
+	// Reachable without an RHI for the reason recorded on ClassifyDispatch: a
+	// test that drove GetDynamicMeshElements would self-skip under the default
+	// -nullrhi suite and cover nothing while reporting Success.
+	{
+		UCFDVizVolumeComponent* Volume = NewObject<UCFDVizVolumeComponent>();
+		if (!TestNotNull(TEXT("a volume component was created"), Volume))
+		{
+			return false;
+		}
+
+		Volume->AddToRoot();
+		ON_SCOPE_EXIT
+		{
+			Volume->RemoveFromRoot();
+		};
+
+		const TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe> Channel =
+			Volume->GetDispatchStatusChannel();
+
+		FFlowVizVolumeSlotTextures PublishSlotA;
+		FFlowVizVolumeTextureSet PublishTextureSet;
+		FRecordingDispatcher PublishDispatcher;
+
+		FFlowVizVolumeProxyDynamicData PublishReady;
+		PublishReady.bHasParameters = true;
+
+		// THE FAILURE DIRECTION FIRST, because it is the one a set-only latch
+		// would get right by accident.
+		const FFlowVizDispatchStatus Blocked =
+			FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				Channel, nullptr, PublishReady, &PublishTextureSet, &PublishSlotA);
+
+		TestEqual(TEXT("classifying a blocked frame returns the blocker"),
+			static_cast<int32>(Blocked.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoDispatcher));
+		TestEqual(TEXT("and PUBLISHES it, so the component can be asked without a proxy"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoDispatcher));
+		TestFalse(TEXT("a blocked frame reads as not marched"), Volume->WasRayMarchDispatched());
+
+		// THE SUCCESS DIRECTION. Without it, "publish nothing at all" passes
+		// everything above -- the channel already defaults to a non-dispatched
+		// reason, so an unwritten channel is indistinguishable from a correctly
+		// reported blocker.
+		const FFlowVizDispatchStatus Marched =
+			FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				Channel, &PublishDispatcher, PublishReady, &PublishTextureSet, &PublishSlotA);
+
+		TestTrue(TEXT("everything present still means the volume marches"), Marched.ShouldDispatch());
+		TestTrue(TEXT("and the success is published too, not only the failures"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("with the reason that says it marched"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::Dispatched));
+
+		// AND BACK, which is the arm that kills "publish only on success". A
+		// volume that marched once and then stopped must stop reading healthy.
+		const FFlowVizDispatchStatus Stopped =
+			FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				Channel, &PublishDispatcher, PublishReady, &PublishTextureSet, /*SlotA*/ nullptr);
+
+		TestEqual(TEXT("a frame that stops marching returns the new blocker"),
+			static_cast<int32>(Stopped.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
+		TestFalse(TEXT("and the component stops reading healthy -- no stale success"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("with the reason overwritten rather than latched"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
+
+		// The returned value and the published value are the same answer. If
+		// these could differ, the proxy would gate on one and report the other
+		// -- the De Morgan-duals defect that ClassifyDispatch was extracted to
+		// end, reintroduced one layer up.
+		TestEqual(TEXT("what is returned to the gate is what is published to the diagnostic"),
+			static_cast<int32>(Stopped.Reason),
+			static_cast<int32>(Channel->Reason.Load()));
+	}
+
 	return true;
 }
 

@@ -80,23 +80,52 @@ two reasons share a description, so the log cannot tell them apart
 %%
 the component never publishes what the frame decided
 --
-			DispatchStatusChannel->Reason.Store(Status.Reason);
+	Channel->Reason.Store(Status.Reason);
+
+	return Status;
 --
-			// MUTANT: the render thread keeps the answer to itself, which is
-			// exactly the state this task found: computed correctly, unreachable.
+	// MUTANT: the render thread keeps the answer to itself -- computed
+	// correctly, unreachable. This arm SURVIVED once, when the store was a
+	// separate statement in the proxy that no test could observe; the assertions
+	// all drove ReportDispatchStatus_RenderThread directly and so supplied the
+	// very status the proxy was supposed to produce.
+	return Status;
 %%
 only failures are published, so a volume that stops marching still reads healthy
 --
-			// Published every frame, whichever way it went. Reporting only the
-			// failures would leave a volume that marched once and then stopped
-			// reading as still healthy -- the stale-success direction.
-			DispatchStatusChannel->Reason.Store(Status.Reason);
+	Channel->Reason.Store(Status.Reason);
 --
-			// MUTANT: publish only the good news.
-			if (Status.ShouldDispatch())
-			{
-				DispatchStatusChannel->Reason.Store(Status.Reason);
-			}
+	// MUTANT: publish only the good news. THE STALE-SUCCESS DIRECTION -- a
+	// volume that marched once and then stopped goes on reading healthy, which
+	// turns a regression into a green. This is the more dangerous of the two
+	// publish arms and the one a set-only latch gets right by accident, so the
+	// test asserts the transition back to a blocker rather than either state
+	// alone. Also SURVIVED before the publish was folded into the classifier.
+	if (Status.ShouldDispatch())
+	{
+		Channel->Reason.Store(Status.Reason);
+	}
+%%
+the classifier's answer is published but a fresh default is returned to the gate
+--
+	Channel->Reason.Store(Status.Reason);
+
+	return Status;
+--
+	// MUTANT: the gate and the diagnostic disagree.
+	//
+	// NEW ARM, added with the fold. Folding classify-and-publish into one call
+	// removes the "forgot to publish" defect, but it introduces a shape that
+	// could not exist before: this function now has two outputs, and nothing
+	// inherent makes them the same value. That is the De Morgan-duals defect
+	// ClassifyDispatch was extracted to end -- the proxy gating on one answer
+	// while the log describes another -- reappearing one layer up.
+	//
+	// A fix is only finished when it has been checked for the defect it was
+	// fixing, so this arm exists to prove the new seam is tested too.
+	Channel->Reason.Store(Status.Reason);
+
+	return FFlowVizDispatchStatus{};
 %%
 IDENTITY CONTROL -- a comment only. Must SURVIVE, or every kill above is a standing red.
 --

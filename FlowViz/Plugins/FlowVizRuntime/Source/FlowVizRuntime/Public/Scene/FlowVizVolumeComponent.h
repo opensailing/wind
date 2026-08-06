@@ -672,6 +672,51 @@ namespace FlowVizVolumeRayMarch
 		const FFlowVizVolumeTextureSet* TextureSet,
 		const FFlowVizVolumeSlotTextures* SlotATextures);
 
+	/**
+	 * Classify, publish the answer, and hand it back. THE ONLY WAY THE PROXY
+	 * SHOULD DECIDE, because it is the only way that cannot forget to report.
+	 *
+	 * WHY THIS EXISTS AND ClassifyDispatch ALONE IS NOT ENOUGH. The proxy used
+	 * to call ClassifyDispatch and then, as a separate statement, store the
+	 * reason into the channel. Two mutations of that store survived the entire
+	 * suite:
+	 *
+	 *   - deleting it, so the render thread computed the right answer and kept
+	 *     it to itself;
+	 *   - wrapping it in `if (Status.ShouldDispatch())`, so only successes were
+	 *     published and a volume that marched once and then stopped went on
+	 *     reading healthy forever.
+	 *
+	 * The second is the stale-success direction, and it is the one that turns a
+	 * regression into a green. Neither was caught because every test drove
+	 * ReportDispatchStatus_RenderThread directly, SUPPLYING the status the proxy
+	 * was supposed to produce -- structurally the same blind spot as
+	 * FlowViz.Render.Wiring, where every test installed its own dispatcher and
+	 * so none could see that production installed none.
+	 *
+	 * Folding the publish into the classification makes "gate on it but do not
+	 * report it" unrepresentable rather than merely tested against: there is no
+	 * separate statement left to delete or to wrap in a condition. A mutant that
+	 * removes the publish now removes the classification with it, and the volume
+	 * stops marching entirely -- loud, rather than a silent diagnostic.
+	 *
+	 * TAKES THE CHANNEL, NOT THE COMPONENT. A game-thread UObject pointer must
+	 * not live on the render thread; see FFlowVizDispatchStatusChannel. This is
+	 * also what lets a test call the real production path with no live scene,
+	 * no RHI and no collector -- a test that drove GetDynamicMeshElements would
+	 * self-skip under the default -nullrhi suite and cover nothing while
+	 * reporting Success (repo memory green-totals-can-hide-skips).
+	 *
+	 * Dereferences none of the three pointers; they are compared to null only,
+	 * exactly as in ClassifyDispatch.
+	 */
+	FLOWVIZRUNTIME_API FFlowVizDispatchStatus ClassifyDispatchAndPublish(
+		const TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe>& Channel,
+		const IFlowVizVolumeRayMarchDispatcher* Dispatcher,
+		const FFlowVizVolumeProxyDynamicData& DynamicData,
+		const FFlowVizVolumeTextureSet* TextureSet,
+		const FFlowVizVolumeSlotTextures* SlotATextures);
+
 	/** A human-readable reason for the log and the diagnostics overlay. Distinct per reason - two that read alike are two nobody can tell apart afterwards. */
 	FLOWVIZRUNTIME_API FString DescribeDispatchReason(EFlowVizDispatchReason Reason);
 

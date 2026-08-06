@@ -256,6 +256,35 @@ FFlowVizDispatchStatus FlowVizVolumeRayMarch::ClassifyDispatch(
 	return Status;
 }
 
+FFlowVizDispatchStatus FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+	const TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe>& Channel,
+	const IFlowVizVolumeRayMarchDispatcher* Dispatcher,
+	const FFlowVizVolumeProxyDynamicData& DynamicData,
+	const FFlowVizVolumeTextureSet* TextureSet,
+	const FFlowVizVolumeSlotTextures* SlotATextures)
+{
+	const FFlowVizDispatchStatus Status =
+		ClassifyDispatch(Dispatcher, DynamicData, TextureSet, SlotATextures);
+
+	/*
+	 * UNCONDITIONAL, AND THAT IS THE ENTIRE POINT.
+	 *
+	 * Publishing only when Status.ShouldDispatch() leaves a volume that marched
+	 * once and then stopped reading healthy forever -- a regression that
+	 * presents as a green. That mutation survived the whole suite before this
+	 * function existed, because the store was a separate statement in the proxy
+	 * that a condition could be wrapped around. Here there is nothing to wrap:
+	 * the classification and the report are one operation, and the reason
+	 * handed back to the gate is the same value that was published.
+	 *
+	 * Plain store rather than compare-exchange: the newest frame's answer is
+	 * the right one.
+	 */
+	Channel->Reason.Store(Status.Reason);
+
+	return Status;
+}
+
 FString FlowVizVolumeRayMarch::DescribeDispatchReason(EFlowVizDispatchReason Reason)
 {
 	/*
@@ -516,13 +545,20 @@ public:
 				? TextureSet->GetSlotTextures(SlotAIndex)
 				: nullptr;
 
-			const FFlowVizDispatchStatus Status = FlowVizVolumeRayMarch::ClassifyDispatch(
-				Dispatcher, DynamicData, TextureSet, SlotATextures);
-
-			// Published every frame, whichever way it went. Reporting only the
-			// failures would leave a volume that marched once and then stopped
-			// reading as still healthy -- the stale-success direction.
-			DispatchStatusChannel->Reason.Store(Status.Reason);
+			// CLASSIFY AND PUBLISH IN ONE CALL, never as two statements.
+			//
+			// This used to be ClassifyDispatch followed by a separate store into
+			// the channel, and two mutations of that store survived the entire
+			// suite: deleting it, and wrapping it in `if (Status.ShouldDispatch())`
+			// so that only successes were reported. The second is the one that
+			// matters -- a volume that marched once and then stopped would go on
+			// reading healthy, turning a regression into a green.
+			//
+			// There is no separate store here to delete or to make conditional.
+			// Publishing IS what this call does, so the reason that gates the
+			// march below is necessarily the reason that reached the diagnostic.
+			const FFlowVizDispatchStatus Status = FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				DispatchStatusChannel, Dispatcher, DynamicData, TextureSet, SlotATextures);
 
 			if (!Status.ShouldDispatch() && !bLoggedDispatchBlocker)
 			{
