@@ -7,6 +7,7 @@
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
 #include "UI/FlowVizWorkspaceModel.h"
+#include "UI/FlowVizWorkspaceRegistry.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
 #include "UI/SFlowVizProbePanel.h"
@@ -94,7 +95,19 @@ SFlowVizWorkspace::SFlowVizWorkspace() = default;
 SFlowVizWorkspace::~SFlowVizWorkspace()
 {
 	/*
-	 * THE CLOCK GOES FIRST, AND IT MUST.
+	 * OUT OF THE REGISTRY FIRST, so nothing can resolve this workspace as a
+	 * console command's target while the members below are being torn down.
+	 *
+	 * The weak entry would go null on its own once the shared reference
+	 * controller released -- but that happens AFTER this body, so a command
+	 * executing between here and then would pin a workspace whose player has
+	 * already dropped its texture set. Removing it explicitly closes that
+	 * window instead of relying on the compaction pass to notice afterwards.
+	 */
+	FlowVizWorkspaceRegistry::Unregister(*this);
+
+	/*
+	 * THE CLOCK GOES SECOND, AND IT MUST PRECEDE THE MODEL.
 	 *
 	 * TickClock captures `this` and reads Model, which is destroyed immediately
 	 * after this body. FTSTicker::RemoveTicker is documented to block until an
@@ -164,6 +177,24 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 	// transport bar and the transfer-function editor different ideas of which
 	// case is open - and they would each look correct in isolation.
 	Model = MakeUnique<FFlowVizWorkspaceModel>();
+
+	/*
+	 * ANNOUNCE THIS WORKSPACE, and do it HERE rather than in the constructor.
+	 *
+	 * The registry derives a weak pointer via AsShared(), which is only legal
+	 * once a TSharedRef owns the widget -- SNew constructs, wraps, then calls
+	 * Construct, so this is the earliest legal point. It is also the correct
+	 * one: after Model exists, so a command that resolves this workspace the
+	 * instant it appears finds a usable one rather than a half-built one.
+	 *
+	 * WITHOUT THIS LINE the eight FlowViz.* console commands are registered,
+	 * discoverable, documented and inert -- they would resolve no target and
+	 * report "no workspace" forever, which reads to a user as "the UI is not
+	 * open" rather than as a wiring gap. FlowViz.UI.Console.Wiring asks the
+	 * console manager what startup registered; FlowViz.UI.Console.Target is the
+	 * one that fails when this line is missing.
+	 */
+	FlowVizWorkspaceRegistry::Register(*this);
 
 	/*
 	 * THE CLOCK, REGISTERED BEFORE ANY PANEL EXISTS. See the header for why this

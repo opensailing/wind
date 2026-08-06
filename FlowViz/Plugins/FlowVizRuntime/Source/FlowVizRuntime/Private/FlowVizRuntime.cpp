@@ -8,6 +8,7 @@
 #include "Modules/ModuleManager.h"
 #include "Render/FlowVizVolumeRayMarchDispatcher.h"
 #include "ShaderCore.h"
+#include "UI/FlowVizConsoleCommands.h"
 #include "UI/FlowVizWorkspaceTab.h"
 
 DEFINE_LOG_CATEGORY(LogFlowViz);
@@ -50,10 +51,18 @@ void FFlowVizRuntimeModule::StartupModule()
 	// anything about it. FlowViz.UI.Workspace.Wiring is the test that constructs
 	// nothing and asks the global tab manager what startup left behind.
 	FlowVizWorkspaceTab::Register();
+
+	// REGISTER THE FlowViz.* CONSOLE COMMANDS. Third instance of the same shape:
+	// eight command implementations that nothing in the running application makes
+	// reachable are eight functions a user can never invoke, and a direct unit
+	// test of each helper would be green throughout. FlowViz.UI.Console.Wiring
+	// registers nothing itself and asks IConsoleManager what startup left behind.
+	FlowVizConsoleCommands::Register();
 }
 
 void FFlowVizRuntimeModule::ShutdownModule()
 {
+	FlowVizConsoleCommands::Unregister();
 	FlowVizWorkspaceTab::Unregister();
 	FlowVizVolumeRayMarchProduction::Unregister();
 	ResetAllShaderSourceDirectoryMappings();
