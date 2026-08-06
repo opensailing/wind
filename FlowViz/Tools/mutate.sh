@@ -183,6 +183,68 @@ BUILD_LOG="${BUILD_LOG:-/tmp/mutate_build.log}"
 TEST_LOG="${TEST_LOG:-/tmp/mutate_test.log}"
 SRC_BASE="$(basename "${SRC}")"
 
+# WHERE THE EVIDENCE FOR EACH VERDICT IS KEPT.
+#
+# BUILD_LOG and TEST_LOG above are ONE PATH EACH, and the per-arm loop below
+# redirects every arm's build and every arm's suite run into them. Each arm
+# clobbers the last, so a finished ten-arm campaign leaves exactly one log: the
+# tenth's.
+#
+# The verdicts are unaffected -- classify_* reads each log while it is still the
+# current arm's. What is destroyed is the EVIDENCE, which is what a reader
+# checks the verdicts against afterwards. Tools/mutants/session-workspace.README
+# says so in its own words and asked for this fix:
+#
+#     WHICH ASSERTIONS KILLED WHICH ARM. DERIVED, NOT READ OFF A LOG - and that
+#     is a defect in how this campaign was run rather than a property of the
+#     results. ... A future campaign should point TEST_LOG at a per-arm path.
+#
+# Derivation is a claim about what a mutant SHOULD break, checked against
+# nothing. Repo memory a-compound-mutant-scores-like-a-narrow-one is exactly
+# what it cannot see: an arm named for three casualties that died on two, with
+# the third riding along untested. Derivation reports all three, and reads as
+# thorough.
+#
+# Observed live while this very fix was being written. The workspace-clock
+# campaign's arm 5 came back UNSCORED with "no tests matched" -- a crashed
+# editor, not a result -- and by the time the summary printed, arm 6 had already
+# truncated the log holding the only account of it. The re-run had to start from
+# nothing.
+#
+# ARCHIVED, NOT REDIRECTED. The active BUILD_LOG/TEST_LOG paths are left exactly
+# as they were and each arm's logs are COPIED aside after it is scored. Pointing
+# the classifiers at a moving target would put the log path inside the loop,
+# where every existing test that pins BUILD_LOG/TEST_LOG stops describing the
+# script that ships -- and those tests are the reason the classifier is
+# trustworthy at all.
+#
+# Per campaign, not per checkout: mktemp -d, so two campaigns cannot land in one
+# directory even if they start in the same second. Repo memory
+# isolation-ends-at-the-shared-output-path.
+MUTATE_LOG_DIR="${MUTATE_LOG_DIR:-$(mktemp -d -t mutate_logs)}"
+mkdir -p "${MUTATE_LOG_DIR}"
+
+# Copy this arm's logs somewhere the next arm will not overwrite.
+#
+# Named <index>-<arm name>-{build,test}.log. BOTH parts are load-bearing: the
+# index preserves the order the summary prints in, and the name is what a reader
+# holding a verdict line actually has in hand. Index alone would make finding an
+# arm's log a counting exercise against the mutants file -- which is the
+# derivation this exists to eliminate.
+#
+# Non-fatal by construction. A campaign that has scored an arm must not abort
+# because it could not archive the paperwork; the trailing `true` keeps a full
+# disk or a read-only /tmp from turning four good verdicts into none.
+archive_arm_logs() {
+    local index="$1" name="$2" slug
+    # Everything that is not alphanumeric becomes a dash, so an arm name
+    # containing a slash cannot write outside the directory.
+    slug="$(tr -c '[:alnum:]' '-' <<<"${name}" | cut -c1-60)"
+    cp "${BUILD_LOG}" "${MUTATE_LOG_DIR}/${index}-${slug}-build.log" 2>/dev/null || true
+    cp "${TEST_LOG}" "${MUTATE_LOG_DIR}/${index}-${slug}-test.log" 2>/dev/null || true
+    return 0
+}
+
 # Constraint 2: classification lives in its own file so it can be exercised
 # against known-answer inputs without building anything. Sourced before the cd
 # below, and by absolute path, because this script changes directory.
@@ -566,14 +628,28 @@ if ! python3 "${PROJECT_DIR}/Tools/parse_mutants.py" "${MUTANTS}" > "${RECORDS}"
     exit 2
 fi
 
+ARM_INDEX=0
+
 while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
     NAME=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${NAME_J}")
     FROM=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${FROM_J}")
     TO=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${TO_J}")
 
+    # Zero-padded so `sort` and `ls` order the archive the way the summary
+    # prints it. Incremented for EVERY record, including ones that go on to
+    # SKIP, so an arm's index is its position in the mutants file rather than
+    # its position among the arms that happened to run -- the second would
+    # renumber every later arm whenever an earlier one went stale.
+    ARM_INDEX=$((ARM_INDEX+1))
+    ARM_TAG="$(printf '%02d' "${ARM_INDEX}")"
+
     cp "${BACKUP}" "${SRC}"
     apply_mutant "${FROM}" "${TO}"
     case $? in
+        # No archive on these two paths, deliberately: nothing was built and
+        # nothing was run, so BUILD_LOG and TEST_LOG still hold the PREVIOUS
+        # arm's output. Copying them here would file one arm's evidence under
+        # another arm's name, which is worse than having none.
         3) echo "SKIP      ${NAME} -- pattern not found; the mutant is stale"
            SKIPPED=$((SKIPPED+1)); continue ;;
         4) echo "SKIP      ${NAME} -- pattern matches more than once; too broad"
@@ -626,12 +702,23 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
         grep -aE "error:" "${BUILD_LOG}" | head -2 | sed 's/^/            /'
         UNSCORED=$((UNSCORED+1))
     fi
+
+    # ONE CALL, AFTER THE WHOLE if/elif/else, covering every path that got as
+    # far as a build. Placing it inside each branch would mean a branch added
+    # later silently ships without evidence -- and UNSCORED and INVALID are the
+    # two verdicts whose logs are read most, because they are the ones that
+    # have to be re-run.
+    archive_arm_logs "${ARM_TAG}" "${NAME}"
 done < "${RECORDS}"
 
 cp "${BACKUP}" "${SRC}"
 echo
 echo "=== ${SRC_BASE} vs ${FILTER} ==="
 echo "killed ${KILLED}  SURVIVED ${SURVIVED}  INVALID ${INVALID}  UNSCORED ${UNSCORED}  skipped ${SKIPPED}"
+# Printed unconditionally, and printed HERE rather than at startup: a reader
+# reaches for the logs when they see a verdict they want to check, and a path
+# announced twenty minutes and one build earlier has scrolled away.
+echo "per-arm logs: ${MUTATE_LOG_DIR}"
 
 # Did Tools/mutate.sh change while this campaign was running? The private copy
 # means such an edit could not corrupt anything -- and that is exactly why it
