@@ -7,6 +7,7 @@
 #include "CFDViz/CFDVizManifest.h"
 #include "RenderCommandFence.h"
 #include "Render/FlowVizVolumeTexture.h"
+#include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizRenderSettingsViewModel.h"
 
 #include "FlowVizVolumeComponent.generated.h"
@@ -216,6 +217,30 @@ struct FFlowVizVolumeRayMarchContext
 	 * asserts that first, as the control for every other assertion in it.
 	 */
 	FFlowVizRenderSettingsViewModel RenderSettings;
+
+	/**
+	 * Which planes and crop box cut this volume.
+	 *
+	 * THE SECOND CHANNEL THAT WAS NEVER WRITTEN, and a more complete example of
+	 * the same defect than RenderSettings was. FFlowVizClipViewModel validates
+	 * every plane before writing any, zeroes the unused tail so a disabled plane
+	 * cannot reappear when the count rises, and converts crop units in exactly
+	 * one place -- all of it covered by FlowViz.UI.ClipViewModel, all of it
+	 * passing, and none of it reachable: every caller of
+	 * ApplyToRayMarchParameters was a test. What shipped was FillDefaults'
+	 * `NumClipPlanes = 0`, so the shader's clip loop ran zero times on every
+	 * frame ever rendered, and SFlowVizClipPanel drew an advisory strip saying
+	 * the panel did nothing.
+	 *
+	 * DEFAULT-CONSTRUCTED IS AN IDENTITY over FillDefaults -- but for a
+	 * different reason than RenderSettings, and one worth stating because it
+	 * makes a careless test vacuous. A default clip model has NO DOMAIN, so
+	 * ApplyToRayMarchParameters returns an error and writes nothing at all. A
+	 * context that ignores this field and one that applies an unconfigured model
+	 * are therefore indistinguishable; any assertion about clipping must
+	 * configure a domain first. FlowViz.Render.ClipSeam pins that as its control.
+	 */
+	FFlowVizClipViewModel Clip;
 
 	/** Textures for display frame A. Never null when a dispatch is issued. */
 	const FFlowVizVolumeSlotTextures* SlotA = nullptr;
@@ -548,6 +573,9 @@ struct FFlowVizVolumeProxyDynamicData
 
 	/** How to composite, light and step. The channel that was never written. */
 	FFlowVizRenderSettingsViewModel RenderSettings;
+
+	/** Which planes and crop box cut the volume. The second such channel. */
+	FFlowVizClipViewModel Clip;
 
 	/** True when Parameters was actually built. False means the field's layout is not known yet - typically before the first upload. */
 	bool bHasParameters = false;
@@ -1047,6 +1075,36 @@ public:
 	 */
 	void SetRenderSettings(const FFlowVizRenderSettingsViewModel& InSettings);
 
+	/* --- Clipping ----------------------------------------------------------- */
+
+	/**
+	 * Which planes and crop box cut this volume.
+	 *
+	 * Game-thread state, like RenderSettings, reaching the render thread only
+	 * through MakeProxyDynamicData by value. Returned by const reference so a
+	 * caller reads without copying; edits go through SetClip so the proxy is
+	 * told.
+	 */
+	const FFlowVizClipViewModel& GetClip() const
+	{
+		return Clip;
+	}
+
+	/**
+	 * Replace the clip state and push it to the render thread.
+	 *
+	 * MarkRenderDynamicDataDirty, not MarkRenderStateDirty: clipping is done in
+	 * the shader against the full volume, so it changes no geometry and no
+	 * bounds. Recreating the proxy would rebuild the hull and re-seed the
+	 * textures in order to move a plane.
+	 *
+	 * NO VALIDATION HERE. The view model rejects a degenerate plane at AddPlane
+	 * and SetPlane, and re-validates the whole set when it applies; a second
+	 * check here would be a different opinion about the same question, and the
+	 * one place they disagreed would be the bug.
+	 */
+	void SetClip(const FFlowVizClipViewModel& InClip);
+
 	/**
 	 * Build the frame's marshalled payload for the proxy.
 	 *
@@ -1106,6 +1164,18 @@ private:
 	 * meaningful rather than vacuous.
 	 */
 	FFlowVizRenderSettingsViewModel RenderSettings;
+
+	/**
+	 * Which planes and crop box cut this volume. Game thread; marshalled by
+	 * value in MakeProxyDynamicData.
+	 *
+	 * Default-constructed has NO DOMAIN, so applying it writes nothing and the
+	 * volume renders unclipped -- an identity over FillDefaults, reached by a
+	 * different route than RenderSettings' (which is an identity because its
+	 * defaults match). Worth the distinction: it means a test that forgets to
+	 * set a domain cannot tell a wired seam from a missing one.
+	 */
+	FFlowVizClipViewModel Clip;
 
 	/**
 	 * Where the proxy leaves what the last frame decided. Never null; shared

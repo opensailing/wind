@@ -504,13 +504,21 @@ FText SFlowVizClipPanel::GetNotWiredAdvisoryText() const
 {
 	// NOT CONDITIONAL ON ANYTHING. This is true whatever the model holds, and a
 	// disclosure that could be empty is one a reader has to notice the absence
-	// of. It stops being correct the day someone calls
-	// FFlowVizClipViewModel::ApplyToRayMarchParameters from the render path -
-	// and the test that names that function is what should fail then.
+	// of.
+	//
+	// THE REASON IT IS STILL TRUE CHANGED, and the wording changed with it. The
+	// render path DOES clip now - the dispatcher calls
+	// FFlowVizClipViewModel::ApplyToRayMarchParameters. What is missing is the
+	// channel from THIS panel: it edits FFlowVizWorkspaceModel::Clip, and nothing
+	// copies that into a UCFDVizVolumeComponent. Retiring the strip when the
+	// render path got wired would have been the same lie in reverse - the panel
+	// claiming an effect its own edits do not have. It stops being correct when
+	// something pushes the workspace model's Clip into a volume component.
 	return LOCTEXT("NotWired",
-		"These planes are authored and saved, but NOT yet applied to the render. Nothing in "
-		"the render path reads them, so the image will not change. Shown rather than hidden "
-		"because a plane that does nothing is indistinguishable from one facing the wrong way.");
+		"Planes added here are authored and saved, but this panel is NOT yet connected to the "
+		"volume, so the image will not change. The renderer does apply clip planes - it just "
+		"does not receive the ones edited here. Shown rather than hidden because a plane that "
+		"does nothing is indistinguishable from one facing the wrong way.");
 }
 
 bool SFlowVizClipPanel::CanAddPlane() const

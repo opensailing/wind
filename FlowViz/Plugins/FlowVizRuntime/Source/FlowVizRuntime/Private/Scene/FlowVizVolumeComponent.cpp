@@ -198,6 +198,18 @@ FFlowVizVolumeRayMarchContext FlowVizVolumeRayMarch::MakeDispatchContext(
 	 */
 	Context.RenderSettings = DynamicData.RenderSettings;
 
+	/*
+	 * THE SAME ASSIGNMENT, one channel over. Its absence had a longer reach: the
+	 * clip view model had no production caller anywhere, so FillDefaults'
+	 * NumClipPlanes = 0 was what every frame ever rendered used, and the shader's
+	 * clip loop ran zero times. SFlowVizClipPanel drew an advisory strip saying
+	 * the panel it belonged to did nothing.
+	 *
+	 * Copied by value, on the render thread, out of the marshalled payload -- the
+	 * component's own Clip is game-thread state and must not be read here.
+	 */
+	Context.Clip = DynamicData.Clip;
+
 	Context.SlotA = SlotATextures;
 	Context.SlotB = SlotBTextures;
 	Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
@@ -1227,6 +1239,11 @@ FFlowVizVolumeProxyDynamicData UCFDVizVolumeComponent::MakeProxyDynamicData() co
 	// the render thread and the component may be edited or collected meanwhile.
 	Data.RenderSettings = RenderSettings;
 
+	// The other channel that had no writer, and copied for the same reason: the
+	// view model owns a plane array, so a reference here would have the render
+	// thread reading a TArray the game thread can reallocate mid-frame.
+	Data.Clip = Clip;
+
 	return Data;
 }
 
@@ -1237,6 +1254,16 @@ void UCFDVizVolumeComponent::SetRenderSettings(const FFlowVizRenderSettingsViewM
 	// Nothing here changes geometry or bounds, so the proxy does not need
 	// rebuilding -- only its marshalled copy needs replacing. MarkRenderStateDirty
 	// would recreate the proxy and re-seed the hull to change a composite mode.
+	MarkRenderDynamicDataDirty();
+}
+
+void UCFDVizVolumeComponent::SetClip(const FFlowVizClipViewModel& InClip)
+{
+	Clip = InClip;
+
+	// Same reasoning as SetRenderSettings: clipping happens in the shader
+	// against the full volume, so the hull, the bounds and the uploaded textures
+	// are all unaffected. Only the marshalled copy needs replacing.
 	MarkRenderDynamicDataDirty();
 }
 

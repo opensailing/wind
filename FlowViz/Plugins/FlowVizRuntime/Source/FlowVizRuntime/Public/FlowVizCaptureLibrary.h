@@ -306,4 +306,47 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
 	static bool SetVolumeLightingEnabled(class ACFDVizCaseActor* CaseActor, bool bEnabled);
+
+	/**
+	 * Add a clipping plane to a placed volume, in the volume's local solver units.
+	 *
+	 * THE ENTRY POINT THE CLIP VIEW MODEL NEVER HAD. Every caller of
+	 * FFlowVizClipViewModel::ApplyToRayMarchParameters was a test, so what
+	 * shipped was FillDefaults' NumClipPlanes = 0 and the shader's clip loop ran
+	 * zero times on every frame ever rendered. SFlowVizClipPanel disclosed that
+	 * in an advisory strip.
+	 *
+	 * THE DOMAIN IS TAKEN FROM THE VOLUME, not from the caller. The crop box
+	 * reaches the shader normalised by the domain size, so a domain that
+	 * disagreed with the loaded field would clip at a plausible wrong place --
+	 * and an image that is wrong but not obviously wrong is the failure this
+	 * codebase keeps paying for. A volume with no field yet has no domain, and
+	 * this refuses rather than guessing one.
+	 *
+	 * @param Normal   Plane normal in local space. Need not be unit length;
+	 *                 must not be zero.
+	 * @param Distance Signed distance along the normal. The kept half-space is
+	 *                 dot(P, Normal) >= Distance.
+	 * @return false when the actor is null, has no volume component, has no
+	 *         field loaded, the normal is degenerate, or the volume already
+	 *         holds the maximum number of planes.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static bool AddVolumeClipPlane(
+		class ACFDVizCaseActor* CaseActor,
+		FVector Normal,
+		double Distance);
+
+	/**
+	 * Remove every clipping plane and reset the crop box on a placed volume.
+	 *
+	 * Separate from AddVolumeClipPlane so a capture script can return a volume to
+	 * unclipped without knowing how many planes it accumulated -- and so the
+	 * "off" direction has its own entry point rather than being expressed as an
+	 * absence of calls, which nothing can assert on.
+	 *
+	 * @return false when the actor is null or has no volume component.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static bool ClearVolumeClipping(class ACFDVizCaseActor* CaseActor);
 };

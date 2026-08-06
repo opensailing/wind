@@ -749,3 +749,89 @@ bool UFlowVizCaptureLibrary::SetVolumeLightingEnabled(ACFDVizCaseActor* CaseActo
 
 	return true;
 }
+
+bool UFlowVizCaptureLibrary::AddVolumeClipPlane(
+	ACFDVizCaseActor* CaseActor,
+	FVector Normal,
+	double Distance)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("AddVolumeClipPlane"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	FFlowVizClipViewModel Clip = Volume->GetClip();
+
+	/*
+	 * THE DOMAIN COMES FROM THE VOLUME, EVERY CALL, and is re-set rather than
+	 * set once. A field can be replaced between calls -- loading a second case
+	 * into the same actor is the normal way to use this -- and the crop box
+	 * reaches the shader as a FRACTION of the domain. A stale domain therefore
+	 * does not fail, it clips at a plausible wrong place, which is the class of
+	 * error nobody investigates because the picture still looks like a picture.
+	 *
+	 * SetDomainSize refuses a non-positive or non-finite axis, which is exactly
+	 * the state of a volume with no field uploaded yet. Refused here rather than
+	 * guessing a unit domain: a plane authored against a domain nobody chose
+	 * would be off by whatever the real extent turns out to be.
+	 */
+	const FVector PhysicalSize = Volume->GetPhysicalSize();
+	if (!Clip.SetDomainSize(PhysicalSize).IsOk())
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("AddVolumeClipPlane: '%s' has no usable domain (physical size %s). "
+				 "Load a case before adding clip planes; nothing was changed."),
+			*CaseActor->GetName(), *PhysicalSize.ToString());
+		return false;
+	}
+
+	FFlowVizClipPlane Plane;
+	Plane.Normal = Normal;
+	Plane.Distance = Distance;
+	Plane.bEnabled = true;
+
+	// AddPlane refuses a degenerate normal and a full plane array, and adds
+	// nothing when it refuses -- so the local copy is unchanged and the volume
+	// is never told. Both refusals are reported with the reason: "it did not
+	// work" and "you already have the maximum" send someone to different places.
+	const FCFDVizResult Added = Clip.AddPlane(Plane);
+	if (!Added.IsOk())
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("AddVolumeClipPlane: %s Volume '%s' keeps its %d existing plane(s)."),
+			*Added.Message, *CaseActor->GetName(), Volume->GetClip().GetPlaneCount());
+		return false;
+	}
+
+	// THE CALL THAT DID NOT EXIST ANYWHERE IN PRODUCTION, for this channel.
+	Volume->SetClip(Clip);
+
+	UE_LOG(LogFlowViz, Log,
+		TEXT("AddVolumeClipPlane: normal %s distance %f applied to '%s' (%d plane(s) now)."),
+		*Normal.ToString(), Distance, *CaseActor->GetName(), Clip.GetPlaneCount());
+
+	return true;
+}
+
+bool UFlowVizCaptureLibrary::ClearVolumeClipping(ACFDVizCaseActor* CaseActor)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("ClearVolumeClipping"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	// Both halves. Removing the planes and leaving a crop box behind is still a
+	// clipped volume, and "clear" that half-clears is worse than no call at all
+	// -- the caller believes the volume is whole.
+	FFlowVizClipViewModel Clip = Volume->GetClip();
+	Clip.RemoveAllPlanes();
+	Clip.ResetCropBox();
+	Volume->SetClip(Clip);
+
+	UE_LOG(LogFlowViz, Log, TEXT("ClearVolumeClipping: '%s' is no longer clipped."),
+		*CaseActor->GetName());
+
+	return true;
+}

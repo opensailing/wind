@@ -180,6 +180,27 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	// reaches leaves the parameter exactly as frozen as before.
 	Context.RenderSettings.ApplyToRayMarchParameters(Request.Parameters);
 
+	// THE CLIP SEAM, and the same story one channel over. FFlowVizClipViewModel
+	// validates every plane before writing any, zeroes the unused tail, and
+	// normalises the crop box -- all covered by FlowViz.UI.ClipViewModel, all
+	// passing, and until this line every one of its callers was a test. What
+	// shipped was FillDefaults' NumClipPlanes = 0, so the shader's
+	// `min(NumClipPlanes, FLOWVIZ_MAX_CLIP_PLANES)` loop ran zero times on every
+	// frame ever rendered.
+	//
+	// THE RESULT IS DELIBERATELY IGNORED, and that is not the usual shrug. The
+	// call fails in exactly one way a frame can hit -- no domain set yet, before
+	// the first upload -- and it writes NOTHING when it fails, so ignoring it
+	// leaves the defaults intact and the volume renders unclipped. The
+	// alternative, returning early, would drop the whole frame because a clip
+	// box is not configured. A degenerate PLANE cannot get here: SetPlane and
+	// AddPlane reject one on the way in, and the loop above re-validates.
+	//
+	// Placed after the settings for the same reason they come after FillDefaults:
+	// these writers are field-by-field and never assign the struct, but the
+	// ordering states which layer wins, and clipping is the more specific choice.
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+
 	if (!FlowVizRayMarch::SetVolumeTextures(
 			Request.Parameters,
 			Request.FieldTexture.GetReference(),

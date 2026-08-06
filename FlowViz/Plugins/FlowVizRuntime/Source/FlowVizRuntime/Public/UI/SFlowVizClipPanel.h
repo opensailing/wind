@@ -22,13 +22,24 @@ class SVerticalBox;
  * disagreeing, with the UI showing planes that are not being rendered.
  *
  * WHAT THIS PANEL DOES NOT CLAIM, AND WHY IT IS SAID HERE RATHER THAN LEFT TO BE
- * DISCOVERED. FFlowVizClipViewModel::ApplyToRayMarchParameters - the function
- * that would put these planes into the shader's constant buffer - HAS NO
- * PRODUCTION CALLER. Grep it: every call site is a test. The render path calls
- * FillDefaults (which writes NumClipPlanes = 0) and then
- * FFlowVizRenderSettingsViewModel::ApplyToRayMarchParameters, which does not
- * touch the clip rows. So a plane added here is authored, validated, listed and
- * persisted - and does not yet change a pixel.
+ * DISCOVERED. The RENDER PATH now clips: FlowVizVolumeRayMarchDispatcher calls
+ * FFlowVizClipViewModel::ApplyToRayMarchParameters on the proxy's own clip model,
+ * fed from UCFDVizVolumeComponent::SetClip. That is not the gap. The gap is the
+ * CHANNEL FROM THIS PANEL: this panel edits FFlowVizWorkspaceModel::Clip, and
+ * nothing copies that model into a volume component. Grep SetClip - every
+ * production caller is UFlowVizCaptureLibrary (AddVolumeClipPlane /
+ * ClearVolumeClipping), which builds its own model from Volume->GetClip(). So a
+ * plane added HERE is authored, validated, listed and persisted, and still does
+ * not change a pixel - while the identical plane added through the capture
+ * library does.
+ *
+ * THE DISTINCTION MATTERS BECAUSE IT CHANGES WHAT WOULD RETIRE THE ADVISORY. It
+ * is no longer "someone calls ApplyToRayMarchParameters from the render path" -
+ * that has happened. It is "something pushes FFlowVizWorkspaceModel::Clip into a
+ * UCFDVizVolumeComponent", and the same is true of the sibling RenderSettings
+ * model, which has exactly this shape. Deleting the advisory on the strength of
+ * the render path being wired would make the panel claim a channel it does not
+ * have - the same lie, told the other way round.
  *
  * THAT IS DISCLOSED IN THE PANEL ITSELF, not only in this comment. Construct
  * builds an advisory strip saying so. The alternative - shipping controls that
@@ -37,7 +48,8 @@ class SVerticalBox;
  * looks identical to a plane pointing the wrong way, so a user would spend the
  * afternoon debugging their normals. The controls are live against the model
  * because the model is what a session saves and what the render path will read
- * when someone wires it; the advisory is what keeps that from being a lie.
+ * when someone wires this channel; the advisory is what keeps that from being a
+ * lie.
  *
  * A NULL VIEW MODEL IS A LEGAL, INERT STATE - the workspace builds panels before
  * a case is open. Every accessor tolerates it by reporting "nothing available",
