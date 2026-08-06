@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Render/FlowVizVolumeTexture.h"
 #include "Scene/FlowVizVolumeComponent.h"
+#include "UI/FlowVizSession.h"
 
 /**
  * See FlowVizWorkspaceModel.h.
@@ -305,6 +306,104 @@ FCFDVizResult FFlowVizWorkspaceModel::SetField(FName FieldId)
 	// like the wrong range.
 	return TransferFunction.BindField(*Shared, FieldId);
 }
+
+/* ========================================================================== */
+/* Sessions                                                                    */
+/* ========================================================================== */
+
+FCFDVizResult FFlowVizWorkspaceModel::SaveSession(const FString& FilePath) const
+{
+	FFlowVizSessionState State;
+
+	/*
+	 * THE PLAYER IS PASSED EVEN WHEN NO CASE IS OPEN, and that is deliberate
+	 * rather than sloppy. CaptureFromViewModels reads Settings and PhysicalTime
+	 * unconditionally but only reaches for the field id and case path when
+	 * IsOpen(), so a workspace with no case yields a session that carries the
+	 * colour and playback setup with an EMPTY case path. Refusing to save that
+	 * would make "set up my colours, then pick a case" unexpressible.
+	 */
+	FlowVizSession::CaptureFromViewModels(
+		&Player, &TransferFunction, &Clip, &Slice, &Probes, State);
+
+	return FlowVizSession::SaveToFile(State, FilePath);
+}
+
+FCFDVizResult FFlowVizWorkspaceModel::LoadSession(const FString& FilePath)
+{
+	FFlowVizSessionState State;
+	const FCFDVizResult Read = FlowVizSession::LoadFromFile(FilePath, State);
+	if (!Read.IsOk())
+	{
+		// A read failure is total - there is no state to apply. Distinct from a
+		// MISSING CASE, which LoadFromFile reports as Ok with bCaseFound false
+		// and which LoadState handles below.
+		return Read;
+	}
+
+	return LoadState(State);
+}
+
+FCFDVizResult FFlowVizWorkspaceModel::LoadState(const FFlowVizSessionState& State)
+{
+	FCFDVizResult FirstFailure = FCFDVizResult::Ok();
+	auto Record = [&FirstFailure](const FCFDVizResult& Result)
+	{
+		if (!Result.IsOk() && FirstFailure.IsOk())
+		{
+			FirstFailure = Result;
+		}
+	};
+
+	/* --- The case, FIRST ---------------------------------------------------- */
+
+	/*
+	 * READ THE HEADER'S NOTE ON ORDER BEFORE CHANGING ANYTHING HERE. Opening
+	 * resets playback settings, seeks to frame 0, re-binds the transfer function
+	 * and RESETS THE CROP BOX. Every one of those would silently undo an apply
+	 * that had already run, and none of them reports an error while doing it.
+	 */
+	if (!State.ResolvedCasePath.IsEmpty())
+	{
+		if (State.bCaseFound)
+		{
+			// The session's OWN field, not NAME_None. Passing NAME_None would open
+			// the first non-mask field and then let ApplyToViewModels colour it
+			// with the saved field's transfer function - a scene that looks
+			// restored and is showing different data.
+			Record(OpenCase(State.ResolvedCasePath, State.FieldId));
+		}
+		else
+		{
+			/*
+			 * REPORTED, BUT THE REST STILL APPLIES. plan.md section 14 requires a
+			 * relink to be possible, and a relink is only worth offering if the
+			 * user still has the setup they would relink INTO. So the colour map,
+			 * clip planes, slice and probes are applied against whatever case is
+			 * currently open - possibly none - and the caller learns the case was
+			 * missing from this result.
+			 */
+			Record(FCFDVizResult::Fail(
+				ECFDVizError::FileNotFound,
+				TEXT("the session's case was not found; everything else was applied, and the "
+					 "session can be relinked"),
+				State.ResolvedCasePath));
+		}
+	}
+
+	/* --- Then everything else ----------------------------------------------- */
+
+	// Best-effort by contract: this reports the FIRST failure after applying
+	// what it could, so its result is recorded rather than returned.
+	Record(FlowVizSession::ApplyToViewModels(
+		State, &Player, &TransferFunction, &Clip, &Slice, &Probes));
+
+	return FirstFailure;
+}
+
+/* ========================================================================== */
+/* The channel to the renderer                                                 */
+/* ========================================================================== */
 
 bool FFlowVizWorkspaceModel::PushClipToVolume(
 	const FFlowVizClipViewModel& Source, UCFDVizVolumeComponent* Volume)

@@ -11,6 +11,7 @@
 #include "UI/FlowVizTransferFunctionViewModel.h"
 
 class UCFDVizVolumeComponent;
+struct FFlowVizSessionState;
 
 /**
  * The live view models a workspace's panels share (plan.md section 5F).
@@ -98,6 +99,75 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	 * pressure against a velocity domain - plausible-looking and wrong.
 	 */
 	FCFDVizResult SetField(FName FieldId);
+
+	/* --- Sessions ------------------------------------------------------------ */
+
+	/**
+	 * Write every view model to a `.cfdvizsession` file.
+	 *
+	 * WHAT DOES NOT ROUND-TRIP, STATED HERE RATHER THAN DISCOVERED. FFlowVizSessionState
+	 * carries four things this workspace has no owner for:
+	 *
+	 *     bPresentationMode   PanelVisibility   Camera{Location,Rotation}   Annotations
+	 *
+	 * They are in the session struct because plan.md section 14 names them, and
+	 * they are read and written by the JSON layer - but nothing in
+	 * FFlowVizWorkspaceModel holds them, so a save writes their defaults and a
+	 * load discards them. That is not a bug to fix here: presentation mode and
+	 * panel visibility belong to the Slate workspace, the camera to the viewport
+	 * client, and annotations to a scene actor. When those owners exist, the
+	 * fix is to route them through here - NOT to add copies to this struct, for
+	 * the reason the class comment gives.
+	 *
+	 * Until then, saying so in the signature's own documentation is what keeps a
+	 * future reader from concluding, from a green round-trip test, that the
+	 * camera is persisted.
+	 *
+	 * @param FilePath Destination. The extension is not enforced; a caller that
+	 *        wants `.cfdvizsession` appends FlowVizSession::GetFileExtension().
+	 *        Parent directories are created by the write.
+	 * @return The write's failure, or Ok. Saving with NO CASE OPEN is legal and
+	 *         produces a session with an empty case path - which is what makes a
+	 *         "save my colour setup" workflow expressible.
+	 */
+	FCFDVizResult SaveSession(const FString& FilePath) const;
+
+	/**
+	 * Load a `.cfdvizsession` and become it.
+	 *
+	 * THE CASE IS RE-OPENED FIRST, AND THAT ORDER IS THE WHOLE FUNCTION.
+	 * FlowVizSession::ApplyToViewModels opens nothing - it pushes values into
+	 * whatever the view models currently are. Applying before opening would be
+	 * undone twice over: FFlowVizCasePlayer::Open resets Settings and seeks to
+	 * frame 0, and FFlowVizClipViewModel::SetDomainSize (which OpenCase calls)
+	 * invokes ResetCropBox. Both discard restored state while reporting Ok, so
+	 * the failure would present as a session that loads successfully and comes
+	 * back subtly wrong.
+	 *
+	 * A MISSING CASE IS NOT A FAILURE OF THE LOAD, matching the format's own
+	 * contract (plan.md section 14: "must allow the user to relink"). When the
+	 * session's case cannot be found, this reports the failure but STILL applies
+	 * everything that does not need a case - so a relink can follow without the
+	 * user losing their colour map, clip planes and probes. Callers that want to
+	 * offer a relink dialog should use FlowVizSession::LoadFromFile and
+	 * RelinkCase directly, then LoadState.
+	 *
+	 * @return The FIRST failure, after applying everything it could. Ok when the
+	 *         whole session applied. A non-Ok result does NOT mean nothing
+	 *         happened - see ApplyToViewModels.
+	 */
+	FCFDVizResult LoadSession(const FString& FilePath);
+
+	/**
+	 * Apply an already-parsed session. The half of LoadSession after the read.
+	 *
+	 * Separate so a relink flow - load, discover the case is missing, ask the
+	 * user, RelinkCase, apply - does not have to write the file back out to a
+	 * temporary just to re-read it.
+	 *
+	 * @param State A state from FlowVizSession::LoadFromFile, possibly relinked.
+	 */
+	FCFDVizResult LoadState(const FFlowVizSessionState& State);
 
 	/* --- The channel to the renderer ---------------------------------------- */
 
