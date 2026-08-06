@@ -75,3 +75,50 @@ The four arms and the predictions above are UNCHANGED and still stand. Nothing
 in either fix touches what the arms cut: #62 added a guard AFTER the LUT build
 that arms 3 and 4 mutate, and channel 2b -- the only assertion that can kill
 arm 4 -- is untouched. Arm 4 remains the decisive one.
+
+--------------------------------------------------------------------------
+RUN 2 SCORED. 2026-08-06, against e2bf9d5 in wind-worktrees/dispatchobs,
+filter FlowViz.Render.
+
+    arm 1  SURVIVED   predicted SURVIVE   identity control -- correct
+    arm 2  killed     predicted KILLED
+    arm 3  killed     predicted KILLED
+    arm 4  killed     predicted KILLED
+    => killed 3  SURVIVED 1  INVALID 0  UNSCORED 0  skipped 0
+
+The prediction matched on every arm. Baseline was green before scoring and the
+identity control survived, so the verdicts are readable. All 14 enumerated tests
+completed in all four arms -- no truncation, which is the failure that voided
+run 1.
+
+ATTRIBUTED PER ARM. FlowViz.Render.TransferFunctionSeam is the only test that
+failed in any arm, and each arm's log names the assertions:
+
+    arm 2  the default ceiling / the chosen range / its upper bound /
+           the opacity multiplier -- all read 0 or the default (channel 1)
+    arm 3  the CHOSEN colour map / a SECOND choice replaces the first /
+           reverse / banding (channels 2 and 2b, as predicted -- two
+           independent assertions, which is why arm 3 is distinguishable
+           from arm 4)
+    arm 4  reverse / banding ONLY (channel 2b)
+
+ARM 4 CONFIRMS CHANNEL 2b IS LOAD-BEARING. It is the bug this seam's first draft
+actually had, it is invisible to every assertion that reads GetResidentColorMap,
+and 2b killed it. The reverse toggle, the banding control and the opacity
+multiplier are verified rather than decorative.
+
+BUT READ WHICH ASSERTIONS KILLED IT, not just that it died. Arm 4's name claims
+three casualties -- "reverse, banding and opacity dropped" -- and only TWO
+assertions fired. BuildLut reads four inputs (ColorMap, bReverseColorMap,
+ColorBands, Opacity); channel 2b asserts three of them, and NOTHING in
+Private/Tests reads the resident opacity CURVE.
+
+A COMPOUND ARM DIES ON ITS FIRST FAILURE and reports one verdict for three
+claims, so arm 4's KILLED reads as "all three covered" while the third claim
+rode along untested. A mutant dropping ONLY the opacity curve would SURVIVE
+today. Filed as task #63, with a narrow single-claim arm to prove it -- the
+verdict this campaign cannot produce is exactly the one that arm will.
+
+That is the general lesson and it is worth more than the four verdicts above: an
+arm that cuts N things scores like an arm that cuts 1. Prefer narrow arms, and
+when an arm must be compound, check its kill against every claim in its name.
