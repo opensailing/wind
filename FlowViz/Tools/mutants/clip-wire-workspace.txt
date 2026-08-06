@@ -1,0 +1,62 @@
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+	UCFDVizVolumeComponent* Bound = Volume.Get();
+--
+	// MUTANT: identity control, no behaviour change
+	UCFDVizVolumeComponent* Bound = Volume.Get();
+%%
+the workspace never subscribes -- the panel fires and nothing listens
+--
+void SFlowVizWorkspace::HandleClipChanged()
+{
+	// The return is deliberately dropped. A panel edit with no case open is
+	// normal, not an error, and the clip panel's advisory already says the edits
+	// are not reaching a renderer - reporting it twice would put a warning in the
+	// log for every click during ordinary setup.
+	PushToVolume();
+}
+--
+void SFlowVizWorkspace::HandleClipChanged()
+{
+	// MUTANT: the subscriber does nothing
+}
+%%
+binding a volume does not push -- the render stays one edit behind until something is touched
+--
+	// PUSHED NOW, not on the next edit. A workspace with planes already authored
+	// - from a session load, or from a case opened before the actor existed -
+	// would otherwise render unclipped until the user touched something, which
+	// looks like a control that needs wiggling.
+	PushToVolume();
+--
+	// MUTANT: no push on bind
+%%
+the panel is never told about the binding -- the advisory outlives its subject
+--
+	if (ClipPanel.IsValid())
+	{
+		ClipPanel->SetVolumeBound(InVolume != nullptr);
+	}
+--
+	// MUTANT: the panel is not told
+%%
+the advisory tracks validity rather than binding -- unbinding never restores it
+--
+		ClipPanel->SetVolumeBound(InVolume != nullptr);
+--
+		ClipPanel->SetVolumeBound(true);
+%%
+an unbound push reports success -- a write with nowhere to go, announced as done
+--
+	UCFDVizVolumeComponent* Bound = Volume.Get();
+	if (Bound == nullptr)
+	{
+		return false;
+	}
+--
+	UCFDVizVolumeComponent* Bound = Volume.Get();
+	if (Bound == nullptr)
+	{
+		return true;
+	}
+%%

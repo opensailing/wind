@@ -1,0 +1,66 @@
+Campaign clip-wire-push, run 2026-08-06 against a150df8 in an isolated
+worktree. Result:
+
+    SURVIVED  IDENTITY CONTROL                          (correct)
+    killed    crop preservation removed
+    killed    domain taken from the SOURCE model
+    SURVIVED  no-extent guard removed                   <-- see below
+    killed    null volume accepted
+    killed    the push never writes
+
+    killed 4  SURVIVED 2  INVALID 0  UNSCORED 0
+
+Baseline was green before scoring and the identity control survived, so these
+verdicts are readable rather than noise.
+
+ARM 4 IS AN EQUIVALENT MUTANT. DO NOT "CLOSE" IT.
+
+The arm deletes the extent guard at the top of PushClipToVolume:
+
+    if (PhysicalSize.X <= 0.0 || PhysicalSize.Y <= 0.0 || PhysicalSize.Z <= 0.0)
+    {
+        return false;
+    }
+
+It survives, and the first reading of that -- the reading this file exists to
+head off -- is "the branch is untested, go write a test". That reading is
+wrong, and it is wrong in the direction that damages the code.
+
+The behaviour IS tested. FlowVizWorkspaceVolumeSeamTest.cpp builds a bare
+UCFDVizVolumeComponent, asserts it really has no domain, pushes into it, and
+asserts both that the push is refused AND that the volume was left unclipped
+rather than half-applied.
+
+The arm survives because the guard is REDUNDANT, which the guard's own comment
+already says. With it deleted, control reaches
+
+    if (!Pushed.SetDomainSize(PhysicalSize).IsOk()) { return false; }
+
+whose predicate is character-for-character identical to the deleted one
+(FlowVizClipViewModel.cpp). Nothing between the two lines touches the volume --
+the only statements are const reads of Source -- and Volume->SetClip is reached
+only after both. Same return value, same absence of a write, on every input.
+There is no observable difference to detect, so no test can kill this arm.
+
+The hazard is what "closing the gap" would require. To make the arm killable
+you would have to weaken SetDomainSize's check so the two stop coinciding --
+loosening a real guard on a real view model in order to score a mutation arm.
+That is a worse codebase in exchange for a better-looking number.
+
+The guard stays. It refuses on the VOLUME's terms ("no case is bound") while
+SetDomainSize refuses on the clip model's terms ("that domain is not usable"),
+and they coincide only because GetPhysicalSize happens to return exactly
+ZeroVector today. Keeping it also puts the refusal where a reader looking for
+"what does this function refuse" will actually find it.
+
+Repo memory unreachable-code-cannot-be-differentially-tested covers this shape:
+when an earlier guard blocks the failing input, test the primitive directly
+instead. That is already done -- SetDomainSize's refusal of zero, negative and
+NaN axes is asserted directly in FlowVizClipViewModelTest.cpp.
+
+Arm 1 is the identity control and must SURVIVE. If it ever does not, the
+harness is scoring noise and every line above is void.
+
+The rationale lives here rather than at the top of the .txt because
+parse_mutants.py splits on `%%` and raises ValueError on any record that is not
+exactly three `--`-separated fields. A prose header would abort the campaign.
