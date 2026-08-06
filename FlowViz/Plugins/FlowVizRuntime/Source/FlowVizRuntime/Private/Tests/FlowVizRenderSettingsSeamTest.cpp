@@ -119,10 +119,18 @@ namespace FlowVizSettingsSeamFixture
 			FlushRenderingCommands();
 
 			// NO VIEW FAMILY. FSceneView's constructor guards every Family
-			// dereference, and SetupAntiAliasingMethod resets a temporal method
-			// to AAM_None when State is null -- so VerifyMembersChecks' checkf on
-			// State cannot fire. A family would need a scene, which would need a
-			// world, for a camera the dispatcher reduces to eight numbers.
+			// dereference it makes, and SetupAntiAliasingMethod resets a temporal
+			// method to AAM_None when State is null -- so VerifyMembersChecks'
+			// checkf on State cannot fire. A family would need a scene, which
+			// would need a world, for a camera the dispatcher reduces to eight
+			// numbers.
+			//
+			// THAT SENTENCE IS ABOUT FSceneView'S OWN DEREFERENCES AND NOTHING
+			// MORE. The transfer-function seam fixture cited it as though it
+			// covered ours too, built the same familyless view, called DrainView
+			// -- which had a raw `*View.Family` -- and crashed the editor. This
+			// fixture is safe because it dispatches without draining, not because
+			// a null family is generally safe to hand our own code.
 			ViewInit.SetViewRectangle(FIntRect(0, 0, ViewWidth, ViewHeight));
 			ViewInit.ViewOrigin = FVector::ZeroVector;
 			ViewInit.ViewRotationMatrix = FMatrix::Identity;

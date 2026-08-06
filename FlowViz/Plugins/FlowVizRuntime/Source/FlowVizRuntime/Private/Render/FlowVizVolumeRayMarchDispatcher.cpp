@@ -327,6 +327,35 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		return;
 	}
 
+	// A VIEW NEED NOT HAVE A FAMILY, AND THIS USED TO ASSUME IT DID.
+	// FSceneView::Family is copied straight from InitOptions.ViewFamily and has
+	// no default, so a view built from bare init options carries null. Every
+	// view the shipped extension hands us belongs to the family currently
+	// rendering, which is why the raw dereference below survived review -- but
+	// it is a property of the caller, not of the type, and the compiler enforces
+	// nothing.
+	//
+	// Observed 2026-08-06, as a SIGSEGV at address 0x30 on the render thread,
+	// from a unit fixture that could not construct a family (one needs a scene,
+	// which needs a world). The cost was not the failing test: the crash took
+	// the editor down mid-session and 55 further tests never ran, which the
+	// runner reported as a clean green.
+	//
+	// AFTER THE QUEUE IS DRAINED AND THE LUT IS BUILT, deliberately. Returning
+	// earlier would leave the requests pending for a view that is never drained
+	// again -- the queue would grow for the life of the process -- and would
+	// also make this function a no-op for the seam tests, which read the LUT
+	// this call builds. What is skipped here is the composite, which is the only
+	// part that needs the family.
+	if (View.Family == nullptr)
+	{
+		UE_LOG(LogFlowViz, Warning,
+			TEXT("Volume ray-march drained %d request(s) for a view with no view family, ")
+			TEXT("so the marched result was built but not composited into a scene texture."),
+			Requests.Num());
+		return;
+	}
+
 	FRDGTextureRef SceneOutput = TryCreateViewFamilyTexture(GraphBuilder, *View.Family);
 	if (SceneOutput == nullptr)
 	{

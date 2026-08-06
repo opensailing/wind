@@ -121,10 +121,15 @@ namespace FlowVizTransferFunctionSeamFixture
 				});
 			FlushRenderingCommands();
 
-			// NO VIEW FAMILY, for the reason recorded in the settings seam
-			// fixture: FSceneView guards every Family dereference, and a family
-			// would need a scene and a world for a camera the dispatcher
-			// reduces to eight numbers.
+			// NO VIEW FAMILY: one would need a scene and a world, for a camera
+			// the dispatcher reduces to eight numbers.
+			//
+			// AN EARLIER VERSION OF THIS COMMENT CLAIMED THAT WAS SAFE BECAUSE
+			// "FSceneView guards every Family dereference". It does not -- it
+			// guards its OWN dereferences. DrainView had a raw `*View.Family`
+			// and this fixture crashed the editor on it. Channel 3 at the bottom
+			// of this file is the arm for that, and the guard it pins is in
+			// DrainView, not here.
 			ViewInit.SetViewRectangle(FIntRect(0, 0, ViewWidth, ViewHeight));
 			ViewInit.ViewOrigin = FVector::ZeroVector;
 			ViewInit.ViewRotationMatrix = FMatrix::Identity;
@@ -269,14 +274,35 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 		FFlowVizVolumeRayMarchParameters Expected;
 		FlowVizRayMarch::FillDefaults(Expected);
 
+		// THE RANGE IS NOT READ FROM `Expected`, AND THAT IS THE POINT OF THIS
+		// PARAGRAPH. FillDefaults does not write ValueRangeMin/Max at all --
+		// FillFromVolumeParameters does, from a layout. FFlowVizVolumeRayMarchParameters
+		// declares its members with SHADER_PARAMETER, which supplies no
+		// initialiser, so those two fields of `Expected` are whatever was on the
+		// stack. This test used to compare against them and demanded
+		// ValueRangeMin be 25313668722691049538072426315776.0 -- one particular
+		// stack frame's garbage, promoted to a specification.
+		//
+		// It never failed, because it never ran: the crash this file's channel 3
+		// now covers killed the process before the result could be reported, and
+		// the runner called the truncated session green (#61 and #62). Fixing
+		// the crash is what first made this assertion visible.
+		//
+		// A default-constructed view model is documented as viridis over [0, 1],
+		// so THAT is the expectation, written as literals. Reading it from the
+		// same object under test would make the check a tautology.
+		constexpr float DefaultRangeMin = 0.0f;
+		constexpr float DefaultRangeMax = 1.0f;
+
 		FFlowVizVolumeRayMarchParameters Actual;
 		if (TestTrue(TEXT("the dispatcher queues a request for a default transfer function"),
 				Harness.Dispatch(FFlowVizTransferFunctionViewModel(), Actual)))
 		{
-			TestEqual(TEXT("a default transfer function leaves ValueRangeMin at the default"),
-				Actual.ValueRangeMin, Expected.ValueRangeMin);
-			TestEqual(TEXT("a default transfer function leaves ValueRangeMax at the default"),
-				Actual.ValueRangeMax, Expected.ValueRangeMax);
+			TestEqual(TEXT("a default transfer function carries the documented default range floor"),
+				Actual.ValueRangeMin, DefaultRangeMin);
+			TestEqual(TEXT("and the documented default ceiling, so the pair is [0, 1] rather than "
+						   "whatever was on the stack"),
+				Actual.ValueRangeMax, DefaultRangeMax);
 			TestEqual(TEXT("a default transfer function leaves ComponentMode at the default"),
 				Actual.ComponentMode, Expected.ComponentMode);
 			TestEqual(TEXT("a default transfer function leaves clamping off"),
@@ -423,6 +449,65 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("and the colormap still arrives alongside them -- the point is that "
 						   "all four travel together, not that one replaced another"),
 				Resident.ColorMap, ECFDVizColorMap::Inferno);
+		}
+	}
+
+	// --- CHANNEL 3: A VIEW WITH NO FAMILY MUST NOT TAKE THE PROCESS DOWN ------
+	//
+	// THIS IS NOT A HYPOTHETICAL EITHER. Every Drain() above runs against a view
+	// whose Family is null, and on 2026-08-06 that was a hard crash:
+	//
+	//     SIGSEGV: invalid attempt to access memory at address 0x30
+	//       TryCreateViewFamilyTexture(FRDGBuilder&, FSceneViewFamily const&)
+	//       FDispatcher::DrainView(FRDGBuilder&, FSceneView const&)
+	//       FSeamHarness::Drain()
+	//
+	// DrainView dereferenced View.Family with no check. FSceneView::Family is
+	// initialised straight from InitOptions.ViewFamily and defaults to nothing,
+	// so any view built from bare init options -- which is every view a unit
+	// test can build, since a family needs a scene and a world -- is a null
+	// dereference waiting for the composite step.
+	//
+	// The comment in CreateResources above USED TO CLAIM the opposite: that
+	// "FSceneView guards every Family dereference". FSceneView guards its own
+	// uses. DrainView is ours.
+	//
+	// WHY THE ARM IS WORTH ITS LINES WHEN THE CHANNELS ABOVE ALREADY DRAIN: a
+	// crash is not a failing assertion. It killed the editor on the render
+	// thread and took the whole 106-test session with it at test 51, and the
+	// runner reported "51/51 passed" (#61). So the channels above cannot report
+	// this defect -- they are what triggers it, and the report never survives to
+	// be printed. Reaching this line at all is the evidence.
+	{
+		FFlowVizTransferFunctionViewModel Configured = MakeConfigured(*this);
+
+		FFlowVizVolumeRayMarchParameters Ignored;
+		if (TestTrue(TEXT("the dispatcher queues a request to drain"),
+				Harness.Dispatch(Configured, Ignored)))
+		{
+			// The line that used to crash. There is no TestNoCrash, and there
+			// does not need to be: control returning here is the assertion.
+			Harness.Drain();
+
+			TestTrue(TEXT("draining a view with NO VIEW FAMILY returns instead of "
+						  "dereferencing null -- a crash here kills the render thread and "
+						  "every test after it, and the runner reports the truncated run green"),
+				true);
+
+			// AND IT STILL DID ITS WORK. A guard placed too early would make
+			// this channel pass by turning DrainView into a no-op, which would
+			// also silence channels 1 and 2 -- so pin the LUT build, which sits
+			// BEFORE the composite step and must therefore still have run.
+			TestEqual(TEXT("and the LUT was still built on the way out, so the guard skips the "
+						   "composite rather than the whole drain"),
+				Harness.Dispatcher.GetResidentColorMap(), ECFDVizColorMap::Inferno);
+
+			// The queue must still drain. A guard that returns BEFORE the
+			// requests are taken leaves them pending for a view that will never
+			// come back, and the queue grows for the life of the process.
+			TestEqual(TEXT("and the request was consumed, not left pending for a view that "
+						   "is never drained again"),
+				Harness.Dispatcher.NumPendingRequests(), 0);
 		}
 	}
 
