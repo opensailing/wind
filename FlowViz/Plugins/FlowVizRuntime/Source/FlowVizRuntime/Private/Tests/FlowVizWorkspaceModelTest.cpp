@@ -157,10 +157,20 @@ namespace FlowVizWorkspaceModelTest
 	const FVector KeptPoint(6.0, 2.0, 0.1);
 	const FVector ClippedPoint(6.0, 1.0, 0.5);
 
-	/** Where the round-trip file is written. Removed by the test that creates it. */
-	FString GetSessionDir()
+	/**
+	 * Where a test's session file is written. Removed by the test that creates
+	 * it.
+	 *
+	 * PER TEST, not one directory shared by all three. Each test deletes its
+	 * directory on the way out whether it passed or failed, so a shared one
+	 * would let a failing test remove the file a later test was about to read -
+	 * and that later test would then fail with FileNotFound, which reads as a
+	 * defect in the load path rather than as fallout.
+	 */
+	FString GetSessionDir(const TCHAR* TestName)
 	{
-		return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("FlowVizWorkspaceSessionTest"));
+		return FPaths::Combine(
+			FPaths::ProjectSavedDir(), TEXT("FlowVizWorkspaceSessionTest"), TestName);
 	}
 
 	/**
@@ -328,9 +338,9 @@ namespace FlowVizWorkspaceModelTest
 	 *
 	 * WITHOUT THIS, THE ROUND TRIP CANNOT FAIL. Saving a fixture and then
 	 * asserting the fixture is still there is a tautology - the values never
-	 * left. Poisoning first converts every assertion in VerifyFixture from "this
-	 * value is present" into "the load PUT this value back", which is the only
-	 * one of the two that a no-op LoadSession fails. Repo memory:
+	 * left. Poisoning first converts every assertion in VerifyRestoredPanels
+	 * from "this value is present" into "the load PUT this value back", which is
+	 * the only one of the two that a no-op LoadSession fails. Repo memory:
 	 * a-defaults-helper-can-supply-the-observed-value.
 	 *
 	 * EVERY POISON DIFFERS FROM THE POST-OPEN DEFAULT AS WELL AS FROM THE
@@ -414,7 +424,7 @@ namespace FlowVizWorkspaceModelTest
 
 		// NO SetManualRange HERE, DELIBERATELY. The range source is itself one of
 		// the things the round trip has to restore, and any manual range would
-		// leave the source at Manual - which is exactly what VerifyFixture
+		// leave the source at Manual - which is exactly what VerifyRestoredPanels
 		// asserts, so that assertion would pass without the session. BindField
 		// has already put the source back to Global as part of the field switch
 		// above; the control below is what confirms it, rather than trusting it.
@@ -491,9 +501,9 @@ namespace FlowVizWorkspaceModelTest
 		 * PHRASED AS "DIFFERS FROM THE FIXTURE" RATHER THAN "EQUALS MY POISON".
 		 *
 		 * The property this helper owes its caller is not that any particular
-		 * number is present - it is that NOTHING VerifyFixture will look at is
-		 * already holding the value VerifyFixture demands. Asserting the poison's
-		 * own numbers would be a second copy of the lines above and would still
+		 * number is present - it is that NOTHING VerifyRestoredPanels will look
+		 * at is already holding the value it demands. Asserting the poison's own
+		 * numbers would be a second copy of the lines above and would still
 		 * leave the real question unasked.
 		 *
 		 * The result-returning setters above are all checked, so these controls
@@ -529,9 +539,9 @@ namespace FlowVizWorkspaceModelTest
 		// AutomationTest.h declares TestNotEqual only for the string types, so an
 		// enum argument does not compile.
 		if (!Test.TestTrue(
-				TEXT("CONTROL: the range SOURCE is off Manual, which is what VerifyFixture "
-					 "asserts. Nothing above sets it directly - it is BindField, reached "
-					 "through the field switch, that puts it back to Global"),
+				TEXT("CONTROL: the range SOURCE is off Manual, which is what "
+					 "VerifyRestoredPanels asserts. Nothing above sets it directly - it is "
+					 "BindField, reached through the field switch, that puts it back to Global"),
 				Workspace.TransferFunction.GetRangeSource() != EFlowVizRangeSource::Manual))
 		{
 			bOk = false;
@@ -597,20 +607,22 @@ namespace FlowVizWorkspaceModelTest
 	}
 
 	/**
-	 * Assert that every fixture value is present.
+	 * Assert the CASE half of the fixture: the right case, opened, on the right
+	 * field.
 	 *
-	 * ON VALUES, NEVER ON THE RETURNED FCFDVizResult. FlowVizSession::
-	 * ApplyToViewModels is best-effort: it applies what it can and reports only
-	 * the FIRST failure, so an Ok is not evidence that anything was applied and a
-	 * failure is not evidence that nothing was. What landed in the models is the
-	 * only observable that answers the question.
+	 * Separate from the panel half below because the two are restored by
+	 * different code and one of them has a branch the other does not. A session
+	 * whose case has MOVED restores every panel and no case at all - that is the
+	 * whole point of plan.md section 14's relink - so the missing-case test
+	 * asserts the panels with this half deliberately absent, and asserts in its
+	 * place that the case did NOT come back. Folding both into one helper would
+	 * have forced that test to either duplicate the panel assertions or assert
+	 * nothing about them.
 	 */
-	void VerifyFixture(
+	void VerifyRestoredCase(
 		const FFlowVizWorkspaceModel& Workspace, FAutomationTestBase& Test, const TCHAR* Context)
 	{
 		const FString Where = FString::Printf(TEXT(" (%s)"), Context);
-
-		/* --- Case and field ------------------------------------------------ */
 
 		Test.TestTrue(*(TEXT("the session's case is open") + Where), Workspace.IsCaseOpen());
 		Test.TestEqual(
@@ -620,6 +632,21 @@ namespace FlowVizWorkspaceModelTest
 		Test.TestEqual(
 			*(TEXT("and the colouring is bound to that same field") + Where),
 			Workspace.TransferFunction.GetFieldId(), FixtureFieldId);
+	}
+
+	/**
+	 * Assert that every fixture value the five PANELS own is present.
+	 *
+	 * ON VALUES, NEVER ON THE RETURNED FCFDVizResult. FlowVizSession::
+	 * ApplyToViewModels is best-effort: it applies what it can and reports only
+	 * the FIRST failure, so an Ok is not evidence that anything was applied and a
+	 * failure is not evidence that nothing was. What landed in the models is the
+	 * only observable that answers the question.
+	 */
+	void VerifyRestoredPanels(
+		const FFlowVizWorkspaceModel& Workspace, FAutomationTestBase& Test, const TCHAR* Context)
+	{
+		const FString Where = FString::Printf(TEXT(" (%s)"), Context);
 
 		/* --- Player -------------------------------------------------------- */
 
@@ -1058,16 +1085,16 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
  * THE POISON IS THE TEST. Without it this is "save a fixture, assert the
  * fixture is still there", which passes against a LoadSession whose body is
  * `return FCFDVizResult::Ok();`. The poison is what turns every assertion in
- * VerifyFixture into a claim about what the LOAD did.
+ * VerifyRestoredPanels into a claim about what the LOAD did.
  *
  * THE DOMAIN IS NOT RE-SET BETWEEN SAVE AND LOAD, and that is load-bearing.
  * FFlowVizClipViewModel::SetDomainSize calls ResetCropBox, and OpenCase sets
  * the domain - so a LoadSession that applied the session BEFORE re-opening the
  * case would restore the crop and then erase it, reporting Ok the whole way.
- * The crop assertion in VerifyFixture is what catches that ordering, which is
- * why this test loads into the SAME workspace rather than a fresh one: a fresh
- * workspace would have to open the case anyway and the ordering hazard would
- * never arise.
+ * The crop assertion in VerifyRestoredPanels is what catches that ordering,
+ * which is why this test loads into the SAME workspace rather than a fresh one:
+ * a fresh workspace would have to open the case anyway and the ordering hazard
+ * would never arise.
  */
 bool FFlowVizWorkspaceModelSessionRoundTripTest::RunTest(const FString& Parameters)
 {
@@ -1081,7 +1108,7 @@ bool FFlowVizWorkspaceModelSessionRoundTripTest::RunTest(const FString& Paramete
 		return false;
 	}
 
-	const FString SessionDir = GetSessionDir();
+	const FString SessionDir = GetSessionDir(TEXT("RoundTrip"));
 	const FString SessionPath = FPaths::Combine(
 		SessionDir, FString::Printf(TEXT("roundtrip.%s"), FlowVizSession::GetFileExtension()));
 
@@ -1147,7 +1174,8 @@ bool FFlowVizWorkspaceModelSessionRoundTripTest::RunTest(const FString& Paramete
 	// a non-Ok result still leaves a scene worth asserting about - and the
 	// assertions below are what say WHICH part did not arrive. Abandoning here
 	// would trade a precise report for a single opaque line.
-	VerifyFixture(Workspace, *this, TEXT("after reload"));
+	VerifyRestoredCase(Workspace, *this, TEXT("after reload"));
+	VerifyRestoredPanels(Workspace, *this, TEXT("after reload"));
 
 	/* == And the poison is gone ============================================= */
 
@@ -1157,6 +1185,177 @@ bool FFlowVizWorkspaceModelSessionRoundTripTest::RunTest(const FString& Paramete
 			 "without this, an implementation that merely ADDED the saved probes would pass "
 			 "every assertion above"),
 		Workspace.Probes.FindProbe(PoisonProbeId));
+
+	return true;
+}
+
+/* ========================================================================== */
+/* The case moved                                                              */
+/* ========================================================================== */
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizWorkspaceModelSessionMissingCaseTest,
+	"FlowViz.UI.WorkspaceModel.SessionMissingCase",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+/**
+ * The session's case has MOVED: everything else still comes back.
+ *
+ * plan.md section 14 requires that a session with a missing case "must allow the
+ * user to relink". A relink is only worth offering if the user still has the
+ * setup they would relink INTO - so this branch reports the missing case AND
+ * applies all five panels, and the two halves of that are equally load-bearing.
+ * Neither is checked by SessionRoundTrip, whose case is always present.
+ *
+ * BOTH FAILURE DIRECTIONS ARE ASSERTED, because they are opposite mistakes and
+ * a test for one is silent about the other:
+ *
+ *   return early on a missing case  -> the panels never arrive, and the relink
+ *                                      prompt has nothing behind it. Caught by
+ *                                      VerifyRestoredPanels below.
+ *   open the case anyway            -> OpenCase on a path that does not exist
+ *                                      fails, but not before CloseCase has run,
+ *                                      so the user loses the case they had open.
+ *                                      Caught by the field assertion below.
+ *
+ * THE STATE IS BUILT BY A REAL SAVE AND A REAL PARSE, then has its resolved path
+ * repointed at a file that does not exist. Constructing an FFlowVizSessionState
+ * by hand would let a field the capture actually writes go unset, and the test
+ * would then be about a shape production never produces. The control below
+ * asserts the parse found the case FIRST, so repointing it is a change rather
+ * than a no-op.
+ */
+bool FFlowVizWorkspaceModelSessionMissingCaseTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizWorkspaceModelTest;
+
+	const FString CaseDir = GetSampleCaseDir();
+	if (CaseDir.IsEmpty() || !FPaths::DirectoryExists(CaseDir))
+	{
+		AddError(FString::Printf(
+			TEXT("the sample case is required for this test and was not found at '%s'"), *CaseDir));
+		return false;
+	}
+
+	const FString SessionDir = GetSessionDir(TEXT("MissingCase"));
+	const FString SessionPath = FPaths::Combine(
+		SessionDir, FString::Printf(TEXT("moved.%s"), FlowVizSession::GetFileExtension()));
+
+	ON_SCOPE_EXIT
+	{
+		IFileManager::Get().DeleteDirectory(*SessionDir, /*RequireExists=*/false, /*Tree=*/true);
+	};
+
+	FFlowVizWorkspaceModel Workspace;
+	const FCFDVizResult Opened = Workspace.OpenCase(CaseDir, FixtureFieldId);
+	if (!TestTrue(
+			*FString::Printf(TEXT("opening the sample case succeeds: %s"), *Opened.ToString()),
+			Opened.IsOk()))
+	{
+		return false;
+	}
+
+	if (!ConfigureFixture(Workspace, *this))
+	{
+		return false;
+	}
+
+	const FCFDVizResult Saved = Workspace.SaveSession(SessionPath);
+	if (!TestTrue(
+			*FString::Printf(TEXT("saving the session succeeds: %s"), *Saved.ToString()),
+			Saved.IsOk()))
+	{
+		return false;
+	}
+
+	/* == The case moves ===================================================== */
+
+	FFlowVizSessionState State;
+	const FCFDVizResult Parsed = FlowVizSession::LoadFromFile(SessionPath, State);
+	if (!TestTrue(
+			*FString::Printf(TEXT("parsing the session succeeds: %s"), *Parsed.ToString()),
+			Parsed.IsOk()))
+	{
+		return false;
+	}
+	if (!TestTrue(
+			TEXT("CONTROL: the parse FOUND the case, so clearing the flag below is a change "
+				 "rather than a restatement of what the parse already produced"),
+			State.bCaseFound))
+	{
+		return false;
+	}
+
+	const FString MovedAway = FPaths::Combine(SessionDir, TEXT("gone"), TEXT("manifest.json"));
+	if (!TestFalse(
+			*FString::Printf(
+				TEXT("CONTROL: the path the case is moved to genuinely does not exist, so "
+					 "OpenCase could not succeed on it even if it were called: '%s'"),
+				*MovedAway),
+			FPaths::FileExists(MovedAway)))
+	{
+		return false;
+	}
+	State.ResolvedCasePath = MovedAway;
+	State.bCaseFound = false;
+
+	/* == Poison ============================================================= */
+
+	if (!PoisonFixture(Workspace, *this))
+	{
+		return false;
+	}
+
+	// Recorded AFTER the poison, which is what last set it. The assertion below
+	// is that the load left it alone, so the value has to be read from the state
+	// the load is handed rather than assumed from PoisonFieldId - if the poison's
+	// field switch were ever refused, PoisonFixture reports it and this test has
+	// already returned.
+	const FName FieldBeforeLoad = Workspace.Player.GetFieldId();
+
+	/* == Load =============================================================== */
+
+	const FCFDVizResult Loaded = Workspace.LoadState(State);
+
+	TestFalse(
+		*FString::Printf(
+			TEXT("the missing case is REPORTED rather than swallowed; got '%s'"),
+			*Loaded.ToString()),
+		Loaded.IsOk());
+	TestEqual(
+		TEXT("and reported as FileNotFound specifically, which is what a relink prompt is "
+			 "keyed on - a generic failure would leave the caller unable to tell 'your case "
+			 "moved' from 'your session is corrupt'"),
+		Loaded.Error, ECFDVizError::FileNotFound);
+	TestEqual(
+		*FString::Printf(
+			TEXT("naming the path that was looked for, so the prompt can say which file is "
+				 "missing; got '%s'"),
+			*Loaded.FilePath),
+		Loaded.FilePath, MovedAway);
+
+	/* == The case the user had open is UNTOUCHED ============================ */
+
+	TestTrue(
+		TEXT("the case that was already open stays open. OpenCase calls CloseCase before it "
+			 "can fail on a bad path, so an implementation that tried the move-to path anyway "
+			 "would leave the workspace with NO case - the relink prompt would then be "
+			 "offering to reconnect a scene that is no longer on screen"),
+		Workspace.IsCaseOpen());
+	TestEqual(
+		TEXT("and on the field it was already on, NOT the session's. Re-binding the saved "
+			 "field against a case the session did not open is how a scene comes back looking "
+			 "restored while showing different data"),
+		Workspace.Player.GetFieldId(), FieldBeforeLoad);
+
+	/* == And every panel is back ============================================ */
+
+	// The whole point of the branch: the setup the user would relink INTO
+	// survived. NOT VerifyRestoredCase - the case is deliberately not restored
+	// here, and that difference is the reason the two halves are separate
+	// helpers.
+	VerifyRestoredPanels(Workspace, *this, TEXT("after a load whose case had moved"));
 
 	return true;
 }
