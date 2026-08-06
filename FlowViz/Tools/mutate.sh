@@ -373,7 +373,12 @@ build() {
             # previous one. Force the source strictly newer and rebuild. If it
             # still compiles nothing, fall through to UNSCORED rather than score
             # a binary we know is stale.
-            noop)           touch -A 01 "${SRC}"; sleep 1; continue ;;
+            # -A takes [[hh]mm]SS and parses from the RIGHT, so the argument is
+            # SECONDS unless it is long enough to reach the minutes and hours
+            # fields: `01` is one second, `010000` is one hour. This read as
+            # "+1 hour" and was "+1 second" -- see the comment at the touch in
+            # build()'s tail for what that cost.
+            noop)           touch -A 010000 "${SRC}"; sleep 1; continue ;;
             infrastructure) sleep 15; continue ;;
             *)              return 1 ;;
         esac
@@ -409,7 +414,31 @@ PY
     # tests to run against the previous, unmutated binary and score SURVIVED.
     # Touching into the future guarantees the source is strictly newer than any
     # object built from it.
-    [[ ${status} -eq 0 ]] && touch -A 01 "${SRC}"
+    #
+    # THE ARGUMENT IS NOT AN HOUR UNLESS IT IS SIX DIGITS. `man touch` gives
+    # -A [-][[hh]mm]SS, parsed from the RIGHT, so `01` -- which is what stood
+    # here -- advanced the mtime by ONE SECOND. Measured, not read:
+    #
+    #     -A 01     -> +1s        -A 0100 -> +60s        -A 010000 -> +3600s
+    #
+    # Live consequence 2026-08-06: a campaign spun for 25 minutes without
+    # scoring an arm. Its source was 1683s behind the objects, the build ran 0
+    # actions, `noop` above touched +1s and retried, and at ~40s per iteration
+    # the source needed ~19 hours to overtake. The tree compiled perfectly the
+    # whole time.
+    #
+    # The hang was the SAFE half. Here in build()'s tail the same literal runs
+    # after every successful mutant build, so a build taking longer than a
+    # second left the source older than its own objects -- and the NEXT arm
+    # compiled nothing and was tested against the PREVIOUS arm's binary, which
+    # scores SURVIVED. `noop` is the guard against exactly that, and this bug
+    # sat inside the guard's remedy, so the protection and the hole were the
+    # same line.
+    #
+    # Tools/tests/test_mtime_advance.sh pins the platform semantics and both
+    # sites. Its assertions are about MAGNITUDE: "the mtime advanced" is true of
+    # the bug.
+    [[ ${status} -eq 0 ]] && touch -A 010000 "${SRC}"
     return ${status}
 }
 
