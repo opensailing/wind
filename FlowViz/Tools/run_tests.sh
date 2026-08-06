@@ -124,7 +124,79 @@ echo
 RAN=$(grep -cE "Test Completed\. Result=" "${LOG}")
 PASSED=$(grep -cE "Test Completed\. Result=\{Success\}" "${LOG}")
 
+# --- what the engine FOUND, read before anything decides what happened -------
+#
+# THIS BLOCK USED TO SIT BELOW THE RAN==0 EXIT, and that placement was itself a
+# defect. See the crash branch immediately after it: a session that dies before
+# its first test completes has RAN==0, so everything below the early exit is
+# unreachable for exactly the case that most needs it.
+ENUMERATED_NAMES="$(awk '
+    /automation tests based on/ { collecting = 1; next }
+    collecting && /Display: \t/ {
+        sub(/.*Display: \t/, "")
+        sub(/[[:space:]]+$/, "")
+        print
+        next
+    }
+    collecting { collecting = 0 }
+' "${LOG}")"
+
+ENUMERATED_COUNT=0
+[[ -n "${ENUMERATED_NAMES}" ]] && \
+    ENUMERATED_COUNT="$(printf '%s\n' "${ENUMERATED_NAMES}" | sort -u | wc -l | tr -d ' ')"
+
+# --- nothing completed: a crash, a dead editor, or a filter that matched none -
+#
+# These three used to print the same sentence and exit 4:
+#
+#     FAIL: no tests matched '<filter>'. Check the test path.
+#
+# Observed 2026-08-06: a mutation arm removed FTSTicker::RemoveTicker from the
+# workspace destructor, the handler kept ticking a freed model, and the engine
+# took a SIGSEGV inside FFlowVizCasePlayer::Tick between the test's Started line
+# and its Completed line. This script reported an unmatched filter. The filter
+# was correct, the test had started, and the stack was sitting in the same log
+# it told the reader to ignore.
+#
+# The distinction matters because the actions differ: a wrong filter is a typo
+# to fix, a crash is a defect to diagnose, and a mutation harness scoring the
+# two the same way cannot tell an unrunnable machine from a mistyped path.
 if [[ "${RAN}" -eq 0 ]]; then
+    _CRASHED=""
+    grep -q "Critical error" "${LOG}" && _CRASHED=1
+
+    # The test that was running when the process died: the last Started with no
+    # matching Completed. With RAN==0 that is simply the last Started line.
+    _LAST_STARTED="$(grep -E "Test Started\. .*Path=\{" "${LOG}" \
+        | sed -E 's/.*Path=\{([^}]*)\}.*/\1/' | tail -1)"
+
+    if [[ -n "${_CRASHED}" ]]; then
+        echo "CRASHED: the engine hit a critical error and no test completed." >&2
+        if [[ -n "${_LAST_STARTED}" ]]; then
+            echo "  died while running: ${_LAST_STARTED}" >&2
+        else
+            echo "  it died before any test started." >&2
+        fi
+        echo "  ${PASSED}/${ENUMERATED_COUNT} of the tests the engine found completed." >&2
+        echo >&2
+        grep -A 4 "Critical error" "${LOG}" | sed 's/^/    /' >&2
+        echo >&2
+        echo "  This is NOT a filter problem -- '${FILTER}' matched." >&2
+        echo "Full log: ${LOG}"
+        exit 5
+    fi
+
+    if [[ "${ENUMERATED_COUNT}" -gt 0 || -n "${_LAST_STARTED}" ]]; then
+        # The filter matched and the engine still produced no result. Not a typo
+        # and not an observed crash -- an editor that died without writing one.
+        echo "NO RESULTS: '${FILTER}' matched ${ENUMERATED_COUNT} test(s) and none completed." >&2
+        [[ -n "${_LAST_STARTED}" ]] && echo "  last started: ${_LAST_STARTED}" >&2
+        echo "  ${PASSED}/${ENUMERATED_COUNT} completed. The session did not finish." >&2
+        echo "Full log: ${LOG}"
+        exit 5
+    fi
+
+    # Nothing enumerated, nothing started, no crash: the filter really is wrong.
     # An empty filter match exits 0, which would otherwise read as success.
     echo "FAIL: no tests matched '${FILTER}'. Check the test path." >&2
     echo "Full log: ${LOG}"
@@ -155,16 +227,10 @@ fi
 # died before enumerating. Falling back to RAN there keeps --summarize working
 # over old logs; it means those logs cannot detect truncation, which is the
 # status quo and not a regression.
-ENUMERATED_NAMES="$(awk '
-    /automation tests based on/ { collecting = 1; next }
-    collecting && /Display: \t/ {
-        sub(/.*Display: \t/, "")
-        sub(/[[:space:]]+$/, "")
-        print
-        next
-    }
-    collecting { collecting = 0 }
-' "${LOG}")"
+#
+# ENUMERATED_NAMES is read above, before the RAN==0 exit, because the crash
+# branch needs it too -- a session that dies before its first test completes
+# never reaches this point.
 
 MISSING_NAMES=""
 if [[ -n "${ENUMERATED_NAMES}" ]]; then
