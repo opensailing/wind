@@ -93,7 +93,16 @@ count_checks() {
 # Discover tests. Both languages: test_equivalent_mutants.py is a real test in
 # this directory, and a runner that globbed only *.sh would drop it with
 # nothing in the report to say so.
-mapfile -t FOUND < <(
+#
+# Not `mapfile`: it is bash 4, and macOS /bin/bash is 3.2.57. This file's
+# `#!/usr/bin/env bash` happens to find Homebrew's 5.3.9 today, so it worked --
+# on a box without Homebrew bash, FOUND came back empty and the runner reported
+# "no tests found" for a directory full of tests. Discovery is the one step
+# whose failure mode is a silent, plausible-looking zero.
+FOUND=()
+while IFS= read -r f; do
+    [[ -n "${f}" ]] && FOUND+=("${f}")
+done < <(
     find "${TESTS_DIR}" -maxdepth 1 -type f \( -name 'test_*.sh' -o -name 'test_*.py' \) 2>/dev/null | sort
 )
 
