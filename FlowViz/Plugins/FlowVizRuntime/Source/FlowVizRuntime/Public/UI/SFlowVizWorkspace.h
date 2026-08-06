@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CFDViz/CFDVizTypes.h"
+#include "Containers/Ticker.h"
 #include "CoreMinimal.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/SCompoundWidget.h"
@@ -165,6 +166,79 @@ public:
 	TSharedPtr<SFlowVizProbePanel> GetProbePanel() const { return ProbePanel; }
 
 private:
+	/**
+	 * THE CLOCK. Without it, Play sets a flag nothing acts on.
+	 *
+	 * FFlowVizCasePlayer::Play does exactly one thing -- `bPlaying = true` -- and
+	 * everything that reads that flag lives in FFlowVizCasePlayer::Tick. Before
+	 * this handle existed, the only callers of that Tick in the whole plugin were
+	 * test files: no FTSTicker, no FTickableGameObject, no SWidget::Tick override,
+	 * and UCFDVizVolumeComponent sets `PrimaryComponentTick.bCanEverTick = false`.
+	 * So the transport bar's button toggled its label, IsPlaying() answered true,
+	 * every playback test passed, and the case sat on whatever frame the user had
+	 * last dragged the playhead to.
+	 *
+	 * IT ALSO PRIMES THE DECODES, which is the half that is easy to miss.
+	 * StartPendingLoads has exactly one call site and it is inside that same Tick,
+	 * so an unticked player never even starts reading frame 0 off disk. Combined
+	 * with WaitForPendingLoads returning true immediately against an empty queue,
+	 * an un-driven player is observationally identical to a broken decode path.
+	 *
+	 * WHY FTSTicker AND NOT AN SCompoundWidget::Tick OVERRIDE. The two are not
+	 * interchangeable, and they differ in a case that happens constantly: Slate
+	 * ticks a widget only while it is in a visible, painted window, so a
+	 * widget-driven clock stops playback whenever the workspace tab is hidden
+	 * behind another. That would be defensible if the animation were IN this
+	 * panel -- but it is not. The volume renders into the LEVEL VIEWPORT (see the
+	 * class comment above), so the tab this widget lives in is precisely the thing
+	 * a user docks away while watching the volume play. A widget clock would stop
+	 * the picture they are looking at because they moved a panel they are not.
+	 * FTSTicker is driven by the engine loop's Tick_Core every frame regardless of
+	 * what is painted, which is the behaviour that matches where the image is.
+	 *
+	 * The cost of that choice is that this ticker keeps running for a workspace
+	 * nobody can see, which is why it must be unregistered in the destructor
+	 * rather than left to expire: the handler captures `this` and the model is
+	 * destroyed with the widget. Registration is per-instance for the same
+	 * reason -- a static handle would let the first workspace's destructor stop
+	 * the clock for every workspace still open, and closing one of two tabs is an
+	 * ordinary thing to do.
+	 */
+	FTSTicker::FDelegateHandle ClockHandle;
+
+	/**
+	 * One engine frame of playback. Returns true to stay registered.
+	 *
+	 * Takes the engine's real delta rather than a fixed step so playback runs in
+	 * wall time rather than in frames-rendered; the player's own Sequence and
+	 * FixedFps modes decide what that means for the playhead.
+	 */
+	bool TickClock(float DeltaSeconds);
+
+	/**
+	 * The last displayed pair this widget told the renderer about.
+	 *
+	 * The scene proxy renders from a marshalled SNAPSHOT, not from the live
+	 * frame source, so an advancing playhead reaches the pixels only when
+	 * something marks the component's dynamic data dirty. These three exist so
+	 * that mark happens when the display actually CHANGES rather than on every
+	 * engine frame -- the displayed pair moves at the case's frame rate, which is
+	 * a small fraction of the tick rate, and each redundant mark is a
+	 * render-thread command enqueued to publish bytes identical to the ones
+	 * already there.
+	 *
+	 * Alpha is part of the comparison because an interpolated frame's blend
+	 * weight changes the image while both frame indices stay put; comparing only
+	 * the indices would hold the picture still through the whole blend and then
+	 * jump.
+	 *
+	 * Seeded to the "nothing published yet" display so the first tick after a
+	 * case opens always marks.
+	 */
+	int32 LastPublishedFrameA = INDEX_NONE;
+	int32 LastPublishedFrameB = INDEX_NONE;
+	double LastPublishedAlpha = -1.0;
+
 	/**
 	 * Heap-allocated rather than a by-value member.
 	 *

@@ -93,6 +93,21 @@ SFlowVizWorkspace::SFlowVizWorkspace() = default;
 SFlowVizWorkspace::~SFlowVizWorkspace()
 {
 	/*
+	 * THE CLOCK GOES FIRST, AND IT MUST.
+	 *
+	 * TickClock captures `this` and reads Model, which is destroyed immediately
+	 * after this body. FTSTicker::RemoveTicker is documented to block until an
+	 * in-progress execution of the handler finishes, so after this line no
+	 * further call can be in flight -- which is the guarantee that makes the
+	 * capture safe rather than merely usually-safe.
+	 *
+	 * Unconditional: RemoveTicker on a default-constructed (or already removed)
+	 * handle is a no-op, so there is no "was it registered" state to track and
+	 * no branch here to get wrong.
+	 */
+	FTSTicker::RemoveTicker(ClockHandle);
+
+	/*
 	 * NOT `= default`, AND THIS IS THE TEARDOWN THAT ACTUALLY HAPPENS.
 	 *
 	 * SetVolume(nullptr) releases the frame source on an explicit unbind, but
@@ -128,6 +143,24 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 	// transport bar and the transfer-function editor different ideas of which
 	// case is open - and they would each look correct in isolation.
 	Model = MakeUnique<FFlowVizWorkspaceModel>();
+
+	/*
+	 * THE CLOCK, REGISTERED BEFORE ANY PANEL EXISTS. See the header for why this
+	 * is an engine ticker rather than an SCompoundWidget::Tick override, and why
+	 * the handle is per-instance.
+	 *
+	 * Delay 0 means "every frame" rather than "once": the handler returns true,
+	 * which re-arms it at CurrentTime + 0. A non-zero delay here would quantise
+	 * playback to that interval no matter what the player's own frame rate
+	 * settings said.
+	 *
+	 * Capturing `this` raw is safe only because the destructor removes the
+	 * handle and RemoveTicker blocks on an in-flight call; nothing else about
+	 * this widget's lifetime guarantees it.
+	 */
+	ClockHandle = FTSTicker::GetCoreTicker().AddTicker(
+		TEXT("FlowVizWorkspaceClock"), 0.0f,
+		[this](float DeltaSeconds) { return TickClock(DeltaSeconds); });
 
 	const float U = FlowVizWorkspaceStyle::GetUnit();
 
@@ -388,6 +421,62 @@ FCFDVizResult SFlowVizWorkspace::LoadState(const FFlowVizSessionState& State)
 	// placed - would otherwise turn every successful load into a reported
 	// failure.
 	return Applied;
+}
+
+bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
+{
+	/*
+	 * ONE ENGINE FRAME OF PLAYBACK.
+	 *
+	 * UNCONDITIONAL, RATHER THAN GATED ON IsPlaying(). The player's own Tick
+	 * decides what a paused frame means, and the answer is not "nothing": it
+	 * drains completed decodes and starts pending ones even when paused, so a
+	 * scrub that stops mid-decode still lands on the frame the user asked for.
+	 * A `if (Player.IsPlaying())` guard here would break scrubbing while looking
+	 * like a harmless optimisation, and the paused arm of
+	 * FlowViz.UI.Workspace.ClockSeam exists to catch exactly that.
+	 *
+	 * Tick is a no-op on a player with no case open, which is the state a
+	 * freshly built workspace is in, so there is nothing to guard for that
+	 * either.
+	 */
+	Model->Player.Tick(DeltaSeconds);
+
+	/*
+	 * AND THE RENDER SIDE HAS TO BE TOLD, because the proxy holds a SNAPSHOT.
+	 *
+	 * The frame source the component reads is live (FlowVizCaseSeam), so
+	 * GetFrameSelection() follows the playhead the instant it moves -- but the
+	 * scene proxy does not call that. It reads FFlowVizVolumeProxyDynamicData,
+	 * which is built on the game thread and marshalled across only when
+	 * something marks the component's dynamic data dirty. Every other writer on
+	 * this widget's side (SetRenderSettings, SetClip, SetTransferFunction) marks
+	 * it as part of the setter; a playhead that advances on its own has no
+	 * setter to piggyback on, so without this the player would advance, the
+	 * component would agree, and the picture would not move.
+	 *
+	 * Marked only when the DISPLAY changed rather than every frame. The
+	 * displayed pair is what the proxy renders from, and it moves far less often
+	 * than the playhead does -- at 24 stored frames per second against a
+	 * 120 Hz tick, an unconditional mark would enqueue four redundant
+	 * render-thread updates for every one that changes a pixel.
+	 */
+	if (UCFDVizVolumeComponent* Bound = Volume.Get())
+	{
+		const FFlowVizDisplaySelection& Display = Model->Player.GetDisplay();
+		if (Display.FrameA != LastPublishedFrameA || Display.FrameB != LastPublishedFrameB
+			|| Display.Alpha != LastPublishedAlpha)
+		{
+			LastPublishedFrameA = Display.FrameA;
+			LastPublishedFrameB = Display.FrameB;
+			LastPublishedAlpha = Display.Alpha;
+			Bound->MarkRenderDynamicDataDirty();
+		}
+	}
+
+	// True re-arms for the next engine frame. Returning false here would make
+	// playback work exactly once.
+	return true;
 }
 
 void SFlowVizWorkspace::HandleTransferFunctionChanged()
