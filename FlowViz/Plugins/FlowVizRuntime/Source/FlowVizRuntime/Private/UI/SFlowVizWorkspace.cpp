@@ -4,6 +4,7 @@
 
 #include "Playback/FlowVizCasePlayer.h"
 #include "Scene/FlowVizVolumeComponent.h"
+#include "UI/FlowVizSession.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
@@ -339,6 +340,54 @@ bool SFlowVizWorkspace::PushToVolume()
 		FFlowVizWorkspaceModel::PushTransferFunctionToVolume(Model->TransferFunction, Bound);
 
 	return bClipPushed && bTransferFunctionPushed;
+}
+
+/* ========================================================================== */
+/* Sessions                                                                    */
+/* ========================================================================== */
+
+FCFDVizResult SFlowVizWorkspace::SaveSession(const FString& FilePath) const
+{
+	return Model->SaveSession(FilePath);
+}
+
+FCFDVizResult SFlowVizWorkspace::LoadSession(const FString& FilePath)
+{
+	FFlowVizSessionState State;
+	const FCFDVizResult Read = FlowVizSession::LoadFromFile(FilePath, State);
+	if (!Read.IsOk())
+	{
+		/*
+		 * NOTHING WAS APPLIED, so nothing is pushed - and this early return is
+		 * the ONE case where skipping the push is right.
+		 *
+		 * Distinct from a missing CASE, which LoadFromFile reports as Ok with
+		 * bCaseFound false and which LoadState below pushes for. A read failure
+		 * means there is no state at all: the models are untouched, so a push
+		 * here would republish what the volume already has while a failure is
+		 * being reported - work that cannot help and a log line that cannot be
+		 * explained.
+		 */
+		return Read;
+	}
+
+	return LoadState(State);
+}
+
+FCFDVizResult SFlowVizWorkspace::LoadState(const FFlowVizSessionState& State)
+{
+	const FCFDVizResult Applied = Model->LoadState(State);
+
+	// UNCONDITIONAL, and the header says why at length: a missing case is
+	// REPORTED and still applies every panel, so a guard on IsOk() would leave
+	// the render stale in exactly the relink flow.
+	PushToVolume();
+
+	// THE PUSH'S RESULT IS DROPPED rather than folded into the return. A
+	// workspace with no volume bound - the ordinary state before a case actor is
+	// placed - would otherwise turn every successful load into a reported
+	// failure.
+	return Applied;
 }
 
 void SFlowVizWorkspace::HandleTransferFunctionChanged()

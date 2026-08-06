@@ -2,10 +2,12 @@
 
 #pragma once
 
+#include "CFDViz/CFDVizTypes.h"
 #include "CoreMinimal.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/SCompoundWidget.h"
 
+struct FFlowVizSessionState;
 struct FFlowVizWorkspaceModel;
 class UCFDVizVolumeComponent;
 class SFlowVizClipPanel;
@@ -94,6 +96,62 @@ public:
 	 *         bound one with no case. "Did not happen", not "went wrong".
 	 */
 	bool PushToVolume();
+
+	/* --- Sessions ---------------------------------------------------------- */
+
+	/**
+	 * Save the workspace to a `.cfdvizsession` file.
+	 *
+	 * A thin forward to the model's SaveSession. It exists rather than leaving
+	 * callers to write `GetModel().SaveSession(...)` so that save and load are a
+	 * matched pair at THIS level: load cannot be a forward, for the reason below,
+	 * and offering only half the pair here is what invites a caller to reach past
+	 * the widget for the other half.
+	 *
+	 * NO FILE DIALOG, HERE OR IN LoadSession. This module has no DesktopPlatform
+	 * dependency and must not grow one - it is editor-only, and pulling it in
+	 * would make this workspace unusable in a packaged build for the sake of a
+	 * button. The picker belongs to whatever opens the workspace; these take a
+	 * path.
+	 */
+	FCFDVizResult SaveSession(const FString& FilePath) const;
+
+	/**
+	 * Load a session AND make the bound volume show it.
+	 *
+	 * WHY THIS IS NOT `GetModel().LoadSession(...)`. Every other push in this
+	 * widget is triggered by a panel's change delegate. A session load rewrites
+	 * the transfer function and the clip planes UNDERNEATH the panels, and no
+	 * panel announces anything - so a caller that went through the model directly
+	 * would leave the render on the previous session's colours while every
+	 * control on screen reads correctly. That is the shape #50 had one level
+	 * down, and a screenshot of it looks entirely right.
+	 *
+	 * THE PUSH IS UNCONDITIONAL, AND THAT IS THE POINT. LoadSession reports the
+	 * first failure AFTER applying what it could, so a non-Ok result routinely
+	 * means "every panel is restored and the case is missing" - the relink case
+	 * plan.md section 14 requires. Guarding the push on IsOk() reads as prudent
+	 * and is exactly backwards: it would suppress the push in the one flow where
+	 * the user is about to be asked to relink, and asked against a stale image.
+	 *
+	 * @return The load's result, unchanged. The push's outcome is deliberately
+	 *         NOT folded in: "no volume bound" is the ordinary state of a
+	 *         workspace whose scene has no case actor yet, and reporting that as
+	 *         a session failure would make an ordinary load look broken.
+	 */
+	FCFDVizResult LoadSession(const FString& FilePath);
+
+	/**
+	 * Apply an already-parsed session, then push. The half of LoadSession after
+	 * the read.
+	 *
+	 * Exposed for the relink flow, which must parse, discover the case is
+	 * missing, ask the user, RelinkCase and only then apply - without writing the
+	 * state back out to a temporary just to re-read it. The push obligation is
+	 * identical either way, so it lives here and LoadSession routes through it
+	 * rather than repeating the call.
+	 */
+	FCFDVizResult LoadState(const FFlowVizSessionState& State);
 
 	/* --- Test seams. The panels this workspace actually built. ------------- */
 
