@@ -189,6 +189,27 @@ SRC_BASE="$(basename "${SRC}")"
 # shellcheck source=/dev/null
 source "${PROJECT_DIR}/Tools/verdict.sh"
 
+# check_harness_drift lives here, and the call at the end of this script had
+# NEVER resolved without this line -- observed live 2026-08-06 as
+# "line 623: check_harness_drift: command not found", printed after a
+# five-arm campaign had already scored every arm.
+#
+# So the drift-provenance block -- the entire point of the self-copy work,
+# which exists to say "these verdicts came from a harness that is no longer on
+# disk" -- has been dead since it was written. It could not warn; it aborted.
+#
+# WHAT THE TEST SUITE SAW INSTEAD. test_mutate_selfcopy.sh sources
+# mutation_window.sh itself before calling the function, so it was in scope for
+# the test and absent here, and its check on THIS file was
+# `grep -q 'check_harness_drift'` -- which asserts the call is written, not
+# that it resolves. 26 green checks over a call that always died.
+#
+# Tools/tests/test_mutate_resolves_calls.sh runs a whole fixture campaign and
+# fails if "command not found" appears anywhere in its output, which is the
+# property grep cannot express.
+# shellcheck source=/dev/null
+source "${PROJECT_DIR}/Tools/mutation_window.sh"
+
 cd "${REPO_ROOT}" || exit 2
 [[ -f "${SRC}" ]] || { echo "error: no such source file: ${SRC}" >&2; exit 2; }
 
