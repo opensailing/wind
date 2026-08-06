@@ -1,29 +1,65 @@
 Campaign clip-wire-panel, run 2026-08-06 against a150df8 in an isolated
-worktree, over Private/UI/SFlowVizClipPanel.cpp with filter FlowViz.UI. Result:
+worktree, over Private/UI/SFlowVizClipPanel.cpp with filter FlowViz.UI. BEFORE
+and AFTER the gaps below were closed (after = re-run 06:09-06:24Z against
+d1010c7, same worktree, same filter):
 
-    SURVIVED  IDENTITY CONTROL                          (correct)
-    killed    the event argument is never read
-    killed    the preset handler announces nothing
-    SURVIVED  a REFUSED preset is announced anyway      <-- see GAP C
-    SURVIVED  enable-toggle announces nothing           <-- see GAP A
-    SURVIVED  invert announces nothing                  <-- see GAP A
-    SURVIVED  remove announces nothing                  <-- see GAP A
-    killed    the advisory latches
-    SURVIVED  the advisory is never shown               <-- see GAP B
+    before    after     arm
+    --------  --------  ----------------------------------------------
+    SURVIVED  SURVIVED  IDENTITY CONTROL                    (correct)
+    killed    killed    the event argument is never read
+    killed    killed    the preset handler announces nothing
+    SURVIVED  killed    a REFUSED preset is announced anyway   <-- GAP C
+    SURVIVED  killed    enable-toggle announces nothing        <-- GAP A
+    SURVIVED  killed    invert announces nothing               <-- GAP A
+    SURVIVED  killed    remove announces nothing               <-- GAP A
+    killed    killed    the advisory latches
+    SURVIVED  killed    the advisory is never shown            <-- GAP B
 
-    killed 3  SURVIVED 6  INVALID 0  UNSCORED 0
+    before:  killed 3  SURVIVED 6  INVALID 0  UNSCORED 0  skipped 0
+    after:   killed 8  SURVIVED 1  INVALID 0  UNSCORED 0  skipped 0
 
-Baseline was green before scoring and the identity control survived, so these
-verdicts are readable rather than noise.
+The skipped column is not decoration. A drifted anchor SKIPs -- neither SURVIVED
+nor killed -- and mutate.sh's exit code reads only SURVIVED and UNSCORED, so an
+all-skipped campaign exits 0 exactly like a clean sweep. Nine arms applied in
+both runs; see clip-wire-workspace.README for the longer note.
 
-FIVE REAL SURVIVORS, AND NONE OF THEM IS A DEFECT IN THE PANEL. Every one was
+Baseline was green before scoring in both runs and the identity control survived
+both, so these verdicts are readable rather than noise. The lone remaining
+survivor is that control, which is the required result.
+
+WHICH TEST KILLED WHICH ARM, because a KILLED only says the SUITE went red and
+this run added tests to a suite that already had 40. Each arm's log names the
+failing assertion, so the attribution is read rather than inferred from arm
+order -- three arms here fail the same test, and ordering alone could not tell
+them apart. Repo memory attribute-kills-to-a-test-not-a-suite.
+
+    enable      AnnouncesEveryEdit  'hiding a plane announces...' 2 != 1
+    invert      AnnouncesEveryEdit  'inverting announces...' expected 4, was 3
+    remove      AnnouncesEveryEdit  'removing announces...' expected 5, was 4
+    refused     AnnouncesEveryEdit  'a REFUSED edit announces nothing' 11 != ...
+    never shown AdvisoryIsShown     'the advisory strip is VISIBLE in the built
+                                     tree, not merely decided to be'
+
+Every one is an assertion written for that arm, in FlowVizClipPanelAnnounceTest.cpp
+(GAP A, C) and its AdvisoryIsShown test (GAP B). No arm was killed by a
+pre-existing test, and none was killed by a build error: all 40 enumerated tests
+completed in all nine arms, so nothing was scored against a truncated session.
+
+FIVE REAL SURVIVORS, AND NONE OF THEM WAS A DEFECT IN THE PANEL. Every one was
 read against the source before anything was filed as work: the production code
-does the right thing in all five cases. A SURVIVED arm says THE SUITE CANNOT
+did the right thing in all five cases. A SURVIVED arm says THE SUITE CANNOT
 TELL. It never says the code is wrong, and acting on the first reading is how a
 correct guard gets weakened to score a number -- see clip-wire-push.README for
 that mistake's shape.
 
-Tracked as task #59.
+SO NOT ONE LINE OF SFlowVizClipPanel.cpp CHANGED to flip these five. The whole
+close is tests, and that is the tell that the diagnosis was right: if closing a
+survivor requires editing the code under test, either the arm found a real
+defect or the arm is being made killable, and those two want very different
+commits.
+
+Tracked as task #59. All five gaps closed; see the after-verdicts above and the
+CLOSED BY notes under each gap.
 
 GAP A -- THE THREE ANNOUNCE ARMS (enable, invert, remove).
 
@@ -48,6 +84,14 @@ proves nothing either. ExecuteIfBound on an unbound delegate is the legal inert
 state, so an unsubscribed panel passes a "did not crash" test and every mutant
 survives it too.
 
+CLOSED BY FlowViz.UI.ClipPanel.AnnouncesEveryEdit, which subscribes a counting
+delegate and presses the enable, invert and remove buttons through the widget.
+All three arms flipped to killed, each failing its own assertion. It opens with
+a control arm -- the preset press, whose count MUST move -- because "the count
+did not move" is the failure every arm below it looks for, and a panel that
+dropped the OnClipChanged argument entirely would leave the counter at zero
+forever and pass all four vacuously.
+
 GAP B -- THE ADVISORY IS NEVER SHOWN. A different shape, and the more
 interesting one.
 
@@ -69,6 +113,18 @@ when unbound, Collapsed when bound. Assert the exact enumerator rather than
 widget keeps its layout space, leaving a strip-sized hole once the advisory
 retires).
 
+CLOSED BY FlowViz.UI.ClipPanel.AdvisoryIsShown, which goes one step further than
+the paragraph above proposed: it walks the built tree to the advisory BORDER and
+reads the visibility the layout evaluated, rather than calling the accessor. The
+accessor is private, and making it public to test it would have moved the same
+indirection one step out without reaching what a user sees.
+
+PUMPING IS NOT OPTIONAL THERE, and the trap points one way: an unpumped widget
+returns its constructor's cached default, which for visibility is Visible. So
+the VISIBLE assertion would pass on a widget with no binding at all, and the
+COLLAPSED one is what carries the weight. The pair is what makes either mean
+anything. See Tests/FlowVizSlateAttributePump.h.
+
 GAP C -- THE REFUSED PRESET IS A DECISION, NOT OBVIOUSLY A GAP.
 
 OnPresetClicked checks AddPresetPlane's result and announces only on success.
@@ -81,6 +137,20 @@ the code that the looser behaviour is acceptable. What it should not do is sit
 here as a survivor that the next reader has to re-derive.
 
 Do NOT weaken the refusal itself to make the arm killable.
+
+DECIDED: ASSERTED, in the last block of AnnouncesEveryEdit. The arm flipped to
+killed. The refusal was not touched -- the assertion was added around it, which
+is the only direction this was ever allowed to go.
+
+Why assert rather than bless the looser behaviour: the gate is already written
+and already correct, and an unasserted gate is one refactor away from being
+deleted as dead weight. The cost of keeping it honest is four lines.
+
+REACHING THE REFUSAL BRANCH TAKES SimulateClick, which BYPASSES the enabled
+check, and that is deliberate. The button is disabled at the plane limit (rule
+15), so a test that respected enablement could never reach the handler's refusal
+branch at all: the guard would be unreachable and the assertion vacuous. Repo
+memory unreachable-code-cannot-be-differentially-tested.
 
 Arm 1 is the identity control and must SURVIVE. If it ever does not, the
 harness is scoring noise and every line above is void.
