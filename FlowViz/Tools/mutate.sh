@@ -112,11 +112,71 @@
 #
 set -uo pipefail
 
+# RUN FROM A PRIVATE COPY. Bash does not read a script into memory: it reads
+# lazily from an open fd, tracking a byte offset (`lsof` on a live campaign
+# shows fd 255r on this file). Editing this file while a campaign runs shifts
+# every offset past the insertion point, so the running shell resumes parsing
+# mid-token and executes whatever text now sits at its saved offset.
+#
+# For most scripts that is a crash. Here it is worse and specifically so: this
+# script copies over production source and applies deliberate defects. A
+# corrupted resume can leave a mutant live in a shared checkout, apply one arm
+# under another arm's name, or skip the restore entirely -- and each of those
+# prints something that reads like a verdict. A campaign is a twenty-minute-per-
+# arm process; "do not edit the file for the next four hours" is not a control,
+# it is a hope. Tools/tests/test_mutate_selfcopy.sh reproduces the corruption on
+# an unguarded stand-in as a control, then asserts this block is present and
+# runs before anything destructive.
+#
+# The copy keeps the NAME mutate.sh (in a private dir) so `pgrep -f mutate.sh`
+# still finds a running campaign -- that is how the edit-path refusal below, and
+# a human, ask whether one is live.
+#
+# FLOWVIZ_MUTATE_ORIGIN carries the original Tools/ directory across the exec:
+# PROJECT_DIR is derived from BASH_SOURCE, which after the re-exec points into
+# the temp dir, and every path this script resolves -- verdict.sh, the repo root,
+# the source file -- hangs off it.
+if [[ -z "${FLOWVIZ_MUTATE_REEXEC:-}" ]]; then
+    _origin_tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    _selfdir="$(mktemp -d -t flowviz_mutate_self)"
+    if cat "${BASH_SOURCE[0]}" > "${_selfdir}/mutate.sh" 2>/dev/null; then
+        chmod +x "${_selfdir}/mutate.sh"
+        FLOWVIZ_MUTATE_REEXEC=1 \
+        FLOWVIZ_MUTATE_ORIGIN="${_origin_tools}" \
+        FLOWVIZ_MUTATE_SELFDIR="${_selfdir}" \
+            exec "${_selfdir}/mutate.sh" "$@"
+    fi
+    # Copy failed (no space, read-only tmp). Fall through and run from the
+    # checked-out file rather than refusing: an unprotected campaign is worth
+    # more than no campaign, and the risk is only realised if someone edits it.
+    rm -rf "${_selfdir}"
+    echo "warning: could not create a private copy; edits to Tools/mutate.sh" >&2
+    echo "         during this run WILL corrupt it." >&2
+fi
+
+# Remove the private copy on the way OUT, never right after the exec.
+#
+# Unlinking the image immediately after launching it KILLS the process on macOS
+# -- measured, exit 137/SIGKILL -- because the kernel is still paging the image
+# in. Unlinking one that is already running is safe. So the tidy-looking
+# "delete it the instant we no longer need the path" is the one spelling that
+# cannot work. The stand-in test measures all three cases (immediate rm, delayed
+# rm, no rm) on the machine running the suite rather than trusting this note.
+#
+# This trap is REPLACED twice below, as arms are set up; each replacement
+# re-adds this rm. A trap that only exists here would be silently dropped.
+if [[ -n "${FLOWVIZ_MUTATE_SELFDIR:-}" ]]; then
+    trap 'rm -rf "${FLOWVIZ_MUTATE_SELFDIR}"' EXIT
+fi
+
 SRC="${1:?usage: mutate.sh <source-file> <test-filter> <mutants-file>}"
 FILTER="${2:?missing test filter}"
 MUTANTS="${3:?missing mutants file}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# After the re-exec BASH_SOURCE points into the private temp dir, so the origin
+# passed through the exec is authoritative. Falling back to BASH_SOURCE covers
+# the no-copy path above.
+PROJECT_DIR="$(cd "${FLOWVIZ_MUTATE_ORIGIN:-$(dirname "${BASH_SOURCE[0]}")}/.." && pwd)"
 REPO_ROOT="$(cd "${PROJECT_DIR}/.." && pwd)"
 UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 BUILD_LOG="${BUILD_LOG:-/tmp/mutate_build.log}"
@@ -182,10 +242,18 @@ cp "${SRC}" "${BACKUP}"
 # Under .git/ so that it survives the `git checkout -- .` and `git stash` that
 # follow a mutation run, and so it can never itself be staged.
 MARKER="$(git rev-parse --absolute-git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
+#
+# harness_sha fingerprints the copy this process is ACTUALLY executing, so the
+# end of the run can tell whether Tools/mutate.sh was edited underneath it. The
+# private copy above means such an edit no longer corrupts anything -- it means
+# the campaign quietly finishes on the old code while the reader assumes the
+# new. Recorded here, reported by report_harness_drift below.
+HARNESS_SHA="$(shasum -a 256 < "${BASH_SOURCE[0]}" 2>/dev/null | cut -d' ' -f1)"
 {
     echo "pid=$$"
     echo "source=${SRC}"
     echo "started=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "harness_sha=${HARNESS_SHA}"
 } > "${MARKER}" 2>/dev/null || true
 
 # The marker now stops builds as well as commits: Tools/mutation_window.sh,
@@ -200,7 +268,13 @@ MARKER="$(git rev-parse --absolute-git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
 # working; it would look like the build breaking.
 export FLOWVIZ_MUTATION_TOKEN="$$"
 
-restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; }
+# Every exit path also drops the private copy this script is running from. It is
+# folded into restore() rather than left as a separate trap because `trap ...
+# EXIT` REPLACES the previous handler -- the self-copy trap installed at the top
+# is gone the moment the line below runs. Putting the rm in the one function
+# that all three later handlers call is what keeps it from being lost again.
+drop_selfcopy() { [[ -n "${FLOWVIZ_MUTATE_SELFDIR:-}" ]] && rm -rf "${FLOWVIZ_MUTATE_SELFDIR}"; return 0; }
+restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; drop_selfcopy; }
 
 # A SIGNAL ENDS THE CAMPAIGN. It used to restore and then carry on, because a
 # trap handler resumes the script unless it exits -- this line was
@@ -478,4 +552,30 @@ cp "${BACKUP}" "${SRC}"
 echo
 echo "=== ${SRC_BASE} vs ${FILTER} ==="
 echo "killed ${KILLED}  SURVIVED ${SURVIVED}  INVALID ${INVALID}  UNSCORED ${UNSCORED}  skipped ${SKIPPED}"
+
+# Did Tools/mutate.sh change while this campaign was running? The private copy
+# means such an edit could not corrupt anything -- and that is exactly why it
+# has to be said out loud. The verdicts above are sound, but they describe a
+# harness that is no longer the one in the checkout, and a reader comparing them
+# against the current file would be comparing against code that never ran.
+#
+# Printed AFTER the summary, and never changes the exit status: the run was
+# coherent. This is provenance, not a failure.
+_drift="$(check_harness_drift "${MARKER}" "$(shasum -a 256 < "${PROJECT_DIR}/Tools/mutate.sh" 2>/dev/null | cut -d' ' -f1)")"
+case "${_drift}" in
+    drifted)
+        echo
+        echo "NOTE: Tools/mutate.sh was EDITED while this campaign ran."
+        echo "  The verdicts above are sound -- this run executed from a private"
+        echo "  copy taken at startup, so the edit could not reach it. But they"
+        echo "  were produced by the PRE-EDIT harness. Reading them as evidence"
+        echo "  about the file now on disk attributes them to code that never ran."
+        echo "  Re-run to score against the current harness."
+        ;;
+    unknown)
+        echo
+        echo "NOTE: could not tell whether Tools/mutate.sh changed during this run."
+        ;;
+esac
+
 [[ "${SURVIVED}" -eq 0 && "${UNSCORED}" -eq 0 ]] || exit 1

@@ -62,6 +62,39 @@ check_mutation_window() {
     echo "blocked"
 }
 
+# check_harness_drift <marker-path> <current-sha>
+#   prints "same" | "drifted" | "unknown"
+#
+# A campaign runs from a private copy of mutate.sh (see the re-exec at the top
+# of that script), so editing the checked-out file mid-run can no longer corrupt
+# it. That fix trades a loud failure for a quiet one: the campaign now sails on
+# using the OLD code, and prints verdicts that get attributed to the FIXED
+# harness. Nothing in that output looks wrong afterwards.
+#
+# So the campaign records the fingerprint of the copy it is actually executing,
+# and compares it against the checked-out file when it finishes. Drift does not
+# invalidate the verdicts -- the code that produced them ran coherently -- but
+# it does mean they describe a harness that no longer exists on disk, which is
+# the one thing a reader would otherwise assume.
+#
+# UNKNOWN IS NOT "SAME". A marker with no recorded fingerprint (an older
+# campaign), a missing marker, or an empty computed sha (shasum failed, file
+# gone) all mean the comparison did not happen. Reporting those as "same" is the
+# fail-open shape this repo has been bitten by before -- a missing summary read
+# as a pass. Two empty strings are equal and prove nothing.
+check_harness_drift() {
+    local marker="$1" current="${2:-}"
+
+    [[ -e "${marker}" ]] || { echo "unknown"; return 0; }
+    [[ -n "${current}" ]] || { echo "unknown"; return 0; }
+
+    local recorded=""
+    recorded="$(sed -n -E 's/^harness_sha=([0-9a-f]+)[[:space:]]*$/\1/p' "${marker}" 2>/dev/null | head -1)"
+    [[ -n "${recorded}" ]] || { echo "unknown"; return 0; }
+
+    [[ "${recorded}" == "${current}" ]] && echo "same" || echo "drifted"
+}
+
 # marker_path_for <dir>
 #   The marker for the checkout that CONTAINS <dir> -- resolved with `git -C`,
 #   never from the caller's cwd. `git rev-parse --git-dir` answers about
