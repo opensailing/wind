@@ -414,6 +414,14 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 	// shipped inert, next to three that worked, which reads to a user as those
 	// three being broken rather than unwired.
 	//
+	// ALL FOUR OF BuildLut'S INPUTS ARE ASSERTED BELOW. That was not true until
+	// #63: the opacity curve was the one input nothing read, and the arm that
+	// should have caught it was compound -- it dropped the curve alongside
+	// reverse and banding, died on those two, and its KILLED read as though the
+	// curve were covered. Adding an input to BuildLut means adding an assertion
+	// here AND a narrow single-claim arm to tf-wire.txt; a wide arm cannot tell
+	// you which of its claims is actually watched.
+	//
 	// Read through the RESIDENT FUNCTION rather than the request, because what
 	// is being checked is what the LUT was actually built from.
 	{
@@ -429,8 +437,47 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 			return false;
 		}
 
+		/*
+		 * AND A CURVE, WHICH IS BuildLut'S FOURTH INPUT AND WAS THE ONE NOT
+		 * ASSERTED HERE UNTIL #63.
+		 *
+		 * WHERE THIS CAME FROM. The arm named "reverse, banding and opacity
+		 * dropped" scored KILLED and the campaign was read as covering all
+		 * three. It did not: only the reverse and banding assertions fired. A
+		 * COMPOUND ARM DIES ON ITS FIRST FAILURE and reports ONE verdict for
+		 * every claim in its name, so the third claim rode along inside a green
+		 * verdict. tf-wire.txt now carries a narrow arm that drops ONLY the
+		 * curve -- it is killable by this assertion and by nothing else in the
+		 * suite, which is the verdict the compound arm could not produce.
+		 *
+		 * NOT MakeLinearRamp(). Its endpoints are (0,0) and (1,1), and 0 and 1
+		 * are also what an EMPTY curve reads as at those positions once the
+		 * multiplier is applied -- so the two shapes agree exactly where a
+		 * dropped curve would be caught. The middle point is what makes this
+		 * fixture distinguishable from the default: an empty curve evaluates to
+		 * a constant, and no constant passes through 0.25 at t=0.5 while also
+		 * being 1.0 at t=1.
+		 *
+		 * The multiplier is left alone here. It travels through the PARAMETER
+		 * BLOCK and channel 1 already asserts it (TestOpacity); this is the
+		 * curve's own path into the LUT, and conflating them would leave either
+		 * one able to carry the other's assertion.
+		 */
+		FFlowVizOpacityCurve AuthoredCurve;
+		AuthoredCurve.Points.Add(FFlowVizOpacityPoint(0.0f, 0.0f));
+		AuthoredCurve.Points.Add(FFlowVizOpacityPoint(0.5f, 0.25f));
+		AuthoredCurve.Points.Add(FFlowVizOpacityPoint(1.0f, 1.0f));
+		if (!TestTrue(TEXT("CONTROL: the fixture's opacity curve was accepted -- a refused "
+						   "setter would leave the default EMPTY curve, which is exactly "
+						   "what a dropped curve reads as"),
+				Configured.SetOpacityCurve(AuthoredCurve).IsOk()))
+		{
+			Harness.ReleaseResources();
+			return false;
+		}
+
 		FFlowVizVolumeRayMarchParameters Ignored;
-		if (TestTrue(TEXT("the dispatcher queues a reversed, banded request"),
+		if (TestTrue(TEXT("the dispatcher queues a reversed, banded, opacity-curved request"),
 				Harness.Dispatch(Configured, Ignored)))
 		{
 			Harness.Drain();
@@ -449,6 +496,34 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("and the colormap still arrives alongside them -- the point is that "
 						   "all four travel together, not that one replaced another"),
 				Resident.ColorMap, ECFDVizColorMap::Inferno);
+
+			/*
+			 * THE POINT COUNT FIRST, because it is the assertion a dropped curve
+			 * fails: an empty curve has none. Checked before indexing, or a
+			 * dropped curve crashes the test rather than failing it -- and a
+			 * crash on the render thread is reported as a truncated green run
+			 * rather than as a failure (#61, #62).
+			 */
+			if (TestEqual(TEXT("the OPACITY CURVE reaches the LUT build, so the alpha ramp "
+							   "the user authored is what the volume is composited through "
+							   "-- BuildLut's fourth input, and the one a colormap "
+							   "assertion cannot speak for"),
+					Resident.Opacity.Points.Num(), 3))
+			{
+				/*
+				 * THE MIDDLE POINT CARRIES THE WEIGHT. A curve rebuilt as a
+				 * default linear ramp would also have endpoints at (0,0) and
+				 * (1,1); only the interior point says this is the authored
+				 * shape rather than a plausible substitute.
+				 */
+				TestEqual(TEXT("and its interior control point survived, so the curve is the "
+							   "authored SHAPE rather than a default ramp that happens to "
+							   "share its endpoints"),
+					Resident.Opacity.Points[1].Opacity, 0.25f);
+				TestEqual(TEXT("at the position it was authored at, so the ramp is not slid "
+							   "along the domain on the way through"),
+					Resident.Opacity.Points[1].Position, 0.5f);
+			}
 		}
 	}
 

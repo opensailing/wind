@@ -26,3 +26,18 @@ the LUT is rebuilt through MakeDefault -- reverse, banding and opacity dropped
 	// assertion that reads GetResidentColorMap alone passes against it.
 	TransferFunction.Update(FFlowVizTransferFunction::MakeDefault(
 		LutRequest.TransferFunction.ColorMap, 0.0f, 1.0f));
+%%
+ONLY the opacity curve is dropped -- the narrow arm arm 4 could not produce
+--
+	TransferFunction.Update(LutRequest.TransferFunction);
+--
+	// MUTANT: everything BuildLut reads travels EXCEPT the opacity curve, which
+	// is reset to a default (empty) one. Arm 4 drops this alongside reverse and
+	// banding and dies on those two, so its KILLED says nothing about the curve.
+	// This arm makes the curve the ONLY casualty: it can be killed by exactly
+	// one assertion and by nothing else in the suite.
+	{
+		FFlowVizTransferFunction OpacityDropped = LutRequest.TransferFunction;
+		OpacityDropped.Opacity = FFlowVizOpacityCurve();
+		TransferFunction.Update(OpacityDropped);
+	}
