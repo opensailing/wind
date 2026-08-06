@@ -181,12 +181,24 @@ cp "${SRC}" "${BACKUP}"
 #
 # Under .git/ so that it survives the `git checkout -- .` and `git stash` that
 # follow a mutation run, and so it can never itself be staged.
-MARKER="$(git rev-parse --git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
+MARKER="$(git rev-parse --absolute-git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
 {
     echo "pid=$$"
     echo "source=${SRC}"
     echo "started=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 } > "${MARKER}" 2>/dev/null || true
+
+# The marker now stops builds as well as commits: Tools/mutation_window.sh,
+# sourced by build_lock.sh and run_tests.sh, refuses to run in a checkout whose
+# window is open. THIS campaign has to keep building, so it identifies itself by
+# exporting the same pid it just declared. Only processes descended from here
+# inherit it.
+#
+# Exported HERE, beside the declaration, so the two can never disagree -- and
+# before the baseline build below, which is already inside the window and would
+# otherwise refuse itself. Nothing about that deadlock would look like a guard
+# working; it would look like the build breaking.
+export FLOWVIZ_MUTATION_TOKEN="$$"
 
 restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; }
 

@@ -67,6 +67,23 @@ if [[ -n "${SUMMARIZE_ONLY}" ]]; then
     # Reporting only: no engine, and no engine exit code to fold in.
     ENGINE_EXIT=0
 else
+    # Refuse to run the suite in a checkout with a live mutation campaign,
+    # unless we ARE that campaign. Guarding only build_lock.sh would leave this
+    # script -- which launches the editor directly and is routinely run bare --
+    # free to run inside the window. See Tools/mutation_window.sh.
+    #
+    # Deliberately inside the `if`: --summarize reads an existing log and
+    # launches nothing, so it is safe in the window, and refusing it would make
+    # an open window harder to diagnose from outside.
+    # shellcheck source=/dev/null
+    source "${PROJECT_DIR}/Tools/mutation_window.sh"
+    if _MARKER="$(marker_path_for "${PROJECT_DIR}")"; then
+        if [[ "$(check_mutation_window "${_MARKER}" "${FLOWVIZ_MUTATION_TOKEN:-}")" == "blocked" ]]; then
+            refuse_mutation_window "${_MARKER}" "this test run"
+            exit 76
+        fi
+    fi
+
     if [[ ! -x "${EDITOR_CMD}" ]]; then
         echo "error: UnrealEditor-Cmd not found at ${EDITOR_CMD}" >&2
         echo "       set UE_ROOT to your engine install" >&2
