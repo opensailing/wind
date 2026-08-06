@@ -1,0 +1,232 @@
+Campaign workspace-clock, over Private/UI/SFlowVizWorkspace.cpp with filter
+FlowViz.UI.Workspace.ClockSeam. Run 2026-08-06 in wind-worktrees/dispatchobs
+against 246be5b, 6 arms.
+
+    verdict   arm
+    --------  ----------------------------------------------------------
+    killed    the clock is never registered -- Play sets a flag nothing
+              acts on (the original defect)
+    killed    the clock fires ONCE -- returning false does not re-arm
+    killed    the clock is gated on IsPlaying -- draining stops, so
+              scrubbing breaks
+    killed    the delta is discarded -- a zero tick advances nothing
+    UNSCORED  the destructor leaves the clock registered      <-- re-run done;
+                                                                  it CRASHES.
+                                                                  see BELOW
+    SURVIVED  IDENTITY CONTROL                                    (correct)
+
+    killed 4  SURVIVED 1  INVALID 0  UNSCORED 1  skipped 0
+
+The identity control SURVIVED, which is what makes the four kills readable at
+all: the harness demonstrably let a no-op through, so the kills are about the
+mutants rather than about a standing red. Baseline built clean and the suite
+was green under this filter before any arm was applied -- mutate.sh prints both
+and refuses to score otherwise.
+
+ARM 1 IS THE ONE THAT MATTERED. "The clock is never registered" is the state
+the codebase was in before #65, so a SURVIVED there would have meant the new
+test could not see the very defect it was written for. It died.
+
+
+WHICH ASSERTIONS KILLED WHICH ARM. ARM 1 IS READ. ARMS 2-4 ARE DERIVED.
+
+The first campaign's evidence is gone. mutate.sh pointed BUILD_LOG and TEST_LOG
+at one path each and every arm overwrote the last, so when it finished, only
+arm 6's logs survived. session-workspace.README hit the same wall and asked for
+a fix; this campaign ran a few hours too early to benefit from it. The fix
+landed immediately afterwards as b7e2f7b (task #67, per-arm archived logs),
+driven by Tools/tests/test_mutate_per_arm_logs.sh.
+
+The re-run below then carried arm 1 as a control, WITH per-arm archiving in
+place -- so arm 1's attribution is now quoted rather than reasoned. Arms 2-4
+remain derived, and the difference is marked on each.
+
+    clock never registered   ALL THREE ARMS -- READ, from the re-run's control
+    (arm 1)  * READ *        A archive. Verbatim, five errors on one Fail:
+
+                               Expected 'ticking only the ENGINE's core ticker
+                               brings the display up on frame 0, so the
+                               workspace registered a clock that reaches the
+                               player (90 pump frames)' to be 0, but it was -1.
+
+                               Expected 'and 60 further engine frames do NOT
+                               move a PAUSED playhead...' to be 0, but it was -1.
+
+                               Expected 'pressing Play and ticking only the
+                               ENGINE advances the display past frame 0...;
+                               reached frame -1 after 90 pump frames' to be true.
+
+                               Expected 'and the physical time moved with it...'
+                               to be true.
+
+                               Expected 'a workspace built AFTER two others were
+                               destroyed still gets its own clock...' to be 0,
+                               but it was -1.
+
+                             This confirms the derivation exactly: FrameA == -1
+                             on all three test arms, because StartPendingLoads
+                             is reachable only from Player::Tick, so with no
+                             clock no load is ever started. It also matches the
+                             pristine-run failure observed before #65 was
+                             written, which is expected -- this arm restores the
+                             pre-#65 state exactly.
+
+What follows for arms 2-4 is reasoned from which assertions each mutant
+necessarily breaks. That is weaker than quoting a log: it is a claim about what
+a mutant SHOULD break, checked against nothing. Repo memory
+a-compound-mutant-scores-like-a-narrow-one is exactly what it cannot see.
+
+    returns false            DERIVED. Arms 1 and 3, on the SAME assertion as
+    (arm 2)                  above but
+                             for a different reason: the handler runs once,
+                             which is not enough to complete a load and reach
+                             a display. Arm 2 also fails (it needs many
+                             ticks to advance past frame 0). Not narrowed
+                             further, and it should have been -- see the gap
+                             note below.
+
+    gated on IsPlaying       DERIVED. Arms 1 and 3, and ONLY those two, which is
+    (arm 3)                  why
+                             the arm exists. A paused player never starts its
+                             first load under this mutant, so "a freshly
+                             opened workspace reaches frame 0" fails. Arm 2
+                             CANNOT see it: it presses Play first, so the gate
+                             is open and playback behaves correctly. An
+                             implementation with this gate would look fully
+                             working to anyone who only tested playback.
+
+    delta discarded          DERIVED. Arm 2 ALONE, and this is the arm's whole
+    (arm 4)                  point.
+                             Advance() returns the playhead unchanged for a
+                             non-positive delta, so draining and loading still
+                             work and frame 0 still arrives -- arms 1 and 3
+                             pass unchanged. Only "pressing Play advances the
+                             display PAST frame 0" can fail. That is also why
+                             arm 2 asserts FrameA > 0 rather than
+                             FrameA != INDEX_NONE: frame 0 is the degenerate
+                             value a paused player reaches, and the weaker
+                             assertion would have let this mutant live.
+
+
+THE UNSCORED ARM, AND WHY IT IS NOT BEING RECORDED AS A KILL.
+
+    UNSCORED  the destructor leaves the clock registered
+              FAIL: no tests matched 'FlowViz.UI.Workspace.ClockSeam'
+
+"No tests matched" is what a dead editor looks like, not a result. classify_
+test_run is right to refuse it: a crash and a failure are different facts and
+want different actions (repo memory a-crash-reports-as-a-full-green).
+
+The two candidate explanations were:
+
+    (a) a machine blip -- an editor that died for unrelated reasons; or
+    (b) the mutant crashing the editor, which is the defect the arm is about.
+
+RE-RUN, batched with controls per repo memory rerun-unknowns-with-controls: an
+UNSCORED re-run alone cannot separate (a) from (b), because a second blip looks
+identical to a second crash. Tools/mutants/workspace-clock-rerun.txt runs it
+alongside one already-killed arm and the identity control.
+
+    killed    RE-RUN CONTROL A -- the clock is never registered
+    UNSCORED  THE RE-RUN -- the destructor leaves the clock registered
+                FAIL: no tests matched 'FlowViz.UI.Workspace.ClockSeam'
+    SURVIVED  RE-RUN CONTROL B -- the identity control
+
+Both controls behaved, so the harness was healthy and the second UNSCORED is
+about this arm rather than about the machine. That rules out (a) as the general
+explanation but does not by itself establish (b).
+
+(b) IS ESTABLISHED, READ NOT DERIVED. The engine preserves a per-crash COPY of
+the session log under
+
+    ~/Library/Application Support/Epic/UnrealEngine/5.8/Saved/Crashes/
+        CrashReport-UE-FlowViz-pid-<pid>-<guid>/FlowViz.log
+
+keyed by PID, so unlike /tmp/flowviz_tests_<checkout>.log it is NOT overwritten
+by the next arm. Two of them exist, one per campaign, and both say:
+
+    LogMac: === Critical error: ===
+    SIGSEGV: invalid attempt to access memory at address 0x0
+
+    libUnrealEditor-FlowVizRuntime.dylib!FFlowVizCasePlayer::Tick(double)
+    libUnrealEditor-Core.dylib!FTSTicker::Tick(float)
+    UnrealEditor-Cmd!FEngineLoop::Tick()
+
+A null dereference inside FFlowVizCasePlayer::Tick, reached FROM FTSTicker::Tick
+-- which is the mutant's exact mechanism: the handle is never removed, the
+handler keeps firing after the workspace is gone, and it ticks a freed model.
+
+ATTRIBUTED BY TIME-BRACKETING, not by assumption:
+
+    pid 29632   opened 11:08:02  crashed 11:08:23  exited 11:09:02
+    arm 1 summary written 11:07:48  |  arm 2 summary written 11:09:04
+
+The crashed session opens after arm 1 finished and exits two seconds before
+arm 2's summary is written, so it is bracketed on both sides -- it is arm 2's.
+The first campaign's pid 21782 is the same arm, same stack. Both ran with
+-ExecCmds="Automation RunTests FlowViz.UI.Workspace.ClockSeam" and both logs
+contain `Test Started. Path={FlowViz.UI.Workspace.ClockSeam}`, so the filter
+MATCHED and the test STARTED. The crash landed between Started and Completed.
+
+STILL NOT RECORDED AS A KILL, and the distinction is the whole point. The mutant
+is DETECTED -- reliably, twice, by the same mechanism -- but it is not detected
+by an ASSERTION. No TestTrue in this file goes red; the process dies. Recording
+it as killed would credit the suite with a check it does not contain, and the
+check it does not contain is the one that would survive somebody making the
+crash not-crash (a null guard in Tick would silence this while leaving the
+dangling registration in place).
+
+The test file already says so, and says it better than a verdict could:
+
+    It doubles as the crash probe for the opposite error -- a clock that keeps
+    firing into a destroyed FFlowVizWorkspaceModel. That failure is a
+    use-after-free, which no TestTrue can observe: it either reads plausible
+    garbage or takes the session down [...] So the probe is the pump; the
+    assertions below are about the live instance and can fail on their own.
+
+So the arm is working as designed and UNSCORED is the honest verdict. What the
+campaign has actually established is that the pump reaches the dangling handler
+-- which is worth more than a verdict, because it means the probe is live rather
+than vacuous.
+
+WHAT THIS EXPOSED IN THE TOOLING, now filed as its own tasks:
+
+    #68  run_tests.sh prints "FAIL: no tests matched '<filter>'. Check the test
+         path." for a crashed session. The crash detection added by #61 sits at
+         line 194, INSIDE the truncation block, which is unreachable after the
+         RAN==0 early exit at 127. A crash, a crash-before-any-test, and a
+         genuine typo all produce byte-identical output. The message sent me to
+         check a filter that was always correct. #61 fixed one branch of this
+         hazard and left the other -- repo memory
+         audit-the-second-branch-of-every-documented-hazard, on our own tools.
+
+    #69  run_tests.sh's engine log path is per-CHECKOUT, not per-run, so all
+         three arms' archived summaries end with the SAME "Full log:" pointer
+         and only the last arm's session survives in it. #67 archived the
+         summaries; it did not archive what they point at.
+
+#69 nearly cost a false claim in this very document: I opened that shared log
+looking for arm 2, found Result={Success} and EXIT CODE: 0, and briefly
+concluded arm 2 had run and passed. Its mtime (11:09:44) is arm 3's -- the
+identity control. Repo memory shared-tree-results-need-a-timestamp caught it,
+and the crash reports above are what settled the question instead, precisely
+because they are keyed by pid rather than by checkout.
+
+
+THE GAP THIS CAMPAIGN LEAVES, stated because it is the kind that reads as
+covered.
+
+Arm 2 ("returns false") is a COMPOUND arm by accident: it breaks all three test
+arms at once, so whichever is checked first accounts for it and the other two
+ride along. A narrower mutant -- one that re-arms for a bounded number of ticks
+rather than never -- would have separated "the clock runs at all" from "the
+clock keeps running", and nothing here demonstrates the second. Repo memory
+a-compound-mutant-scores-like-a-narrow-one.
+
+And the campaign as a whole stops at the DISPLAY SELECTION, because that is
+where the test stops. No arm here could show that a playing case reaches the
+GPU, and in fact it does not: FFlowVizCasePlayer::SetTextureSet has no caller
+anywhere in the module, so the player's texture set is null and its upload is
+skipped. The clock, the playhead and the dirty-marking are all correct and all
+point at texture slots nothing wrote. That is task #66, and it is invisible to
+every assertion in this file.
