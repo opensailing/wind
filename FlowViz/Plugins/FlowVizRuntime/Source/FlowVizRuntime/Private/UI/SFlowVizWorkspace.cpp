@@ -2,6 +2,7 @@
 
 #include "UI/SFlowVizWorkspace.h"
 
+#include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
@@ -160,7 +161,14 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("ClipHeading", "Clipping"),
 								SAssignNew(ClipPanel, SFlowVizClipPanel)
-									.ViewModel(&Model->Clip))
+									.ViewModel(&Model->Clip)
+									// THE CHANNEL TO THE RENDERER, subscribed here
+									// and nowhere else. Without this line the panel
+									// edits a model nothing reads - which is the
+									// state FlowViz.UI.Workspace.VolumeBinding
+									// exists to fail on.
+									.OnClipChanged(FSimpleDelegate::CreateSP(
+										this, &SFlowVizWorkspace::HandleClipChanged)))
 						]
 
 						+ SScrollBox::Slot()
@@ -193,6 +201,62 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+}
+
+/* ========================================================================== */
+/* The renderer this workspace drives                                          */
+/* ========================================================================== */
+
+void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
+{
+	Volume = InVolume;
+
+	// THE PANEL'S DISCLOSURE FOLLOWS THE BINDING. Left unsaid, the clip panel
+	// would keep telling users their controls do nothing after they started
+	// working - the stale-advisory failure, which is worse than the original
+	// because it sends someone away from a control that is now live.
+	if (ClipPanel.IsValid())
+	{
+		ClipPanel->SetVolumeBound(InVolume != nullptr);
+	}
+
+	// PUSHED NOW, not on the next edit. A workspace with planes already authored
+	// - from a session load, or from a case opened before the actor existed -
+	// would otherwise render unclipped until the user touched something, which
+	// looks like a control that needs wiggling.
+	PushToVolume();
+}
+
+UCFDVizVolumeComponent* SFlowVizWorkspace::GetVolume() const
+{
+	// Get() on a weak pointer, so a component whose world was torn down reads as
+	// null rather than as a live pointer into freed memory.
+	return Volume.Get();
+}
+
+bool SFlowVizWorkspace::PushToVolume()
+{
+	// PushClipToVolume refuses a null component itself, so this could pass
+	// Volume.Get() straight through. It is written out because the two null
+	// cases mean different things and one of them is about to grow siblings:
+	// "no volume bound" is a workspace state, "no case in the volume" is the
+	// component's.
+	UCFDVizVolumeComponent* Bound = Volume.Get();
+	if (Bound == nullptr)
+	{
+		return false;
+	}
+
+	return FFlowVizWorkspaceModel::PushClipToVolume(Model->Clip, Bound);
+}
+
+void SFlowVizWorkspace::HandleClipChanged()
+{
+	// The return is deliberately dropped. A panel edit with no case open is
+	// normal, not an error, and the clip panel's advisory already says the edits
+	// are not reaching a renderer - reporting it twice would put a warning in the
+	// log for every click during ordinary setup.
+	PushToVolume();
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -2,9 +2,15 @@
 
 #include "UI/FlowVizWorkspaceTab.h"
 
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
+#include "FlowVizRuntime.h"
 #include "Misc/CoreDelegates.h"
+#include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizVolumeComponent.h"
 #include "UI/SFlowVizWorkspace.h"
 #include "Widgets/Docking/SDockTab.h"
 
@@ -16,15 +22,100 @@ namespace FlowVizWorkspaceTab
 
 	namespace
 	{
+		/**
+		 * The volume component a freshly-opened workspace should drive.
+		 *
+		 * WHY THE TAB DOES THIS AND NOT THE WORKSPACE. The workspace widget knows
+		 * about view models and panels; giving it a world to search would make it
+		 * unconstructible in the places that build it without one. The tab is
+		 * already the seam between "the engine has a session" and "the UI exists",
+		 * so the lookup belongs here.
+		 *
+		 * FIRST MATCH, NOT AN ARBITRATION. A level with two case actors is not a
+		 * supported arrangement yet - the workspace drives one volume - and
+		 * picking silently among several would be a decision made where nobody
+		 * could see it. When multi-case lands this becomes a selector, and the
+		 * warning below is what will point at it.
+		 */
+		UCFDVizVolumeComponent* FindVolumeToDrive()
+		{
+			if (GEngine == nullptr)
+			{
+				return nullptr;
+			}
+
+			UCFDVizVolumeComponent* Found = nullptr;
+			int32 CandidateCount = 0;
+
+			for (const FWorldContext& Context : GEngine->GetWorldContexts())
+			{
+				// PIE AND GAME ONLY. An Editor-type context is the level being
+				// authored; driving its component from a nomad tab would edit the
+				// asset rather than the session, and during PIE both contexts exist
+				// at once - taking either would be a coin flip.
+				if (Context.WorldType != EWorldType::PIE && Context.WorldType != EWorldType::Game)
+				{
+					continue;
+				}
+
+				UWorld* World = Context.World();
+				if (World == nullptr)
+				{
+					continue;
+				}
+
+				for (TActorIterator<ACFDVizCaseActor> It(World); It; ++It)
+				{
+					UCFDVizVolumeComponent* Volume = It->GetVolumeComponent();
+					if (Volume == nullptr)
+					{
+						continue;
+					}
+
+					++CandidateCount;
+					if (Found == nullptr)
+					{
+						Found = Volume;
+					}
+				}
+			}
+
+			if (CandidateCount > 1)
+			{
+				// SAID OUT LOUD. Otherwise a user with two cases open would find
+				// the panels driving one of them for no visible reason, and would
+				// reasonably conclude the controls were broken.
+				UE_LOG(LogFlowViz, Warning,
+					TEXT("FlowViz workspace: %d case actors are present; the panels will drive "
+						 "the first one found. Multi-case selection is not implemented."),
+					CandidateCount);
+			}
+
+			return Found;
+		}
+
 		TSharedRef<SDockTab> SpawnWorkspaceTab(const FSpawnTabArgs& Args)
 		{
+			// THE PRODUCTION CONSTRUCTION SITE. This is the line that makes the
+			// widgets a feature rather than a definition.
+			const TSharedRef<SFlowVizWorkspace> Workspace = SNew(SFlowVizWorkspace);
+
+			/*
+			 * AND THE LINE THAT MAKES THE PANELS DRIVE A RENDERER.
+			 *
+			 * Without it the workspace is built, every panel works against its view
+			 * model, and nothing reaches a pixel - which is exactly the state the
+			 * clip panel's advisory used to describe permanently. Null is a normal
+			 * outcome (no case actor in the level yet); the workspace stays
+			 * operable and the advisory stays up to say why.
+			 */
+			Workspace->SetVolume(FindVolumeToDrive());
+
 			return SNew(SDockTab)
 				.TabRole(ETabRole::NomadTab)
 				.Label(LOCTEXT("WorkspaceTabLabel", "FlowViz"))
 				[
-					// THE PRODUCTION CONSTRUCTION SITE. This is the line that makes
-					// the widgets a feature rather than a definition.
-					SNew(SFlowVizWorkspace)
+					Workspace
 				];
 		}
 	}

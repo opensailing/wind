@@ -10,6 +10,8 @@
 #include "UI/FlowVizTimelineViewModel.h"
 #include "UI/FlowVizTransferFunctionViewModel.h"
 
+class UCFDVizVolumeComponent;
+
 /**
  * The live view models a workspace's panels share (plan.md section 5F).
  *
@@ -96,6 +98,45 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	 * pressure against a velocity domain - plausible-looking and wrong.
 	 */
 	FCFDVizResult SetField(FName FieldId);
+
+	/* --- The channel to the renderer ---------------------------------------- */
+
+	/**
+	 * Copy an edited clip model into a volume component so the image changes.
+	 *
+	 * THE LINK THAT DID NOT EXIST. The render path already clipped: the
+	 * dispatcher calls FFlowVizClipViewModel::ApplyToRayMarchParameters on the
+	 * proxy's model, fed from UCFDVizVolumeComponent::SetClip. What was missing
+	 * was this direction - the panels edit FFlowVizWorkspaceModel::Clip, and
+	 * nothing carried that into a component. Every production SetClip caller was
+	 * UFlowVizCaptureLibrary, which builds its own model from Volume->GetClip().
+	 * So a plane added in the UI was authored, validated, listed and persisted,
+	 * and still did not change a pixel, while the identical plane added from
+	 * Python did.
+	 *
+	 * STATIC, AND IT TAKES THE VIEW MODEL RATHER THAN THE WORKSPACE. The
+	 * workspace model owns a case player and five view models; none of that is
+	 * needed to move a clip model. Taking the smallest thing that could work
+	 * keeps this callable from the capture library and from a test that has no
+	 * player, and it makes the const-correctness obvious - the source is not
+	 * modified, only read.
+	 *
+	 * THE DOMAIN COMES FROM THE VOLUME, NOT FROM THE SOURCE MODEL. A clip model
+	 * carries whatever domain it was configured with, and the workspace's model
+	 * gets its domain at OpenCase. Those agree right up until someone loads a
+	 * second case into the same actor, at which point pushing the UI's domain
+	 * would normalise the crop against the previous case's extent - which does
+	 * not fail, it clips at a plausible wrong place. FlowVizCaptureLibrary.cpp
+	 * re-reads GetPhysicalSize on every call for the same reason.
+	 *
+	 * @param Source The model the panels edit. Not modified.
+	 * @param Volume Destination. Null is refused, not dereferenced.
+	 * @return False when there was nothing to push into - a null component, or
+	 *         one with no case bound and therefore no domain to normalise
+	 *         against. False is "did not happen", not "went wrong": the
+	 *         workspace pushes on every edit and a case is often not open yet.
+	 */
+	static bool PushClipToVolume(const FFlowVizClipViewModel& Source, UCFDVizVolumeComponent* Volume);
 
 private:
 	/**

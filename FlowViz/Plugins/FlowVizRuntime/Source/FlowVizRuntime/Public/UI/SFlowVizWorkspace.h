@@ -7,6 +7,7 @@
 #include "Widgets/SCompoundWidget.h"
 
 struct FFlowVizWorkspaceModel;
+class UCFDVizVolumeComponent;
 class SFlowVizClipPanel;
 class SFlowVizProbePanel;
 class SFlowVizSlicePanel;
@@ -57,6 +58,43 @@ public:
 	 */
 	FFlowVizWorkspaceModel& GetModel() const;
 
+	/* --- The renderer this workspace drives -------------------------------- */
+
+	/**
+	 * Point this workspace at the volume its panels should drive. Null unbinds.
+	 *
+	 * THIS IS THE OBJECT THAT HOLDS BOTH HALVES, and nothing did before. The
+	 * panels edit view models; UCFDVizVolumeComponent renders one. Grep for a
+	 * file mentioning both types and before this there were none - which is why
+	 * the clip panel's controls were live, validated, persisted, and inert.
+	 *
+	 * BORROWED, NOT OWNED, AND HELD WEAKLY. The component belongs to a
+	 * ACFDVizCaseActor in a world that can be torn down while this widget is
+	 * still open - a docked tab outlives a PIE session routinely. A raw pointer
+	 * would be a use-after-free on the next panel edit; a strong TObjectPtr would
+	 * keep a dead world's component alive and render from it.
+	 *
+	 * PUSHES IMMEDIATELY. Binding a volume that has not yet received the current
+	 * clip state would leave the render one edit behind until the user touched
+	 * something, which reads as a control that needs to be wiggled to take.
+	 */
+	void SetVolume(UCFDVizVolumeComponent* InVolume);
+
+	/** The bound volume, or null. */
+	UCFDVizVolumeComponent* GetVolume() const;
+
+	/**
+	 * Copy the current model into the bound volume.
+	 *
+	 * Called automatically whenever a panel reports an edit; public so a caller
+	 * that changed the model directly - a session load, a console command - can
+	 * make the render follow without simulating a click.
+	 *
+	 * @return False when there was nothing to push into: no volume bound, or a
+	 *         bound one with no case. "Did not happen", not "went wrong".
+	 */
+	bool PushToVolume();
+
 	/* --- Test seams. The panels this workspace actually built. ------------- */
 
 	TSharedPtr<SFlowVizTransportBar> GetTransportBar() const { return TransportBar; }
@@ -78,6 +116,16 @@ private:
 	 * explicit rather than implied by member order in a widget.
 	 */
 	TUniquePtr<FFlowVizWorkspaceModel> Model;
+
+	/**
+	 * WEAK, for the reason SetVolume's comment gives: the component's world can
+	 * be torn down under a docked tab. TWeakObjectPtr turns that from a
+	 * use-after-free into a null check.
+	 */
+	TWeakObjectPtr<UCFDVizVolumeComponent> Volume;
+
+	/** Subscriber for the clip panel's edits. Pushes, and reports nothing. */
+	void HandleClipChanged();
 
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;

@@ -5,6 +5,7 @@
 #include "CFDViz/CFDVizManifest.h"
 #include "Misc/Paths.h"
 #include "Render/FlowVizVolumeTexture.h"
+#include "Scene/FlowVizVolumeComponent.h"
 
 /**
  * See FlowVizWorkspaceModel.h.
@@ -303,4 +304,76 @@ FCFDVizResult FFlowVizWorkspaceModel::SetField(FName FieldId)
 	// clamped to an end of the map, which looks like saturated data rather than
 	// like the wrong range.
 	return TransferFunction.BindField(*Shared, FieldId);
+}
+
+bool FFlowVizWorkspaceModel::PushClipToVolume(
+	const FFlowVizClipViewModel& Source, UCFDVizVolumeComponent* Volume)
+{
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	// THE VOLUME'S OWN EXTENT, re-read every time. See the header: a domain
+	// carried from the source model is right until a second case is loaded into
+	// the same actor, and then it clips at a plausible wrong place rather than
+	// failing.
+	const FVector PhysicalSize = Volume->GetPhysicalSize();
+	if (PhysicalSize.X <= 0.0 || PhysicalSize.Y <= 0.0 || PhysicalSize.Z <= 0.0)
+	{
+		// NO CASE BOUND, so there is no extent to normalise the crop against.
+		// Refused rather than defaulted: a unit domain would make every crop
+		// fraction wrong by the case's real size, and SetDomainSize would refuse a
+		// zero axis anyway - this way the caller learns nothing happened instead
+		// of half-happening.
+		return false;
+	}
+
+	// COPIED, NOT ALIASED. The component keeps its own model and publishes it to
+	// the render thread; handing it a reference to the UI's model would put a
+	// game-thread-mutated object behind a render-thread read.
+	FFlowVizClipViewModel Pushed = Source;
+
+	/*
+	 * THE ORDER HERE IS LOAD-BEARING, AND THE OBVIOUS ORDER IS WRONG.
+	 *
+	 * SetDomainSize calls ResetCropBox - deliberately, because a crop authored
+	 * for a 10 m domain means something entirely different in a 0.1 m one. So
+	 * "set the domain, then copy the planes" silently discards the crop the user
+	 * dragged, on EVERY push, and this pushes on every edit: drag a crop, touch
+	 * any other control, watch the crop snap back to full with nothing reporting
+	 * an error.
+	 *
+	 * So the crop is captured BEFORE the domain is imposed and restored after,
+	 * and only when the source had a domain of its own to have authored it
+	 * against. A crop from a model with no domain is not a crop, it is a default.
+	 */
+	const bool bSourceHadDomain = Source.HasDomain();
+	const bool bSourceWasCropped = bSourceHadDomain && Source.IsCropActive();
+	const FVector SourceCropMin = Source.GetCropMin();
+	const FVector SourceCropMax = Source.GetCropMax();
+
+	if (!Pushed.SetDomainSize(PhysicalSize).IsOk())
+	{
+		// Already screened by the positive-extent check above, so this is the
+		// "something changed underneath us" branch rather than an expected one.
+		// Refused whole: a model with the wrong domain clips at the wrong place.
+		return false;
+	}
+
+	if (bSourceWasCropped)
+	{
+		// A crop authored against a DIFFERENT domain than the volume's is refused
+		// by SetCropBox only if it is degenerate, not if it is merely out of
+		// scale. Restoring it unchanged is still right: the numbers are in solver
+		// units, which is what the crop boxes in the panel are labelled in, and
+		// SetCropBox deliberately does not clamp into the domain.
+		Pushed.SetCropBox(SourceCropMin, SourceCropMax);
+	}
+
+	// REPLACED, NOT MERGED. The component's clip state is the UI's, wholesale:
+	// planes removed in the panel must disappear from the render, and an
+	// append-only push would leave the last plane clipping forever.
+	Volume->SetClip(Pushed);
+	return true;
 }

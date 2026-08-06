@@ -127,6 +127,19 @@ void SFlowVizClipPanel::Construct(const FArguments& InArgs)
 {
 	ViewModel = InArgs._ViewModel;
 
+	/*
+	 * READING THIS ARGUMENT IS THE WHOLE CHANNEL, and forgetting it is silent.
+	 *
+	 * SLATE_EVENT declares the argument and the caller's .OnClipChanged(...) sets
+	 * it on the FArguments; nothing copies it onto the widget. Omitting this line
+	 * compiles, the workspace's .OnClipChanged() call still looks like a
+	 * subscription in the source, and every ExecuteIfBound below is a no-op on a
+	 * default-constructed delegate -- so the panel edits its model, the renderer
+	 * never hears, and the only symptom is a control that does nothing. That is
+	 * exactly the bug this panel was wired up to fix, one layer down.
+	 */
+	OnClipChanged = InArgs._OnClipChanged;
+
 	const float U = FlowVizWorkspaceStyle::GetUnit();
 
 	// BOUND, not assigned. The predicate is re-read every paint, so a case
@@ -241,7 +254,13 @@ void SFlowVizClipPanel::Construct(const FArguments& InArgs)
 			// AT THE TOP, not tucked under the controls. This says the planes do
 			// not reach the renderer yet. Placed below the controls it would be
 			// read after the user had already formed the belief it corrects.
+			//
+			// BOUND, NOT SET ONCE. The workspace binds a volume when a case opens,
+			// which is after this widget is built, so a visibility decided here
+			// would be frozen at "no volume" forever.
 			SNew(SBorder)
+				.Visibility(TAttribute<EVisibility>::CreateSP(
+					this, &SFlowVizClipPanel::GetNotWiredAdvisoryVisibility))
 				.BorderImage(FlowVizWorkspaceStyle::GetRaisedBrush())
 				.Padding(FMargin(1.5f * U, 1.0f * U))
 			[
@@ -502,23 +521,40 @@ TSharedPtr<SFlowVizNumericEntry> SFlowVizClipPanel::GetCropMaxBox(int32 Axis) co
 
 FText SFlowVizClipPanel::GetNotWiredAdvisoryText() const
 {
-	// NOT CONDITIONAL ON ANYTHING. This is true whatever the model holds, and a
-	// disclosure that could be empty is one a reader has to notice the absence
-	// of.
+	// NEVER EMPTY, and never conditional on the model's contents. What IS
+	// conditional is whether the strip is shown at all - see
+	// GetNotWiredAdvisoryVisibility. Keeping the text unconditional means the two
+	// questions stay separate: an empty string and a hidden strip look the same
+	// on screen and mean different things in a test.
 	//
-	// THE REASON IT IS STILL TRUE CHANGED, and the wording changed with it. The
-	// render path DOES clip now - the dispatcher calls
-	// FFlowVizClipViewModel::ApplyToRayMarchParameters. What is missing is the
-	// channel from THIS panel: it edits FFlowVizWorkspaceModel::Clip, and nothing
-	// copies that into a UCFDVizVolumeComponent. Retiring the strip when the
-	// render path got wired would have been the same lie in reverse - the panel
-	// claiming an effect its own edits do not have. It stops being correct when
-	// something pushes the workspace model's Clip into a volume component.
+	// THE WORDING NOW SAYS WHAT IS MISSING AND WHAT WOULD FIX IT. The panel edits
+	// a view model and fires OnClipChanged; until a workspace binds a volume,
+	// nobody carries that model to a component. That is a real state a user meets
+	// - the workspace is built before any case is open - not a permanent defect.
 	return LOCTEXT("NotWired",
-		"Planes added here are authored and saved, but this panel is NOT yet connected to the "
-		"volume, so the image will not change. The renderer does apply clip planes - it just "
-		"does not receive the ones edited here. Shown rather than hidden because a plane that "
-		"does nothing is indistinguishable from one facing the wrong way.");
+		"No volume is bound, so planes added here are authored and saved but the image will "
+		"not change. Open a case to connect this panel to the renderer. Shown rather than "
+		"hidden because a plane that does nothing is indistinguishable from one facing the "
+		"wrong way.");
+}
+
+EVisibility SFlowVizClipPanel::GetNotWiredAdvisoryVisibility() const
+{
+	// COLLAPSED, not Hidden: a hidden widget still takes its layout space, so the
+	// panel would keep a strip-sized gap at the top once the advisory retired.
+	return IsNotWiredAdvisoryVisible() ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+void SFlowVizClipPanel::SetVolumeBound(bool bInVolumeBound)
+{
+	bVolumeBound = bInVolumeBound;
+}
+
+void SFlowVizClipPanel::NotifyClipChanged() const
+{
+	// ExecuteIfBound, because an unsubscribed panel is a legal, inert state - the
+	// panel is constructed before the workspace has anything to push into.
+	OnClipChanged.ExecuteIfBound();
 }
 
 bool SFlowVizClipPanel::CanAddPlane() const
@@ -605,13 +641,22 @@ FReply SFlowVizClipPanel::OnPresetClicked(EFlowVizClipPreset Preset)
 {
 	if (ViewModel != nullptr)
 	{
-		ViewModel->AddPresetPlane(Preset);
+		// THE RESULT IS CHECKED, and it is what decides whether anything is
+		// announced. AddPresetPlane refuses at MaxClipPlanes and with no domain,
+		// and announcing a refused edit would push an identical clip model to the
+		// render thread - a flush for a frame that cannot have changed.
+		const bool bAdded = ViewModel->AddPresetPlane(Preset).IsOk();
 
 		// The COUNT changed, so the rows are stale. Rebuilt rather than appended
 		// to because AddPresetPlane can refuse - at the limit, or with no domain -
 		// and appending unconditionally would add a row for a plane that does not
 		// exist.
 		RebuildPlaneRows();
+
+		if (bAdded)
+		{
+			NotifyClipChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -622,7 +667,13 @@ FReply SFlowVizClipPanel::OnPlaneEnableClicked(int32 Index)
 	{
 		// TOGGLE, not remove. The distinction is the whole point of the control:
 		// hiding retains the plane's position so it can be brought back.
-		ViewModel->SetPlaneEnabled(Index, !IsPlaneEnabled(Index));
+		if (ViewModel->SetPlaneEnabled(Index, !IsPlaneEnabled(Index)).IsOk())
+		{
+			// ANNOUNCED, even though the plane count is unchanged. The shader is
+			// given the ENABLED planes, so hiding one changes the image - a push
+			// gated on the count would leave a hidden plane still clipping.
+			NotifyClipChanged();
+		}
 	}
 	// No rebuild: the count is unchanged and the glyph is bound.
 	return FReply::Handled();
@@ -635,7 +686,10 @@ FReply SFlowVizClipPanel::OnPlaneInvertClicked(int32 Index)
 		// The view model negates N AND D. Doing it here instead would be a second
 		// implementation of the convention, and getting it wrong moves the plane
 		// rather than flipping it.
-		ViewModel->InvertPlane(Index);
+		if (ViewModel->InvertPlane(Index).IsOk())
+		{
+			NotifyClipChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -644,12 +698,17 @@ FReply SFlowVizClipPanel::OnPlaneRemoveClicked(int32 Index)
 {
 	if (ViewModel != nullptr)
 	{
-		ViewModel->RemovePlane(Index);
+		const bool bRemoved = ViewModel->RemovePlane(Index).IsOk();
 
 		// MANDATORY here, not an optimisation. Removing plane 0 renumbers every
 		// plane after it, so every surviving row's captured index now points at a
 		// different plane - row 1 would delete what the user sees as row 2.
 		RebuildPlaneRows();
+
+		if (bRemoved)
+		{
+			NotifyClipChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -658,8 +717,20 @@ FReply SFlowVizClipPanel::OnRemoveAllClicked()
 {
 	if (ViewModel != nullptr)
 	{
+		// RemoveAllPlanes returns void and cannot fail, so the guard is on whether
+		// there was anything to remove. Without it, clicking an already-empty list
+		// pushes on every click.
+		const bool bHadPlanes = ViewModel->GetPlaneCount() > 0;
 		ViewModel->RemoveAllPlanes();
 		RebuildPlaneRows();
+
+		if (bHadPlanes)
+		{
+			// THE BRANCH AN APPEND-ONLY CHANNEL WOULD FAIL. Clearing has to reach
+			// the volume as surely as adding does, or the last plane clips forever
+			// with the panel showing none.
+			NotifyClipChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -668,7 +739,15 @@ FReply SFlowVizClipPanel::OnResetCropClicked()
 {
 	if (ViewModel != nullptr)
 	{
+		// Same shape: ResetCropBox is void, so "was there a crop to reset" is what
+		// decides whether this is a change.
+		const bool bWasCropped = ViewModel->IsCropActive();
 		ViewModel->ResetCropBox();
+
+		if (bWasCropped)
+		{
+			NotifyClipChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -695,7 +774,14 @@ void SFlowVizClipPanel::OnCropMinCommitted(
 	// the other two axes, which reads as the crop collapsing.
 	FVector Min = ViewModel->GetCropMin();
 	Min[Axis] = Value;
-	ViewModel->SetCropBox(Min, ViewModel->GetCropMax());
+	if (ViewModel->SetCropBox(Min, ViewModel->GetCropMax()).IsOk())
+	{
+		// REFUSALS ARE SILENT ON PURPOSE. SetCropBox rejects an inverted or
+		// zero-thickness box, and the bound Text attribute puts the model's value
+		// back on the next paint. Announcing it would push a model that did not
+		// change while the box visibly reverts - a render flush for nothing.
+		NotifyClipChanged();
+	}
 }
 
 void SFlowVizClipPanel::OnCropMaxCommitted(
@@ -714,7 +800,10 @@ void SFlowVizClipPanel::OnCropMaxCommitted(
 
 	FVector Max = ViewModel->GetCropMax();
 	Max[Axis] = Value;
-	ViewModel->SetCropBox(ViewModel->GetCropMin(), Max);
+	if (ViewModel->SetCropBox(ViewModel->GetCropMin(), Max).IsOk())
+	{
+		NotifyClipChanged();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
