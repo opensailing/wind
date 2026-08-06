@@ -1,0 +1,34 @@
+seam call deleted -- the exact defect #42 fixed: a view model nobody reaches
+--
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+--
+	// MUTANT: clip seam removed
+%%
+seam applied to a throwaway copy, so the request keeps FillDefaults' zeros
+--
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+--
+	FFlowVizVolumeRayMarchParameters MutantScratch = Request.Parameters;
+	Context.Clip.ApplyToRayMarchParameters(MutantScratch);
+%%
+seam applied to a FRESH view model -- the impostor: the call is present, the user's planes are not
+--
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+--
+	FFlowVizClipViewModel MutantFresh;
+	MutantFresh.ApplyToRayMarchParameters(Request.Parameters);
+%%
+order inverted -- the defaults run last and zero NumClipPlanes again
+--
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+--
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+	FlowVizRayMarch::FillDefaults(Request.Parameters);
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+--
+	// MUTANT: identity control, no behaviour change
+	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
+%%
