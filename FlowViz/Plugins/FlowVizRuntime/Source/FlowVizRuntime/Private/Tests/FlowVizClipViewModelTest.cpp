@@ -79,6 +79,43 @@ namespace FlowVizClipViewModelTest
 		}
 		return Count;
 	}
+
+	/**
+	 * A slot that is unmistakably not the zero this test looks for, and that no
+	 * apply could legitimately produce.
+	 *
+	 * NOT (0,0,0,-1), tempting as the most destructive value is: that one is
+	 * already the discriminator the IsSlotInert fixture below is built on, and
+	 * reusing it would leave a failure ambiguous between "the tail was not
+	 * cleared" and "the helper mis-classifies". This is a real, valid, clearly
+	 * authored plane -- normal +Y, offset 99 -- so a slot still holding it after
+	 * an apply can only have got there by not being erased.
+	 */
+	const FVector4f PoisonSlot(0.0f, 1.0f, 0.0f, 99.0f);
+
+	/**
+	 * Fill EVERY slot, including the ones a subsequent apply is expected to use.
+	 *
+	 * THIS IS WHAT MAKES THE TAIL ASSERTION ABLE TO FAIL, and it is the whole
+	 * reason this helper exists. FlowVizRayMarch::FillDefaults already zeroes all
+	 * six slots, so a test that called FillDefaults, applied a two-plane model and
+	 * then asserted "the tail is zero" would pass with the production tail-zeroing
+	 * loop DELETED -- the zeros it reads are the ones FillDefaults wrote, not the
+	 * ones the apply wrote. A mutation arm proved exactly that: deleting the loop
+	 * SURVIVED a green suite.
+	 *
+	 * Poisoning first turns the assertion from "the tail is absent" into "the
+	 * apply ERASED what was there", which is the property the shader depends on.
+	 * Repo memory accumulators-need-a-second-write: a write is indistinguishable
+	 * from a no-op unless the fixture puts something else there first.
+	 */
+	void PoisonEverySlot(FFlowVizVolumeRayMarchParameters& Parameters)
+	{
+		for (int32 Index = 0; Index < FlowVizRayMarch::MaxClipPlanes; ++Index)
+		{
+			Parameters.ClipPlanes[Index] = PoisonSlot;
+		}
+	}
 }
 
 /* ========================================================================== */
@@ -442,10 +479,19 @@ bool FFlowVizClipViewModelConsumerTest::RunTest(const FString& Parameters)
 
 		FFlowVizVolumeRayMarchParameters Full;
 		FlowVizRayMarch::FillDefaults(Full);
+
+		// Poisoned for the same reason as the reduced case below: on a block
+		// FillDefaults just zeroed, "exactly three slots are non-zero" is
+		// satisfied by the three the apply wrote plus three zeros nobody had to
+		// clear. With the poison in place the count only reaches 3 if the apply
+		// erased the other three itself.
+		FlowVizClipViewModelTest::PoisonEverySlot(Full);
+
 		TestTrue(TEXT("applying three planes succeeds"),
 			Clip.ApplyToRayMarchParameters(Full).IsOk());
 		TestEqual(TEXT("three planes reach the shader"), Full.NumClipPlanes, 3u);
-		TestEqual(TEXT("and exactly three slots are non-zero"),
+		TestEqual(TEXT("and exactly three slots are non-zero, over a block whose "
+					   "every slot was authored a moment ago"),
 			FlowVizClipViewModelTest::CountNonZeroPlanes(Full), 3);
 
 		// Disable the MIDDLE one, so a naive implementation that only lowered the
@@ -455,6 +501,19 @@ bool FFlowVizClipViewModelConsumerTest::RunTest(const FString& Parameters)
 
 		FFlowVizVolumeRayMarchParameters Reduced;
 		FlowVizRayMarch::FillDefaults(Reduced);
+
+		// POISON BEFORE APPLYING, or the tail assertion below cannot fail.
+		// FillDefaults has just zeroed all six slots, so reading zeros back
+		// afterwards would prove nothing about who wrote them. See
+		// PoisonEverySlot: the arm that deletes the production tail-zeroing loop
+		// SURVIVED this exact test until this line existed.
+		FlowVizClipViewModelTest::PoisonEverySlot(Reduced);
+		TestEqual(TEXT("CONTROL: the fixture really did poison every slot, so a "
+					   "zero read below is an erase and not a value that was "
+					   "never disturbed"),
+			FlowVizClipViewModelTest::CountNonZeroPlanes(Reduced),
+			FlowVizRayMarch::MaxClipPlanes);
+
 		TestTrue(TEXT("re-applying succeeds"),
 			Clip.ApplyToRayMarchParameters(Reduced).IsOk());
 		TestEqual(TEXT("two planes now reach the shader"), Reduced.NumClipPlanes, 2u);
@@ -470,10 +529,31 @@ bool FFlowVizClipViewModelConsumerTest::RunTest(const FString& Parameters)
 		 * NumClipPlanes says 2 is invisible - until some later frame raises the
 		 * count and a plane the user removed reappears. That is a bug that
 		 * manifests one interaction after its cause.
+		 *
+		 * AND IT IS NOT HYPOTHETICAL, because NumClipPlanes is itself a written
+		 * value: the FIRST arm of this file's campaign writes the plane count
+		 * instead of the enabled count. Each defect alone is caught. Composed, a
+		 * wrong count plus a stale tail is a plane the user deleted, silently
+		 * clipping the image, with no error anywhere - the picture still looks
+		 * like a picture.
 		 */
 		TestEqual(TEXT("the unused tail is zeroed, so a later count raise cannot "
-					   "resurrect a removed plane"),
+					   "resurrect a removed plane -- and the slots held a real "
+					   "authored plane a moment ago, so this is an ERASE"),
 			FlowVizClipViewModelTest::CountNonZeroPlanes(Reduced), 2);
+
+		// Named individually as well as counted, because the count above would
+		// also be satisfied by an apply that erased the tail and then dropped one
+		// of the two planes it was supposed to keep.
+		for (int32 Index = 2; Index < FlowVizRayMarch::MaxClipPlanes; ++Index)
+		{
+			TestEqual(
+				FString::Printf(
+					TEXT("slot %d is exactly zero after the apply, not the plane "
+						 "the fixture wrote there"),
+					Index),
+				Reduced.ClipPlanes[Index], FVector4f(0.0f, 0.0f, 0.0f, 0.0f));
+		}
 
 		/*
 		 * WHAT "ZEROED" HAS TO MEAN - the fixture that separates the two available

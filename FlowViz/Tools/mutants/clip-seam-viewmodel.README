@@ -1,0 +1,106 @@
+Campaign clip-seam-viewmodel, over Private/UI/FlowVizClipViewModel.cpp with
+filter FlowViz. BEFORE (2026-08-06, 6 arms) and AFTER the stale-tail gap was
+closed (after = 3-arm re-run 07:46-07:48Z against 435054e in
+wind-worktrees/dispatchobs, same file, same filter):
+
+    before    after     arm
+    --------  --------  ----------------------------------------------
+    killed    killed    count written as the PLANE count, not ENABLED
+    SURVIVED  killed    unused tail left stale                <-- THE GAP
+    killed    --        plane distance dropped
+    killed    --        crop box left in SOLVER units
+    killed    --        no-domain guard removed
+    SURVIVED  SURVIVED  IDENTITY CONTROL                       (correct)
+
+    before:  killed 4  SURVIVED 2  INVALID 0  UNSCORED 0  skipped 0
+    after:   killed 2  SURVIVED 1  INVALID 0  UNSCORED 0  skipped 0   (3 arms)
+
+The re-run carried three arms, not one, because an UNSCORED or mis-scored re-run
+of a single arm proves nothing on its own: the gap arm, one ALREADY-KILLED
+sibling to show the harness still kills, and the identity control to show it
+still lets a no-op through. Both controls landed as expected, so the flip is
+readable. Repo memory rerun-unknowns-with-controls. Baseline green before
+scoring, 106/106 enumerated tests completed in every arm.
+
+WHICH ASSERTIONS KILLED WHICH ARM, because a KILLED only says the suite went
+red, and here two arms broke the same struct field family:
+
+    tail arm     FlowViz.UI.ClipViewModel.Consumer, SIX assertions, all of them
+                 added by this task:
+                   'exactly three slots are non-zero ...'  expected 3, got 6
+                   'the unused tail is zeroed ...'         expected 2, got 6
+                   'slot 2/3/4/5 is exactly zero after the apply ...'
+
+    count arm    FlowViz.Render.ClipSeam ('a disabled plane is not counted',
+                 'the count DROPS back to one') AND
+                 FlowViz.UI.ClipViewModel.Consumer ('two planes now reach the
+                 shader')
+
+Different tests, different assertions, no overlap. So the two arms are told
+apart by what they broke rather than by their position in the list.
+
+GOT 6, WHICH IS THE MECHANISM AND NOT JUST A FAILURE. Six is every slot still
+holding the poison plane. Under the OLD fixture those same slots read 0 -- not
+because the apply cleared them, but because FlowVizRayMarch::FillDefaults had
+zeroed all six a few lines earlier. That is precisely why the arm survived.
+
+THE GAP -- AN ASSERTION THAT ALREADY EXISTED AND COULD NOT FAIL.
+
+This was not a missing test. FlowVizClipViewModelTest.cpp already carried
+
+    TestEqual(TEXT("the unused tail is zeroed, so a later count raise cannot "
+                   "resurrect a removed plane"), CountNonZeroPlanes(Reduced), 2);
+
+directly under a comment explaining why the zeroed tail matters. It reads as
+thorough coverage. It cannot fail: the block came from FillDefaults, which
+zeroes all six slots, so the assertion was reading FillDefaults' zeros and
+attributing them to ApplyToRayMarchParameters. Delete the production tail loop
+and the test still passes.
+
+THE FIX IS THE FIXTURE, NOT THE ASSERTION. PoisonEverySlot writes a real,
+valid, clearly-authored plane (+Y normal, offset 99) into ALL SIX slots before
+the apply. That converts the question from 'is the tail absent' -- which was
+already true -- into 'did the apply ERASE what was there', which is the property
+the shader actually depends on. Repo memory accumulators-need-a-second-write:
+a write is indistinguishable from a no-op unless something else was there first.
+A CONTROL asserts the poison landed (all six slots non-zero) before the apply
+runs, so a poison helper that silently did nothing could not make the tail
+assertion pass by default.
+
+NOT (0,0,0,-1) AS THE POISON, though it is the most destructive value a slot can
+hold. That value is already the discriminator the IsSlotInert fixture is built
+on, and reusing it would leave a failure ambiguous between 'the tail was not
+cleared' and 'the helper mis-classifies'. A poison must be distinguishable from
+every other thing the test is trying to prove.
+
+BOTH SITES WERE FIXED, NOT JUST THE ONE THE ARM NAMED. The same file asserts
+'exactly three slots are non-zero' over a freshly-defaulted block a few lines
+above, with the identical defect for the identical reason. The arm only pointed
+at one of them. Repo memory a-finding-names-an-instance: grep the pattern, do
+not patch the coordinates.
+
+WHY IT MATTERS, and why it is not merely theoretical. NumClipPlanes is itself a
+written value -- the FIRST arm of this campaign proves a mutant can write the
+wrong count. Compose the two: a wrong count plus a stale tail is a plane the
+user deleted, silently clipping the image, with no error anywhere. Each defect
+alone is caught; together the tail turns an off-by-one count into a visibly
+wrong picture that still looks like a picture.
+
+THE SEAM TEST'S TWO SIMILAR CLAIMS WERE CHECKED AND LEFT ALONE.
+FlowVizClipSeamTest.cpp asserts 'the disabled plane's slot is zeroed, not left
+stale' and 'slot 1 is zeroed on the way down'. Those cannot be poisoned the same
+way: the parameter block is built INSIDE the dispatcher and only copied out
+through PeekRequestParameters, so the test never owns it before the write. They
+still do useful work -- they catch a disabled plane being WRITTEN to slot 1 --
+they simply cannot speak for the tail-clearing loop. The view model test owns
+its block, which is why the close lives there.
+
+Arm order in the re-run file is gap-first, then the killed sibling, then the
+control. The identity control must SURVIVE; if it ever does not, the harness is
+scoring noise and every line above is void.
+
+The rationale lives here rather than at the top of the .txt because
+parse_mutants.py splits on `%%` and raises ValueError on any record that is not
+exactly three `--`-separated fields. A prose header would abort the campaign.
+
+Tracked as task #56. Re-run file: clip-seam-viewmodel-tailrerun.txt.
