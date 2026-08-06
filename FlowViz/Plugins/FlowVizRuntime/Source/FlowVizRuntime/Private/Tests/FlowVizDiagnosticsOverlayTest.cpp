@@ -447,8 +447,30 @@ bool FFlowVizDiagnosticsOverlayWiringTest::RunTest(const FString& Parameters)
 				 "toggle implemented at all"),
 			Workspace->IsDiagnosticsOverlayShown()))
 	{
+		Workspace->GetModel().CloseCase();
 		return false;
 	}
+
+	/*
+	 * AND HIDDEN IN THE TREE, not merely in the bool -- a mutation survivor
+	 * taught this one. The flag above is initialised false and SetVisibility has
+	 * not run yet, so it stays false no matter what visibility the CONTAINER was
+	 * constructed with: a workspace that builds the slot visible ships an overlay
+	 * covering the viewport from the moment the tab opens, and every assertion in
+	 * this test still passes. The tree reads below happen only AFTER the first
+	 * toggle, which is exactly the state that mutant left untouched.
+	 *
+	 * FALSIFIABLE BY CONSTRUCTION: the same read, on the same widget, returns
+	 * visible three lines further down.
+	 */
+	FlowVizSlateAttributePump::Pump(Workspace);
+
+	TestFalse(
+		TEXT("and hidden IN THE BUILT TREE, not just in the flag: the shown state is false by "
+			 "initialisation, so a container constructed visible ships an overlay over the "
+			 "viewport with the bool still reading hidden"),
+		Overlay->GetParentWidget().IsValid()
+			&& Overlay->GetParentWidget()->GetVisibility().IsVisible());
 
 	Workspace->SetDiagnosticsOverlayShown(true);
 

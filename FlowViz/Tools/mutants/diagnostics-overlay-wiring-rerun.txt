@@ -1,0 +1,21 @@
+RERUN, previously SURVIVED: the container ships visible, so the overlay covers the viewport from the moment the tab opens
+--
+							.Visibility(EVisibility::Collapsed)
+--
+							.Visibility(EVisibility::SelfHitTestInvisible)
+%%
+CONTROL, previously killed: the shown state is a bool nothing acts on. If this SURVIVES the re-run is measuring a broken fixture, not the fix.
+--
+		DiagnosticsOverlayContainer->SetVisibility(
+			bShown ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
+--
+		// MUTANT: the flag is recorded and the slot never moves
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+void SFlowVizWorkspace::SetDiagnosticsOverlayShown(bool bShown)
+{
+--
+void SFlowVizWorkspace::SetDiagnosticsOverlayShown(bool bShown)
+{
+	// MUTANT: identity control, no behaviour change
