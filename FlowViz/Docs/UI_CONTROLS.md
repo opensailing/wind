@@ -2,11 +2,15 @@
 
 Required by `plan.md` §3 (the `Docs/` manifest) and §17.
 
-**Almost nothing in this document is operable yet.** It is written the way
-[`PERFORMANCE.md`](PERFORMANCE.md) was — before the thing it describes exists —
-because a controls reference written *alongside* the controls tends to describe
-what was built, while one written before can still say what was promised and
-mark honestly what is missing.
+This document was written the way [`PERFORMANCE.md`](PERFORMANCE.md) was —
+before the thing it describes existed — because a controls reference written
+*alongside* the controls tends to describe what was built, while one written
+before can still say what was promised and mark honestly what is missing.
+
+**Sections 2 and 4 have since been filled in from shipped code.** The console
+commands and the transport bar are operable; the render controls in §1 are
+mostly not, and keyboard and mouse (§3) do not exist at all. The rows that still
+read *wired* or *frozen* are the ones this document exists for.
 
 Every row below carries a state, and the states are measured rather than
 recalled:
@@ -91,44 +95,76 @@ and static sampler states, exempted by name and reason in
 
 ## 2. Console commands
 
-`plan.md` §17 requires eight. **All eight are absent** — verified by searching
-for each name and, as a control, for `FAutoConsoleCommand` and `IConsoleManager`
-anywhere in `Plugins/` or `Source/`: zero files. No console-command
-infrastructure exists yet, so this is "not started", not "started and broken".
+Measured 2026-08-06. `plan.md` §17 requires eight; **all eight are operable.**
+Registered from `StartupModule` beside the tab spawner, so the wiring test is
+asking about the production startup path rather than about static initialisation
+that would have run in a build where `StartupModule` was never called.
 
-| Command | State | Required behaviour |
+| Command | State | Behaviour |
 |---|---|---|
-| `FlowViz.LoadCase` | absent | Load a case directory |
-| `FlowViz.ReloadCase` | absent | Re-read the current case from disk |
-| `FlowViz.ClearCache` | absent | Drop CPU and GPU caches |
-| `FlowViz.ShowDiagnostics` | absent | Toggle the diagnostics overlay |
-| `FlowViz.SetCpuCacheMB` | absent | Resize the CPU cache budget |
-| `FlowViz.SetGpuCacheMB` | absent | Resize the GPU cache budget |
-| `FlowViz.DumpCase` | absent | Print the parsed manifest and field inventory |
-| `FlowViz.Benchmark` | absent | Run the timing protocol in `PERFORMANCE.md` |
+| `FlowViz.LoadCase` | operable | Load a case directory. Takes an optional field name |
+| `FlowViz.ReloadCase` | operable | Re-read the current case from disk, keeping the bound field |
+| `FlowViz.ClearCache` | operable | Drop every cached frame. Budgets and cumulative counters survive |
+| `FlowViz.ShowDiagnostics` | operable | Toggle the on-screen overlay, and print its numbers to the log |
+| `FlowViz.SetCpuCacheMB` | operable | Resize the CPU cache budget |
+| `FlowViz.SetGpuCacheMB` | operable | Resize the GPU cache budget |
+| `FlowViz.DumpCase` | operable | Print the parsed manifest and field inventory |
+| `FlowViz.Benchmark` | operable | Run the timing protocol in `PERFORMANCE.md` |
 
-A note for whoever implements these: a command that silently does nothing when
-the precondition fails is worse than no command. `FlowViz.LoadCase` with no
-argument must refuse rather than pick the manifest's first field — that field is
-typically a 3-component vector whose bytes never reach the scalar texture the
-ray-marcher samples, so the volume draws its hull and nothing else, with no error
-anywhere.
+Every one resolves its target through `FlowVizWorkspaceRegistry`. A command that
+built its own workspace would report numbers about an object the user has never
+seen — worse than reporting nothing, because it looks like an answer.
+
+The note this section used to carry for whoever implemented these turned out to
+matter, so it is kept as shipped behaviour rather than advice: a command that
+silently does nothing when its precondition fails is worse than no command.
+`FlowViz.LoadCase` with no field argument refuses rather than picking the
+manifest's first field — that field is typically a 3-component vector whose
+bytes never reach the scalar texture the ray-marcher samples, so the volume
+would draw its hull and nothing else, with no error anywhere.
+
+**Verified by mutation, not only by green tests.** 23 arms across
+`FlowVizConsoleCommands.cpp`, its registration in `FlowVizRuntime.cpp`,
+`SFlowVizDiagnosticsOverlay.cpp` and `SFlowVizWorkspace.cpp`: 22 killed, 1
+survivor found and closed, 0 INVALID, 0 UNSCORED, with an identity control
+surviving every run. Mutant lists are committed under `Tools/mutants/` —
+`console-commands.txt`, `console-registration.txt`, `diagnostics-overlay*.txt`.
 
 ---
 
 ## 3. Keyboard and mouse
 
-**Absent.** No input bindings exist. This section is a placeholder so that the
-absence is recorded rather than merely unmentioned.
+**Absent**, re-checked 2026-08-06: no `OnKeyDown`, `OnMouseButtonDown`,
+`OnMouseMove` or `FUICommandList` in any UI source file. This section is a
+placeholder so that the absence is recorded rather than merely unmentioned.
+
+The diagnostics overlay is deliberately `HitTestInvisible` in anticipation of
+this — it sits on top of the viewport region, and at Slate's default visibility
+it would swallow every click and drag meant for the volume underneath. The
+symptom would be "the viewport stopped responding to the mouse", which reads as
+a broken viewport rather than as a text panel in front of it.
 
 ---
 
 ## 4. Transport
 
-Playback controls (play/pause, scrub, frame step, loop) are in flight and not yet
-committed. This section will be filled in from the shipped widget rather than
-from its plan — the difference matters, and every row above that says *wired* or
-*frozen* is there because someone wrote the plan version first somewhere else.
+Measured 2026-08-06 from the shipped `SFlowVizTransportBar`, by listing every
+`ViewModel->` call the widget makes — not from the plan. The difference matters,
+and every row above that says *wired* or *frozen* is there because someone wrote
+the plan version first somewhere else.
+
+| Control | State | Notes |
+|---|---|---|
+| Play / pause | operable | One button, `TogglePlayPause`. Disabled when the case reports `CanPlay() == false` rather than failing silently |
+| Scrub | operable | Normalised over **physical time**, not frame index — frames need not be evenly spaced |
+| Step back / forward | operable | One stored frame, and pauses playback |
+| Go to first / last | operable | |
+| Frame badge | operable | Names *why* the displayed frame is not the playhead frame, rather than showing a bare number |
+| Loop mode | **wired** | `FFlowVizTimelineViewModel::SetLoopMode` reaches `FFlowVizCasePlayer`, and no widget calls it. Same shape as §1.1: correct, tested, and unreachable from the UI |
+
+The enable/disable attributes are capabilities of the *case*, not momentary
+availabilities — see the header comment on `CanPause()` for why a per-frame
+availability would carry no information beyond `IsPlaying() && CanPlay()`.
 
 ---
 
@@ -147,7 +183,31 @@ Do not trust the tables; re-derive them.
 ./Tools/tests/test_check_frozen_params.sh
 ```
 
+**Read that exit code directly.** As of 2026-08-06 the checker exits **2 —
+UNSCORED**, so §1's "16 frozen of 74 declared" cannot currently be re-derived
+and should be treated as a stale number rather than a measurement. Do not pipe
+it into `tail` or `grep` and then read `$?`: that is the pipeline's exit code,
+not the checker's, and it reports 0 while the scan is failing.
+
 For the console commands, search for the literal name **and** for
 `FAutoConsoleCommand` as a control. A search that returns zero for both tells you
 the search works and the commands are missing; a search that returns zero for the
-first alone tells you nothing at all.
+first alone tells you nothing at all. Both now return hits, so the useful check
+has moved on: the commands are *registered* — the question is whether each one
+still does what its row claims. Run the suites, which assert on behaviour rather
+than on presence:
+
+```sh
+Tools/build_lock.sh Tools/run_tests.sh FlowViz.UI.Console
+Tools/build_lock.sh Tools/run_tests.sh FlowViz.UI.DiagnosticsOverlay
+```
+
+For the transport bar, re-derive the table rather than trusting it — list every
+call the widget actually makes, and compare against the view model's API. A
+control the view model offers and the widget never calls is a *wired* row:
+
+```sh
+grep -o 'ViewModel->[A-Za-z]*' \
+  Plugins/FlowVizRuntime/Source/FlowVizRuntime/Private/UI/SFlowVizTransportBar.cpp \
+  | sort -u
+```
