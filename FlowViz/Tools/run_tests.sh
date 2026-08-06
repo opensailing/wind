@@ -121,14 +121,81 @@ if grep -q "Result={Fail}" "${LOG}"; then
 fi
 
 echo
-FOUND=$(grep -cE "Test Completed\. Result=" "${LOG}")
+RAN=$(grep -cE "Test Completed\. Result=" "${LOG}")
 PASSED=$(grep -cE "Test Completed\. Result=\{Success\}" "${LOG}")
 
-if [[ "${FOUND}" -eq 0 ]]; then
+if [[ "${RAN}" -eq 0 ]]; then
     # An empty filter match exits 0, which would otherwise read as success.
     echo "FAIL: no tests matched '${FILTER}'. Check the test path." >&2
     echo "Full log: ${LOG}"
     exit 4
+fi
+
+# --- tests that were found but never ran -------------------------------------
+#
+# THE DENOMINATOR MUST NOT COME FROM THE SAME LINES AS THE NUMERATOR. This
+# script used to count Completed lines for both, so a session that died partway
+# through reported "51/51 passed" and exited 0 -- the count was arithmetically
+# correct and completely wrong, because 55 further tests had been found and
+# never started. Observed 2026-08-06: a SIGSEGV on the render thread took the
+# editor down at test 51 of 106 and this script called it a clean green.
+#
+# The engine enumerates before it runs anything, and logs it:
+#
+#   LogAutomationCommandLine: Display: Found 106 automation tests based on 'FlowViz'
+#   LogAutomationCommandLine: Display: 	FlowViz.CFDViz.ArrayReader.ComponentOrder
+#   ...one indented line per test...
+#
+# Reading that list is not a reimplementation of the engine's filter semantics
+# -- it IS the engine's answer, which is the only denominator that can disagree
+# with the numerator. Anything derived from the test records themselves moves
+# with them and can never detect a truncation.
+#
+# Absent on logs written before this was added, and on any log from a run that
+# died before enumerating. Falling back to RAN there keeps --summarize working
+# over old logs; it means those logs cannot detect truncation, which is the
+# status quo and not a regression.
+ENUMERATED_NAMES="$(awk '
+    /automation tests based on/ { collecting = 1; next }
+    collecting && /Display: \t/ {
+        sub(/.*Display: \t/, "")
+        sub(/[[:space:]]+$/, "")
+        print
+        next
+    }
+    collecting { collecting = 0 }
+' "${LOG}")"
+
+MISSING_NAMES=""
+if [[ -n "${ENUMERATED_NAMES}" ]]; then
+    # Compare by name, not by count. A run that skipped one test and somehow
+    # ran an extra would net to zero on counts alone, and the names are what
+    # tell a reader whether a tail was cut or a subtree never started.
+    _RAN_NAMES="$(mktemp -t flowviz_ran)"
+    _ENUM_NAMES="$(mktemp -t flowviz_enum)"
+    grep -E "Test Completed\. Result=" "${LOG}" \
+        | sed -E 's/.*Path=\{([^}]*)\}.*/\1/' | sort -u > "${_RAN_NAMES}"
+    printf '%s\n' "${ENUMERATED_NAMES}" | sort -u > "${_ENUM_NAMES}"
+    MISSING_NAMES="$(comm -23 "${_ENUM_NAMES}" "${_RAN_NAMES}")"
+    rm -f "${_RAN_NAMES}" "${_ENUM_NAMES}"
+fi
+
+FOUND="${RAN}"
+if [[ -n "${ENUMERATED_NAMES}" ]]; then
+    FOUND="$(printf '%s\n' "${ENUMERATED_NAMES}" | sort -u | wc -l | tr -d ' ')"
+fi
+
+if [[ -n "${MISSING_NAMES}" ]]; then
+    _MISSING_COUNT="$(printf '%s\n' "${MISSING_NAMES}" | wc -l | tr -d ' ')"
+    echo "${_MISSING_COUNT} FOUND BUT NEVER RAN -- the session did not finish:"
+    printf '%s\n' "${MISSING_NAMES}" | sed 's/^/  /'
+    echo
+    # The overwhelmingly likely cause, and the one that reads as success.
+    if grep -q "Critical error" "${LOG}"; then
+        echo "  The engine hit a critical error. The stack is in the log:"
+        grep -A 3 "Critical error" "${LOG}" | sed 's/^/    /' | head -6
+        echo
+    fi
 fi
 
 # --- tests that passed without verifying anything ----------------------------
@@ -165,4 +232,8 @@ echo "${PASSED}/${FOUND} passed. Full log: ${LOG}"
 # A skip is not a failure. Turning the suite red for it would get the signal
 # suppressed the first time someone ran without a GPU, which is the opposite
 # of the point.
+#
+# A TRUNCATION IS a failure, and FOUND is now the enumerated total, so a run
+# that died partway through fails this comparison on the count alone. That is
+# deliberate: the whole defect was that the two numbers could not disagree.
 [[ "${PASSED}" -eq "${FOUND}" && "${ENGINE_EXIT}" -eq 0 ]] || exit 1
