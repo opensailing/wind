@@ -1,0 +1,77 @@
+session-workspace-arm4.txt -- the arm that came back INVALID, then SURVIVED
+==============================================================================
+
+    FlowVizWorkspaceModel.cpp  vs  FlowViz.UI.WorkspaceModel
+
+    run 1  INVALID   -- did not compile
+    run 2  SURVIVED  -- compiled, and the suite did not notice   <-- a real gap
+    run 3  killed    -- after the assertion below was added
+
+The identity control SURVIVED in runs 2 and 3, which is what makes those
+verdicts mean anything.
+
+WHAT THE ARM DOES
+-----------------
+It removes the `if (State.bCaseFound)` guard in FFlowVizWorkspaceModel::LoadState,
+so a session whose case has moved calls OpenCase on the missing path instead of
+reporting the relink failure directly.
+
+RUN 1: INVALID, AND WHY THE FIX WAS NOT COSMETIC
+------------------------------------------------
+The original arm replaced the guard with `if (true)`. That does not compile:
+
+    FlowVizWorkspaceModel.cpp:386:10: error: code will never be executed
+                                      [-Werror,-Wunreachable-code]
+
+The compiler proves the else dead, and this module builds with -Werror. An
+INVALID is not a weak KILLED -- it is no verdict at all, and it is silent about
+whether the tests could catch anything.
+
+The replacement uses `if (!State.ResolvedCasePath.IsEmpty())`, true in exactly
+the same cases (the enclosing guard has already established non-empty) but not
+foldable, so the else stays formally reachable.
+
+RUN 2: SURVIVED -- THE TEST'S RATIONALE WAS FALSE ABOUT THE CODE
+-----------------------------------------------------------------
+FlowViz.UI.WorkspaceModel.SessionMissingCase existed specifically to catch this
+direction, and documented how:
+
+    open the case anyway -> OpenCase on a path that does not exist fails, but
+                            not before CloseCase has run, so the user loses the
+                            case they had open.
+
+OpenCase does not do that. It parses into a local, validates the codec, the
+field and the grid, and reaches CloseCase only once every gate has passed --
+the comment at the top of the function says so in as many words ("Parsed into a
+local first"). A moved-away path fails at the FIRST gate. The open case survives
+whether or not the guard exists, so `TestTrue(Workspace.IsCaseOpen())` passes
+under both and cannot separate them.
+
+Neither can the other two assertions. Both implementations return FileNotFound,
+and both name the same path -- the manifest reader reports the path it was
+handed. Three assertions, all of them true of the mutant.
+
+This is a-finding-names-an-instance in an unusual form: the defect was not in
+the coordinates the arm touched, it was in the PROSE that told a reader this
+branch was covered. A comment naming the mechanism that handles a hazard turns
+the auditor away (prose-claiming-a-hazard-is-solved), and here the comment was
+simply wrong about the mechanism.
+
+RUN 3: WHAT ACTUALLY DISTINGUISHES THEM
+---------------------------------------
+The message. The guarded branch says the case can be relinked and everything
+else was applied; the unguarded one degrades to the manifest reader's "manifest
+not found", which reads as a failed open and offers a relink prompt nothing to
+say. Since the prompt is written from that text, the text is now asserted -- on
+substrings ("relink", "everything else was applied") rather than the full
+sentence, so a copy-edit is not a test failure.
+
+`IsCaseOpen()` was kept but relabelled as what it is: a pin on OpenCase's
+validate-then-commit ordering, which the relink flow depends on, and not the
+discriminator it was described as.
+
+WHAT THIS DOES NOT COVER
+------------------------
+The relink flow itself. FlowVizSession::RelinkCase is tested at the session
+layer, but nothing drives the full load -> discover missing -> relink -> apply
+sequence through FFlowVizWorkspaceModel, and no UI offers it (task #53).

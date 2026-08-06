@@ -7,7 +7,9 @@ wind-worktrees/dispatchobs against ef0c4ad, 10 arms.
     killed    the session's field id dropped -- opens the first non-mask field
     killed    the apply runs BEFORE the case opens (the ordering hazard)
     killed    a missing case ABORTS -- the panels never arrive
-    INVALID   a missing case is opened ANYWAY            <-- see BELOW
+    INVALID   a missing case is opened ANYWAY            <-- see BELOW; the
+                                                             re-run found a
+                                                             REAL GAP
     killed    the transfer function is not captured (SaveSession null)
     killed    the clip model is not captured
     killed    the slice model is not captured
@@ -49,6 +51,15 @@ asserted by FlowViz.UI.WorkspaceModel.SessionMissingCase - which checks that a
 load whose case moved reports FileNotFound and leaves the previously-open case
 open - but an assertion existing is not the same as an assertion being able to
 fail, which is the entire reason this campaign exists.
+
+THE RE-RUN LANDED, AND THE PARAGRAPH ABOVE WAS TOO OPTIMISTIC. The arm SURVIVED.
+SessionMissingCase's three assertions were ALL TRUE OF THE MUTANT: OpenCase
+validates into a local and reaches CloseCase only after every gate passes, so
+the open case survives either way and IsCaseOpen() cannot separate them; and
+both implementations return FileNotFound naming the same path. The test's own
+comment asserted the opposite about OpenCase and was simply wrong. Closed by
+asserting the relink MESSAGE, which is the one thing that differs. Full account
+in session-workspace-arm4.README; the arm now scores killed.
 
 WHICH ASSERTIONS KILLED WHICH ARM. DERIVED, NOT READ OFF A LOG - and that is a
 defect in how this campaign was run rather than a property of the results.

@@ -1,4 +1,4 @@
-a missing case is opened ANYWAY -- CloseCase runs, so the open case is lost
+a missing case is opened ANYWAY -- the relink report degrades to 'manifest not found'
 --
 		if (State.bCaseFound)
 --
