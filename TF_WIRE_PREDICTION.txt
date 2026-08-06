@@ -1,0 +1,77 @@
+Mutation campaign over the #48 transfer-function seam, at e2bf9d5.
+Written BEFORE the run. A campaign read only afterwards proves nothing: any
+outcome can be narrated as expected once it is on the screen.
+
+WHY THIS CAMPAIGN EXISTS. #48's tests and its fix were written together rather
+than test-first, against the repo's own standing rule. A green suite therefore
+shows the tests PASS, not that they can FAIL. Three of these four arms delete or
+corrupt a seam the tests are supposed to be watching; if any survives, the
+assertion above it is decorative.
+
+tf-wire.txt, over Private/Render/FlowVizVolumeRayMarchDispatcher.cpp,
+filtered on FlowViz.Render (the seam test's suite).
+
+    arm 1  SURVIVE  identity control -- a comment. A killed control means the
+                    harness is scoring noise and arms 2-4 are void with it.
+
+    arm 2  KILLED   the ApplyToRayMarchParameters call is deleted. Caught by
+                    FlowViz.Render.TransferFunctionSeam channel 1, which peeks
+                    the recorded parameter block and asserts ValueRangeMin/Max
+                    and bClampToRange against the configured fixture.
+
+    arm 3  KILLED   the Request.TransferFunction assignment is deleted, so the
+                    drain builds from a default-constructed function. Caught by
+                    channel 2 (GetResidentColorMap == Inferno) AND by channel 2b.
+                    Two independent assertions, which is the point: channel 2
+                    alone could not distinguish this from arm 4.
+
+    arm 4  KILLED   the drain rebuilds through MakeDefault(ColorMap, 0, 1),
+                    preserving the map and discarding bReverseColorMap,
+                    ColorBands and the opacity curve. THIS IS THE ARM THAT
+                    MATTERS. It is the bug the first draft of this seam actually
+                    had, and it is invisible to every assertion that reads
+                    GetResidentColorMap. Only channel 2b can kill it.
+
+                    IF ARM 4 SURVIVES, channel 2b is not doing what its comment
+                    claims, and the reverse/banding/opacity controls are unverified
+                    regardless of what the suite reports.
+
+    => predicted killed 3  SURVIVED 1 (the control)
+
+STANDING RULES, either of which voids the run:
+  - arm 1 must SURVIVE.
+  - the baseline must be green before any arm is applied. A standing red makes
+    every arm score killed, and an all-killed report reads as thorough coverage.
+
+NOTE ON THE FILTER. FlowViz.Render, not FlowViz -- task #61 records that the bare
+FlowViz filter silently omits 43 UI tests, so a campaign run under it would score
+against a suite missing most of the relevant assertions. The seam test lives in
+FlowViz.Render and that is what is being exercised here; the panel-to-component
+links have their own tests under FlowViz.UI and are not what these four arms cut.
+
+--------------------------------------------------------------------------
+RUN 1 ABORTED, NOT SCORED. 2026-08-06.
+
+Killed during its baseline phase, before any arm was applied. Its baseline
+suite was CRASHING: FlowViz.Render.TransferFunctionSeam took a SIGSEGV in
+DrainView (*View.Family on a familyless fixture view), which killed the editor
+on the render thread.
+
+That is the condition the standing rules already name -- a standing red makes
+every arm score KILLED, and an all-KILLED report reads as thorough coverage.
+Here it would have been worse than a standing red: the crash also truncated
+the session, and the pre-#61 runner reported the truncated run as green, so
+the campaign would have believed its baseline was clean while scoring against
+a suite that died before reaching most of its assertions.
+
+Fixed first, in this order, because the instrument had to be trustworthy
+before the measurement meant anything:
+  #61  ad2766c  count the ENUMERATED total, not the completed count
+  #62  b2a5c70  guard DrainView; fix the identity control it exposed
+
+Baseline now: 106/106, exit 0, no critical error, 5 named GPU skips.
+
+The four arms and the predictions above are UNCHANGED and still stand. Nothing
+in either fix touches what the arms cut: #62 added a guard AFTER the LUT build
+that arms 3 and 4 mutate, and channel 2b -- the only assertion that can kill
+arm 4 -- is untouched. Arm 4 remains the decisive one.

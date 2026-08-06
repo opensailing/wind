@@ -1,0 +1,28 @@
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+	Context.TransferFunction.ApplyToRayMarchParameters(Request.Parameters);
+--
+	// MUTANT: identity control, no behaviour change
+	Context.TransferFunction.ApplyToRayMarchParameters(Request.Parameters);
+%%
+the parameter block is never written -- the user's range never reaches the shader
+--
+	Context.TransferFunction.ApplyToRayMarchParameters(Request.Parameters);
+--
+	// MUTANT: the cbuffer half of the seam is gone
+%%
+the LUT is never told which function to build -- every volume renders viridis
+--
+	Request.TransferFunction = Context.TransferFunction.GetTransferFunction();
+--
+	// MUTANT: the LUT half of the seam is gone
+%%
+the LUT is rebuilt through MakeDefault -- reverse, banding and opacity dropped
+--
+	TransferFunction.Update(LutRequest.TransferFunction);
+--
+	// MUTANT: carries the colormap perfectly, discards the other three inputs
+	// BuildLut reads. This is the bug the first draft actually had, and every
+	// assertion that reads GetResidentColorMap alone passes against it.
+	TransferFunction.Update(FFlowVizTransferFunction::MakeDefault(
+		LutRequest.TransferFunction.ColorMap, 0.0f, 1.0f));
