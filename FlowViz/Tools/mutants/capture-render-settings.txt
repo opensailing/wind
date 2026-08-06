@@ -31,6 +31,13 @@ the enum validated by CAST rather than by the view model -- 99 becomes a live mo
 		|| !Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode)))
 --
 	Settings.SetCompositeMode(static_cast<EFlowVizCompositeMode>(CompositeMode)); // MUTANT
+	// A BARE `if (false)` IS SAFE HERE and nowhere else in this file. The block
+	// it disables contains only a log and a `return false` -- no unreachable
+	// VALUE is produced, so -Wunreachable-code has nothing to fire on. Measured:
+	// this shape compiles, while `if (false) { sink = 1; }` does not. Two arms
+	// in this repo scored INVALID on that difference before it was understood.
+	// If the block below ever gains an assignment, this arm stops compiling and
+	// silently stops being tested -- use `if ((false))` then.
 	if (false)
 %%
 EQUIVALENT, PROVEN -- expected to SURVIVE, see test_equivalent_mutants.py MODE_CASES. Negative guard dropped.
@@ -40,11 +47,30 @@ EQUIVALENT, PROVEN -- expected to SURVIVE, see test_equivalent_mutants.py MODE_C
 --
 	if (!Settings.SetCompositeModeByValue(static_cast<uint32>(CompositeMode))) // MUTANT
 %%
-the iso value never applied, so IsoSurface renders at whatever it was
+the iso value's REFUSAL ignored, so a non-finite threshold is accepted
 --
 	if (!Settings.SetIsoValue(IsoValue))
 --
-	if (false && !Settings.SetIsoValue(IsoValue)) // MUTANT
+	// MUTANT: the value is still applied -- the setter is still called -- but
+	// its refusal is discarded, so a non-finite threshold sails through and the
+	// iso-surface renders empty, which looks like data out of range.
+	//
+	// Two things measured, not assumed, before settling on this form:
+	//
+	// 1. `if (false && ...)` and `if (false) {...}` are BOTH rejected under
+	//    -Werror,-Wunreachable-code. The previous spelling of this arm scored
+	//    INVALID -- it was never tested, and an INVALID reads in a summary
+	//    exactly like an arm nobody wrote. Doubled parens are clang's own
+	//    documented way to mark code as intentionally dead ("silence by adding
+	//    parentheses to mark code as explicitly dead").
+	//
+	// 2. `(false) && !Settings.SetIsoValue(IsoValue)` SHORT-CIRCUITS: a probe
+	//    counting calls reported calls=0. That arm would model "the iso value
+	//    is never applied", which is a different defect and one the write-back
+	//    arms above already cover. Keeping the call outside the condition is
+	//    what makes this arm about the REFUSAL being dropped.
+	Settings.SetIsoValue(IsoValue);
+	if ((false))
 %%
 null actor dereferenced instead of refused
 --

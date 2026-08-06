@@ -33,21 +33,44 @@ slot B dropped, which silently forces alpha to 0 and degrades every blend
 %%
 alpha carried unconditionally -- blends toward a texture that is not resident
 --
-	Context.Alpha = Context.SlotB != nullptr
+	Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
 --
-	Context.Alpha = true // MUTANT: the residency guard removed
+	// MUTANT: the residency guard removed, so a frame whose slot B never landed
+	// blends toward a texture that is not there.
+	//
+	// The pattern matches the WHOLE STATEMENT. It used to match only the first
+	// line, leaving the orphaned `? ... : 0.0f;` behind -- which is a syntax
+	// error, not a mutant, and scored INVALID at :203:22 ("expected ';' after
+	// expression"). An INVALID reads in a summary exactly like an arm nobody
+	// wrote, so the residency guard went untested while the report looked full.
+	Context.Alpha = DynamicData.FrameSelection.Alpha;
 %%
 degradation never reported -- a held frame passes as measured data
 --
 	Context.bInterpolationDegraded = FlowVizVolumeRayMarch::IsInterpolationDegraded(
+		DynamicData.FrameSelection, /*bSlotBResident=*/Context.SlotB != nullptr);
 --
-	Context.bInterpolationDegraded = false && FlowVizVolumeRayMarch::IsInterpolationDegraded( // MUTANT
+	// MUTANT: degradation never reported.
+	//
+	// REPLACES THE WHOLE STATEMENT, both lines, rather than short-circuiting the
+	// call. `false && Call(...)` and `(false) && Call(...)` both leave the call
+	// unreachable, and -Werror,-Wunreachable-code rejects the first outright --
+	// this arm scored INVALID on that, which reads in a summary exactly like an
+	// arm nobody wrote. Replacing the statement leaves no dead code to diagnose
+	// and does not depend on which spellings clang happens to forgive.
+	Context.bInterpolationDegraded = false;
 %%
 degradation ALWAYS reported -- the false-positive direction, a lie about provenance
 --
 	Context.bInterpolationDegraded = FlowVizVolumeRayMarch::IsInterpolationDegraded(
+		DynamicData.FrameSelection, /*bSlotBResident=*/Context.SlotB != nullptr);
 --
-	Context.bInterpolationDegraded = true || FlowVizVolumeRayMarch::IsInterpolationDegraded( // MUTANT
+	// MUTANT: every frame claims degradation. Whole statement replaced for the
+	// same reason as the arm above -- `true || Call(...)` short-circuits, so the
+	// call is unreachable and the arm scored INVALID rather than being tested.
+	// This is the direction that matters most: the never-reported arm above can
+	// be killed by a test that only ever checks the false case.
+	Context.bInterpolationDegraded = true;
 %%
 IDENTITY CONTROL -- a comment only. Must SURVIVE, or every kill above is a standing red.
 --
