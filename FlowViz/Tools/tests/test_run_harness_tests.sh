@@ -221,6 +221,60 @@ check "...and a run with exclusions still exits 0 when the rest pass" "0" \
 check "...and the summary states how many were skipped" "yes" \
     "$(grep -qiE '1 skipped' <<<"${out}" && echo yes || echo no)"
 
+# --- the portability checker runs as part of the sweep -----------------------
+#
+# check_shell_portability.sh existed with tests and no caller, which is the
+# exact condition this runner was built to end: "a test with no caller is not
+# coverage; it is a file that once passed." The same is true of a checker.
+#
+# It has to run against the REAL Tools tree rather than the fixture directory --
+# the thing being guarded is this repo's scripts, not whatever temp dir a test
+# points the runner at. So these fixtures use a clean tests dir and vary only
+# the portability of a file inside it.
+
+D="${WORK}/portable_clean"
+make_test "${D}" test_fine2.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${RUNNER}" 2>&1)"
+port_exit=$?
+check "the sweep reports the portability check by name" "yes" \
+    "$(grep -qi 'portab' <<<"${out}" && echo yes || echo no)"
+check "...and a portable tree still exits 0" "0" "${port_exit}"
+
+# The direction that matters: a bash-4 builtin under a bash-3.2 shebang must
+# fail the sweep. Without this, the checker could be silently disconnected --
+# by a rename, a bad merge, a stray `exit 0` -- and every sweep would keep
+# printing green. A guard nothing can fail is not a guard.
+D="${WORK}/portable_dirty"
+make_test "${D}" test_fine3.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+printf '#!/bin/bash\nmapfile -t X < file\n' > "${D}/helper_bad.sh"
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${RUNNER}" 2>&1)"
+dirty_exit=$?
+check "a bash-4 builtin under a bash-3.2 shebang fails the sweep" "1" \
+    "${dirty_exit}"
+check "...and the offending file is named" "yes" \
+    "$(grep -q 'helper_bad.sh' <<<"${out}" && echo yes || echo no)"
+check "...and the passing test in that tree is still reported" "yes" \
+    "$(grep -q 'test_fine3.sh' <<<"${out}" && echo yes || echo no)"
+
+# A checker that cannot run must be reported, not skipped. Verified live by
+# chmod -x on the real checker: the sweep printed MISSING and exited 1. Note
+# the reachability -- the tree check sits AFTER the "no tests found" exit, so
+# an empty fixture directory never reaches it. This fixture therefore has to
+# contain a passing test for the branch to be observable at all.
+D="${WORK}/portable_absent"
+make_test "${D}" test_fine4.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+FAKE_TOOLS="${WORK}/fake_tools"
+mkdir -p "${FAKE_TOOLS}"
+cp "${RUNNER}" "${FAKE_TOOLS}/run_harness_tests.sh"
+chmod +x "${FAKE_TOOLS}/run_harness_tests.sh"
+# No check_shell_portability.sh beside it: HERE resolves to this bare dir.
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${FAKE_TOOLS}/run_harness_tests.sh" 2>&1)"
+absent_exit=$?
+check "a missing portability checker fails the sweep, it is not skipped" "1" \
+    "${absent_exit}"
+check "...and says so rather than printing a clean total" "yes" \
+    "$(grep -qi 'MISSING' <<<"${out}" && echo yes || echo no)"
+
 echo
 echo "run_harness_tests tests: $((checks - failures)) passed, ${failures} failed"
 exit $(( failures > 0 ? 1 : 0 ))

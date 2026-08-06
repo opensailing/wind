@@ -199,6 +199,40 @@ if [[ "${failed}" -gt 0 || "${notrun}" -gt 0 ]]; then
     done
 fi
 
+# --- tree-level checks -------------------------------------------------------
+#
+# Not a test of a script's behaviour but of the tree the scripts live in, so it
+# runs once here rather than as a file in tests/. It had tests and no caller,
+# which is the condition this runner exists to end: a checker with no caller is
+# not coverage either.
+#
+# Scoped to the directory being swept, so the runner's own fixtures are checked
+# too -- a fixture that cannot run under the shebang it names is as broken as a
+# real script, and finding it here is how it gets found at all.
+PORTABILITY="${HERE}/check_shell_portability.sh"
+portability_failed=0
+echo
+if [[ -x "${PORTABILITY}" ]]; then
+    # The floor is a scan-quality guard for the real tree; the runner's own
+    # fixture directories are legitimately tiny, so it is lowered rather than
+    # allowed to report UNSCORED on a directory we can see the size of.
+    port_out="$(MIN_PLAUSIBLE_SCRIPTS=1 "${PORTABILITY}" "${TESTS_DIR}" 2>&1)"
+    port_rc=$?
+    if [[ "${port_rc}" -eq 1 ]]; then
+        portability_failed=1
+        echo "shell portability: FAILED"
+        printf '%s\n' "${port_out}" | sed 's/^/  /'
+    else
+        echo "shell portability: ${port_out}"
+    fi
+else
+    # Not silent. A missing checker is indistinguishable from a passing one in
+    # any report that only prints failures.
+    portability_failed=1
+    echo "shell portability: MISSING -- ${PORTABILITY} is not executable."
+    echo "  A guard that cannot run is not a guard. Refusing to report a clean sweep."
+fi
+
 echo
 # The check total, not just the file total. Thirteen files each verifying
 # nothing is still "13/13 files", and that sentence is the one that misleads.
@@ -206,5 +240,5 @@ printf '%d passed, %d failed, %d did not run' "${passed}" "${failed}" "${notrun}
 [[ "${skipped}" -gt 0 ]] && printf ', %d skipped' "${skipped}"
 printf '  --  %d checks total\n' "${total_checks}"
 
-[[ "${failed}" -eq 0 && "${notrun}" -eq 0 ]] || exit 1
+[[ "${failed}" -eq 0 && "${notrun}" -eq 0 && "${portability_failed}" -eq 0 ]] || exit 1
 exit 0
