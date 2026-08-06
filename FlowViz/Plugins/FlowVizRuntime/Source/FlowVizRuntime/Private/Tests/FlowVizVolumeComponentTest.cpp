@@ -1078,6 +1078,55 @@ bool FFlowVizProxySettingsTest::RunTest(const FString& Parameters)
 			static_cast<int32>(EFlowVizCompositeMode::Minimum));
 	}
 
+	/* == THE CLIP MODEL, THE SAME THREE-LINK PATH ONE CHANNEL OVER =========== */
+	//
+	// Link 1 for clipping. FlowViz.Render.ClipSeam covers link 3 by setting
+	// Context.Clip itself, so it cannot see a payload that drops the field --
+	// exactly the trade the settings channel already paid for once. The identity
+	// control comes first for the same reason it does above: a fresh component
+	// must marshal a clip model that clips nothing, or wiring this changed the
+	// picture merely by existing.
+	{
+		const FFlowVizVolumeProxyDynamicData Fresh = Volume->MakeProxyDynamicData();
+		TestEqual(TEXT("a fresh component marshals no clip planes, so wiring this changed no picture"),
+			Fresh.Clip.GetPlaneCount(), 0);
+
+		// A DOMAIN IS SET FIRST, and this is not incidental. Without it
+		// AddPlane's model has no extent, ApplyToRayMarchParameters refuses, and
+		// a payload that dropped the planes would be indistinguishable from one
+		// that carried them -- both clip nothing. See the note on the context
+		// struct: a default clip model reaches identity by a different route.
+		FFlowVizClipViewModel Clip;
+		TestTrue(TEXT("the fixture's domain was accepted, so the assertions below are about marshalling"),
+			Clip.SetDomainSize(FVector(4.0, 8.0, 16.0)).IsOk());
+
+		FFlowVizClipPlane Plane;
+		Plane.Normal = FVector(0.0, 1.0, 0.0);
+		Plane.Distance = 3.25;
+		Plane.bEnabled = true;
+		TestTrue(TEXT("the fixture's plane was accepted"), Clip.AddPlane(Plane).IsOk());
+
+		Volume->SetClip(Clip);
+
+		TestEqual(TEXT("the component reports back the clip model it was given"),
+			Volume->GetClip().GetPlaneCount(), 1);
+
+		const FFlowVizVolumeProxyDynamicData Data = Volume->MakeProxyDynamicData();
+
+		TestEqual(TEXT("the clip plane reaches the render-thread payload"),
+			Data.Clip.GetPlaneCount(), 1);
+
+		// The plane's CONTENTS, not just the count. A payload carrying a
+		// default-constructed model of the right size would pass a count-only
+		// assertion and clip against a degenerate plane.
+		FFlowVizVolumeRayMarchParameters Applied;
+		FlowVizRayMarch::FillDefaults(Applied);
+		TestTrue(TEXT("the marshalled model still has its domain, so it can be applied"),
+			Data.Clip.ApplyToRayMarchParameters(Applied).IsOk());
+		TestEqual(TEXT("and it is the authored plane that arrives"),
+			Applied.ClipPlanes[0].W, 3.25f);
+	}
+
 	return true;
 }
 
@@ -1095,6 +1144,11 @@ bool FFlowVizProxySettingsTest::RunTest(const FString& Parameters)
  *   1. component -> payload ....... FlowViz.Scene.ProxySettings
  *   2. payload -> context ......... THIS TEST -- previously nothing
  *   3. context -> shader params ... FlowViz.Render.SettingsSeam
+ *
+ * THE CLIP MODEL RIDES THE SAME THREE LINKS and is covered at the same three
+ * places, added when the clip seam was wired. Link 3 alone was not enough for
+ * the same reason it was not enough here: ClipSeam assigns Context.Clip itself,
+ * so it cannot see a broken join either side of it.
  *
  * MEASURED, not assumed. With link 2 deleted -- `Context.RenderSettings =
  * DynamicData.RenderSettings` removed from the proxy's dispatch site -- the
@@ -1130,6 +1184,18 @@ bool FFlowVizDispatchContextTest::RunTest(const FString& Parameters)
 	Data.RenderSettings.SetCompositeMode(EFlowVizCompositeMode::Average);
 	Data.RenderSettings.SetLightingEnabled(true);
 
+	// The clip model rides the same payload and needs the same join. A domain is
+	// set because a model without one applies nothing, which would make a
+	// dropped join and a carried one produce identical shader parameters.
+	Data.Clip.SetDomainSize(FVector(4.0, 8.0, 16.0));
+	{
+		FFlowVizClipPlane Plane;
+		Plane.Normal = FVector(0.0, 0.0, 1.0);
+		Plane.Distance = 6.75;
+		Plane.bEnabled = true;
+		Data.Clip.AddPlane(Plane);
+	}
+
 	const FMatrix LocalToWorld = FMatrix(
 		FPlane(2.0, 0.0, 0.0, 0.0),
 		FPlane(0.0, 3.0, 0.0, 0.0),
@@ -1159,6 +1225,28 @@ bool FFlowVizDispatchContextTest::RunTest(const FString& Parameters)
 			static_cast<int32>(EFlowVizCompositeMode::Average));
 		TestTrue(TEXT("and its lighting flag, which is a separately frozen parameter"),
 			Context.RenderSettings.IsLightingEnabled());
+
+		/*
+		 * THE SAME MISSING LINK, one channel over. FlowViz.Render.ClipSeam
+		 * assigns Context.Clip itself and FlowViz.Scene.ProxySettings stops at
+		 * the payload, so with `Context.Clip = DynamicData.Clip` deleted both
+		 * would still pass -- the identical hole this test was written to close
+		 * for RenderSettings.
+		 *
+		 * The plane's CONTENTS are checked, not just the count: a context
+		 * holding a default-constructed model would carry no planes at all, but
+		 * one built from the wrong source could carry a plane with the right
+		 * count and the wrong offset.
+		 */
+		TestEqual(TEXT("the payload's clip plane reaches the dispatcher's context"),
+			Context.Clip.GetPlaneCount(), 1);
+
+		FFlowVizVolumeRayMarchParameters Applied;
+		FlowVizRayMarch::FillDefaults(Applied);
+		TestTrue(TEXT("the context's clip model kept its domain, so it can be applied"),
+			Context.Clip.ApplyToRayMarchParameters(Applied).IsOk());
+		TestEqual(TEXT("and it is the authored plane that arrives"),
+			Applied.ClipPlanes[0].W, 6.75f);
 
 		// The fields that were already carried. Asserted so a refactor of this
 		// assembly cannot fix the settings while dropping something else -- the
