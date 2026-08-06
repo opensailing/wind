@@ -472,9 +472,38 @@ namespace FlowVizConsoleCommands
 				return;
 			}
 
-			// THE SAME COLLECTOR AND THE SAME FORMATTER the on-screen overlay uses.
-			// A console command with its own formatting would drift from the overlay
-			// and the two would disagree about the same session.
+			/*
+			 * IT SHOWS. The name is not decoration: plan.md section 17 lists this
+			 * command and an on-screen overlay in the same breath, and
+			 * SFlowVizDiagnosticsOverlay has no other way to be turned on -- the
+			 * workspace constructs it collapsed and nothing else drives that slot.
+			 * A command called Show that only wrote to the output log would leave a
+			 * built, wired, correct widget permanently invisible, and the symptom
+			 * ("the overlay doesn't exist") would look like a missing feature
+			 * rather than a missing line here.
+			 */
+			const bool bNowShown = !Workspace->IsDiagnosticsOverlayShown();
+			Workspace->SetDiagnosticsOverlayShown(bNowShown);
+
+			/*
+			 * AND IT STILL PRINTS, on both edges of the toggle. Two reasons, and
+			 * the second is the load-bearing one:
+			 *
+			 *   - The log is the only readout available when the command is run
+			 *     from a headless session, a startup script, or -ExecCmds, where
+			 *     there is no screen for the overlay to appear on.
+			 *
+			 *   - Printing only when turning ON would make this command's output
+			 *     depend on which state a previous caller left the overlay in. The
+			 *     console suite asserts on the text; that assertion would then pass
+			 *     or fail according to test ORDER, which is a coin flip wearing a
+			 *     green tick.
+			 *
+			 * THE SAME COLLECTOR AND THE SAME FORMATTER the on-screen overlay uses.
+			 * A console command with its own formatting would drift from the overlay
+			 * and the two would disagree about the same session.
+			 */
+			Ar.Logf(TEXT("FlowViz: diagnostics overlay %s."), bNowShown ? TEXT("shown") : TEXT("hidden"));
 			Ar.Logf(TEXT("%s"), *FlowVizDiagnostics::Format(FlowVizDiagnostics::Collect(
 									 Workspace->GetModel(), Workspace->GetVolume())));
 		}
@@ -688,7 +717,7 @@ namespace FlowVizConsoleCommands
 			&Local::ExecClearCache);
 
 		Local::Add(ShowDiagnosticsName,
-			TEXT("Print the diagnostics overlay's numbers to the console."),
+			TEXT("Toggle the on-screen diagnostics overlay, and print its numbers to the console."),
 			&Local::ExecShowDiagnostics);
 
 		Local::Add(SetCpuCacheMBName,

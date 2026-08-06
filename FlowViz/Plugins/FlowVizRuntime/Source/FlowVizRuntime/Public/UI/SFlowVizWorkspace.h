@@ -12,6 +12,7 @@ struct FFlowVizSessionState;
 struct FFlowVizWorkspaceModel;
 class UCFDVizVolumeComponent;
 class SFlowVizClipPanel;
+class SFlowVizDiagnosticsOverlay;
 class SFlowVizProbePanel;
 class SFlowVizSlicePanel;
 class SFlowVizTransferFunctionPanel;
@@ -154,7 +155,41 @@ public:
 	 */
 	FCFDVizResult LoadState(const FFlowVizSessionState& State);
 
+	/* --- The diagnostics overlay ------------------------------------------- */
+
+	/**
+	 * Show or hide the on-screen diagnostics readout (plan.md section 17).
+	 *
+	 * WHY THE SHOWN STATE LIVES HERE AND NOT ON THE OVERLAY. The overlay is a
+	 * formatter; what it displays depends only on the model. Whether it is on
+	 * screen is a property of the workspace's layout, and putting it on the
+	 * widget as well would give two objects an opinion about one thing - the
+	 * state where they disagree is an overlay that believes it is visible inside
+	 * a collapsed slot, which reads from every angle except the user's as
+	 * working.
+	 *
+	 * HIDDEN BY DEFAULT. It sits on top of the viewport region, which is the
+	 * picture the user opened the tool to look at.
+	 */
+	void SetDiagnosticsOverlayShown(bool bShown);
+
+	/** Whether the overlay is currently on screen. */
+	bool IsDiagnosticsOverlayShown() const { return bDiagnosticsOverlayShown; }
+
 	/* --- Test seams. The panels this workspace actually built. ------------- */
+
+	/**
+	 * The overlay this workspace built.
+	 *
+	 * Returned for the reason GetModel is: it is the only way a test can check
+	 * that the workspace built ONE overlay over its OWN model, rather than that
+	 * an overlay can be constructed - which every test that SNews its own
+	 * already proves and no test that SNews its own can refute.
+	 */
+	TSharedPtr<SFlowVizDiagnosticsOverlay> GetDiagnosticsOverlay() const
+	{
+		return DiagnosticsOverlay;
+	}
 
 	TSharedPtr<SFlowVizTransportBar> GetTransportBar() const { return TransportBar; }
 	TSharedPtr<SFlowVizTransferFunctionPanel> GetTransferFunctionPanel() const
@@ -265,4 +300,21 @@ private:
 	TSharedPtr<SFlowVizClipPanel> ClipPanel;
 	TSharedPtr<SFlowVizSlicePanel> SlicePanel;
 	TSharedPtr<SFlowVizProbePanel> ProbePanel;
+
+	/**
+	 * The diagnostics readout, and the slot whose visibility carries its shown
+	 * state.
+	 *
+	 * THE SLOT IS HELD, NOT LOOKED UP. The alternative - toggling the overlay
+	 * widget's own visibility - collides with the HitTestInvisible it sets on
+	 * itself in Construct, so hiding and re-showing would silently promote it to
+	 * a hit-test target and it would start swallowing clicks meant for the
+	 * viewport behind it. Toggling the CONTAINER leaves the overlay's own
+	 * visibility alone.
+	 */
+	TSharedPtr<SFlowVizDiagnosticsOverlay> DiagnosticsOverlay;
+	TSharedPtr<SWidget> DiagnosticsOverlayContainer;
+
+	/** Hidden until asked for. See SetDiagnosticsOverlayShown. */
+	bool bDiagnosticsOverlayShown = false;
 };

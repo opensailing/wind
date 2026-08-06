@@ -10,6 +10,7 @@
 #include "UI/FlowVizWorkspaceRegistry.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
+#include "UI/SFlowVizDiagnosticsOverlay.h"
 #include "UI/SFlowVizProbePanel.h"
 #include "UI/SFlowVizSlicePanel.h"
 #include "UI/SFlowVizTransferFunctionPanel.h"
@@ -19,6 +20,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "FlowVizWorkspace"
@@ -238,10 +240,49 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 				+ SSplitter::Slot()
 					.Value(1.0f - FlowVizWorkspaceLocal::SidePanelFraction)
 				[
-					FlowVizWorkspaceLocal::MakePendingRegion(
-						LOCTEXT("ViewportPending",
-							"The volume renders in the level viewport.\n"
-							"An embedded view is not wired into this panel yet."))
+					/*
+					 * THE DIAGNOSTICS OVERLAY SITS ON THE VIEWPORT REGION, which
+					 * is where plan.md section 17 wants it and the only place it
+					 * makes sense: the numbers describe the picture, so reading
+					 * them anywhere else means looking away from the thing they
+					 * are about.
+					 */
+					SNew(SOverlay)
+
+					+ SOverlay::Slot()
+					[
+						FlowVizWorkspaceLocal::MakePendingRegion(
+							LOCTEXT("ViewportPending",
+								"The volume renders in the level viewport.\n"
+								"An embedded view is not wired into this panel yet."))
+					]
+
+					+ SOverlay::Slot()
+						// TOP-LEFT, the convention every engine stat overlay uses,
+						// and away from the transport bar along the bottom.
+						.HAlign(HAlign_Left)
+						.VAlign(VAlign_Top)
+						.Padding(FMargin(2.0f * U))
+					[
+						SAssignNew(DiagnosticsOverlayContainer, SBox)
+							/*
+							 * COLLAPSED, NOT HIDDEN. Hidden still costs layout;
+							 * collapsed costs nothing, and this widget's text
+							 * attribute re-collects every paint. The container
+							 * carries the state rather than the overlay itself --
+							 * see the header for why toggling the overlay's own
+							 * visibility would clobber its HitTestInvisible.
+							 */
+							.Visibility(EVisibility::Collapsed)
+						[
+							SAssignNew(DiagnosticsOverlay, SFlowVizDiagnosticsOverlay)
+								// THE WORKSPACE'S OWN MODEL. An overlay handed its
+								// own would report numbers about a session the user
+								// has never seen, which is worse than reporting
+								// nothing because it looks like an answer.
+								.Model(Model.Get())
+						]
+					]
 				]
 
 				+ SSplitter::Slot()
@@ -377,6 +418,18 @@ void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
 	}
 
 	/*
+	 * AND THE OVERLAY'S RESOLUTION ROW, which is the one diagnostic that lives
+	 * on the component rather than on the model. Without this the row reports
+	 * zeros forever - and FlowVizDiagnostics documents zeros there as "no upload
+	 * has happened", so an overlay that never learned about the volume makes a
+	 * true-sounding claim about a volume that is uploading fine.
+	 */
+	if (DiagnosticsOverlay.IsValid())
+	{
+		DiagnosticsOverlay->SetVolume(InVolume);
+	}
+
+	/*
 	 * THE TIMELINE'S CHANNEL TO THE RENDERER, and it is a LIVE READ rather than
 	 * a copy of the current selection.
 	 *
@@ -435,6 +488,26 @@ UCFDVizVolumeComponent* SFlowVizWorkspace::GetVolume() const
 	// Get() on a weak pointer, so a component whose world was torn down reads as
 	// null rather than as a live pointer into freed memory.
 	return Volume.Get();
+}
+
+void SFlowVizWorkspace::SetDiagnosticsOverlayShown(bool bShown)
+{
+	bDiagnosticsOverlayShown = bShown;
+
+	/*
+	 * THE CONTAINER, NOT THE OVERLAY. The overlay sets itself HitTestInvisible
+	 * in Construct so it cannot swallow clicks meant for the viewport behind it;
+	 * writing Visible onto it here to show it would quietly undo that and make
+	 * the volume unclickable the first time a user turned diagnostics on.
+	 *
+	 * COLLAPSED rather than Hidden: Hidden still participates in layout, and
+	 * this widget is a multi-line text block sitting in a corner slot.
+	 */
+	if (DiagnosticsOverlayContainer.IsValid())
+	{
+		DiagnosticsOverlayContainer->SetVisibility(
+			bShown ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
+	}
 }
 
 bool SFlowVizWorkspace::PushToVolume()
