@@ -6,6 +6,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Misc/StringOutputDevice.h"
+#include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizConsoleCommands.h"
 #include "UI/FlowVizDiagnostics.h"
 #include "UI/FlowVizWorkspaceModel.h"
@@ -361,12 +362,77 @@ bool FFlowVizDiagnosticsOverlayWiringTest::RunTest(const FString& Parameters)
 	FlowVizSlateAttributePump::Pump(Overlay);
 	const FString Displayed = Overlay->GetTextBlock()->GetText().ToString();
 
+	/*
+	 * ASSERTED POSITIVELY, on a string only THIS case produces. The obvious form
+	 * -- TestFalse on "(no case open)" -- is satisfied by an overlay wired to no
+	 * model at all, because that one prints "(no workspace)" and the substring is
+	 * absent for the wrong reason. Naming the field the workspace opened means
+	 * only a model this test drove can make it pass.
+	 */
+	TestTrue(
+		FString::Printf(
+			TEXT("the overlay reads the WORKSPACE's model, not one of its own and not none: the "
+				 "case opened on the workspace names its field here. Displayed: '%s'"),
+			*Displayed),
+		Displayed.Contains(FlowVizDiagnosticsOverlayTest::SampleField.ToString()));
+
+	/* == And the volume reaches it, so the component rows are not permanent zeros == */
+
+	/*
+	 * THE SECOND HALF OF THE SAME WIRING. Most diagnostics rows come from the
+	 * model, which the overlay was handed at construction; two of them --
+	 * resolution and ray step -- live on the VOLUME COMPONENT, and the overlay
+	 * only learns about that through SFlowVizWorkspace::SetVolume pushing it
+	 * across. Without that push the overlay is correct about everything it can
+	 * see and silently zero about the rest.
+	 *
+	 * AND ZERO IS A CLAIM HERE, not a blank: FlowVizDiagnostics documents a zero
+	 * resolution as "no upload has happened", so an overlay that never learned
+	 * about the volume reports a true-sounding fact about a volume that is
+	 * uploading fine. Nothing else in this suite can catch it -- Live and Unbound
+	 * both build their own overlay and neither has a workspace to push from.
+	 *
+	 * READ ON THE RAY STEP ROW rather than the resolution row. Resolution comes
+	 * from the uploaded texture layout, which is zero in a headless session even
+	 * when the push works, so an assertion there could not distinguish a missing
+	 * push from an absent GPU upload. The ray step comes from the component's
+	 * render settings, which are populated by its constructor: 0.500 voxels /
+	 * 2048 steps with a volume, 0.000 / 0 without one.
+	 */
+	UCFDVizVolumeComponent* Volume = NewObject<UCFDVizVolumeComponent>();
+
+	const FString BeforeVolume = [&Overlay]()
+	{
+		FlowVizSlateAttributePump::Pump(Overlay);
+		return Overlay->GetTextBlock()->GetText().ToString();
+	}();
+
+	if (!TestTrue(
+			FString::Printf(
+				TEXT("CONTROL: with no volume bound the ray step row reads zero, so the assertion "
+					 "below can tell a pushed volume from an unpushed one. Displayed: '%s'"),
+				*BeforeVolume),
+			BeforeVolume.Contains(TEXT("Ray step          0.000 voxels, max 0 steps"))))
+	{
+		Workspace->GetModel().CloseCase();
+		return false;
+	}
+
+	Workspace->SetVolume(Volume);
+
+	FlowVizSlateAttributePump::Pump(Overlay);
+	const FString AfterVolume = Overlay->GetTextBlock()->GetText().ToString();
+
 	TestFalse(
 		FString::Printf(
-			TEXT("the overlay reads the WORKSPACE's model, not one of its own: a case opened "
-				 "on the workspace retires the '(no case open)' line. Displayed: '%s'"),
-			*Displayed),
-		Displayed.Contains(TEXT("(no case open)")));
+			TEXT("binding a volume to the WORKSPACE reaches the overlay, so the rows that live on "
+				 "the component stop reading zero -- and a zero resolution is documented as 'no "
+				 "upload has happened', which is a false claim about a volume that is fine. "
+				 "Displayed: '%s'"),
+			*AfterVolume),
+		AfterVolume.Contains(TEXT("Ray step          0.000 voxels, max 0 steps")));
+
+	Workspace->SetVolume(nullptr);
 
 	/* == The toggle: hidden by default, shown on command ===================== */
 
