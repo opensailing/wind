@@ -115,13 +115,45 @@ cp "${TOOLS}/mutation_window.sh" "${FIXTURE}/Proj/Tools/mutation_window.sh" 2>/d
 # that wrote it -- a stale file left by an earlier fixture would otherwise be
 # indistinguishable from one this run produced. Repo memory
 # shared-tree-results-need-a-timestamp.
+#
+# IT ALSO EMULATES run_tests.sh's ENGINE LOG, which is the second defect this
+# file covers. The real run_tests.sh writes the engine's detail log to a path it
+# derives from the CHECKOUT (not the run), truncating it via -abslog, and then
+# prints "Full log: <path>" as the last line of its summary. So the stub does
+# the same: one session record per invocation, written to ${LOG} if the caller
+# set one and to a fixed shared path otherwise, plus the pointer line.
+#
+# Without this the fixture cannot see the defect at all -- the summaries would
+# have no "Full log:" pointer to be dangling.
 cat > "${FIXTURE}/Proj/Tools/build_lock.sh" <<'STUB'
 #!/bin/bash
 echo "invoked: $*" >> "${RECORDER}"
 echo "FIXTURE_NONCE ${FIXTURE_NONCE}"
 echo "Using Unreal Build Accelerator local executor to run 3 action(s)"
 echo "Result: Succeeded"
-echo "2/2 passed."
+
+# Only the suite phases behave like run_tests.sh; the build phases do not.
+if [[ "$*" == *run_tests.sh* ]]; then
+    SESSION=$(( $(cat "${SESSION_COUNTER}" 2>/dev/null || echo 0) + 1 ))
+    echo "${SESSION}" > "${SESSION_COUNTER}"
+
+    ENGINE_LOG="${LOG:-${SHARED_ENGINE_LOG}}"
+    # Truncating, exactly like -abslog: a session REPLACES whatever was there.
+    {
+        echo "LogInit: Session CrashGUID nonce=${FIXTURE_NONCE}"
+        echo "ENGINE_SESSION ${SESSION}"
+    } > "${ENGINE_LOG}"
+
+    # The session number goes to STDOUT as well as into the log. That is what
+    # makes "this summary describes that log" a checkable claim: a reader with
+    # an archived summary in hand can compare the session it reports against
+    # the session the file it cites contains. Real run_tests.sh output carries
+    # the same correspondence via the engine's own session banner.
+    echo "ENGINE_SESSION ${SESSION}"
+    echo "2/2 passed. Full log: ${ENGINE_LOG}"
+else
+    echo "2/2 passed."
+fi
 exit 0
 STUB
 chmod +x "${FIXTURE}/Proj/Tools/build_lock.sh"
@@ -162,6 +194,12 @@ NONCE="perarm-$$"
 RECORDER="${FIXTURE}/recorder"
 : > "${RECORDER}"
 
+# Where the stub writes its engine log when the caller sets no LOG -- i.e. the
+# shared per-checkout path the real run_tests.sh defaults to.
+SHARED_ENGINE_LOG="${FIXTURE}/shared_engine.log"
+SESSION_COUNTER="${FIXTURE}/session_counter"
+: > "${SESSION_COUNTER}"
+
 # LOG_DIR is where per-arm output is expected to land. Passed explicitly so the
 # fixture never writes into /tmp shared with a live campaign -- repo memory
 # isolation-ends-at-the-shared-output-path, which is the same defect one level
@@ -172,6 +210,8 @@ LOG_DIR="${FIXTURE}/logs"
     cd "${FIXTURE}" || exit 99
     RECORDER="${RECORDER}" \
     FIXTURE_NONCE="${NONCE}" \
+    SHARED_ENGINE_LOG="${SHARED_ENGINE_LOG}" \
+    SESSION_COUNTER="${SESSION_COUNTER}" \
     MUTATE_LOG_DIR="${LOG_DIR}" \
     BUILD_LOG="${FIXTURE}/build.log" \
     TEST_LOG="${FIXTURE}/test.log" \
@@ -221,7 +261,10 @@ check "CONTROL: the stub was invoked more than once" "yes" \
 # =============================================================================
 
 # --- one test log per arm, and they survive to the end of the campaign -------
-mapfile -t ARM_TEST_LOGS < <(
+ARM_TEST_LOGS=()
+while IFS= read -r f; do
+    [[ -n "${f}" ]] && ARM_TEST_LOGS+=("${f}")
+done < <(
     find "${LOG_DIR}" -type f -name '*test*' 2>/dev/null | sort
 )
 check "each arm leaves its own test log" "3" "${#ARM_TEST_LOGS[@]}"
@@ -231,7 +274,10 @@ check "each arm leaves its own test log" "3" "${#ARM_TEST_LOGS[@]}"
 # Asserted separately, not folded into the count above. An implementation that
 # split TEST_LOG and left BUILD_LOG shared would satisfy a combined count while
 # leaving every INVALID verdict unevidenced.
-mapfile -t ARM_BUILD_LOGS < <(
+ARM_BUILD_LOGS=()
+while IFS= read -r f; do
+    [[ -n "${f}" ]] && ARM_BUILD_LOGS+=("${f}")
+done < <(
     find "${LOG_DIR}" -type f -name '*build*' 2>/dev/null | sort
 )
 check "each arm leaves its own build log" "3" "${#ARM_BUILD_LOGS[@]}"
@@ -273,6 +319,132 @@ check "each arm's log is findable by its name" "3" "${NAMED}"
 # or the next README author derives attribution exactly as before.
 check "the campaign reports where the per-arm logs are" "yes" \
     "$(grep -qa "${LOG_DIR}" "${FIXTURE}/out.log" && echo yes || echo no)"
+
+# =============================================================================
+# THE ENGINE DETAIL LOG -- the half the archive above does NOT cover
+# =============================================================================
+#
+# The archived files above are run_tests.sh's SUMMARY. The summary's last line
+# is a pointer:
+#
+#     Full log: /tmp/flowviz_tests_a9d81a30.log
+#
+# and run_tests.sh derives that path from the CHECKOUT, not the run:
+#
+#     _checkout_tag="$(printf '%s' "${PROJECT_DIR}" | shasum | cut -c1-8)"
+#     LOG="${LOG:-/tmp/flowviz_tests_${_checkout_tag}.log}"
+#
+# Every arm of a campaign therefore names the SAME file, and the engine
+# truncates it on each launch (-abslog). When the campaign ends, that file holds
+# only the LAST arm's session, so every earlier arm's archived summary cites a
+# file that no longer contains its evidence. A citation that resolves to
+# somebody else's data is worse than a missing one.
+#
+# Observed 2026-08-06 on the workspace-clock re-run: three arms, all three
+# summaries ending "Full log: /tmp/flowviz_tests_a9d81a30.log", one session in
+# it (`grep -ac "LogInit: Session CrashGUID"` == 1), mtime matching arm 3. I
+# opened it looking for arm 2, found Result={Success}, and briefly concluded
+# arm 2 had passed. It was the identity control's session. Repo memory
+# shared-tree-results-need-a-timestamp.
+
+# --- THE CONTROL, asserted FIRST ---------------------------------------------
+#
+# The whole claim rests on "a shared path retains only the last session". If the
+# fixture's stub does not actually overwrite, then every assertion below passes
+# against a defect that was never reproduced -- the test would be describing a
+# hazard the fixture cannot exhibit.
+#
+# So: demonstrate the failing behaviour directly, on the fixture's own stub,
+# before asserting the fix. Two sessions written to one path must leave one.
+CTRL_SHARED="${FIXTURE}/control_shared.log"
+( LOG="${CTRL_SHARED}" SESSION_COUNTER="${FIXTURE}/ctrl_counter" \
+  RECORDER="/dev/null" FIXTURE_NONCE="${NONCE}" \
+  SHARED_ENGINE_LOG="${CTRL_SHARED}" \
+  "${FIXTURE}/Proj/Tools/build_lock.sh" run_tests.sh Filter >/dev/null 2>&1 )
+( LOG="${CTRL_SHARED}" SESSION_COUNTER="${FIXTURE}/ctrl_counter" \
+  RECORDER="/dev/null" FIXTURE_NONCE="${NONCE}" \
+  SHARED_ENGINE_LOG="${CTRL_SHARED}" \
+  "${FIXTURE}/Proj/Tools/build_lock.sh" run_tests.sh Filter >/dev/null 2>&1 )
+check "CONTROL: two sessions at one path leave exactly one" "1" \
+    "$(grep -c "LogInit: Session CrashGUID" "${CTRL_SHARED}" 2>/dev/null || echo 0)"
+
+# --- the shared default must no longer be what the arms use ------------------
+#
+# If mutate.sh sets a per-arm LOG, the stub never falls back to
+# SHARED_ENGINE_LOG and that file is never created at all.
+check "no arm wrote to the shared per-checkout engine log" "no" \
+    "$([[ -s "${SHARED_ENGINE_LOG}" ]] && echo yes || echo no)"
+
+# --- one engine log per arm, archived alongside the summary ------------------
+#
+# The BASELINE run leaves an engine log too, and it is not an arm: it is the
+# identity control, the run that decides whether a killed means anything. So
+# the arm assertions below count arm logs specifically rather than every file
+# with "engine" in the name -- a bare count would move with the baseline and
+# stop describing the arms.
+ARM_ENGINE_LOGS=()
+while IFS= read -r f; do
+    [[ -n "${f}" ]] && ARM_ENGINE_LOGS+=("${f}")
+done < <(
+    find "${LOG_DIR}" -type f -name '*engine*' ! -name '*baseline*' 2>/dev/null | sort
+)
+check "each arm leaves its own engine detail log" "3" "${#ARM_ENGINE_LOGS[@]}"
+
+# The control's own log is separate and asserted on its own. Arm 1 used to
+# overwrite it before anyone could read it, which is the evidence you reach for
+# first when a campaign returns all-KILLED.
+BASELINE_ENGINE_LOGS=()
+while IFS= read -r f; do
+    [[ -n "${f}" ]] && BASELINE_ENGINE_LOGS+=("${f}")
+done < <(
+    find "${LOG_DIR}" -type f -name '*baseline*engine*' 2>/dev/null | sort
+)
+check "the baseline keeps its own engine log, not overwritten by arm 1" "1" \
+    "${#BASELINE_ENGINE_LOGS[@]}"
+
+# --- each holds exactly ONE session, and they are DIFFERENT sessions ---------
+#
+# Counting files is not enough: three copies of the same last-arm log would
+# satisfy it. The stub stamps an incrementing ENGINE_SESSION, so distinct
+# session numbers prove each arm's own run was captured rather than a snapshot
+# of a shared file taken three times.
+ONE_SESSION=0
+for log in "${ARM_ENGINE_LOGS[@]:-}"; do
+    [[ "$(grep -c "LogInit: Session CrashGUID" "${log}" 2>/dev/null || echo 0)" -eq 1 ]] \
+        && ONE_SESSION=$((ONE_SESSION+1))
+done
+check "every per-arm engine log holds exactly one session" "3" "${ONE_SESSION}"
+
+DISTINCT="$(cat "${ARM_ENGINE_LOGS[@]:-/dev/null}" 2>/dev/null \
+    | grep -o "ENGINE_SESSION [0-9]*" | sort -u | wc -l | tr -d ' ')"
+check "and the three arms captured three DIFFERENT sessions" "3" "${DISTINCT}"
+
+# --- the summary's pointer must resolve to that arm's own log ----------------
+#
+# The actual reader experience: open arm 2's archived summary, follow its
+# "Full log:" line, and land on arm 2's session. This is the assertion the
+# whole section exists for -- the others are its preconditions.
+RESOLVES=0
+POINTERS=""
+for summary in "${ARM_TEST_LOGS[@]:-}"; do
+    pointer="$(grep -o "Full log: .*" "${summary}" 2>/dev/null | tail -1 | sed 's/^Full log: //')"
+    [[ -n "${pointer}" && -s "${pointer}" ]] || continue
+    POINTERS="${POINTERS}${pointer}"$'\n'
+    # The session the SUMMARY reports, compared against the session the log it
+    # cites actually contains. Read from the summary only -- an earlier version
+    # fell back to reading the number out of the pointer when the summary had
+    # none, which greps a file for a string taken from that same file and
+    # cannot fail. It passed while all three arms shared one log.
+    want="$(grep -o "ENGINE_SESSION [0-9]*" "${summary}" 2>/dev/null | tail -1)"
+    [[ -n "${want}" ]] || continue
+    grep -q "${want}" "${pointer}" 2>/dev/null && RESOLVES=$((RESOLVES+1))
+done
+check "each arm's summary points at a log holding that arm's session" "3" "${RESOLVES}"
+
+# Three summaries citing ONE path satisfies the count above while being the
+# exact defect this task exists to fix.
+check "and the three summaries cite three DIFFERENT paths" "3" \
+    "$(printf '%s' "${POINTERS}" | sort -u | grep -c . | tr -d ' ')"
 
 echo
 echo "  ${PASS} passed, ${FAIL} failed."

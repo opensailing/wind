@@ -235,13 +235,25 @@ mkdir -p "${MUTATE_LOG_DIR}"
 # Non-fatal by construction. A campaign that has scored an arm must not abort
 # because it could not archive the paperwork; the trailing `true` keeps a full
 # disk or a read-only /tmp from turning four good verdicts into none.
-archive_arm_logs() {
+#
+# The stem is derived in ONE place. The engine log has to be named before the
+# suite runs (it is passed to run_tests.sh as LOG) while the build and test
+# copies are named after, so two call sites need the same answer -- and two
+# copies of the rule are two things to keep in step. A drift between them would
+# put an arm's engine log under a name no reader would think to look for.
+arm_log_stem() {  # arm_log_stem <index> <name> -> "<dir>/<index>-<slug>"
     local index="$1" name="$2" slug
     # Everything that is not alphanumeric becomes a dash, so an arm name
     # containing a slash cannot write outside the directory.
     slug="$(tr -c '[:alnum:]' '-' <<<"${name}" | cut -c1-60)"
-    cp "${BUILD_LOG}" "${MUTATE_LOG_DIR}/${index}-${slug}-build.log" 2>/dev/null || true
-    cp "${TEST_LOG}" "${MUTATE_LOG_DIR}/${index}-${slug}-test.log" 2>/dev/null || true
+    printf '%s/%s-%s' "${MUTATE_LOG_DIR}" "${index}" "${slug}"
+}
+
+archive_arm_logs() {
+    local index="$1" name="$2" stem
+    stem="$(arm_log_stem "${index}" "${name}")"
+    cp "${BUILD_LOG}" "${stem}-build.log" 2>/dev/null || true
+    cp "${TEST_LOG}" "${stem}-test.log" 2>/dev/null || true
     return 0
 }
 
@@ -559,8 +571,15 @@ fi
 # nothing unless the pristine tree is green under THAT filter.
 echo "=== running the suite pristine: a KILLED means nothing without this ==="
 BASELINE_TEST_LOG="${BASELINE_TEST_LOG:-$(mktemp -t mutate_baseline)}"
+# The baseline gets its own engine log too, for the same reason the arms do --
+# and more so. This is the identity control: every killed in the summary means
+# "the suite was green here and red under the mutant", so when a campaign comes
+# back all-KILLED the first thing to check is whether the pristine run was
+# actually green. Leaving it on the shared per-checkout path meant arm 1
+# overwrote the evidence for that before anyone could read it.
+BASELINE_ENGINE_LOG="${MUTATE_LOG_DIR}/00-baseline-engine.log"
 for _lock_attempt in $(seq 1 40); do
-    "${PROJECT_DIR}/Tools/build_lock.sh" \
+    LOG="${BASELINE_ENGINE_LOG}" "${PROJECT_DIR}/Tools/build_lock.sh" \
         "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${BASELINE_TEST_LOG}" 2>&1
     BASELINE_EXIT=$?
     [[ "${BASELINE_EXIT}" -ne 75 ]] && break
@@ -673,8 +692,19 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
         # classify_test_run, which finds no `<n>/<m> passed.` summary in the log
         # and returns UNSCORED -- a refusal to conclude, which is the correct
         # answer for a run that never happened.
+        # A per-arm engine log. run_tests.sh's default is derived from the
+        # CHECKOUT path, so every arm of a campaign wrote the same file and
+        # each summary's "Full log:" line pointed at whichever arm ran last.
+        # TEST_LOG holds mutate.sh's own summary of the run; the engine detail
+        # -- the stack, the assertion text, which test started -- lives in the
+        # file run_tests.sh writes, and that was the copy being overwritten.
+        # Attribution could only ever be DERIVED by matching timestamps.
+        #
+        # Exported rather than passed as an argument: run_tests.sh already
+        # honours LOG, and build_lock.sh sits between us and it.
+        ARM_ENGINE_LOG="$(arm_log_stem "${ARM_TAG}" "${NAME}")-engine.log"
         for _lock_attempt in $(seq 1 40); do
-            "${PROJECT_DIR}/Tools/build_lock.sh" \
+            LOG="${ARM_ENGINE_LOG}" "${PROJECT_DIR}/Tools/build_lock.sh" \
                 "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${TEST_LOG}" 2>&1
             TEST_EXIT=$?
             [[ "${TEST_EXIT}" -ne 75 ]] && break
