@@ -537,7 +537,39 @@ The frozen set did not change: `ClipPlanes` has a real production writer
 had to be taught to see). The finding above stands; only the denominator was
 wrong.
 
-Tracked as #39.
+**Partly fixed, and the remainder restated — 2026-08-06.** The checker now exits
+**0: 74 declared, none frozen.** All 16 are written by
+`FFlowVizRenderSettingsViewModel::ApplyToRayMarchParameters`, which the
+dispatcher calls in production (`FlowVizVolumeRayMarchDispatcher.cpp:186`). The
+headline consequence above is retired: all six compositing modes can be selected,
+via the `BlueprintCallable` `UFlowVizCaptureLibrary::SetVolumeCompositeMode`,
+and lighting via `SetVolumeLightingEnabled`.
+
+**What is left is the same defect one level up.** That writer copies its own
+member fields, and **14 of the view model's 17 setters have no production
+caller** — no Slate panel, no console command, and `FlowVizSession` does not
+persist them. Thirteen render controls are therefore still welded to a single
+value in a shipped build; the constant supplying them just moved from
+`FillDefaults` to the view model's member initialisers. `check_frozen_params.sh`
+cannot see this by construction: it asks "is there a writer outside
+`FillDefaults`", and there is.
+
+This is worth stating as a method note, not just a status. The guard went green
+because the defect moved to exactly the place the guard does not look — not
+because anyone gamed it, but because the fix satisfied the letter of what was
+measurable. A passing check bounds the specific defect it encodes, and the
+natural fix for that defect often relocates the problem just past its edge. The
+counterpart check here is "does a setter have a production caller", which nothing
+automates yet.
+
+`UI_CONTROLS.md` §1 is rewritten to match, and §5 now carries the differential
+that re-derives the 16 (delete the writer's assignments — do not comment them
+out, since the checker matches source text) plus the setter-caller count that
+the checker does not measure.
+
+Tracked as #39 (writers, done) and #73 (the guard's own scoreability, done).
+**Still open: the 13 setters with no production caller, and a widget or console
+surface to drive them.**
 
 ### 3. The CVF volume reader has no committed test
 

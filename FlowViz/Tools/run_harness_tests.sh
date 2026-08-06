@@ -201,37 +201,83 @@ fi
 
 # --- tree-level checks -------------------------------------------------------
 #
-# Not a test of a script's behaviour but of the tree the scripts live in, so it
-# runs once here rather than as a file in tests/. It had tests and no caller,
-# which is the condition this runner exists to end: a checker with no caller is
-# not coverage either.
+# Not tests of a script's behaviour but of the tree the scripts live in, so they
+# run once here rather than as files in tests/. Each had tests and no scheduled
+# caller, which is the condition this runner exists to end: a checker with no
+# caller is not coverage either.
 #
-# Scoped to the directory being swept, so the runner's own fixtures are checked
-# too -- a fixture that cannot run under the shebang it names is as broken as a
-# real script, and finding it here is how it gets found at all.
-PORTABILITY="${HERE}/check_shell_portability.sh"
-portability_failed=0
-echo
-if [[ -x "${PORTABILITY}" ]]; then
-    # The floor is a scan-quality guard for the real tree; the runner's own
-    # fixture directories are legitimately tiny, so it is lowered rather than
-    # allowed to report UNSCORED on a directory we can see the size of.
-    port_out="$(MIN_PLAUSIBLE_SCRIPTS=1 "${PORTABILITY}" "${TESTS_DIR}" 2>&1)"
-    port_rc=$?
-    if [[ "${port_rc}" -eq 1 ]]; then
-        portability_failed=1
-        echo "shell portability: FAILED"
-        printf '%s\n' "${port_out}" | sed 's/^/  /'
-    else
-        echo "shell portability: ${port_out}"
+# check_frozen_params.sh is the case in point. It had tests, and it sat at
+# UNSCORED for an unknown length of time while UI_CONTROLS.md went on citing the
+# number it used to produce. Nothing was red. Nothing was measuring.
+#
+# The portability check is scoped to the directory being swept, so the runner's
+# own fixtures are checked too -- a fixture that cannot run under the shebang it
+# names is as broken as a real script, and finding it here is how it gets found
+# at all. The frozen-params check is scoped to the module instead; see below.
+# EXIT 2 IS NOT A PASS. This tested `rc -eq 1` for failure and let every other
+# code through as clean -- so exit 2, which these checkers return when they
+# cannot establish an answer at all, printed the checker's own "UNSCORED ... No
+# verdict" text and still exited the sweep 0.
+#
+# The checkers were right; their caller collapsed a three-valued exit to two.
+# That is the same defect from a new angle each time it appears: a pipeline did
+# the collapsing in one case (`checker | tail; echo $?` reported tail's 0), a
+# caller does it here. UNSCORED is the SAFE direction, which is precisely why it
+# goes unnoticed -- nothing turns red, the answer just quietly stops existing
+# while the number it produced stays on the page.
+run_tree_check() {  # run_tree_check <label> <script> [args...]
+    local label="$1" script="$2"; shift 2
+    if [[ ! -x "${script}" ]]; then
+        # Not silent. A missing checker is indistinguishable from a passing one
+        # in any report that only prints failures.
+        echo "${label}: MISSING -- ${script} is not executable."
+        echo "  A guard that cannot run is not a guard. Refusing to report a clean sweep."
+        return 1
     fi
-else
-    # Not silent. A missing checker is indistinguishable from a passing one in
-    # any report that only prints failures.
-    portability_failed=1
-    echo "shell portability: MISSING -- ${PORTABILITY} is not executable."
-    echo "  A guard that cannot run is not a guard. Refusing to report a clean sweep."
-fi
+
+    local out rc
+    out="$("${script}" "$@" 2>&1)"
+    rc=$?
+
+    case "${rc}" in
+        0)
+            echo "${label}: ${out}"
+            return 0
+            ;;
+        1)
+            echo "${label}: FAILED"
+            printf '%s\n' "${out}" | sed 's/^/  /'
+            return 1
+            ;;
+        *)
+            echo "${label}: UNSCORED (exit ${rc}) -- the check could not establish an answer."
+            printf '%s\n' "${out}" | sed 's/^/  /'
+            echo "  This is NOT a pass. A scan that stopped answering reports the same"
+            echo "  silence as a clean tree, and whatever number it last produced stays"
+            echo "  quoted in the docs as though it were still being measured."
+            return 1
+            ;;
+    esac
+}
+
+tree_checks_failed=0
+echo
+# The floor is a scan-quality guard for the real tree; the runner's own fixture
+# directories are legitimately tiny, so it is lowered rather than allowed to
+# report UNSCORED on a directory we can see the size of.
+MIN_PLAUSIBLE_SCRIPTS=1 run_tree_check "shell portability" \
+    "${HERE}/check_shell_portability.sh" "${TESTS_DIR}" \
+    || tree_checks_failed=1
+
+# Runs against the MODULE, not TESTS_DIR: what it guards is whether a shipped
+# build can reach a shader parameter, which no fixture directory can answer. It
+# resolves its own default module path relative to cwd, so the run is anchored
+# at the FlowViz root beside Tools/ rather than wherever the sweep was invoked.
+echo
+(
+    cd "${HERE}/.." 2>/dev/null || exit 1
+    run_tree_check "frozen shader parameters" "${HERE}/check_frozen_params.sh"
+) || tree_checks_failed=1
 
 echo
 # The check total, not just the file total. Thirteen files each verifying
@@ -240,5 +286,5 @@ printf '%d passed, %d failed, %d did not run' "${passed}" "${failed}" "${notrun}
 [[ "${skipped}" -gt 0 ]] && printf ', %d skipped' "${skipped}"
 printf '  --  %d checks total\n' "${total_checks}"
 
-[[ "${failed}" -eq 0 && "${notrun}" -eq 0 && "${portability_failed}" -eq 0 ]] || exit 1
+[[ "${failed}" -eq 0 && "${notrun}" -eq 0 && "${tree_checks_failed}" -eq 0 ]] || exit 1
 exit 0

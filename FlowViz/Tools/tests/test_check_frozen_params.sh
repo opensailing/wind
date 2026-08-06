@@ -546,5 +546,109 @@ printf '#include "Dispatch/Dispatcher.h"\nvoid FOwner::Run()\n{\n\tDispatcher.Di
 check "a write after a CALL to the defaults function still counts" \
     "0:clean" "$(run_on "${D}")"
 
+# --- THE ORPHAN RULE MUST ASK ABOUT SHADER-PARAMETER WRITERS ------------------
+#
+# MEASURED ON THE REAL MODULE, 2026-08-06. The checker exited 2, naming
+# CFDVizArrayReader.cpp and CFDVizMeshReader.cpp as "production files [that]
+# write shader parameters" with no other production file mentioning them.
+#
+# CFDVizMeshReader.cpp writes ZERO declared parameters. It is a .cva mesh
+# parser; it never includes the render header. The orphan gate's own comment
+# says it screens for files that "write any declared parameter at all" -- the
+# code screened for `(\.|->)Anything =`, which is every C++ file that assigns to
+# a member of anything. So the gate asked its reachability question of the whole
+# module, and the FIRST unreferenced file in directory order took the scan down
+# to UNSCORED before it could measure a single parameter.
+#
+# UNSCORED is the safe direction, which is why this sat unnoticed: the doc cited
+# "16 frozen of 74" as a live measurement while the scan behind it had stopped
+# producing one. The failure is not that it lied, it is that it stopped
+# answering and the number stayed on the page.
+
+D="${WORK}/orphan_non_writer"; new_tree "${D}"
+declare_params  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+# An unreferenced production file that assigns to members -- of its OWN types,
+# none of them declared shader parameters. This is CFDVizMeshReader.cpp.
+mkdir -p "${D}/Private/Parser"
+printf 'FResult FParser::Load(FMeshHeader& OutHeader)\n{\n\tOutHeader.TriangleCount = 3;\n\tOutHeader.VertexStride = 12;\n\treturn FResult::Ok();\n}\n' \
+    > "${D}/Private/Parser/MeshReader.cpp"
+check "an unreferenced file that writes NO declared parameter does not force UNSCORED" \
+    "0:clean" "$(run_on "${D}")"
+
+# The control. Same tree, same unreferenced file, except now it is a genuine
+# shader-parameter writer -- so the orphan rule SHOULD fire. Without this the
+# case above is satisfied by deleting the orphan rule entirely.
+#
+# It takes FParams& because that is what a real one does: the file that
+# motivated this rule, FlowVizRenderSettingsViewModel.cpp, handles the parameter
+# struct and had no consumer. A file writing the NAME CompositeMode onto some
+# unrelated header is not a shader-parameter writer at all, which is the case
+# directly above -- the two fixtures differ only in that, and must answer
+# differently.
+D="${WORK}/orphan_real_writer"; new_tree "${D}"
+declare_params  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_defaults  "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota
+mkdir -p "${D}/Private/Parser"
+printf 'void FParser::Apply(FParams& OutParameters) const\n{\n\tOutParameters.CompositeMode = 4;\n}\n' \
+    > "${D}/Private/Parser/MeshReader.cpp"
+check "  CONTROL: an unreferenced file that DOES write the param struct is still UNSCORED" \
+    "2:unscored" "$(run_on "${D}")"
+
+# --- A COLLIDING MEMBER NAME IS NOT A SHADER-PARAMETER WRITE ------------------
+#
+# MEASURED ON THE REAL MODULE, 2026-08-06. The write scan harvests bare member
+# names, so `OutHeader.ComponentCount = ...` in CFDVizArrayReader.cpp counted as
+# a production write of SHADER_PARAMETER(int32, ComponentCount). They are
+# unrelated: one is a .cva file-format field read off disk, the other is a
+# cbuffer row at offset 76. Three CFDViz files write that name and not one of
+# them includes the render header.
+#
+# THE DIRECTION THAT MATTERS. This one does not fail safe. A parameter freezes,
+# and some unrelated struct anywhere in the module happens to have a field of
+# the same name -- Alpha, Mode, Count, ValueRangeMax -- and the checker reports
+# it as reachable. Green, on a welded control. That is the [[one-green-caller-
+# implies-none]] shape: the collision is indistinguishable from the fix.
+#
+# The rule: a write counts only from a file that mentions the parameter struct.
+# Deliberately coarse -- it does not verify the write is ON that struct, and a
+# file could mention the struct in a comment. It catches the case that occurred,
+# which is a file with no connection to the shader at all.
+
+D="${WORK}/name_collision"; new_tree "${D}"
+declare_params  "${D}" CompositeMode ComponentCount Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+write_defaults  "${D}" CompositeMode ComponentCount Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+# A referenced production file with no relationship to the shader, writing a
+# field that happens to share ComponentCount's name. This is CFDVizArrayReader.
+mkdir -p "${D}/Private/Parser" "${D}/Public/Parser"
+printf 'FResult FParser::ParseHeader(FArrayHeader& OutHeader)\n{\n\tOutHeader.ComponentCount = 3;\n\treturn FResult::Ok();\n}\n' \
+    > "${D}/Private/Parser/ArrayReader.cpp"
+printf '#include "Parser/ArrayReader.h"\nvoid FLoader::Run()\n{\n\tParser.ParseHeader(Header);\n}\n' \
+    > "${D}/Private/Render/ArrayReaderConsumer.cpp"
+printf 'class FParser { public: FResult ParseHeader(FArrayHeader&); };\n' \
+    > "${D}/Public/Parser/ArrayReader.h"
+check "a colliding member name in a file that never mentions the param struct is NOT a write" \
+    "1:frozen" "$(run_on "${D}")"
+
+# The control. The identical write, in a file that DOES handle the parameter
+# struct, must still count -- otherwise the rule above is satisfied by ignoring
+# every write in the module.
+D="${WORK}/collision_control"; new_tree "${D}"
+declare_params  "${D}" CompositeMode ComponentCount Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+write_defaults  "${D}" CompositeMode ComponentCount Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+write_production "${D}" CompositeMode Alpha Beta Gamma Delta Epsilon Zeta Eta Theta
+mkdir -p "${D}/Private/Parser" "${D}/Public/Parser"
+printf 'void FUploader::Fill(FParams& OutParameters)\n{\n\tOutParameters.ComponentCount = Layout.SourceComponentCount;\n}\n' \
+    > "${D}/Private/Parser/ArrayReader.cpp"
+printf '#include "Parser/ArrayReader.h"\nvoid FLoader::Run()\n{\n\tUploader.Fill(Parameters);\n}\n' \
+    > "${D}/Private/Render/ArrayReaderConsumer.cpp"
+printf 'class FUploader { public: void Fill(FParams&); };\n' \
+    > "${D}/Public/Parser/ArrayReader.h"
+check "  CONTROL: the same write in a file that handles the param struct DOES count" \
+    "0:clean" "$(run_on "${D}")"
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

@@ -78,6 +78,25 @@ sed -E 's/.*SHADER_PARAMETER_ARRAY\([^,]*,[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[
 
 grep -E '^[A-Za-z_][A-Za-z0-9_]*$' "${WORK}/names_raw.txt" | sort -u > "${WORK}/declared.txt"
 
+# The parameter STRUCT's name, harvested from the same headers. A write counts
+# only from a file that mentions it -- see step 3. Taken from the tree rather
+# than hardcoded, so a renamed or second struct is picked up rather than
+# silently unmatched (an unmatched name would make every file fail the mention
+# test and report the whole module frozen).
+grep -rhoE 'BEGIN_SHADER_PARAMETER_STRUCT\([[:space:]]*[A-Za-z_][A-Za-z0-9_]*' \
+    "${MODULE_DIR}" --include='*.h' 2>/dev/null \
+    | sed -E 's/.*\([[:space:]]*//' | sort -u > "${WORK}/structs.txt"
+
+if [[ ! -s "${WORK}/structs.txt" ]]; then
+    echo "check_frozen_params: UNSCORED" >&2
+    echo "  ${PARAM_COUNT_PENDING:-Parameters} were extracted, but no" >&2
+    echo "  BEGIN_SHADER_PARAMETER_STRUCT declaration was found to name them." >&2
+    echo "  Step 3 counts a write only from a file that mentions the struct, so" >&2
+    echo "  without the name every write would be discarded and the whole module" >&2
+    echo "  would report frozen." >&2
+    exit 2
+fi
+
 # A row that yielded no identifier is a declaration form this script has no rule
 # for. It must be REPORTED, never discarded.
 #
@@ -189,8 +208,39 @@ DEFAULTS_FILE="$(cat "${WORK}/defn_files.txt")"
 # may sit on the following line, so the character after `=` is allowed to be
 # end-of-line -- two such writes exist in FlowVizVolumeTexture.cpp and were
 # missed by requiring a non-`=` character there.
+#
+# AND THE FILE MUST HANDLE THE PARAMETER STRUCT. The scan harvests bare member
+# NAMES, so `OutHeader.ComponentCount = ...` in CFDVizArrayReader.cpp -- a .cva
+# file-format field read off disk -- counted as a production write of
+# SHADER_PARAMETER(int32, ComponentCount), a cbuffer row at offset 76. Measured
+# 2026-08-06: three CFDViz files write that name and none of them includes the
+# render header.
+#
+# This one does not fail safe. A parameter freezes, some unrelated struct in the
+# module happens to have a field of the same name -- Alpha, Mode, Count,
+# ValueRangeMax -- and the checker calls it reachable. Green, on a welded
+# control, indistinguishable from the fix.
+#
+# Deliberately coarse: it does not verify the write is ON that struct, and a
+# mention in a comment satisfies it. It rules out files with no connection to
+# the shader at all, which is the case that occurred.
 
 cp "${WORK}/all_prod.txt" "${WORK}/prod_files.txt"
+
+# Does this file mention any shader-parameter struct?
+handles_param_struct() {  # handles_param_struct <file>
+    grep -qFf "${WORK}/structs.txt" "$1" 2>/dev/null
+}
+
+# The declared parameters this file writes, one per line. Empty if the file does
+# not handle the parameter struct.
+declared_writes_in() {  # declared_writes_in <file> [awk-filter-args...]
+    local f="$1"
+    handles_param_struct "${f}" || return 0
+    grep -ohE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' "${f}" 2>/dev/null \
+        | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' | sort -u \
+        | comm -12 "${WORK}/declared.txt" -
+}
 
 : > "${WORK}/written.txt"
 while IFS= read -r f; do
@@ -203,8 +253,7 @@ while IFS= read -r f; do
     # `FlowVizRayMarch::FillDefaults(Request.Parameters);`. They happened to
     # contain no writes, so the count survived by luck rather than by design.
     if [[ "${f}" != "${DEFAULTS_FILE}" ]]; then
-        grep -ohE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' "${f}" 2>/dev/null \
-            | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' >> "${WORK}/written.txt"
+        declared_writes_in "${f}" >> "${WORK}/written.txt"
         continue
     fi
     # The definition's LINE NUMBER, found by grep, not re-matched inside awk.
@@ -235,7 +284,8 @@ while IFS= read -r f; do
         { print }
     ' "${f}" 2>/dev/null \
         | grep -ohE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' \
-        | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' >> "${WORK}/written.txt"
+        | sed -E 's/^(\.|->)([A-Za-z0-9_]+).*/\2/' | sort -u \
+        | comm -12 "${WORK}/declared.txt" - >> "${WORK}/written.txt"
 done < "${WORK}/prod_files.txt"
 sort -u -o "${WORK}/written.txt" "${WORK}/written.txt"
 
@@ -282,7 +332,20 @@ while IFS= read -r f; do
     # file, which meant a file whose only writes followed a call to the defaults
     # function looked like it wrote nothing and was silently exempted from the
     # reachability question entirely.
-    if ! grep -qE '(\.|->)[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[[:space:]]*=([^=]|$)' "${f}" 2>/dev/null; then
+    #
+    # ASK THE QUESTION THE COMMENT ABOVE ASKS. This read
+    # `grep -qE '(\.|->)Anything ='`, which is true of every C++ file that
+    # assigns to a member of anything at all -- so the reachability question was
+    # put to the whole module rather than to shader-parameter writers.
+    #
+    # Measured 2026-08-06: it took the real scan down to UNSCORED naming
+    # CFDVizMeshReader.cpp, a .cva mesh parser that writes ZERO declared
+    # parameters and never includes the render header. The first unreferenced
+    # file in directory order ended the scan before a single parameter was
+    # measured, and UI_CONTROLS.md went on citing "16 frozen of 74" from a run
+    # that no longer happened. UNSCORED is the safe direction, which is exactly
+    # why it sat unnoticed.
+    if [[ -z "$(declared_writes_in "${f}")" ]]; then
         continue
     fi
 

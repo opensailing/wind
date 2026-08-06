@@ -275,6 +275,106 @@ check "a missing portability checker fails the sweep, it is not skipped" "1" \
 check "...and says so rather than printing a clean total" "yes" \
     "$(grep -qi 'MISSING' <<<"${out}" && echo yes || echo no)"
 
+# An UNSCORED tree check must not read as a pass. The slot tested `rc -eq 1` for
+# failure and treated EVERY other exit as clean -- so exit 2, which
+# check_shell_portability.sh returns from two places ("no such directory" and
+# "scanned N scripts, below the floor"), printed alongside the checker's own
+# "UNSCORED: ... No verdict." text and still exited the sweep 0.
+#
+# That is the defect this repo keeps meeting from a new angle: a three-valued
+# exit collapsed to two by its CALLER. The checker did everything right; the
+# reader of its exit code decided UNSCORED meant fine. Same shape as
+# [[piping-a-checker-discards-its-verdict]], where a pipeline did the
+# collapsing, and [[ubt-build-sh-exit-code-lies]].
+D="${WORK}/tree_check_unscored"
+make_test "${D}" test_fine5.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+UNSCORED_TOOLS="${WORK}/unscored_tools"
+mkdir -p "${UNSCORED_TOOLS}"
+cp "${RUNNER}" "${UNSCORED_TOOLS}/run_harness_tests.sh"
+chmod +x "${UNSCORED_TOOLS}/run_harness_tests.sh"
+# Stand-in checkers: portable exits 2 saying it could not establish an answer.
+printf '#!/bin/bash\necho "UNSCORED: scanned 3 script(s), below the floor of 20." >&2\nexit 2\n' \
+    > "${UNSCORED_TOOLS}/check_shell_portability.sh"
+printf '#!/bin/bash\necho "check_frozen_params: every declared parameter has a production writer."\nexit 0\n' \
+    > "${UNSCORED_TOOLS}/check_frozen_params.sh"
+chmod +x "${UNSCORED_TOOLS}/check_shell_portability.sh" "${UNSCORED_TOOLS}/check_frozen_params.sh"
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${UNSCORED_TOOLS}/run_harness_tests.sh" 2>&1)"
+unscored_exit=$?
+check "an UNSCORED portability check fails the sweep, it is not a pass" "1" \
+    "${unscored_exit}"
+check "...and the sweep says UNSCORED rather than printing a clean total" "yes" \
+    "$(grep -qi 'UNSCORED' <<<"${out}" && echo yes || echo no)"
+
+# The control. Identical tree, the same stand-in checker exiting 0 instead of 2.
+# Without this the case above is satisfied by a sweep that always exits 1.
+D="${WORK}/tree_check_scored"
+make_test "${D}" test_fine6.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+SCORED_TOOLS="${WORK}/scored_tools"
+mkdir -p "${SCORED_TOOLS}"
+cp "${RUNNER}" "${SCORED_TOOLS}/run_harness_tests.sh"
+chmod +x "${SCORED_TOOLS}/run_harness_tests.sh"
+printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n' \
+    > "${SCORED_TOOLS}/check_shell_portability.sh"
+printf '#!/bin/bash\necho "check_frozen_params: every declared parameter has a production writer."\nexit 0\n' \
+    > "${SCORED_TOOLS}/check_frozen_params.sh"
+chmod +x "${SCORED_TOOLS}/check_shell_portability.sh" "${SCORED_TOOLS}/check_frozen_params.sh"
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${SCORED_TOOLS}/run_harness_tests.sh" 2>&1)"
+scored_exit=$?
+check "  CONTROL: the same tree with a scoreable checker exits 0" "0" "${scored_exit}"
+
+# --- the frozen-params checker runs as part of the sweep ---------------------
+#
+# It had tests and a runner and still went UNSCORED for an unknown length of
+# time, because nothing called it on a schedule: UI_CONTROLS.md cited "16 frozen
+# of 74" while the scan behind that number had stopped producing one. UNSCORED
+# is the SAFE direction, which is exactly why it sat unnoticed -- nothing went
+# red, the number just quietly stopped being re-derivable.
+
+D="${WORK}/frozen_in_sweep"
+make_test "${D}" test_fine7.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${RUNNER}" 2>&1)"
+frozen_exit=$?
+check "the sweep reports the frozen-params check by name" "yes" \
+    "$(grep -qi 'frozen' <<<"${out}" && echo yes || echo no)"
+check "...and the real tree passes it" "0" "${frozen_exit}"
+
+# A frozen parameter must fail the sweep. Without this the slot could be wired
+# to a checker that can only say yes.
+D="${WORK}/frozen_reports"
+make_test "${D}" test_fine8.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+FROZEN_TOOLS="${WORK}/frozen_tools"
+mkdir -p "${FROZEN_TOOLS}"
+cp "${RUNNER}" "${FROZEN_TOOLS}/run_harness_tests.sh"
+chmod +x "${FROZEN_TOOLS}/run_harness_tests.sh"
+printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n' \
+    > "${FROZEN_TOOLS}/check_shell_portability.sh"
+printf '#!/bin/bash\necho "check_frozen_params: FROZEN PARAMETER(S) -- 16 of 74" >&2\necho "  CompositeMode" >&2\nexit 1\n' \
+    > "${FROZEN_TOOLS}/check_frozen_params.sh"
+chmod +x "${FROZEN_TOOLS}/check_shell_portability.sh" "${FROZEN_TOOLS}/check_frozen_params.sh"
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${FROZEN_TOOLS}/run_harness_tests.sh" 2>&1)"
+reports_exit=$?
+check "a frozen parameter fails the sweep" "1" "${reports_exit}"
+check "...and the frozen parameter is named in the sweep output" "yes" \
+    "$(grep -q 'CompositeMode' <<<"${out}" && echo yes || echo no)"
+
+# A missing frozen-params checker is not a skip, for the same reason a missing
+# portability checker is not: absent and passing look identical in a report that
+# only prints failures.
+D="${WORK}/frozen_absent"
+make_test "${D}" test_fine9.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+NOFROZEN_TOOLS="${WORK}/nofrozen_tools"
+mkdir -p "${NOFROZEN_TOOLS}"
+cp "${RUNNER}" "${NOFROZEN_TOOLS}/run_harness_tests.sh"
+chmod +x "${NOFROZEN_TOOLS}/run_harness_tests.sh"
+printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n' \
+    > "${NOFROZEN_TOOLS}/check_shell_portability.sh"
+chmod +x "${NOFROZEN_TOOLS}/check_shell_portability.sh"
+# No check_frozen_params.sh beside it.
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${NOFROZEN_TOOLS}/run_harness_tests.sh" 2>&1)"
+nofrozen_exit=$?
+check "a missing frozen-params checker fails the sweep, it is not skipped" "1" \
+    "${nofrozen_exit}"
+
 echo
 echo "run_harness_tests tests: $((checks - failures)) passed, ${failures} failed"
 exit $(( failures > 0 ? 1 : 0 ))

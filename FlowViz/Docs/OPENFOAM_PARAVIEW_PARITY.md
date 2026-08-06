@@ -62,7 +62,7 @@ So a row here is only `Done` when a **production** caller exists, and
 | Surface with edges | Surface + wireframe overlay | Not started | — | — | D |
 | Wireframe | Wireframe mode | Not started | — | — | D |
 | Points | Point cloud mode | Not started | — | — | D |
-| Volume | Ray-marched volume renderer | Partial | `Shaders/FlowVizVolumeRayMarch.usf`, `Private/Render/FlowVizVolumeRayMarchDispatcher.cpp`, `Private/Scene/FlowVizVolumeComponent.cpp` | All five composite modes required by `plan.md` §9 are implemented in the shader — `FLOWVIZ_MODE_ALPHA`, `MAXIMUM`, `MINIMUM`, `AVERAGE`, `ISOSURFACE` — plus a `DIAGNOSTIC` echo mode used to verify parameter transport. Dispatch runs from the scene proxy and is verified end to end under a real RHI. Not `Done` until the mode selector is user-reachable and visual review passes | C |
+| Volume | Ray-marched volume renderer | Partial | `Shaders/FlowVizVolumeRayMarch.usf`, `Private/Render/FlowVizVolumeRayMarchDispatcher.cpp`, `Private/Scene/FlowVizVolumeComponent.cpp` | All five composite modes required by `plan.md` §9 are implemented in the shader — `FLOWVIZ_MODE_ALPHA`, `MAXIMUM`, `MINIMUM`, `AVERAGE`, `ISOSURFACE` — plus a `DIAGNOSTIC` echo mode used to verify parameter transport. Dispatch runs from the scene proxy and is verified end to end under a real RHI. As of 2026-08-06 all six are also *selectable* — `UFlowVizCaptureLibrary::SetVolumeCompositeMode` is `BlueprintCallable` and validates the value rather than casting it — which retires the earlier finding that only Alpha could render. Still not `Done`: Blueprint and the capture harness are not a user, no widget or console command selects a mode, and visual review has not passed. See `UI_CONTROLS.md` §1.2 | C |
 
 ## 3. Filters — geometry
 
