@@ -975,6 +975,19 @@ public:
 	}
 
 	/**
+	 * Read-only overload, for callers that only inspect.
+	 *
+	 * The diagnostics collector reads the uploaded layout to report the volume's
+	 * resolution; without this, reporting a number would require a mutable
+	 * component, and a const-correctness workaround is how a read-only observer
+	 * acquires the ability to change what it observes.
+	 */
+	const FFlowVizVolumeTextureSet& GetTextureSet() const
+	{
+		return *TextureSet;
+	}
+
+	/**
 	 * Decode one frame and hand it to the render thread.
 	 *
 	 * Synchronous and therefore NOT for the game thread in production - it does
