@@ -600,4 +600,151 @@ bool FFlowVizWorkspaceAdvisoryTracksBindingTest::RunTest(const FString& Paramete
 	return true;
 }
 
+/**
+ * AND BINDING MUST PUSH WHAT IS ALREADY THERE, not merely subscribe for later.
+ *
+ * WHERE THIS CAME FROM. Mutation campaign clip-wire-workspace (2026-08-06)
+ * deleted the PushToVolume() call at the end of SetVolume, leaving the
+ * assignment and the panel disclosure. It SURVIVED a green suite.
+ *
+ * WHY VolumeBinding ABOVE CANNOT CATCH IT, which is the interesting part. That
+ * test binds a volume whose clip model is still EMPTY -- it even asserts plane
+ * count 0 as a control -- and only then presses a preset button. The bind-time
+ * push therefore has nothing to carry, and the later edit-driven push covers for
+ * a bind-time push that never happened. The ordering is what hides the branch,
+ * not any weakness in the assertions.
+ *
+ * WHAT DELETING THE CALL ACTUALLY COSTS, in SetVolume's own words: a workspace
+ * with planes already authored -- from a session load, or from a case opened
+ * before the actor existed -- renders unclipped until the user touches
+ * something. That reads as a control that has to be wiggled to take, and it is
+ * the same shape as #26, #40/#41, #42 and #50: the unit is correct, the channel
+ * exists, and nothing drives it at the moment that matters.
+ *
+ * So this authors the clip state BEFORE binding and asserts the volume is
+ * already clipped with no further edit.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizWorkspaceBindPushesExistingStateTest,
+	"FlowViz.UI.Workspace.BindPushesExistingState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizWorkspaceBindPushesExistingStateTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizWorkspaceVolumeSeamTest;
+
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	UWorld* World = MakeWorld(WorldContext);
+	if (!TestNotNull(TEXT("CONTROL: a test world was created"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(/*bInformEngineOfWorld*/ true);
+		World->RemoveFromRoot();
+		GEngine->DestroyWorldContext(World);
+	};
+
+	ACFDVizCaseActor* Actor = World->SpawnActor<ACFDVizCaseActor>();
+	UCFDVizVolumeComponent* Volume = Actor != nullptr ? Actor->GetVolumeComponent() : nullptr;
+	if (!TestNotNull(TEXT("CONTROL: the actor owns a volume component"), Volume))
+	{
+		return false;
+	}
+	if (!TestTrue(TEXT("CONTROL: the sample case loads into the volume, without which the push "
+					   "would be correctly REFUSED for want of a domain and this test would "
+					   "pass on wiring that does not exist"),
+			Actor->LoadCase(GetSampleCaseDir()).IsOk()))
+	{
+		return false;
+	}
+
+	const TSharedRef<SFlowVizWorkspace> Workspace = SNew(SFlowVizWorkspace);
+
+	/*
+	 * THE STATE IS AUTHORED BEFORE THE BINDING. This is the whole difference
+	 * from VolumeBinding above, and it is what makes the bind-time push the only
+	 * thing that can produce the result asserted at the end.
+	 *
+	 * Through the workspace's OWN model, so nothing here installs a channel
+	 * production does not have -- the defect this file exists to catch is a test
+	 * supplying the seam it is testing.
+	 *
+	 * ConfigureClip is the same fixture VolumeSeam uses, and it sets the domain
+	 * EXPLICITLY rather than relying on a case load to have set one. A push
+	 * refused for want of a domain would leave the volume at zero planes -- the
+	 * same reading as a push that never fired -- so the domain is established
+	 * here rather than inferred.
+	 */
+	const FVector VolumeSize = Volume->GetPhysicalSize();
+	if (!TestTrue(TEXT("CONTROL: the loaded volume has a positive domain on every axis, without "
+					   "which the plane below would be correctly refused and the push would have "
+					   "nothing to carry for a reason that is not the one under test"),
+			VolumeSize.X > 0.0 && VolumeSize.Y > 0.0 && VolumeSize.Z > 0.0))
+	{
+		return false;
+	}
+
+	ConfigureClip(Workspace->GetModel().Clip, VolumeSize, *this);
+	if (!TestEqual(TEXT("CONTROL: the model really does hold a plane before the bind, without "
+						"which the assertion below would be about an empty push"),
+			Workspace->GetModel().Clip.GetPlaneCount(), 1))
+	{
+		return false;
+	}
+
+	/*
+	 * ASSERTED, NOT ASSUMED. If the volume already carried a plane, the assertion
+	 * below could not tell a push from the state that was there all along.
+	 */
+	if (!TestEqual(TEXT("CONTROL: the volume is unclipped before the bind, so what follows "
+						"cannot be the state it already had"),
+			Volume->GetClip().GetPlaneCount(), 0))
+	{
+		return false;
+	}
+
+	/* == The bind, and nothing else ========================================== */
+
+	Workspace->SetVolume(Volume);
+
+	/*
+	 * NO PANEL IS TOUCHED AND NO MODEL IS EDITED between the line above and the
+	 * assertions below. Delete PushToVolume() from SetVolume and the volume stays
+	 * at zero planes.
+	 */
+	if (!TestEqual(TEXT("binding a volume pushes the state the model ALREADY held, so a "
+						"session's planes render immediately rather than waiting for the user "
+						"to touch a control"),
+			Volume->GetClip().GetPlaneCount(), 1))
+	{
+		return false;
+	}
+
+	/*
+	 * AND IT IS THE AUTHORED PLANE, not a plausible one. A push that fabricated
+	 * a default plane would satisfy the count above; PlaneDistance is a number no
+	 * default produces, so carrying it is evidence the real model was copied.
+	 * Repo memory degenerate-data-defeats-assertions.
+	 */
+	if (const FFlowVizClipPlane* Pushed = Volume->GetClip().FindPlane(0))
+	{
+		TestEqual(TEXT("and it is the plane the model held, at the distance it was authored "
+					   "with -- not a default one that merely makes the count right"),
+			Pushed->Distance, PlaneDistance, 1e-9);
+
+		TestTrue(TEXT("facing the way it was authored, so an axis-swapped or fabricated copy "
+					  "is not mistaken for the real one"),
+			Pushed->Normal.Equals(FVector(0.0, 0.0, 1.0), 1e-6));
+	}
+	else
+	{
+		AddError(TEXT("the pushed plane is not readable, so the count above cannot be trusted"));
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

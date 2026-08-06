@@ -2,6 +2,7 @@
 
 #include "UI/SFlowVizWorkspace.h"
 
+#include "Playback/FlowVizCasePlayer.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceStyle.h"
@@ -88,7 +89,31 @@ SFlowVizWorkspace::SFlowVizWorkspace() = default;
  * Out-of-line, and it must stay that way: TUniquePtr<FFlowVizWorkspaceModel>
  * needs the complete type to destroy, and the header only forward-declares it.
  */
-SFlowVizWorkspace::~SFlowVizWorkspace() = default;
+SFlowVizWorkspace::~SFlowVizWorkspace()
+{
+	/*
+	 * NOT `= default`, AND THIS IS THE TEARDOWN THAT ACTUALLY HAPPENS.
+	 *
+	 * SetVolume(nullptr) releases the frame source on an explicit unbind, but
+	 * nothing in the codebase calls it that way. The real end of a workspace is
+	 * its last reference going away with a volume still bound -- close the tab
+	 * while the level keeps rendering -- and that runs this destructor instead.
+	 *
+	 * The source handed to the component holds Model->Player by RAW REFERENCE
+	 * (FlowVizCaseSeam.cpp). Model is destroyed immediately after this body, so a
+	 * component still holding the source would read into freed memory on its next
+	 * tick. Releasing it here drops the component to its documented no-source
+	 * policy, which is a defensible image rather than a crash.
+	 *
+	 * Volume is weak, so a component whose world died first is already null and
+	 * there is nothing to release -- the case this ordering has to survive is the
+	 * OTHER one, where the component outlives the widget.
+	 */
+	if (UCFDVizVolumeComponent* Bound = Volume.Get())
+	{
+		Bound->SetFrameSource(nullptr);
+	}
+}
 
 FFlowVizWorkspaceModel& SFlowVizWorkspace::GetModel() const
 {
@@ -209,6 +234,32 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 
 void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
 {
+	/*
+	 * THE OLD VOLUME IS RELEASED BEFORE THE NEW ONE IS BOUND, and this is the
+	 * unbind path as well as the rebind path -- SetVolume(nullptr) runs exactly
+	 * this branch.
+	 *
+	 * The frame source handed out below holds this workspace's player by RAW
+	 * REFERENCE (FlowVizCaseSeam.cpp). Nothing about the volume's lifetime is
+	 * tied to the workspace's: the component lives in the world and the player
+	 * lives in Model, so closing the tab while the level keeps rendering is the
+	 * ordinary case, not the exotic one. A component left holding the source
+	 * would read through that reference on its next tick, after the player it
+	 * names has been destroyed.
+	 *
+	 * Clearing it on the way out means the component falls back to its
+	 * documented no-source policy (hold frame 0) rather than reading freed
+	 * memory -- a defensible thing to see, and the reason GetFrameSelection has
+	 * that fallback at all.
+	 */
+	if (UCFDVizVolumeComponent* Previous = Volume.Get())
+	{
+		if (Previous != InVolume)
+		{
+			Previous->SetFrameSource(nullptr);
+		}
+	}
+
 	Volume = InVolume;
 
 	// THE PANEL'S DISCLOSURE FOLLOWS THE BINDING. Left unsaid, the clip panel
@@ -218,6 +269,25 @@ void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
 	if (ClipPanel.IsValid())
 	{
 		ClipPanel->SetVolumeBound(InVolume != nullptr);
+	}
+
+	/*
+	 * THE TIMELINE'S CHANNEL TO THE RENDERER, and it is a LIVE READ rather than
+	 * a copy of the current selection.
+	 *
+	 * The source reads the player every time the component asks, so a scrub that
+	 * happens long after this call still moves the image. Pushing a selection
+	 * here instead would bind the frame the playhead happened to be on, and the
+	 * transport bar would then drive a value nobody re-reads -- the same shape as
+	 * the clip panel editing a model no renderer saw (#50), which is what this
+	 * seam was found alongside.
+	 *
+	 * GetDisplay, not the desired selection: see FlowVizCaseSeam.cpp. What is
+	 * complete and resident is what may be drawn.
+	 */
+	if (InVolume != nullptr)
+	{
+		InVolume->SetFrameSource(FlowVizPlayback::MakeFrameSource(Model->Player));
 	}
 
 	// PUSHED NOW, not on the next edit. A workspace with planes already authored
