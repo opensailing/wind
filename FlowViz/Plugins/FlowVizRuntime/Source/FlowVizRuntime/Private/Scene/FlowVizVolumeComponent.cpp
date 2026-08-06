@@ -922,7 +922,14 @@ FCFDVizResult UCFDVizVolumeComponent::LoadCase(const FString& CaseDirectory, FNa
 
 	NewBinding.bIsValid = true;
 	CaseBinding = MoveTemp(NewBinding);
-	UploadedScalarLayout = FFlowVizVolumeLayout();
+
+	// WHAT WAS RESIDENT BELONGED TO THE OLD BINDING. Frame numbers index the
+	// bound case, so slots kept across this line would answer for the previous
+	// case's frames -- real voxels, sampled through the new case's transform.
+	if (TextureSet.IsValid())
+	{
+		TextureSet->InvalidateResidency();
+	}
 
 	// Bounds and placement both changed, so the proxy is rebuilt rather than
 	// updated: its hull geometry is baked at construction.
@@ -943,7 +950,14 @@ FCFDVizResult UCFDVizVolumeComponent::LoadCase(const FString& CaseDirectory, FNa
 void UCFDVizVolumeComponent::ClearCase()
 {
 	CaseBinding = FFlowVizVolumeCaseBinding();
-	UploadedScalarLayout = FFlowVizVolumeLayout();
+
+	// Same reason as LoadCase: an unloaded component must not keep answering for
+	// frames of the case it no longer has.
+	if (TextureSet.IsValid())
+	{
+		TextureSet->InvalidateResidency();
+	}
+
 	MarkRenderStateDirty();
 	UpdateBounds();
 }
@@ -1106,13 +1120,31 @@ FVector2D UCFDVizVolumeComponent::GetDisplayValueRange() const
 
 bool UCFDVizVolumeComponent::TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const
 {
-	if (!HasRenderableVolume() || !UploadedScalarLayout.IsValid())
+	if (!HasRenderableVolume() || !TextureSet.IsValid())
 	{
 		return false;
 	}
-	return CaseBinding.Transform
-		.MakeShaderParameters(UploadedScalarLayout, GetDisplayValueRange(), OutParams)
-		.IsOk();
+
+	/*
+	 * ASKED OF THE TEXTURE SET, not remembered from this component's own upload.
+	 *
+	 * This used to read a member filled by UploadFrame, which made the answer
+	 * "did I, personally, upload a frame" -- and the interactive path does not
+	 * go through UploadFrame at all. FFlowVizCasePlayer decodes on a worker and
+	 * enqueues into this same set directly, so under playback the voxels arrived
+	 * and this returned false anyway: bHasParameters stayed false, the proxy
+	 * reported NoParameters, and a fully loaded case marched nothing. Asking the
+	 * set makes the question "are there voxels of a known shape in these
+	 * textures", which is what the parameters actually describe and is true for
+	 * either uploader.
+	 */
+	const FFlowVizVolumeLayout& Layout = TextureSet->GetUploadedFieldLayout();
+	if (!Layout.IsValid())
+	{
+		return false;
+	}
+
+	return CaseBinding.Transform.MakeShaderParameters(Layout, GetDisplayValueRange(), OutParams).IsOk();
 }
 
 FCFDVizResult UCFDVizVolumeComponent::UploadFrame(int32 FrameIndex)
@@ -1179,11 +1211,10 @@ FCFDVizResult UCFDVizVolumeComponent::UploadFrame(int32 FrameIndex)
 		return BuildResult;
 	}
 
-	// The layout the shader parameter block is built from. Taken from whichever
-	// texture this field actually landed in, so a vector field does not produce
-	// parameters describing an absent scalar texture.
-	UploadedScalarLayout = bAsVector ? Upload.VectorLayout : Upload.ScalarLayout;
-
+	// The layout the shader parameter block is built from is recorded by
+	// EnqueueUpload, from whichever texture this field actually landed in --
+	// see FFlowVizVolumeTextureSet::GetUploadedFieldLayout. Nothing to cache
+	// here: the set is the one place both uploaders meet.
 	const FCFDVizResult UploadResult = TextureSet->EnqueueUpload(MoveTemp(Upload));
 	if (!UploadResult.IsOk())
 	{

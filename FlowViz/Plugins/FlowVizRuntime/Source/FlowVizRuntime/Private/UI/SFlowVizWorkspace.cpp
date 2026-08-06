@@ -2,6 +2,7 @@
 
 #include "UI/SFlowVizWorkspace.h"
 
+#include "FlowVizRuntime.h"
 #include "Playback/FlowVizCasePlayer.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
@@ -128,6 +129,26 @@ SFlowVizWorkspace::~SFlowVizWorkspace()
 	if (UCFDVizVolumeComponent* Bound = Volume.Get())
 	{
 		Bound->SetFrameSource(nullptr);
+	}
+
+	/*
+	 * THE PLAYER'S BORROWED TEXTURE SET, released UNCONDITIONALLY and NOT inside
+	 * the branch above.
+	 *
+	 * Volume is weak, so the case where the component died first reads null
+	 * there -- and that is exactly the case where the player is still holding a
+	 * pointer to it. Putting this release inside the `if` would skip it in the
+	 * one situation it exists for.
+	 *
+	 * Strictly, Model is destroyed on the next line and the player goes with it,
+	 * so nothing can dereference the stale pointer afterwards. It is cleared
+	 * anyway because the ORDER of members in this class is what makes that true,
+	 * and a release that depends on declaration order is one reordering away
+	 * from being a use-after-free with no comment to warn the person doing it.
+	 */
+	if (Model.IsValid())
+	{
+		Model->Player.SetTextureSet(nullptr);
 	}
 }
 
@@ -298,6 +319,18 @@ void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
 		if (Previous != InVolume)
 		{
 			Previous->SetFrameSource(nullptr);
+
+			/*
+			 * AND THE REVERSE POINTER, which is the dangerous one.
+			 *
+			 * The frame source above is held BY the component, so a component
+			 * that dies takes it along. The texture set is held BY THE PLAYER,
+			 * as a raw pointer into a UObject this widget only tracks weakly --
+			 * so the player is the survivor holding a reference to the corpse.
+			 * Releasing it here is what keeps DrainCompletedLoads from
+			 * enqueuing a decoded frame into a component that has moved on.
+			 */
+			Model->Player.SetTextureSet(nullptr);
 		}
 	}
 
@@ -329,6 +362,34 @@ void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
 	if (InVolume != nullptr)
 	{
 		InVolume->SetFrameSource(FlowVizPlayback::MakeFrameSource(Model->Player));
+
+		/*
+		 * AND THE CHANNEL THE VOXELS THEMSELVES TRAVEL, which is a separate
+		 * wire from the one above and the one that puts pixels on screen.
+		 *
+		 * The frame source is a LABEL: it tells the component which frame to
+		 * display. Without this line the player decodes frames on its workers,
+		 * marks them complete, and drops them -- DrainCompletedLoads only
+		 * uploads when it has a set, and it had none -- so the transport bar
+		 * advances, the component agrees which frame is showing, and the
+		 * textures behind that label are whatever was in them before. That is
+		 * the state this whole plugin was in until #66: a scrub that moved a
+		 * number and nothing else.
+		 *
+		 * BORROWED, NOT OWNED. The set belongs to the component (a TUniquePtr
+		 * member); the player holds a bare pointer to it. Every path that can
+		 * separate the two has to clear it -- the rebind above, the unbind that
+		 * is the same branch, TickClock when a bound component is destroyed
+		 * under us, and this widget's destructor.
+		 */
+		Model->Player.SetTextureSet(&InVolume->GetTextureSet());
+	}
+	else
+	{
+		// SetVolume(nullptr) took the release branch above only if something was
+		// bound. Unconditional here so an unbind with nothing bound still leaves
+		// the player detached rather than relying on it already being so.
+		Model->Player.SetTextureSet(nullptr);
 	}
 
 	// PUSHED NOW, not on the next edit. A workspace with planes already authored
@@ -440,6 +501,31 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 	 * freshly built workspace is in, so there is nothing to guard for that
 	 * either.
 	 */
+	/*
+	 * BEFORE THE TICK, because the tick is what would dereference it.
+	 *
+	 * A bound component can die without anyone calling SetVolume(nullptr) -- the
+	 * level unloads, the actor is destroyed, the tab stays open. Volume is weak
+	 * so it reads null the moment that happens, but the PLAYER's pointer to that
+	 * component's texture set is raw and still reads the old address.
+	 * DrainCompletedLoads, inside Tick below, enqueues into it.
+	 *
+	 * This is the only place that can catch it. There is no notification to hook
+	 * -- the component does not know the workspace exists -- so the weak pointer
+	 * going null IS the signal, and this ticker is what next observes it.
+	 *
+	 * NOT INSIDE the `if (Volume.Get())` block further down: that block runs when
+	 * a component IS alive, and this is the case where one is not. The two are
+	 * mutually exclusive, which is why this cannot be folded into it.
+	 */
+	if (Volume.Get() == nullptr && Model->Player.GetTextureSet() != nullptr)
+	{
+		UE_LOG(LogFlowViz, Log,
+			TEXT("SFlowVizWorkspace: the bound volume was destroyed; detaching playback from its "
+				 "texture set. Playback continues without a renderer until a volume is bound."));
+		Model->Player.SetTextureSet(nullptr);
+	}
+
 	Model->Player.Tick(DeltaSeconds);
 
 	/*

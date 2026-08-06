@@ -1091,6 +1091,34 @@ public:
 	int32 GetDisplayFrameA() const { return DisplayFrameA; }
 	int32 GetDisplayFrameB() const { return DisplayFrameB; }
 
+	/**
+	 * Layout of the field texture this set has accepted uploads for, or an
+	 * invalid layout before the first one.
+	 *
+	 * WHICH TEXTURE IT DESCRIBES depends on the field: a scalar field's bytes go
+	 * to the scalar texture and a vector field's to the vector texture, and this
+	 * follows whichever the payload filled. That is what a caller building
+	 * shader parameters needs -- parameters describing an absent scalar texture
+	 * would be worse than none.
+	 *
+	 * RECORDED ON THE GAME THREAD IN EnqueueUpload, not in the render command,
+	 * so it is readable by the caller that just uploaded without waiting on the
+	 * GPU. It describes what was ACCEPTED for upload rather than what has landed
+	 * -- a validated payload's layout, since Validate has already rejected any
+	 * payload whose bytes and layout disagree.
+	 *
+	 * WHY THE SET OWNS THIS. Two independent callers upload into a component's
+	 * texture set -- UCFDVizVolumeComponent::UploadFrame for the headless
+	 * capture path, and FFlowVizCasePlayer::DrainCompletedLoads for interactive
+	 * playback -- and both build their payload with the same
+	 * FlowVizVolumeBuild::BuildUpload. A layout cached beside only ONE of them is
+	 * the shape of bug this accessor exists to prevent: the component used to
+	 * hold this itself, so a case played back rather than captured uploaded its
+	 * voxels correctly and still marched nothing, because the layout the shader
+	 * parameters are built from was only ever filled by the capture path.
+	 */
+	const FFlowVizVolumeLayout& GetUploadedFieldLayout() const { return UploadedFieldLayout; }
+
 	/** Slot holding this frame and ready to sample, or INDEX_NONE. */
 	int32 FindSlotForFrame(int32 FrameIndex) const;
 
@@ -1112,6 +1140,25 @@ public:
 	 */
 	FCFDVizResult EnqueueUpload(FFlowVizVolumeUpload&& Upload);
 
+	/**
+	 * Forget what is resident: every slot drops its frame, the display pins
+	 * clear, and the uploaded layout goes invalid. The TEXTURES are left alone --
+	 * they are re-created or updated in place by the next upload, and releasing
+	 * them here would mean a render-thread round trip on every case change.
+	 *
+	 * CALL THIS WHEN THE MEANING OF A FRAME NUMBER CHANGES -- a different case,
+	 * a different field, or an unload. Frame numbers are indices into whatever
+	 * is currently bound, so a set that kept its bookkeeping across a rebind
+	 * would answer FindSlotForFrame(3) with the PREVIOUS case's frame 3, and the
+	 * shader would sample those voxels through the new case's transform. Both
+	 * are real data, so the result is a plausible image of a case nobody loaded.
+	 *
+	 * An upload already in flight is not cancelled -- it cannot be. Its slot
+	 * stays reserved so nothing else claims it, and lands as INDEX_NONE, so the
+	 * stale frame it carries is never displayed.
+	 */
+	void InvalidateResidency();
+
 	/** Enqueue release of every slot's textures. Safe to call when nothing was created. Flush rendering commands before destroying the set. */
 	void ReleaseResources();
 
@@ -1124,6 +1171,9 @@ private:
 
 	int32 DisplayFrameA = INDEX_NONE;
 	int32 DisplayFrameB = INDEX_NONE;
+
+	/** See GetUploadedFieldLayout. Written by EnqueueUpload once the payload validates. */
+	FFlowVizVolumeLayout UploadedFieldLayout;
 
 	/** Stamped into FFlowVizVolumeSlotState::LastUseSerial. Monotonic; wrapping a uint64 is not a concern this side of the heat death. */
 	uint64 UseSerial = 0;

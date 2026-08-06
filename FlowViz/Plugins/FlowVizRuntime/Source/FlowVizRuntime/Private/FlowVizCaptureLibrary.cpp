@@ -558,12 +558,18 @@ ACFDVizCaseActor* UFlowVizCaptureLibrary::SpawnCaseActor(
 	}
 
 	/*
-	 * THE STEP NOTHING IN PRODUCTION PERFORMS. ACFDVizCaseActor::BeginPlay
-	 * loads and never uploads, and a component with no upload has no
-	 * UploadedScalarLayout, so TryMakeShaderParameters returns false and the
-	 * proxy's bHasParameters stays false. The proxy then draws its box and its
-	 * hull and never touches the dispatcher. Without this line the actor looks
-	 * completely healthy and marches nothing.
+	 * THE STEP THIS HEADLESS PATH HAS TO PERFORM ITSELF. ACFDVizCaseActor::
+	 * BeginPlay loads and never uploads, and a texture set with no upload has no
+	 * field layout, so TryMakeShaderParameters returns false, the proxy's
+	 * bHasParameters stays false, and it draws its box and its hull without ever
+	 * touching the dispatcher. Without this line the actor looks completely
+	 * healthy and marches nothing.
+	 *
+	 * Interactive sessions get their voxels from the case player instead, which
+	 * decodes on a worker and enqueues into the same set (SFlowVizWorkspace::
+	 * SetVolume). This capture path has no player and no clock -- it renders one
+	 * still of one frame -- so the synchronous upload is the whole of its
+	 * playback.
 	 */
 	const FCFDVizResult UploadResult = Volume->UploadFrame(FrameIndex);
 	if (!UploadResult.IsOk())

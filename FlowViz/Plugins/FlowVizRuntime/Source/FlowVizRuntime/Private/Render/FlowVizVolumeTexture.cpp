@@ -1518,6 +1518,36 @@ int32 FFlowVizVolumeTextureSet::PeekUploadSlot(int32 FrameIndex) const
 	return FlowVizVolumeRing::ChooseUploadSlot(SlotStates, FrameIndex, DisplayFrameA, DisplayFrameB);
 }
 
+void FFlowVizVolumeTextureSet::InvalidateResidency()
+{
+	for (FFlowVizVolumeSlotState& State : SlotStates)
+	{
+		/*
+		 * AN IN-FLIGHT SLOT KEEPS ITS RESERVATION. Its render command is already
+		 * queued and cannot be recalled; clearing bUploadInFlight here would let
+		 * ChooseUploadSlot hand the same slot to the next upload, and two
+		 * commands would write one texture in an order neither controls.
+		 *
+		 * FrameIndex is cleared eitherway, so the stale frame is never found by
+		 * FindSlotForFrame in the meantime. The in-flight upload's own tail
+		 * re-stamps its frame when it lands -- from the OLD case -- which is why
+		 * the caller must also clear the display pins, as this function does
+		 * below: an unpinned stale slot is the first thing evicted.
+		 */
+		State.FrameIndex = INDEX_NONE;
+	}
+
+	// Nothing resident means nothing to pin. Leaving these set would protect
+	// slots that no longer hold what they name from eviction.
+	DisplayFrameA = INDEX_NONE;
+	DisplayFrameB = INDEX_NONE;
+
+	// The next upload records the new field's shape. Until then there is no
+	// layout to describe, which is what TryMakeShaderParameters reads to decide
+	// there is nothing to march.
+	UploadedFieldLayout = FFlowVizVolumeLayout();
+}
+
 FCFDVizResult FFlowVizVolumeTextureSet::EnqueueUpload(FFlowVizVolumeUpload&& Upload)
 {
 	const FCFDVizResult ValidateResult = Upload.Validate();
@@ -1540,6 +1570,20 @@ FCFDVizResult FFlowVizVolumeTextureSet::EnqueueUpload(FFlowVizVolumeUpload&& Upl
 		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("every one of the %d buffers is pinned or busy"), Slots.Num()));
 	}
+
+	/*
+	 * THE FIELD'S SHAPE, recorded here rather than by the caller.
+	 *
+	 * Whichever texture the payload filled: Validate has already established
+	 * that at least one of the two is present and that its bytes match its
+	 * layout, so this cannot record a shape nothing was uploaded for.
+	 *
+	 * AFTER the slot is chosen, so a payload refused for want of a free slot
+	 * leaves it alone -- that refusal means "retry once the display advances",
+	 * and adopting the layout of a frame that was never queued would be a claim
+	 * about voxels this set does not have.
+	 */
+	UploadedFieldLayout = Upload.VectorLayout.IsValid() ? Upload.VectorLayout : Upload.ScalarLayout;
 
 	// Reserved BEFORE the command is queued, so a second EnqueueUpload cannot
 	// pick the same slot while this one is in flight.

@@ -1074,8 +1074,10 @@ public:
 	 * Build the shader parameter block for the bound field's layout.
 	 *
 	 * @return false when no case is bound or no frame has been uploaded yet -
-	 *         UploadedScalarLayout is what UploadFrame fills, and without it
-	 *         there is no layout to describe.
+	 *         the layout comes from the texture set, which records it as each
+	 *         upload is accepted, and without one there is no shape to describe.
+	 *         EITHER uploader satisfies this: this component's own UploadFrame,
+	 *         or a case player enqueuing decoded frames into the same set.
 	 *
 	 * PUBLIC BECAUSE THE VALUES IN IT ARE ONLY CHECKABLE HERE. This block is
 	 * handed to the render thread and copied into a cbuffer; by the time it can
@@ -1213,8 +1215,14 @@ private:
 
 	TSharedPtr<IFlowVizVolumeFrameSource> FrameSource;
 
-	/** Layout of the most recently uploaded scalar field, needed for the shader parameter block. Invalid before the first upload. */
-	FFlowVizVolumeLayout UploadedScalarLayout;
+	/*
+	 * NO CACHED UPLOAD LAYOUT HERE, DELIBERATELY. It lives on the texture set
+	 * (FFlowVizVolumeTextureSet::GetUploadedFieldLayout) because two independent
+	 * callers upload into that set -- this component's UploadFrame and
+	 * FFlowVizCasePlayer's decode drain -- and a copy kept here would only ever
+	 * know about the first. That is precisely the bug it caused: under playback
+	 * the voxels arrived and TryMakeShaderParameters still said no.
+	 */
 
 	/**
 	 * How this volume composites, lights and steps. Game thread; marshalled by
