@@ -210,6 +210,19 @@ FFlowVizVolumeRayMarchContext FlowVizVolumeRayMarch::MakeDispatchContext(
 	 */
 	Context.Clip = DynamicData.Clip;
 
+	/*
+	 * THE THIRD SUCH ASSIGNMENT, and the one whose absence was hardest to see.
+	 * The other two produced a visibly wrong picture once anyone looked -- flat
+	 * alpha compositing, an unclipped volume. This one produces a picture that
+	 * looks CONSIDERED: viridis over [0,1], which is a defensible default, while
+	 * the panel's colormap buttons and range readout show whatever the user
+	 * chose. Nothing on screen disagrees with anything else on screen.
+	 *
+	 * Copied by value out of the marshalled payload, on the render thread, for
+	 * the same reason as the two above.
+	 */
+	Context.TransferFunction = DynamicData.TransferFunction;
+
 	Context.SlotA = SlotATextures;
 	Context.SlotB = SlotBTextures;
 	Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
@@ -1244,6 +1257,10 @@ FFlowVizVolumeProxyDynamicData UCFDVizVolumeComponent::MakeProxyDynamicData() co
 	// thread reading a TArray the game thread can reallocate mid-frame.
 	Data.Clip = Clip;
 
+	// THE THIRD SUCH CHANNEL. Copied for the same reason again -- the view model
+	// owns an opacity curve with a keypoint array behind it.
+	Data.TransferFunction = TransferFunction;
+
 	return Data;
 }
 
@@ -1264,6 +1281,17 @@ void UCFDVizVolumeComponent::SetClip(const FFlowVizClipViewModel& InClip)
 	// Same reasoning as SetRenderSettings: clipping happens in the shader
 	// against the full volume, so the hull, the bounds and the uploaded textures
 	// are all unaffected. Only the marshalled copy needs replacing.
+	MarkRenderDynamicDataDirty();
+}
+
+void UCFDVizVolumeComponent::SetTransferFunction(
+	const FFlowVizTransferFunctionViewModel& InTransferFunction)
+{
+	TransferFunction = InTransferFunction;
+
+	// Same reasoning as SetRenderSettings and SetClip: colour is decided
+	// per-sample in the shader, so no geometry, bounds or uploaded texture
+	// depends on it. Only the marshalled copy needs replacing.
 	MarkRenderDynamicDataDirty();
 }
 

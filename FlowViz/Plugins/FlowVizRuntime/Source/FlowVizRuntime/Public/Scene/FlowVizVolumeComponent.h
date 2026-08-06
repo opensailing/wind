@@ -9,6 +9,7 @@
 #include "Render/FlowVizVolumeTexture.h"
 #include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizRenderSettingsViewModel.h"
+#include "UI/FlowVizTransferFunctionViewModel.h"
 
 #include "FlowVizVolumeComponent.generated.h"
 
@@ -241,6 +242,31 @@ struct FFlowVizVolumeRayMarchContext
 	 * configure a domain first. FlowViz.Render.ClipSeam pins that as its control.
 	 */
 	FFlowVizClipViewModel Clip;
+
+	/**
+	 * How this volume is coloured.
+	 *
+	 * THE THIRD CHANNEL, AND THE ONLY ONE WITH TWO ENDS. RenderSettings and Clip
+	 * each reach the shader through the constant buffer alone. A transfer
+	 * function reaches it through the cbuffer AND through the LUT texture, and
+	 * before this field existed both ends were cut: every caller of
+	 * ApplyToRayMarchParameters was a test, and the dispatcher built its LUT
+	 * from a hard-coded MakeDefault(ColorMaps::Default, ...).
+	 *
+	 * That pairing is what makes a partial fix dangerous here. Wiring only the
+	 * cbuffer would carry the user's RANGE while still rendering every field
+	 * through viridis -- and the range readout would agree with the picker, so
+	 * the image would look considered rather than wrong. FlowViz.Render.
+	 * TransferFunctionSeam asserts the two channels separately for that reason.
+	 *
+	 * DEFAULT-CONSTRUCTED IS AN IDENTITY over FillDefaults, by the same argument
+	 * as RenderSettings and by a different route than Clip: a default transfer
+	 * function VALIDATES (unlike a default clip model, which has no domain and
+	 * writes nothing), and the values it writes are the ones FillDefaults
+	 * already put there. So a context that ignores this field renders exactly as
+	 * before, which is what the identity control in that test pins.
+	 */
+	FFlowVizTransferFunctionViewModel TransferFunction;
 
 	/** Textures for display frame A. Never null when a dispatch is issued. */
 	const FFlowVizVolumeSlotTextures* SlotA = nullptr;
@@ -576,6 +602,14 @@ struct FFlowVizVolumeProxyDynamicData
 
 	/** Which planes and crop box cut the volume. The second such channel. */
 	FFlowVizClipViewModel Clip;
+
+	/**
+	 * Which colours the field is drawn in, and over what range. The third such
+	 * channel, and the one whose absence was hardest to see: the panel that
+	 * edits it PAINTS from the same view model, so every control visibly
+	 * responded while the volume rendered through viridis over [0,1].
+	 */
+	FFlowVizTransferFunctionViewModel TransferFunction;
 
 	/** True when Parameters was actually built. False means the field's layout is not known yet - typically before the first upload. */
 	bool bHasParameters = false;
@@ -1105,6 +1139,34 @@ public:
 	 */
 	void SetClip(const FFlowVizClipViewModel& InClip);
 
+	/* --- Transfer function --------------------------------------------------- */
+
+	/** Which colours this volume is drawn in. See SetTransferFunction. */
+	const FFlowVizTransferFunctionViewModel& GetTransferFunction() const
+	{
+		return TransferFunction;
+	}
+
+	/**
+	 * Replace the transfer function and push it to the render thread.
+	 *
+	 * MarkRenderDynamicDataDirty, for the same reason as SetClip and
+	 * SetRenderSettings: colour is decided per-sample in the shader, so nothing
+	 * about the hull, the bounds or the uploaded textures depends on it.
+	 * Recreating the proxy to change a colormap would re-seed every texture.
+	 *
+	 * THE COLORMAP CHANGE IS NOT FREE ON THE RENDER SIDE, unlike the other two
+	 * channels: the dispatcher rebuilds its LUT texture when the resident map
+	 * differs from the requested one. That happens once per change, in DrainView,
+	 * rather than per frame -- see FDispatcher::DrainView.
+	 *
+	 * NO VALIDATION HERE. The view model refuses an inverted range at
+	 * SetManualRange and an unshipped colormap at SetColorMap; a second opinion
+	 * here would be a different one, and the case where they disagreed would be
+	 * the bug.
+	 */
+	void SetTransferFunction(const FFlowVizTransferFunctionViewModel& InTransferFunction);
+
 	/**
 	 * Build the frame's marshalled payload for the proxy.
 	 *
@@ -1176,6 +1238,23 @@ private:
 	 * set a domain cannot tell a wired seam from a missing one.
 	 */
 	FFlowVizClipViewModel Clip;
+
+	/**
+	 * Which colours this volume is drawn in. Game thread; marshalled by value in
+	 * MakeProxyDynamicData.
+	 *
+	 * Default-constructed is viridis over [0,1] with an opacity multiplier of 1,
+	 * which is exactly what the dispatcher hard-coded before this field existed
+	 * -- so a component nobody configures renders as it always did. That is an
+	 * identity by MATCHING DEFAULTS, like RenderSettings, and unlike Clip (whose
+	 * identity comes from having no domain and therefore applying nothing).
+	 *
+	 * Worth stating because it decides what a test must do to be able to fail:
+	 * asserting with a default transfer function cannot distinguish a wired seam
+	 * from a missing one. FlowViz.Render.TransferFunctionSeam picks Inferno over
+	 * [-3.25, 11.75] for that reason, and none of those numbers is a default.
+	 */
+	FFlowVizTransferFunctionViewModel TransferFunction;
 
 	/**
 	 * Where the proxy leaves what the last frame decided. Never null; shared

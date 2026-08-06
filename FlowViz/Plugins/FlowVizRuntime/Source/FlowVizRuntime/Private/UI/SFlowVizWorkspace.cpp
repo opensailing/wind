@@ -177,7 +177,14 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("TransferFunctionHeading", "Color & Opacity"),
 								SAssignNew(TransferFunctionPanel, SFlowVizTransferFunctionPanel)
-									.ViewModel(&Model->TransferFunction))
+									.ViewModel(&Model->TransferFunction)
+									// THE CHANNEL TO THE RENDERER for colour, and
+									// it did not exist at all until #48: this
+									// panel had no delegate of any kind, so every
+									// colormap, range and opacity control edited a
+									// model nothing downstream read.
+									.OnTransferFunctionChanged(FSimpleDelegate::CreateSP(
+										this, &SFlowVizWorkspace::HandleTransferFunctionChanged)))
 						]
 
 						+ SScrollBox::Slot()
@@ -317,7 +324,28 @@ bool SFlowVizWorkspace::PushToVolume()
 		return false;
 	}
 
-	return FFlowVizWorkspaceModel::PushClipToVolume(Model->Clip, Bound);
+	/*
+	 * BOTH CHANNELS, AND BOTH ARE ATTEMPTED. Written as two statements rather
+	 * than `A(...) && B(...)` on purpose: && short-circuits, so a clip push that
+	 * returned false -- which happens routinely, whenever no case is open yet --
+	 * would silently skip the transfer function, whose push has no such
+	 * precondition and would have succeeded.
+	 *
+	 * The return is the AND of the two because the caller's question is "did the
+	 * bound volume receive everything", and a partial push is not a yes.
+	 */
+	const bool bClipPushed = FFlowVizWorkspaceModel::PushClipToVolume(Model->Clip, Bound);
+	const bool bTransferFunctionPushed =
+		FFlowVizWorkspaceModel::PushTransferFunctionToVolume(Model->TransferFunction, Bound);
+
+	return bClipPushed && bTransferFunctionPushed;
+}
+
+void SFlowVizWorkspace::HandleTransferFunctionChanged()
+{
+	// The return is dropped for the same reason HandleClipChanged drops it: a
+	// panel edit with no case open is normal rather than an error.
+	PushToVolume();
 }
 
 void SFlowVizWorkspace::HandleClipChanged()

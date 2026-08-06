@@ -130,6 +130,35 @@ namespace FlowVizVolumeRayMarchProduction
 
 		/** Where in the view family's texture the result belongs. */
 		FIntRect ViewRect;
+
+		/**
+		 * The transfer function this request wants its LUT built from.
+		 *
+		 * RECORDED HERE BECAUSE THE LUT IS BUILT ON THE OTHER THREAD. DrainView
+		 * runs on the render thread, against a queue that may hold requests from
+		 * several volumes, long after the game-thread context that carried the
+		 * choice has gone. Without this the drain has nothing to build from,
+		 * which is why it used to build from a hard-coded default.
+		 *
+		 * THE WHOLE OBJECT, NOT ColorMap PLUS A RANGE. Four fields decide what
+		 * the texture contains -- ColorMap, bReverseColorMap, ColorBands and the
+		 * Opacity curve (BuildLut reads exactly those) -- so carrying the map
+		 * alone would leave the reverse toggle, the banding control and the
+		 * entire opacity editor inert while the colormap buttons worked. That is
+		 * a worse failure than the one being fixed, because three working
+		 * controls beside three dead ones reads as the dead ones being broken
+		 * rather than unwired.
+		 *
+		 * NO RANGE IS CARRIED, and that is deliberate rather than an omission.
+		 * BuildLut does not read ValueRangeMin/Max at all: the table is a colour
+		 * ramp over normalised [0,1], and the shader normalises by the cbuffer's
+		 * own range (FlowVizVolumeRayMarch.usf line 415) before indexing it. So
+		 * the domain reaches the GPU through the parameter block, exactly once.
+		 * Copying it in here as well would change nothing on screen while making
+		 * Equals() differ per volume -- rebuilding a byte-identical 2 KB texture
+		 * on every frame in which two volumes with different ranges are visible.
+		 */
+		FFlowVizTransferFunction TransferFunction;
 	};
 
 	/**
@@ -194,16 +223,60 @@ namespace FlowVizVolumeRayMarchProduction
 		 */
 		bool PeekRequestParameters(int32 Index, FFlowVizVolumeRayMarchParameters& OutParameters) const;
 
+		/**
+		 * The colour map the resident LUT was built from. Diagnostics and tests.
+		 *
+		 * WHY A SECOND OBSERVER EXISTS. PeekRequestParameters reads the constant
+		 * buffer, and the colour map is NOT in it -- it reaches the shader as a
+		 * texture. So a seam that carried the value range into the cbuffer and
+		 * left the LUT hard-coded would satisfy every assertion the peek can
+		 * express, while rendering the user's range through the wrong colours:
+		 * pick Inferno, get viridis, and the range readout agrees with the
+		 * picker so the image looks considered rather than wrong.
+		 *
+		 * Reading it here is the difference between "the parameter block carries
+		 * the choice" and "the pixels are that colour".
+		 */
+		ECFDVizColorMap GetResidentColorMap() const
+		{
+			return TransferFunction.GetTransferFunction().ColorMap;
+		}
+
+		/**
+		 * The WHOLE function the resident LUT was built from.
+		 *
+		 * GetResidentColorMap above is one field of the five BuildLut reads, and
+		 * a seam can carry that one field perfectly while dropping the rest --
+		 * the first draft of this wiring did exactly that, by rebuilding the
+		 * request through MakeDefault. An assertion on the map alone cannot tell
+		 * the two apart, so the reverse toggle, the banding control and the
+		 * opacity curve need this.
+		 */
+		const FFlowVizTransferFunction& GetResidentTransferFunction() const
+		{
+			return TransferFunction.GetTransferFunction();
+		}
+
 	private:
 		mutable FCriticalSection RequestLock;
 		mutable TArray<FRequest> PendingRequests;
 
 		/**
-		 * The colour map every production volume is rendered through, rebuilt only
-		 * when the value range changes. No component owns a transfer function yet
-		 * (plan.md section 10.3), and SHADER_USE_PARAMETER_STRUCT binds every
-		 * declared resource - so without one here the dispatch is invalid, not
-		 * merely unstyled.
+		 * The colour table every production volume is rendered through.
+		 *
+		 * BUILT FROM THE DRAINED REQUEST, not from a constant: each request
+		 * carries the transfer function its component's panel configured, and
+		 * Update() rebuilds only when the resident one differs. See DrainView
+		 * for why the last request drained wins.
+		 *
+		 * SHADER_USE_PARAMETER_STRUCT binds every declared resource, so without
+		 * a LUT here the dispatch is invalid rather than merely unstyled --
+		 * which is why one exists even before any component has configured one.
+		 *
+		 * NO SHADOW COPY OF WHAT IT HOLDS. An earlier draft kept a separate
+		 * ResidentColorMap beside this, written at the same place; the two could
+		 * only ever disagree by a bug, and the accessors above read the resource
+		 * itself so they cannot.
 		 */
 		mutable FFlowVizTransferFunctionResource TransferFunction;
 	};

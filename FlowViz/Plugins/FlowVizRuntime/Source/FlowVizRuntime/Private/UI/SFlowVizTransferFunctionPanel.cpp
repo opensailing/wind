@@ -225,6 +225,17 @@ void SFlowVizTransferFunctionPanel::Construct(const FArguments& InArgs)
 {
 	ViewModel = InArgs._ViewModel;
 
+	/*
+	 * THE CHANNEL TO THE RENDERER. Omitting this line is the failure mode worth
+	 * naming, because it is invisible: the panel compiles, the workspace's
+	 * .OnTransferFunctionChanged() call still reads as a subscription at the
+	 * construction site, and every ExecuteIfBound below is a silent no-op on a
+	 * default-constructed delegate. The result is a panel that edits its model
+	 * while the renderer never hears -- which is precisely the state this whole
+	 * task exists to leave behind.
+	 */
+	OnTransferFunctionChanged = InArgs._OnTransferFunctionChanged;
+
 	const float U = FlowVizWorkspaceStyle::GetUnit();
 
 	const TAttribute<bool> BoundEnabled =
@@ -573,7 +584,7 @@ void SFlowVizTransferFunctionPanel::Construct(const FArguments& InArgs)
 			+ SVerticalBox::Slot()
 				.AutoHeight()
 			[
-				SNew(SSlider)
+				SAssignNew(OpacitySlider, SFlowVizOpacitySlider)
 					.Value(TAttribute<float>::CreateSP(
 						this, &SFlowVizTransferFunctionPanel::GetOpacityMultiplier))
 					.OnValueChanged(FOnFloatValueChanged::CreateSP(
@@ -681,11 +692,24 @@ float SFlowVizTransferFunctionPanel::GetOpacityMultiplier() const
 
 /* --- Actions ------------------------------------------------------------ */
 
+void SFlowVizTransferFunctionPanel::NotifyTransferFunctionChanged() const
+{
+	// ExecuteIfBound, because an unsubscribed panel is a legal, inert state --
+	// the panel is constructed before the workspace has a volume to push into.
+	OnTransferFunctionChanged.ExecuteIfBound();
+}
+
 FReply SFlowVizTransferFunctionPanel::OnColorMapClicked(ECFDVizColorMap Map)
 {
 	if (ViewModel != nullptr)
 	{
-		ViewModel->SetColorMap(Map);
+		// GATED ON IsOk(), as every announcing handler here is. SetColorMap
+		// refuses a map this build does not ship; announcing that would rebuild
+		// the LUT from the map that is still selected.
+		if (ViewModel->SetColorMap(Map).IsOk())
+		{
+			NotifyTransferFunctionChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -694,7 +718,15 @@ FReply SFlowVizTransferFunctionPanel::OnRangeSourceClicked(int32 SourceIndex)
 {
 	if (ViewModel != nullptr)
 	{
-		ViewModel->SetRangeSource(static_cast<EFlowVizRangeSource>(SourceIndex));
+		// THE REFUSAL HERE IS REACHABLE FROM THE UI, unlike most: picking the
+		// per-frame source with no frame range supplied is refused outright, and
+		// picking Global with no field bound likewise. Both leave the range
+		// exactly as it was, so announcing would push an identical transfer
+		// function.
+		if (ViewModel->SetRangeSource(static_cast<EFlowVizRangeSource>(SourceIndex)).IsOk())
+		{
+			NotifyTransferFunctionChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -706,6 +738,12 @@ FReply SFlowVizTransferFunctionPanel::OnReverseClicked()
 		// Read-then-invert through the view model, not a widget-side bool. The
 		// session loader can reverse the map without touching this panel.
 		ViewModel->SetReverseColorMap(!ViewModel->IsColorMapReversed());
+
+		// UNCONDITIONAL, and this is the one handler where that is correct:
+		// SetReverseColorMap returns void and cannot refuse, so there is no
+		// result to gate on. Wrapping it in a fabricated condition would be a
+		// check that cannot fail.
+		NotifyTransferFunctionChanged();
 	}
 	return FReply::Handled();
 }
@@ -714,7 +752,10 @@ FReply SFlowVizTransferFunctionPanel::OnResetRangeClicked()
 {
 	if (ViewModel != nullptr)
 	{
-		ViewModel->ResetRange();
+		if (ViewModel->ResetRange().IsOk())
+		{
+			NotifyTransferFunctionChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -737,7 +778,13 @@ void SFlowVizTransferFunctionPanel::OnRangeMinCommitted(
 		return;
 	}
 
-	ViewModel->SetManualRange(static_cast<float>(Parsed), ViewModel->GetRangeMax());
+	// THE REFUSAL PATH A USER REACHES BY TYPING: a minimum above the maximum is
+	// rejected outright, because an inverted domain silently reverses the
+	// colormap -- a different control they did not touch.
+	if (ViewModel->SetManualRange(static_cast<float>(Parsed), ViewModel->GetRangeMax()).IsOk())
+	{
+		NotifyTransferFunctionChanged();
+	}
 }
 
 void SFlowVizTransferFunctionPanel::OnRangeMaxCommitted(
@@ -754,14 +801,28 @@ void SFlowVizTransferFunctionPanel::OnRangeMaxCommitted(
 		return;
 	}
 
-	ViewModel->SetManualRange(ViewModel->GetRangeMin(), static_cast<float>(Parsed));
+	// Same gate as the minimum, and reachable the same way: a maximum below the
+	// current minimum is refused.
+	if (ViewModel->SetManualRange(ViewModel->GetRangeMin(), static_cast<float>(Parsed)).IsOk())
+	{
+		NotifyTransferFunctionChanged();
+	}
 }
 
 void SFlowVizTransferFunctionPanel::OnOpacityMultiplierChanged(float NewValue)
 {
 	if (ViewModel != nullptr)
 	{
-		ViewModel->SetOpacityMultiplier(NewValue);
+		// ANNOUNCED ON EVERY ACCEPTED STEP OF A DRAG, deliberately. This fires
+		// per mouse-move, so the push is per-move too -- but the push is a
+		// struct copy and a MarkRenderDynamicDataDirty, not a re-upload, and
+		// opacity is the one control whose whole value is watching the volume
+		// thin as you drag. Announcing only on release would make it a control
+		// you set blind and then evaluate.
+		if (ViewModel->SetOpacityMultiplier(NewValue).IsOk())
+		{
+			NotifyTransferFunctionChanged();
+		}
 	}
 }
 

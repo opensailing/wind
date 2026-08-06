@@ -377,3 +377,22 @@ bool FFlowVizWorkspaceModel::PushClipToVolume(
 	Volume->SetClip(Pushed);
 	return true;
 }
+
+bool FFlowVizWorkspaceModel::PushTransferFunctionToVolume(
+	const FFlowVizTransferFunctionViewModel& Source, UCFDVizVolumeComponent* Volume)
+{
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	// NO EXTENT GUARD, DELIBERATELY. See the header: colours map values, not
+	// positions, so there is nothing to normalise against the volume's geometry
+	// and no reason to refuse a volume with no case bound yet.
+	//
+	// COPIED, NOT ALIASED, for the same reason as the clip push: the component
+	// republishes this to the render thread, and the view model owns an opacity
+	// curve with an array behind it.
+	Volume->SetTransferFunction(Source);
+	return true;
+}

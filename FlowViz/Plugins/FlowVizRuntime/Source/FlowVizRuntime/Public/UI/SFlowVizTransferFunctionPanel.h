@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Input/SSlider.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/SLeafWidget.h"
 
@@ -37,6 +38,32 @@ public:
 	{
 		SetText(InText);
 		OnEditableTextCommitted(InText, ETextCommit::OnEnter);
+	}
+};
+
+/**
+ * SSlider plus a way to drag it headlessly.
+ *
+ * SAME PROBLEM AS SFlowVizNumericEntry, SAME SHAPE OF FIX. SSlider::SetValue
+ * (SSlider.h:133) only replaces the value ATTRIBUTE -- it moves the handle and
+ * fires nothing. The function that actually notifies is CommitValue()
+ * (SSlider.h:199), which is protected, and OnValueChanged (SSlider.h:314) is
+ * private. So a test that called SetValue and asserted the view model changed
+ * could not pass no matter how correct the wiring was.
+ *
+ * SimulateDrag routes through the protected CommitValue, which is the exact
+ * function SSlider calls on a mouse drag -- so the notification path a real drag
+ * takes is exercised rather than bypassed by poking the panel's handler.
+ *
+ * Built in production by the panel, so this is the slider users drag.
+ */
+class FLOWVIZRUNTIME_API SFlowVizOpacitySlider : public SSlider
+{
+public:
+	/** Move the handle exactly as a drag does, firing OnValueChanged. */
+	void SimulateDrag(float NewValue)
+	{
+		CommitValue(NewValue);
 	}
 };
 
@@ -124,6 +151,24 @@ public:
 	}
 		/** Borrowed, not owned. The workspace owns both. */
 		SLATE_ARGUMENT(FFlowVizTransferFunctionViewModel*, ViewModel)
+
+		/**
+		 * Fired after an edit that CHANGES THE IMAGE. The workspace subscribes and
+		 * pushes the transfer function into the bound volume; nobody else should.
+		 *
+		 * THIS PANEL HAD NO SUCH CHANNEL AT ALL until the transfer function was
+		 * wired to the renderer. SFlowVizClipPanel has carried OnClipChanged since
+		 * it was written, so "Clipping" edits reached the render thread while
+		 * "Color & Opacity" edits reached only the view model -- every colormap,
+		 * range and opacity control in the workspace was inert by construction,
+		 * and the panel looked correct because the ramp strip it paints reads the
+		 * same view model the buttons write.
+		 *
+		 * Unbound is legal and inert, exactly as OnClipChanged is: the panel is
+		 * constructed before the workspace has a volume to push into, and a
+		 * standalone panel in a test has nothing to announce to.
+		 */
+		SLATE_EVENT(FSimpleDelegate, OnTransferFunctionChanged)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -144,6 +189,9 @@ public:
 
 	TSharedPtr<SFlowVizColorRampStrip> GetRampStrip() const { return RampStrip; }
 
+	/** The opacity slider. Drag it headlessly with SimulateDrag -- see the type. */
+	TSharedPtr<SFlowVizOpacitySlider> GetOpacitySlider() const { return OpacitySlider; }
+
 	/** The rule 8 advisory. Empty when the range is stable, non-empty when it is per-frame. */
 	FText GetRangeAdvisoryText() const;
 
@@ -155,6 +203,22 @@ public:
 
 private:
 	bool IsBound() const;
+
+	/**
+	 * Fire OnTransferFunctionChanged.
+	 *
+	 * CALLED ONLY WHEN THE EDIT ACTUALLY TOOK. Five of the six setters return
+	 * FCFDVizResult and can refuse -- an out-of-order manual range, a range
+	 * source with no field bound, an opacity multiplier outside its domain. A
+	 * refused edit that announced anyway would push a byte-identical transfer
+	 * function to the render thread and rebuild the LUT for a frame that cannot
+	 * have changed.
+	 *
+	 * SetReverseColorMap returns void and cannot refuse, so its handler
+	 * announces unconditionally. That asymmetry is real rather than an
+	 * oversight, and the test asserts both halves.
+	 */
+	void NotifyTransferFunctionChanged() const;
 
 	FReply OnColorMapClicked(ECFDVizColorMap Map);
 	FReply OnRangeSourceClicked(int32 SourceIndex);
@@ -172,6 +236,9 @@ private:
 
 	FFlowVizTransferFunctionViewModel* ViewModel = nullptr;
 
+	/** Subscriber for edits. Unbound is legal and inert -- see the SLATE_EVENT. */
+	FSimpleDelegate OnTransferFunctionChanged;
+
 	TMap<ECFDVizColorMap, TSharedPtr<SButton>> ColorMapButtons;
 	TArray<TSharedPtr<SButton>> RangeSourceButtons;
 	TSharedPtr<SButton> ReverseButton;
@@ -179,4 +246,5 @@ private:
 	TSharedPtr<SFlowVizNumericEntry> RangeMinBox;
 	TSharedPtr<SFlowVizNumericEntry> RangeMaxBox;
 	TSharedPtr<SFlowVizColorRampStrip> RampStrip;
+	TSharedPtr<SFlowVizOpacitySlider> OpacitySlider;
 };

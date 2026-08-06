@@ -138,6 +138,34 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	 */
 	static bool PushClipToVolume(const FFlowVizClipViewModel& Source, UCFDVizVolumeComponent* Volume);
 
+	/**
+	 * Copy the transfer function into a volume component.
+	 *
+	 * WHY THIS IS SO MUCH SIMPLER THAN PushClipToVolume, and why that difference
+	 * is real rather than an omission. A clip model has to be renormalised
+	 * against the volume's physical extent, which is why that function re-reads
+	 * GetPhysicalSize, refuses a volume with no case bound, and goes to some
+	 * trouble to preserve a dragged crop across the domain change.
+	 *
+	 * A transfer function has no such dependency. It maps VALUES to colours, and
+	 * the value range is the field's, which the view model already tracks
+	 * through BindField -- nothing about it is expressed in the volume's
+	 * geometry. So there is no domain to impose and nothing to preserve across
+	 * imposing it, and pushing into a volume with no case bound is harmless: the
+	 * colours are simply ready when the data arrives.
+	 *
+	 * That is worth stating because the SYMMETRY IS TEMPTING AND WRONG. Adding a
+	 * GetPhysicalSize guard here to match the sibling would refuse the push
+	 * during exactly the window a user spends setting up -- pick a colormap
+	 * before opening a case, and it would be silently dropped.
+	 *
+	 * @param Source The model the panels edit. Not modified.
+	 * @param Volume Destination. Null is refused, not dereferenced.
+	 * @return False only when there was no component to push into.
+	 */
+	static bool PushTransferFunctionToVolume(
+		const FFlowVizTransferFunctionViewModel& Source, UCFDVizVolumeComponent* Volume);
+
 private:
 	/**
 	 * The parsed case, kept alive for as long as the workspace holds it.

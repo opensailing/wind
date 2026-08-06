@@ -24,17 +24,22 @@
  */
 namespace FlowVizVolumeRayMarchDispatcherLocal
 {
-	/**
-	 * The transfer-function domain the production LUT is built over.
+	/*
+	 * THE LUT DOMAIN CONSTANTS ARE GONE, and the reasoning they carried is now
+	 * enforced by the type rather than by a pair of values.
 	 *
-	 * The LUT is a colour map, not a scale: the shader normalises the sample by
-	 * the cbuffer's own ValueRangeMin/Max (which come from the volume) before
-	 * indexing it, so a fixed [0,1] LUT domain colours correctly for any field
-	 * range. Building the LUT per volume would rebuild it whenever two volumes
-	 * with different ranges were visible in the same frame.
+	 * They existed because the LUT is a colour map, not a scale: the shader
+	 * normalises the sample by the cbuffer's own ValueRangeMin/Max before
+	 * indexing (FlowVizVolumeRayMarch.usf line 415), so a fixed [0,1] LUT domain
+	 * colours correctly for any field range, and building per volume would
+	 * rebuild the table whenever two volumes with different ranges were visible.
+	 *
+	 * That is still true. What changed is that FRequest now carries the transfer
+	 * function itself instead of a map plus a range, and BuildLut reads no range
+	 * at all -- so there is no longer a domain to pass, correctly or otherwise.
+	 * A constant that only a comment still mentions is a warning at best and a
+	 * misleading answer to "what domain does this build over?" at worst.
 	 */
-	constexpr float LutDomainMin = 0.0f;
-	constexpr float LutDomainMax = 1.0f;
 
 	/**
 	 * PREMULTIPLIED-OVER.
@@ -201,6 +206,31 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	// ordering states which layer wins, and clipping is the more specific choice.
 	Context.Clip.ApplyToRayMarchParameters(Request.Parameters);
 
+	// THE COLOUR SEAM, and the third and last of these. Same story as the two
+	// above -- every caller of ApplyToRayMarchParameters was a test, and what
+	// shipped was FillDefaults -- with one difference that matters: this view
+	// model also owns the LUT, and the LUT is built elsewhere (DrainView). So
+	// this call carries only HALF the transfer function, and wiring it without
+	// the other half would stretch the right colours over the wrong domain.
+	// Request.TransferFunction below is that other half.
+	//
+	// THE RESULT IS IGNORED FOR A DIFFERENT REASON THAN THE CLIP'S. The clip
+	// call fails on an unconfigured domain, which is a state a real frame hits.
+	// This one fails only when the current choices do not Validate, and it
+	// writes nothing when it does -- so ignoring it leaves the defaults and the
+	// volume renders in viridis over [0,1] rather than dropping the frame.
+	Context.TransferFunction.ApplyToRayMarchParameters(Request.Parameters);
+
+	// CARRIED ON THE REQUEST, NOT READ AT DRAIN TIME. DrainView runs on the
+	// render thread against a queue that may hold requests from several volumes;
+	// Context is a game-thread value that is gone by then. Recording the choice
+	// here is what lets the LUT follow the picker.
+	//
+	// THE VIEW MODEL'S OWN OBJECT, taken whole. See FRequest::TransferFunction:
+	// the reverse toggle, the banding control and the opacity curve all live in
+	// here and all change what BuildLut produces.
+	Request.TransferFunction = Context.TransferFunction.GetTransferFunction();
+
 	if (!FlowVizRayMarch::SetVolumeTextures(
 			Request.Parameters,
 			Request.FieldTexture.GetReference(),
@@ -256,13 +286,33 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 
 	// A LUT MUST EXIST BEFORE ANY DISPATCH. SHADER_USE_PARAMETER_STRUCT binds
 	// every declared resource, so a null TransferFunctionTexture is an invalid
-	// dispatch, not an unstyled one. No component owns a transfer function yet
-	// (plan.md section 10.3), so the dispatcher owns the default. Update is a
-	// no-op once the resident function already matches.
-	TransferFunction.Update(FFlowVizTransferFunction::MakeDefault(
-		CFDViz::ColorMaps::Default,
-		FlowVizVolumeRayMarchDispatcherLocal::LutDomainMin,
-		FlowVizVolumeRayMarchDispatcherLocal::LutDomainMax));
+	// dispatch, not an unstyled one. Update is a no-op once the resident
+	// function already matches.
+	//
+	// BUILT FROM THE REQUEST, NOT FROM A CONSTANT. This used to read
+	// `MakeDefault(CFDViz::ColorMaps::Default, LutDomainMin, LutDomainMax)`,
+	// which meant every volume ever rendered was coloured through viridis no
+	// matter what the transfer-function panel said. The cbuffer half of that
+	// seam is wired in DispatchVolumeRayMarch; this is the other half, and
+	// wiring only one of them leaves half the panel inert.
+	//
+	// PASSED WHOLE, NOT REBUILT BY MakeDefault. MakeDefault constructs a FRESH
+	// default and sets two fields on it, so routing the request through it would
+	// silently discard bReverseColorMap, ColorBands and the opacity curve -- the
+	// three inputs BuildLut reads besides the map itself.
+	//
+	// ONE LUT, MANY REQUESTS. The resource is per-dispatcher and the queue can
+	// hold requests from several volumes, so the last one drained wins. That is
+	// the pre-existing shape -- there was only ever one table -- and it is
+	// honest for the single-volume case the product has today (plan.md 10.3).
+	// A second volume with a different map would be mis-coloured, which is why
+	// the choice is carried per-request: the day a component owns its own
+	// resource, the value is already in the right place.
+	//
+	// Update() is a no-op when the resident function already Equals this one, so
+	// an idle viewport rebuilds nothing.
+	const FRequest& LutRequest = Requests[0];
+	TransferFunction.Update(LutRequest.TransferFunction);
 
 	FRHITexture* const LutTexture = TransferFunction.GetLutTexture();
 	if (LutTexture == nullptr)

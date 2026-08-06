@@ -126,6 +126,7 @@ private:
 
 	/** Subscriber for the clip panel's edits. Pushes, and reports nothing. */
 	void HandleClipChanged();
+	void HandleTransferFunctionChanged();
 
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;
