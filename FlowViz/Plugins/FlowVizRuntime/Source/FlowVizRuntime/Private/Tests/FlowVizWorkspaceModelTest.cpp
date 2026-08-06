@@ -1214,10 +1214,25 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
  *   return early on a missing case  -> the panels never arrive, and the relink
  *                                      prompt has nothing behind it. Caught by
  *                                      VerifyRestoredPanels below.
- *   open the case anyway            -> OpenCase on a path that does not exist
- *                                      fails, but not before CloseCase has run,
- *                                      so the user loses the case they had open.
- *                                      Caught by the field assertion below.
+ *   open the case anyway            -> the REPORT degrades to the reader's own
+ *                                      "manifest not found", which names no
+ *                                      relink and does not say the rest of the
+ *                                      session survived. Caught by the message
+ *                                      assertion below.
+ *
+ * WHY THE SECOND DIRECTION IS ABOUT THE MESSAGE AND NOT ABOUT LOST STATE. An
+ * earlier version of this comment claimed OpenCase runs CloseCase before it can
+ * fail on a bad path, so opening anyway would leave the workspace with no case.
+ * THAT IS NOT WHAT OpenCase DOES: it parses into a local and validates the
+ * codec, the field and the grid, and only reaches CloseCase once every gate has
+ * passed (FlowVizWorkspaceModel.cpp, "Parsed into a local first"). A moved-away
+ * path fails at the very first gate, so the open case survives either way and an
+ * assertion on IsCaseOpen() cannot tell the two implementations apart.
+ *
+ * A mutation arm that dropped the bCaseFound guard SURVIVED this test for
+ * exactly that reason (Tools/mutants/session-workspace-arm4.txt). The one thing
+ * that does differ is the text the user is shown, and a relink prompt is built
+ * from that text -- so it is asserted rather than assumed.
  *
  * THE STATE IS BUILT BY A REAL SAVE AND A REAL PARSE, then has its resolved path
  * repointed at a file that does not exist. Constructing an FFlowVizSessionState
@@ -1335,13 +1350,45 @@ bool FFlowVizWorkspaceModelSessionMissingCaseTest::RunTest(const FString& Parame
 			*Loaded.FilePath),
 		Loaded.FilePath, MovedAway);
 
+	/*
+	 * THE MESSAGE IS THE PART THAT DISTINGUISHES THE TWO IMPLEMENTATIONS, and it
+	 * is checked because the relink prompt is written from it. The error code and
+	 * the path are IDENTICAL either way: an implementation that dropped the
+	 * bCaseFound guard and called OpenCase on the moved-away path would get
+	 * FileNotFound naming that same path back from the manifest reader. What it
+	 * would NOT produce is a message saying the rest of the session survived and
+	 * a relink is possible -- it would say "manifest not found", which reads as a
+	 * failed open and gives the prompt nothing to offer.
+	 *
+	 * Asserted on a substring rather than the whole sentence: this is about the
+	 * message coming from the branch that knows a relink is available, not about
+	 * its exact wording, and pinning the wording would make every copy-edit a
+	 * test failure.
+	 */
+	TestTrue(
+		*FString::Printf(
+			TEXT("the message is the RELINK message, not the manifest reader's 'not found'. "
+				 "Both carry FileNotFound and both name this path, so the text is the only "
+				 "thing a relink prompt could be built from; got '%s'"),
+			*Loaded.Message),
+		Loaded.Message.Contains(TEXT("relink")));
+	TestTrue(
+		*FString::Printf(
+			TEXT("and it says the rest of the session came back, which is what makes the "
+				 "prompt worth showing rather than an error to dismiss; got '%s'"),
+			*Loaded.Message),
+		Loaded.Message.Contains(TEXT("everything else was applied")));
+
 	/* == The case the user had open is UNTOUCHED ============================ */
 
+	// NOT the assertion that separates the two implementations -- see the header
+	// note. OpenCase validates into a local and reaches CloseCase only after
+	// every gate passes, so a moved-away path leaves the open case alone whether
+	// or not the guard above it exists. Kept because it pins that documented
+	// property of OpenCase, which the relink flow depends on.
 	TestTrue(
-		TEXT("the case that was already open stays open. OpenCase calls CloseCase before it "
-			 "can fail on a bad path, so an implementation that tried the move-to path anyway "
-			 "would leave the workspace with NO case - the relink prompt would then be "
-			 "offering to reconnect a scene that is no longer on screen"),
+		TEXT("the case that was already open stays open, so the relink prompt is offered "
+			 "against a scene that is still on screen"),
 		Workspace.IsCaseOpen());
 	TestEqual(
 		TEXT("and on the field it was already on, NOT the session's. Re-binding the saved "
