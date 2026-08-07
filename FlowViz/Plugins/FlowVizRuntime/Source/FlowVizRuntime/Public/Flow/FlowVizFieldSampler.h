@@ -64,6 +64,14 @@ public:
 	/** Vector convenience for 3-component fields. False for scalar fields. */
 	bool SampleVector(const FVector& SolverPosition, FVector& OutVector) const;
 
+	/**
+	 * The RAW stored value of one voxel -- no interpolation, no finiteness
+	 * screen. False only out of bounds or before Build; a NaN voxel returns
+	 * true with the NaN, which is exactly what the mask builder needs to see
+	 * (Sample's refusal policy would hide the thing being catalogued).
+	 */
+	bool GetVoxelValue(const FIntVector& Voxel, TArray<double>& OutValue) const;
+
 private:
 	bool bBuilt = false;
 	int32 ComponentCount = 0;

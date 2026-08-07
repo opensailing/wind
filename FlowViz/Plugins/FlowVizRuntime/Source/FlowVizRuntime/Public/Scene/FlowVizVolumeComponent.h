@@ -1057,7 +1057,14 @@ public:
 
 	/** Wireframe colour. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FlowViz|Debug")
-	FLinearColor BoundingBoxColor = FLinearColor(0.15f, 0.75f, 1.0f, 1.0f);
+	/*
+	 * A HAIRLINE, not a highlight (renderer overhaul P1). With the hull slab
+	 * deleted the wire box is the only statement of the domain, and the genre
+	 * draws it as quiet reference geometry -- dim, neutral, never competing
+	 * with data colors. The old cyan predates the hull's death, when the box
+	 * had to fight the milk to be seen at all.
+	 */
+	FLinearColor BoundingBoxColor = FLinearColor(0.30f, 0.32f, 0.36f, 1.0f);
 
 	/* --- UPrimitiveComponent ------------------------------------------------ */
 

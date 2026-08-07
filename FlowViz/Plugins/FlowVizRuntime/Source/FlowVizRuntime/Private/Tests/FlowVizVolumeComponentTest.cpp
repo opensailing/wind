@@ -732,42 +732,20 @@ bool FFlowVizVolumeComponentTest::RunTest(const FString& Parameters)
 			delete Proxy;
 		}
 
-		/* -- The hull's material must be DECLARED, not merely used ------------ */
+		/* -- No mesh batches, no materials (renderer overhaul P1) ------------- */
 		//
-		// FPrimitiveSceneProxy::VerifyUsedMaterial (PrimitiveSceneProxy.cpp:1756)
-		// checks every batch's material against GetUsedMaterials, and a batch
-		// whose material is missing is ensured on and DROPPED. This is not a
-		// cosmetic warning: the first completed headless capture of this volume
-		// contained the template floor and sphere and NO VOLUME AT ALL, while
-		// the hull geometry covered 62% of the frame. The batch was built, the
-		// proxy was gathered, and the renderer threw the mesh away.
-		//
-		// The proxy is constructed only when this list is filled, so a component
-		// that draws with a material it does not declare renders nothing and
-		// says nothing. Asserted against the SAME expression BuildHullMeshBatch
-		// uses, fallback included, so the two cannot drift apart silently.
+		// The raster hull was DELETED: FlowVizIntersectBox finds the ray's
+		// entry analytically, so the hull mesh only ever drew a milky slab in
+		// front of the march -- the washed-out look itself. With no batches
+		// collected, an empty material list is the CORRECT declaration; a
+		// nonempty one would mean a batch came back (VerifyUsedMaterial drops
+		// undeclared batches, so batch and list must move together).
 		{
 			TArray<UMaterialInterface*> UsedMaterials;
 			Volume->GetUsedMaterials(UsedMaterials, /*bGetDebugMaterials*/ true);
-
-			UMaterialInterface* const HullMaterial =
-				(GEngine != nullptr && GEngine->DebugMeshMaterial != nullptr)
-					? ToRawPtr(GEngine->DebugMeshMaterial)
-					: static_cast<UMaterialInterface*>(UMaterial::GetDefaultMaterial(MD_Surface));
-
-			TestTrue(
-				TEXT("the hull's material is declared, or every hull batch is dropped and the volume renders as nothing"),
-				UsedMaterials.Contains(HullMaterial));
-
-			// The renderer asks with bGetDebugMaterials TRUE (PrimitiveSceneProxy.cpp:556),
-			// which is the only call that matters; this half pins the material as
-			// a DEBUG one so a later move out of that category is a test failure
-			// rather than a silently reintroduced dropped batch.
-			TArray<UMaterialInterface*> NonDebugMaterials;
-			Volume->GetUsedMaterials(NonDebugMaterials, /*bGetDebugMaterials*/ false);
 			TestEqual(
-				TEXT("and it is reported as a debug material, which is what the hull actually uses"),
-				NonDebugMaterials.Num(), 0);
+				TEXT("no hull batch, no declared materials -- the milky slab stays dead"),
+				UsedMaterials.Num(), 0);
 		}
 
 		// ...and an unloaded one must not, or the scene carries a primitive with

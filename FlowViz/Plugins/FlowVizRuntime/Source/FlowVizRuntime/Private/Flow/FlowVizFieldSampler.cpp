@@ -184,6 +184,26 @@ bool FFlowVizFieldSampler::Sample(
 	return true;
 }
 
+bool FFlowVizFieldSampler::GetVoxelValue(const FIntVector& Voxel, TArray<double>& OutValue) const
+{
+	if (!bBuilt
+		|| Voxel.X < 0 || Voxel.X >= ValueCounts.X
+		|| Voxel.Y < 0 || Voxel.Y >= ValueCounts.Y
+		|| Voxel.Z < 0 || Voxel.Z >= ValueCounts.Z)
+	{
+		return false;
+	}
+
+	const int32 VoxelIndex =
+		(Voxel.Z * ValueCounts.Y + Voxel.Y) * ValueCounts.X + Voxel.X;
+	OutValue.SetNumUninitialized(ComponentCount);
+	for (int32 Component = 0; Component < ComponentCount; ++Component)
+	{
+		OutValue[Component] = Values[VoxelIndex * ComponentCount + Component];
+	}
+	return true;
+}
+
 bool FFlowVizFieldSampler::SampleVector(
 	const FVector& SolverPosition, FVector& OutVector) const
 {

@@ -529,12 +529,16 @@ public:
 				DrawWireBox(PDI, LocalToWorld, LocalBox, BoundingBoxColor, SDPG_World);
 			}
 
-			// The ray-march hull.
-			const bool bIsWireframeView = AllowDebugViewmodes() && ViewFamily.EngineShowFlags.Wireframe;
-			if (!bIsWireframeView)
-			{
-				BuildHullMeshBatch(LocalToWorld, ViewIndex, Collector);
-			}
+			/*
+			 * NO HULL BATCH (renderer overhaul P1). The raster hull was never
+			 * entry geometry -- FlowVizIntersectBox finds the ray's [TMin,
+			 * TMax] analytically -- so drawing it only put a milky translucent
+			 * slab in FRONT of every march result: the "washed out" look, in
+			 * one mesh. The domain is the wire box above; the data is the
+			 * march; there is nothing honest for a hull surface to show. The
+			 * box GEOMETRY stays (MakeBoxGeometry is the tested placement
+			 * mirror and the degenerate-domain gate); only its drawing died.
+			 */
 
 			// The ray-march itself. Everything handed over is either a copy or a
 			// resource the component owns for its whole life; no game-thread
@@ -692,110 +696,6 @@ public:
 	}
 
 private:
-	/** One two-sided hull batch. See the class comment for why nothing is culled. */
-	void BuildHullMeshBatch(const FMatrix& LocalToWorld, int32 ViewIndex, FMeshElementCollector& Collector) const
-	{
-		FDynamicMeshBuilder MeshBuilder(Collector.GetFeatureLevel(), /*NumTexCoords*/ 1);
-
-		for (int32 VertexIndex = 0; VertexIndex < BoxGeometry.Positions.Num(); ++VertexIndex)
-		{
-			const FVector3f& LocalUVW = BoxGeometry.LocalUVWs[VertexIndex];
-
-			FDynamicMeshVertex Vertex;
-			Vertex.Position = BoxGeometry.Positions[VertexIndex];
-			Vertex.TextureCoordinate[0] = FVector2f(LocalUVW.X, LocalUVW.Y);
-			Vertex.SetTangents(
-				FVector3f(1.0f, 0.0f, 0.0f),
-				FVector3f(0.0f, 1.0f, 0.0f),
-				BoxGeometry.Normals[VertexIndex]);
-			Vertex.Color = FColor::White;
-			MeshBuilder.AddVertex(Vertex);
-		}
-
-		for (int32 Triangle = 0; Triangle < FlowVizVolumeBox::TriangleCount; ++Triangle)
-		{
-			MeshBuilder.AddTriangle(
-				static_cast<int32>(BoxGeometry.Indices[Triangle * 3 + 0]),
-				static_cast<int32>(BoxGeometry.Indices[Triangle * 3 + 1]),
-				static_cast<int32>(BoxGeometry.Indices[Triangle * 3 + 2]));
-		}
-
-		const FMaterialRenderProxy* MaterialProxy =
-			GEngine->DebugMeshMaterial != nullptr
-				? GEngine->DebugMeshMaterial->GetRenderProxy()
-				: UMaterial::GetDefaultMaterial(MD_Surface)->GetRenderProxy();
-
-		/*
-		 * GetMesh, NOT GetMeshElement. THIS IS A CRASH FIX, NOT A STYLE CHANGE.
-		 *
-		 * FDynamicMeshBuilder::GetMeshElement initialises its RHI resources
-		 * through `FRHICommandListImmediate::Get()`, which opens with
-		 * `check(IsInRenderingThread())` (RHICommandList.h:5310). Since UE 5.x
-		 * gathers dynamic mesh elements on WORKER threads by default
-		 * (r.Visibility.DynamicMeshElements.Parallel, on unless the RHI cannot
-		 * support it), GetDynamicMeshElements does not run on the rendering
-		 * thread, and that assertion fires. It took down the editor on the
-		 * first headless capture, in FDynamicMeshElementContext::
-		 * GatherDynamicMeshElementsForPrimitive on a task worker.
-		 *
-		 * GetMesh does the same work but takes its command list from
-		 * `Collector.GetRHICommandList()` - the collector's own list, which is
-		 * valid on whichever thread is doing the gather. That is the supported
-		 * path for a proxy, and it allocates the one-frame resources and the
-		 * FMeshBatch internally.
-		 */
-		FDynamicMeshBuilderSettings Settings;
-		// Nothing is culled: the hull is a loose bound on a semi-transparent
-		// field and the camera may be inside it.
-		Settings.bDisableBackfaceCulling = true;
-		Settings.bReceivesDecals = false;
-		Settings.CastShadow = false;
-		Settings.bUseSelectionOutline = false;
-		Settings.bCanApplyViewModeOverrides = false;
-
-		/*
-		 * THE WINDING CORRECTION STAYS IN THE GEOMETRY. WHY THE SECOND ONE
-		 * BELOW IS NOT A DOUBLE CORRECTION.
-		 *
-		 * GetMesh sets `Mesh.ReverseCulling = LocalToWorld.Determinant() < 0`
-		 * internally and, unlike the GetMeshElement path, gives the caller no
-		 * batch to amend afterwards - it calls Collector.AddMesh itself. For
-		 * this volume the determinant is ALWAYS negative (the solver -> Unreal
-		 * Y mirror), so that flag is always set, on top of the reversal
-		 * MakeBoxGeometry already baked into the index buffer. That reads like
-		 * the double conversion ADR 004 section 2 warns about, and an earlier
-		 * revision of this comment claimed it was one and proposed dropping the
-		 * geometry reversal to compensate. THAT WOULD HAVE BEEN A REAL BUG.
-		 *
-		 * ReverseCulling has exactly one consumer in the renderer, and it is
-		 * reached only after a two-sided test that we fail on purpose:
-		 *
-		 *   ComputeMeshOverrideSettings (MeshPassProcessor.cpp:1846) maps
-		 *   Mesh.bDisableBackfaceCulling -> EDrawingPolicyOverrideFlags::TwoSided,
-		 *   and ComputeMeshCullMode (:1867) returns
-		 *     bMeshRenderTwoSided ? CM_None : (bReverseCullMode ? CM_CCW : CM_CW)
-		 *
-		 * bDisableBackfaceCulling is set true twenty lines above, so the cull
-		 * mode is CM_None and ReverseCulling is never consulted. There is one
-		 * correction, not two, and it is the one in the index buffer.
-		 *
-		 * THE COUPLING IS LOAD-BEARING: this is only true while the hull is
-		 * two-sided. Anyone who sets bDisableBackfaceCulling = false re-arms
-		 * ReverseCulling and DOES get two reversals, which cancel - an
-		 * inside-out hull that renders as nothing and looks exactly like a
-		 * volume that failed to load. Change that flag and you must neutralise
-		 * the geometry reversal in the same edit.
-		 */
-		MeshBuilder.GetMesh(
-			LocalToWorld,
-			MaterialProxy,
-			SDPG_World,
-			Settings,
-			/*DrawOffset*/ nullptr,
-			ViewIndex,
-			Collector);
-	}
-
 	/** Domain extent in solver units. The hull and the wire box are both built from this. */
 	FVector PhysicalSize;
 
@@ -1280,21 +1180,12 @@ FPrimitiveSceneProxy* UCFDVizVolumeComponent::CreateSceneProxy()
 
 void UCFDVizVolumeComponent::GetUsedMaterials(TArray<UMaterialInterface*>& OutMaterials, bool bGetDebugMaterials) const
 {
-	// MUST MIRROR BuildHullMeshBatch's choice, including its fallback. A list
-	// that names only DebugMeshMaterial would still drop the batch on a
-	// configuration where GEngine->DebugMeshMaterial is null and the hull falls
-	// back to the default surface material.
-	if (bGetDebugMaterials)
-	{
-		if (GEngine != nullptr && GEngine->DebugMeshMaterial != nullptr)
-		{
-			OutMaterials.Add(GEngine->DebugMeshMaterial);
-		}
-		else
-		{
-			OutMaterials.Add(UMaterial::GetDefaultMaterial(MD_Surface));
-		}
-	}
+	// The proxy collects no mesh batches since P1 (the hull batch is gone; the
+	// wire box draws through the PDI, which needs no material declaration), so
+	// there is nothing to declare. An entry here without a batch is harmless;
+	// a batch without an entry is the dropped-mesh hazard the old comment
+	// described -- neither exists now.
+	(void)bGetDebugMaterials;
 }
 
 FFlowVizDispatchStatus UCFDVizVolumeComponent::GetLastDispatchStatus() const
