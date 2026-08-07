@@ -319,6 +319,14 @@ private:
 	 * viewport behind it. Toggling the CONTAINER leaves the overlay's own
 	 * visibility alone.
 	 */
+	/**
+	 * Last frame the sampling service ran against. Deliberately NOT INDEX_NONE:
+	 * the display reads INDEX_NONE until the first frame is resident, and this
+	 * must differ from that so the first tick with a case open still issues a
+	 * request (which falls back to frame 0 inside RequestSampleUpdate).
+	 */
+	int32 LastSampledFrame = INDEX_NONE - 1;
+
 	TSharedPtr<SFlowVizDiagnosticsOverlay> DiagnosticsOverlay;
 	TSharedPtr<SWidget> DiagnosticsOverlayContainer;
 

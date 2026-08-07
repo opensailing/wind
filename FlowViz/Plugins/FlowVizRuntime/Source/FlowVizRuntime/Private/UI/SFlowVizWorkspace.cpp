@@ -685,6 +685,26 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 		}
 	}
 
+	/*
+	 * THE SAMPLING SERVICE (#75): probe readings and the per-frame range.
+	 *
+	 * Drained every tick (cheap: a lock and usually an empty array) and
+	 * REQUESTED only when the displayed frame moved -- the same displayed-pair
+	 * gate as the render publish above, tracked separately because the render
+	 * mark and the resample have different costs. Requesting every tick would
+	 * queue a disk read per frame; requesting on display change re-samples
+	 * exactly when the numbers on screen stop describing the picture.
+	 */
+	Model->DrainSampleResults();
+	{
+		const int32 DisplayedFrame = Model->Player.GetDisplay().FrameA;
+		if (DisplayedFrame != LastSampledFrame && Model->IsCaseOpen())
+		{
+			LastSampledFrame = DisplayedFrame;
+			Model->RequestSampleUpdate();
+		}
+	}
+
 	// True re-arms for the next engine frame. Returning false here would make
 	// playback work exactly once.
 	return true;

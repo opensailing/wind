@@ -8,6 +8,10 @@
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
 
+#include "CFDViz/CFDVizPayload.h"
+#include "CFDViz/CFDVizVolumeReader.h"
+#include "Tasks/Task.h"
+
 /**
  * See FlowVizWorkspaceModel.h.
  *
@@ -399,6 +403,277 @@ FCFDVizResult FFlowVizWorkspaceModel::LoadState(const FFlowVizSessionState& Stat
 		State, &Player, &TransferFunction, &Clip, &Slice, &Probes, &RenderSettings));
 
 	return FirstFailure;
+}
+
+/* ========================================================================== */
+/* The sampling service (#75)                                                  */
+/* ========================================================================== */
+
+/**
+ * Shared with the worker task, exactly the shape of FFlowVizCasePlayer's
+ * FLoadQueue and for the same reason: the task must be able to outlive the
+ * model (a workspace closing mid-sample is ordinary), so everything it touches
+ * is copied or shared, never a pointer back in.
+ */
+struct FFlowVizWorkspaceModel::FSampleQueue
+{
+	struct FProbeResult
+	{
+		FGuid Id;
+		FFlowVizProbeReading Reading;
+	};
+
+	struct FResult
+	{
+		TArray<FProbeResult> Probes;
+		bool bHasFrameRange = false;
+		float FrameMin = 0.0f;
+		float FrameMax = 0.0f;
+	};
+
+	FCriticalSection Mutex;
+	TArray<FResult> Results;
+	int32 PendingCount = 0;
+
+	void Push(FResult&& Result)
+	{
+		FScopeLock Lock(&Mutex);
+		Results.Add(MoveTemp(Result));
+		--PendingCount;
+	}
+
+	bool HasResults()
+	{
+		FScopeLock Lock(&Mutex);
+		return Results.Num() > 0;
+	}
+
+	void Drain(TArray<FResult>& OutResults)
+	{
+		FScopeLock Lock(&Mutex);
+		OutResults = MoveTemp(Results);
+		Results.Reset();
+	}
+
+	int32 GetPendingCount()
+	{
+		FScopeLock Lock(&Mutex);
+		return PendingCount;
+	}
+};
+
+void FFlowVizWorkspaceModel::RequestSampleUpdate()
+{
+	if (!Player.IsOpen() || !SharedCase.IsValid())
+	{
+		return;
+	}
+
+	if (!SampleQueue.IsValid())
+	{
+		SampleQueue = MakeShared<FSampleQueue, ESPMode::ThreadSafe>();
+	}
+
+	{
+		FScopeLock Lock(&SampleQueue->Mutex);
+		if (SampleQueue->PendingCount > 0)
+		{
+			// One in flight is enough: the newest display state wins, and a
+			// queue of stale requests would apply readings for frames the
+			// display has already left.
+			return;
+		}
+		++SampleQueue->PendingCount;
+	}
+
+	// EVERYTHING COPIED OR SHARED. The probe list, the frame, the field and the
+	// component selection are all captured by value; the case rides a shared ref.
+	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> Queue = SampleQueue;
+	TSharedPtr<const FCFDVizCase> CaseRef = SharedCase;
+	const FName SampleFieldId = Player.GetFieldId();
+	// The DISPLAYED frame, not the playhead's target: readings must describe
+	// what is on screen. INDEX_NONE (nothing resident yet) falls back to the
+	// nearest wanted frame, which at open time is frame 0.
+	const FFlowVizDisplaySelection& Display = Player.GetDisplay();
+	const int32 FrameIndex = Display.FrameA != INDEX_NONE ? Display.FrameA : 0;
+	const EFlowVizComponentChoice RangeComponent = TransferFunction.GetComponent();
+
+	TArray<FSampleQueue::FProbeResult> Requests;
+	for (const FFlowVizProbe& Probe : Probes.GetProbes())
+	{
+		if (Probe.bVisible)
+		{
+			FSampleQueue::FProbeResult& Request = Requests.AddDefaulted_GetRef();
+			Request.Id = Probe.Id;
+			Request.Reading.SampledSolverPosition = Probe.SolverPosition;
+		}
+	}
+
+	UE::Tasks::Launch(TEXT("FlowVizWorkspaceSample"),
+		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
+			Requests = MoveTemp(Requests)]() mutable
+		{
+			FSampleQueue::FResult Result;
+
+			// DISK I/O AND ZLIB, ON A WORKER -- the whole reason this is a task
+			// (engineering rule 1).
+			for (FSampleQueue::FProbeResult& Request : Requests)
+			{
+				const FVector Position = Request.Reading.SampledSolverPosition;
+				FlowVizProbe::SampleStoredField(
+					*CaseRef, SampleFieldId, FrameIndex, Position, Request.Reading);
+				Result.Probes.Add(MoveTemp(Request));
+			}
+
+			/*
+			 * THE FRAME RANGE, measured over the frame's own decoded voxels
+			 * under the SAME component selection the transfer function
+			 * displays. Brick-directory statistics would avoid the decode, but
+			 * they are per-component extremes: for Magnitude they can only
+			 * bound, not measure, and a colour scale stretched to a bound it
+			 * never reaches wastes its resolution. Skips non-finite values --
+			 * the shader rejects them too, so the range covers exactly what is
+			 * coloured.
+			 */
+			const FCFDVizField* Field = CaseRef->FindField(SampleFieldId);
+			FString FramePath;
+			if (Field != nullptr
+				&& CaseRef->ResolveFieldFramePath(*Field, FrameIndex, FramePath).IsOk())
+			{
+				FCFDVizVolumeReader Reader;
+				TArray<uint8> Dense;
+				if (Reader.Open(FramePath).IsOk() && Reader.ReadDense(Dense).IsOk())
+				{
+					const int32 Components = FMath::Max(1, Field->ComponentCount);
+					const FIntVector Extent = Reader.GetHeader().GetValueCounts();
+					const int64 ValueCount =
+						static_cast<int64>(Extent.X) * Extent.Y * Extent.Z;
+
+					float MinSeen = TNumericLimits<float>::Max();
+					float MaxSeen = TNumericLimits<float>::Lowest();
+
+					for (int64 Value = 0; Value < ValueCount; ++Value)
+					{
+						double Scalar = 0.0;
+						if (RangeComponent == EFlowVizComponentChoice::Magnitude
+							&& Components > 1)
+						{
+							double SumSquares = 0.0;
+							bool bAllFinite = true;
+							for (int32 C = 0; C < Components; ++C)
+							{
+								double Part = 0.0;
+								if (!CFDViz::TryReadValueAsDouble(Dense,
+										Value * Components + C, Field->DataType, Part)
+									|| !FMath::IsFinite(Part))
+								{
+									bAllFinite = false;
+									break;
+								}
+								SumSquares += Part * Part;
+							}
+							if (!bAllFinite)
+							{
+								continue;
+							}
+							Scalar = FMath::Sqrt(SumSquares);
+						}
+						else
+						{
+							// X/Y/Z/W read that component; Magnitude of a scalar
+							// field IS the component.
+							int32 C = 0;
+							switch (RangeComponent)
+							{
+								case EFlowVizComponentChoice::Y: C = 1; break;
+								case EFlowVizComponentChoice::Z: C = 2; break;
+								case EFlowVizComponentChoice::W: C = 3; break;
+								default: C = 0; break;
+							}
+							if (C >= Components)
+							{
+								C = 0;
+							}
+							if (!CFDViz::TryReadValueAsDouble(Dense,
+									Value * Components + C, Field->DataType, Scalar)
+								|| !FMath::IsFinite(Scalar))
+							{
+								continue;
+							}
+						}
+						const float AsFloat = static_cast<float>(Scalar);
+						MinSeen = FMath::Min(MinSeen, AsFloat);
+						MaxSeen = FMath::Max(MaxSeen, AsFloat);
+					}
+
+					// max > min is SetCurrentFrameRange's own precondition; a
+					// constant frame yields an unusable range and stays
+					// unreported rather than fabricating a width.
+					if (MaxSeen > MinSeen)
+					{
+						Result.bHasFrameRange = true;
+						Result.FrameMin = MinSeen;
+						Result.FrameMax = MaxSeen;
+					}
+				}
+			}
+
+			Queue->Push(MoveTemp(Result));
+		});
+}
+
+bool FFlowVizWorkspaceModel::DrainSampleResults()
+{
+	if (!SampleQueue.IsValid() || !SampleQueue->HasResults())
+	{
+		return false;
+	}
+
+	TArray<FSampleQueue::FResult> Results;
+	SampleQueue->Drain(Results);
+
+	bool bApplied = false;
+	for (FSampleQueue::FResult& Result : Results)
+	{
+		for (FSampleQueue::FProbeResult& Probe : Result.Probes)
+		{
+			// A probe deleted while the sample ran returns false here; that is
+			// the answer, not an error.
+			if (Probes.SetProbeReading(Probe.Id, Probe.Reading))
+			{
+				bApplied = true;
+			}
+		}
+		if (Result.bHasFrameRange)
+		{
+			// SetCurrentFrangeRange refuses non-finite and empty ranges; the
+			// worker guaranteed max > min, so a refusal here means the range
+			// crossed a NaN boundary in transit -- refused, not clamped.
+			if (TransferFunction.SetCurrentFrameRange(Result.FrameMin, Result.FrameMax).IsOk())
+			{
+				bApplied = true;
+			}
+		}
+	}
+	return bApplied;
+}
+
+bool FFlowVizWorkspaceModel::WaitForPendingSamples(double TimeoutSeconds)
+{
+	if (!SampleQueue.IsValid())
+	{
+		return true;
+	}
+	const double StartTime = FPlatformTime::Seconds();
+	while (SampleQueue->GetPendingCount() > 0)
+	{
+		if (FPlatformTime::Seconds() - StartTime > TimeoutSeconds)
+		{
+			return false;
+		}
+		FPlatformProcess::Sleep(0.001f);
+	}
+	return true;
 }
 
 /* ========================================================================== */

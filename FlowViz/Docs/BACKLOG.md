@@ -582,9 +582,25 @@ sweep beside the frozen-params check: it fails when any view model setter has
 no production caller, with tests not tests, own-file calls and same-named
 methods on other types all excluded. On the tree it found 28 of 58 — the 14
 here plus 14 pre-existing gaps across Clip, Probe, Timeline and
-TransferFunction, now allowlisted with reasons and tracked as **#75**. The
-checker refuses a stale allowlist entry, so each gap that closes forces its
-exemption out.
+TransferFunction, initially allowlisted with reasons and tracked as **#75**.
+The checker refuses a stale allowlist entry, so each gap that closes forces
+its exemption out.
+
+**#75 closed 2026-08-06, and the allowlist is EMPTY.** The other fourteen, in
+four commits: the session carries render settings (#76, found while wiring
+this); the transport bar grew an options row (loop, playback mode, all seven
+speed presets, a typed speed, interpolation); the colour panel grew the
+"Out-of-range" clamp toggle and the four disclosure swatch rows (palettes
+pairwise-disjoint by construction, so rule 4 holds for every selectable
+combination); clip plane rows grew an in-place distance box (the normal and
+enabled state survive the edit); the probe panel grew the line-axis toggle;
+and a workspace sampling service — request → worker → drain, the decode
+path's own shape — now measures the displayed frame's value range under the
+displayed component (making the "Per frame" range source selectable for the
+first time) and gives every visible probe a real reading (rule 10's "an
+unsampled probe must not read as zero" finally has a sampled state to
+distinguish from). Every closure was forced through the checker: each stale
+allowlist entry turned the scan UNSCORED until removed.
 
 ### 3. The CVF volume reader has no committed test
 

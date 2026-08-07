@@ -46,8 +46,9 @@ Measured 2026-08-06, twice, by two checkers that ask successive questions:
   `FlowVizRayMarch::FillDefaults` write each declared shader parameter?
   **0 frozen of 74 declared** (5 allowlisted as deliberately constant).
 - `Tools/check_uncalled_setters.sh` — does each view model setter have a
-  production caller? **0 unallowlisted of 58 across 6 view models** (14
-  allowlisted as open gaps, tracked as #75 — none of them render settings).
+  production caller? **0 uncalled of 58 across 6 view models, 0 allowlisted**
+  — every gap its first run found (28 of 58) is closed: 14 by the render
+  settings panel (#74), 14 by #75's controls.
 
 The second checker exists because the first went green while 13 render controls
 were still welded: the parameters had gained a writer
@@ -93,13 +94,13 @@ model and three from the clip view model.
 
 | Control | Parameter | Notes |
 |---|---|---|
-| Colour domain | `ValueRangeMin` / `ValueRangeMax` | Operable — the range boxes in "Color & Opacity" (Manual mode) |
-| Clamp to range | `bClampToRange` | **No widget toggles the model** (`SetClampToRange` has no production caller — #75) |
+| Colour domain | `ValueRangeMin` / `ValueRangeMax` | Operable — the range boxes in "Color & Opacity" (Manual mode); "Per frame" becomes selectable once the sampling service has measured a frame (#75) |
+| Clamp to range | `bClampToRange` | Operable — the "Out-of-range" toggle in "Color & Opacity" (#75). Disclosed by default: off-scale data shows the under/over colours |
 | Opacity | `OpacityMultiplier` | Operable — the opacity slider |
-| Component | `ComponentMode` | X / Y / Z / W / Magnitude. **Not** the compositing mode. Derived from the view model's component choice; no widget selects it (#75) |
+| Component | `ComponentMode` | X / Y / Z / W / Magnitude. **Not** the compositing mode. Derived from the view model's component choice; still no widget selects the choice itself — the one remaining `wired` row |
 | Crop box | `CropBoxMin` / `CropBoxMax` | Operable — the crop controls in "Clipping" |
-| Clip planes | `ClipPlanes` / `NumClipPlanes` | Operable — preset planes can be added, removed, inverted; in-place editing has no control (`SetPlane`, #75) |
-| Reason colours | `MaskedColor`, `NaNColor`, `UnderRangeColor`, `OverRangeColor` | The disclosure palette: each names *why* a voxel is not showing data. Shipped defaults only — not editable anywhere (#75) |
+| Clip planes | `ClipPlanes` / `NumClipPlanes` | Operable — preset planes can be added, removed, inverted, and moved in place via each row's distance box (#75) |
+| Reason colours | `MaskedColor`, `NaNColor`, `UnderRangeColor`, `OverRangeColor` | Operable — the disclosure swatch rows (#75). Fixed palettes per slot, pairwise-disjoint by construction, so rule 4's distinguishability holds for every selectable combination |
 
 The render defaults survived the fix on purpose: jitter is off because per-ray
 jitter causes temporal shimmer (ADR 002), and the render is unlit by default

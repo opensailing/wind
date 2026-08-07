@@ -267,7 +267,50 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	static bool PushRenderSettingsToVolume(
 		const FFlowVizRenderSettingsViewModel& Source, UCFDVizVolumeComponent* Volume);
 
+	/* --- The sampling service (#75) ----------------------------------------- */
+	/*
+	 * The production caller of the last two orphaned setters. SetProbeReading
+	 * was "the seam an async readback would call", and nothing did -- probes
+	 * could be placed, named and persisted, and could never display a value.
+	 * SetCurrentFrameRange was why the "Per frame" range source stayed
+	 * permanently disabled: its enablement gate is HasCurrentFrameRange(), and
+	 * nothing ever measured one.
+	 *
+	 * Request -> worker -> drain, the same shape as the player's decode path
+	 * and for the same reason: sampling is disk I/O and zlib, which engineering
+	 * rule 1 forbids on the game thread. Everything the task touches is copied
+	 * or shared, never a pointer back into this model.
+	 */
+
+	/**
+	 * Sample every visible probe and measure the displayed frame's value range,
+	 * on a worker. A no-op with no case open, or while a request is in flight
+	 * (the newest data wins; queueing stale requests would apply readings for
+	 * a frame the display has left).
+	 */
+	void RequestSampleUpdate();
+
+	/**
+	 * Apply completed results: probe readings through SetProbeReading, the
+	 * frame range through SetCurrentFrameRange.
+	 *
+	 * GAME THREAD, like every other mutation of these view models. Call it
+	 * from a tick (SFlowVizWorkspace::TickClock does) or after
+	 * WaitForPendingSamples in a test.
+	 *
+	 * @return True when anything was applied.
+	 */
+	bool DrainSampleResults();
+
+	/** Block until the in-flight sample (if any) reports. Test plumbing, matching FFlowVizCasePlayer::WaitForPendingLoads. */
+	bool WaitForPendingSamples(double TimeoutSeconds = 30.0);
+
 private:
+	/** Shared with the sampling task; outlives this model if a task is still running. */
+	struct FSampleQueue;
+
+	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> SampleQueue;
+
 	/**
 	 * The parsed case, kept alive for as long as the workspace holds it.
 	 *
