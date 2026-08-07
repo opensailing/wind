@@ -118,9 +118,29 @@ cat > "${FIXTURE}/Proj/Tools/build_lock.sh" <<'STUB'
 #!/bin/bash
 echo "Using Unreal Build Accelerator local executor to run 3 action(s)"
 echo "Result: Succeeded"
-if [[ "$(cat "${TEST_RESULT}" 2>/dev/null)" == "fail" ]]; then
-    echo "1/2 passed."
-    exit 1
+
+# PHASE BY EVIDENCE, NOT BY TIMING. The baseline runs against pristine
+# source; an arm runs with the mutant APPLIED (return 2). Reading the target
+# file is deterministic where the previous watcher -- polling the log every
+# 0.2s and flipping a flag -- raced the instant stub: the arm's suite could
+# consume the flag before the flip landed, scoring SURVIVED in a run that
+# asked for a kill. The sweep caught it as a once-in-a-few-runs flake.
+PHASE="baseline"
+if grep -q 'return 2' "${TARGET_FILE}" 2>/dev/null; then
+    PHASE="arm"
+fi
+
+if [[ "${PHASE}" == "arm" ]]; then
+    # The drift edit, mid-campaign by construction: the first ARM invocation
+    # is after the baseline and before the verdict. Once, marker-guarded.
+    if [[ -n "${DRIFT_EDIT}" && ! -f "${DRIFT_EDIT}.done" ]]; then
+        echo "# edited mid-campaign by test_mutate_resolves_calls.sh" >> "${DRIFT_EDIT}"
+        touch "${DRIFT_EDIT}.done"
+    fi
+    if [[ "$(cat "${TEST_RESULT}" 2>/dev/null)" == "fail" ]]; then
+        echo "1/2 passed."
+        exit 1
+    fi
 fi
 echo "2/2 passed."
 exit 0
@@ -161,30 +181,23 @@ run_campaign() {
     local arm_result="$1" outfile="$2" drift="${3:-no}"
     local flag="${FIXTURE}/test_result"
 
-    echo "pass" > "${flag}"
+    # The stub decides phase from the TARGET FILE (mutant applied = arm), so
+    # this flag only carries the ARM's verdict and can be set up front -- no
+    # watcher, no race. See the stub's own comment for the flake this
+    # replaced.
+    echo "${arm_result}" > "${flag}"
 
-    (
-        # Wait for the baseline suite to finish, then set the arm's verdict.
-        # The marker appearing means mutate.sh is past argument validation and
-        # into the campaign proper.
-        local waited=0
-        while [[ ${waited} -lt 60 ]]; do
-            if grep -q "baseline green" "${outfile}" 2>/dev/null; then
-                echo "${arm_result}" > "${flag}"
-                [[ "${drift}" == "drift" ]] && \
-                    echo "# edited mid-campaign by test_mutate_resolves_calls.sh" \
-                        >> "${FIXTURE}/Proj/Tools/mutate.sh"
-                return 0
-            fi
-            sleep 0.2
-            waited=$((waited+1))
-        done
-    ) &
-    local watcher=$!
+    local drift_target=""
+    if [[ "${drift}" == "drift" ]]; then
+        drift_target="${FIXTURE}/Proj/Tools/mutate.sh"
+        rm -f "${drift_target}.done"
+    fi
 
     (
         cd "${FIXTURE}" || exit 99
         TEST_RESULT="${flag}" \
+        TARGET_FILE="${FIXTURE}/Proj/Src/Target.cpp" \
+        DRIFT_EDIT="${drift_target}" \
         BUILD_LOG="${FIXTURE}/build.log" \
         TEST_LOG="${FIXTURE}/test.log" \
         BASELINE_TEST_LOG="${FIXTURE}/baseline.log" \
@@ -192,7 +205,6 @@ run_campaign() {
             "Proj/Tools/mutants/one.txt" > "${outfile}" 2>&1
         echo $? > "${FIXTURE}/exit"
     )
-    wait "${watcher}" 2>/dev/null
 
     cat "${FIXTURE}/exit" 2>/dev/null || echo "no-exit"
 }
