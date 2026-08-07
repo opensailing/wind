@@ -279,15 +279,20 @@ bool FFlowVizConsoleWiringTest::RunTest(const FString& Parameters)
 	}
 
 	/*
-	 * THE NO-WORKSPACE BRANCH, which this test is the only one positioned to
-	 * reach: it constructs no widget, so if nothing else in the session has left
-	 * one alive, the commands must resolve no target and say so.
+	 * THE NO-WORKSPACE BRANCH. The contract CHANGED with the DoD 4 fix: with no
+	 * workspace alive, ResolveTarget now INVOKES the FlowViz tab itself and
+	 * retries -- in the packaged app a console command is the only door, and
+	 * the old refusal pointed at a menu (Window > FlowViz) that only the editor
+	 * has. So the assertion is no longer "it says no workspace"; it is "the
+	 * command self-serves: afterwards a workspace EXISTS and the command acted
+	 * on it".
 	 *
 	 * GATED AND DISCLOSED rather than asserted unconditionally. Automation test
 	 * order is not guaranteed and another UI test's workspace may still be alive,
-	 * in which case this arm cannot run -- and a silently skipped arm inside a
-	 * green test is exactly the "reported success having verified nothing" shape
-	 * this repo's runner exists to surface.
+	 * in which case the self-serve arm cannot be distinguished from an ordinary
+	 * resolve -- and a silently skipped arm inside a green test is exactly the
+	 * "reported success having verified nothing" shape this repo's runner
+	 * exists to surface.
 	 */
 	if (FlowVizWorkspaceRegistry::GetActiveWorkspace().IsValid())
 	{
@@ -300,10 +305,14 @@ bool FFlowVizConsoleWiringTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("FlowViz.ShowDiagnostics executes with no workspace open"),
 			ExecuteCommand(FlowVizConsoleCommands::ShowDiagnosticsName, Output));
 		TestTrue(
+			TEXT("with no workspace open the command OPENS one (the packaged app has no "
+				 "Window menu, so the console is the only door) -- afterwards a workspace "
+				 "exists"),
+			FlowVizWorkspaceRegistry::GetActiveWorkspace().IsValid());
+		TestFalse(
 			*FString::Printf(
-				TEXT("with no workspace open, FlowViz.ShowDiagnostics says so rather than "
-					 "printing a screen of zeros that reads as a loaded case performing "
-					 "terribly. It printed: '%s'"),
+				TEXT("and the command did not refuse -- it acted on the workspace it "
+					 "opened. It printed: '%s'"),
 				*Output),
 			Output.Contains(TEXT("no workspace")));
 	}

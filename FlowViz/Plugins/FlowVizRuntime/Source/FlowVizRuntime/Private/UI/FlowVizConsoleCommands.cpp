@@ -8,7 +8,9 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/OutputDevice.h"
 #include "Playback/FlowVizCasePlayer.h"
+#include "Framework/Docking/TabManager.h"
 #include "UI/FlowVizDiagnostics.h"
+#include "UI/FlowVizWorkspaceTab.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceRegistry.h"
 #include "UI/SFlowVizWorkspace.h"
@@ -59,13 +61,28 @@ namespace FlowVizConsoleCommands
 		 */
 		TSharedPtr<SFlowVizWorkspace> ResolveTarget(FOutputDevice& Ar, bool bRequireCase)
 		{
-			const TSharedPtr<SFlowVizWorkspace> Workspace =
+			TSharedPtr<SFlowVizWorkspace> Workspace =
 				FlowVizWorkspaceRegistry::GetActiveWorkspace();
 
 			if (!Workspace.IsValid())
 			{
-				Ar.Logf(TEXT("FlowViz: no workspace is open. Open the FlowViz tab first "
-							 "(Window > FlowViz)."));
+				/*
+				 * OPEN THE TAB OURSELVES, then re-resolve. In the editor a user
+				 * reaches Window > FlowViz; in the PACKAGED app nothing invokes
+				 * the tab, so before this a console command was the only door
+				 * and it refused with directions to a menu that does not exist
+				 * there (found by the DoD 4 smoke test: the packaged app booted
+				 * and LoadCase declined). Invoking is idempotent -- an open tab
+				 * is focused, not duplicated -- so the editor path is unchanged.
+				 */
+				FGlobalTabmanager::Get()->TryInvokeTab(FTabId(FlowVizWorkspaceTab::TabId));
+				Workspace = FlowVizWorkspaceRegistry::GetActiveWorkspace();
+			}
+
+			if (!Workspace.IsValid())
+			{
+				Ar.Logf(TEXT("FlowViz: no workspace is open and the FlowViz tab could not be "
+							 "opened. In the editor: Window > FlowViz."));
 				return nullptr;
 			}
 
