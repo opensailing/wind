@@ -324,7 +324,7 @@ FCFDVizResult FFlowVizWorkspaceModel::SaveSession(const FString& FilePath) const
 	 * would make "set up my colours, then pick a case" unexpressible.
 	 */
 	FlowVizSession::CaptureFromViewModels(
-		&Player, &TransferFunction, &Clip, &Slice, &Probes, State);
+		&Player, &TransferFunction, &Clip, &Slice, &Probes, &RenderSettings, State);
 
 	return FlowVizSession::SaveToFile(State, FilePath);
 }
@@ -396,7 +396,7 @@ FCFDVizResult FFlowVizWorkspaceModel::LoadState(const FFlowVizSessionState& Stat
 	// Best-effort by contract: this reports the FIRST failure after applying
 	// what it could, so its result is recorded rather than returned.
 	Record(FlowVizSession::ApplyToViewModels(
-		State, &Player, &TransferFunction, &Clip, &Slice, &Probes));
+		State, &Player, &TransferFunction, &Clip, &Slice, &Probes, &RenderSettings));
 
 	return FirstFailure;
 }

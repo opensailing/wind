@@ -7,6 +7,7 @@
 #include "Playback/FlowVizCasePlayer.h"
 #include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizProbeViewModel.h"
+#include "UI/FlowVizRenderSettingsViewModel.h"
 #include "UI/FlowVizSliceViewModel.h"
 #include "UI/FlowVizTransferFunctionViewModel.h"
 
@@ -126,6 +127,19 @@ struct FFlowVizSessionState
 	FVector LineEnd = FVector::ZeroVector;
 	int32 LineSamples = 32;
 
+	/* --- Render settings (#76) --------------------------------------------- */
+
+	/**
+	 * Held as the view model itself rather than as loose fields, deliberately:
+	 * its members are private behind validating setters, so a session state
+	 * cannot carry a render settings value the live workspace would refuse --
+	 * the loader routes every parsed number through the same setter a widget
+	 * uses. A default-constructed one is an identity over FillDefaults' output,
+	 * so a pre-#76 session (no renderSettings key) loads as the same scene it
+	 * always did.
+	 */
+	FFlowVizRenderSettingsViewModel RenderSettings;
+
 	/* --- Workspace -------------------------------------------------------- */
 
 	/** plan.md section 14 "scientific/presentation mode". Scientific is the default: it is the mode whose fidelity is stated. */
@@ -204,6 +218,7 @@ namespace FlowVizSession
 		const FFlowVizClipViewModel* Clip,
 		const FFlowVizSliceViewModel* Slice,
 		const FFlowVizProbeViewModel* Probes,
+		const FFlowVizRenderSettingsViewModel* RenderSettings,
 		FFlowVizSessionState& OutState);
 
 	/**
@@ -222,5 +237,6 @@ namespace FlowVizSession
 		FFlowVizTransferFunctionViewModel* TransferFunction,
 		FFlowVizClipViewModel* Clip,
 		FFlowVizSliceViewModel* Slice,
-		FFlowVizProbeViewModel* Probes);
+		FFlowVizProbeViewModel* Probes,
+		FFlowVizRenderSettingsViewModel* RenderSettings = nullptr);
 }
