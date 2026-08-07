@@ -222,6 +222,27 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	static bool PushClipToVolume(const FFlowVizClipViewModel& Source, UCFDVizVolumeComponent* Volume);
 
 	/**
+	 * Compose the user's clip with the slice's slab planes into one model (#77).
+	 *
+	 * A visible slice IS two opposed clip planes; the volume receives ONE clip
+	 * model, so the composition happens here at push time -- never inside the
+	 * clip view model the user edits, which would show phantom rows in the clip
+	 * panel and let a deleted "slice plane" half-disable a control that lives
+	 * in another panel. A hidden slice contributes nothing, so hiding it
+	 * retracts exactly its own two planes on the next push.
+	 *
+	 * @return The composed model: the user's planes and crop, plus the slab
+	 *         when the slice is visible and has a domain. When the slab would
+	 *         not fit (the user already has more than MaxClipPlanes - 2
+	 *         enabled), the slab is DROPPED and the user's planes win -- a
+	 *         slice that silently deleted a user's plane would be worse than a
+	 *         slice that does not appear, and the panel's advisory names the
+	 *         six-plane budget.
+	 */
+	static FFlowVizClipViewModel ComposeClipWithSlice(
+		const FFlowVizClipViewModel& Clip, const FFlowVizSliceViewModel& Slice);
+
+	/**
 	 * Copy the transfer function into a volume component.
 	 *
 	 * WHY THIS IS SO MUCH SIMPLER THAN PushClipToVolume, and why that difference

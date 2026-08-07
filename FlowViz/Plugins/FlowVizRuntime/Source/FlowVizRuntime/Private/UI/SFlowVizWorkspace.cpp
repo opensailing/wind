@@ -355,7 +355,13 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("SliceHeading", "Slice"),
 								SAssignNew(SlicePanel, SFlowVizSlicePanel)
-									.ViewModel(&Model->Slice))
+									.ViewModel(&Model->Slice)
+									// THE CHANNEL TO THE RENDERER (#77): the
+									// slice composes into the pushed clip, so a
+									// slice edit re-pushes the same channel a
+									// clip edit does.
+									.OnSliceChanged(FSimpleDelegate::CreateSP(
+										this, &SFlowVizWorkspace::HandleSliceChanged)))
 						]
 
 						+ SScrollBox::Slot()
@@ -552,7 +558,10 @@ bool SFlowVizWorkspace::PushToVolume()
 	 * The return is the AND of the two because the caller's question is "did the
 	 * bound volume receive everything", and a partial push is not a yes.
 	 */
-	const bool bClipPushed = FFlowVizWorkspaceModel::PushClipToVolume(Model->Clip, Bound);
+	// COMPOSED, NOT RAW (#77): the pushed clip is the user's model plus the
+	// visible slice's slab planes. The models the panels edit are untouched.
+	const bool bClipPushed = FFlowVizWorkspaceModel::PushClipToVolume(
+		FFlowVizWorkspaceModel::ComposeClipWithSlice(Model->Clip, Model->Slice), Bound);
 	const bool bTransferFunctionPushed =
 		FFlowVizWorkspaceModel::PushTransferFunctionToVolume(Model->TransferFunction, Bound);
 	const bool bRenderSettingsPushed =
@@ -723,6 +732,13 @@ void SFlowVizWorkspace::HandleClipChanged()
 	// normal, not an error, and the clip panel's advisory already says the edits
 	// are not reaching a renderer - reporting it twice would put a warning in the
 	// log for every click during ordinary setup.
+	PushToVolume();
+}
+
+void SFlowVizWorkspace::HandleSliceChanged()
+{
+	// Same policy as every sibling: the return is dropped, "no volume bound"
+	// is the ordinary setup state.
 	PushToVolume();
 }
 

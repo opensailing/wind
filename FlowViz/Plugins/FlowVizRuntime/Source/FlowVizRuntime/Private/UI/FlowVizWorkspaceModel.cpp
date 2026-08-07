@@ -680,6 +680,48 @@ bool FFlowVizWorkspaceModel::WaitForPendingSamples(double TimeoutSeconds)
 /* The channel to the renderer                                                 */
 /* ========================================================================== */
 
+FFlowVizClipViewModel FFlowVizWorkspaceModel::ComposeClipWithSlice(
+	const FFlowVizClipViewModel& Clip, const FFlowVizSliceViewModel& Slice)
+{
+	// The user's model rides whole: planes, crop, domain. COPIED -- the
+	// composition must never write back into the model the panel edits.
+	FFlowVizClipViewModel Composed = Clip;
+
+	if (!Slice.IsVisible() || !Slice.HasDomain())
+	{
+		return Composed;
+	}
+
+	TArray<FFlowVizClipPlane> SlabPlanes;
+	if (Slice.MakeSlabPlanes(SlabPlanes) != 2)
+	{
+		return Composed;
+	}
+
+	// THE USER'S PLANES WIN THE BUDGET. AddPlane refuses past MaxClipPlanes;
+	// adding the slab first would make the USER'S next plane the one refused,
+	// with the refusal surfacing in a different panel than the cause. Checked
+	// up front so the slab is all-or-nothing: one slab plane without its
+	// opposite keeps half the domain, which reads as a broken clip rather than
+	// a full slice budget.
+	if (Composed.GetPlaneCount() + SlabPlanes.Num() > FlowVizRayMarch::MaxClipPlanes)
+	{
+		return Composed;
+	}
+
+	for (const FFlowVizClipPlane& Plane : SlabPlanes)
+	{
+		// Cannot fail after the budget check: MakeSlabPlanes normalises and a
+		// slab from a valid slice is non-degenerate. The result is still read,
+		// because "cannot fail" is a claim about today's code.
+		if (!Composed.AddPlane(Plane).IsOk())
+		{
+			return Clip;
+		}
+	}
+	return Composed;
+}
+
 bool FFlowVizWorkspaceModel::PushClipToVolume(
 	const FFlowVizClipViewModel& Source, UCFDVizVolumeComponent* Volume)
 {

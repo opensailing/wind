@@ -1053,7 +1053,12 @@ bool FFlowVizWorkspaceModelSessionDefaultsTest::RunTest(const FString& Parameter
 		Workspace.Slice.GetSlabOp(), EFlowVizSlabOp::None);
 	TestEqual(TEXT("and it takes one sample, not the fixture's 6"),
 		Workspace.Slice.GetSlabSamples(), 1);
-	TestTrue(TEXT("a default slice is VISIBLE, which the fixture hides"),
+	TestFalse(TEXT("a default slice is HIDDEN -- flipped with #77, when visible started "
+				   "meaning 'slab the volume': a default-visible slice would sliver every "
+				   "case on open. NOTE this now MATCHES the fixture's hidden state, so "
+				   "visibility is no longer a default-vs-fixture differential here; the "
+				   "round-trip test's poison state (visible) is what still exercises both "
+				   "directions"),
 		Workspace.Slice.IsVisible());
 
 	/* --- Probes -------------------------------------------------------------- */

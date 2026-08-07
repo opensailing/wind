@@ -322,6 +322,46 @@ double FFlowVizSliceViewModel::SignedDistance(const FVector& LocalPosition) cons
 	return FVector::DotProduct(Normal, LocalPosition - Origin);
 }
 
+int32 FFlowVizSliceViewModel::MakeSlabPlanes(TArray<FFlowVizClipPlane>& OutPlanes) const
+{
+	if (!bHasDomain)
+	{
+		// No domain means no extent to derive the minimum slab from, and a
+		// slice authored against a unit default would land at a plausible wrong
+		// place the moment a real case binds. Nothing is appended.
+		return 0;
+	}
+
+	// The domain's extent along the normal, for the zero-thickness fallback.
+	// |N.x|*Dx + |N.y|*Dy + |N.z|*Dz is the width of the domain's projection
+	// onto the normal -- exact for axis-aligned normals, an upper bound
+	// otherwise, either of which is a fine scale for a minimum visible slab.
+	const double ProjectedExtent = FMath::Abs(Normal.X) * DomainSize.X
+		+ FMath::Abs(Normal.Y) * DomainSize.Y + FMath::Abs(Normal.Z) * DomainSize.Z;
+	const double EffectiveThickness =
+		Thickness > 0.0 ? Thickness : ProjectedExtent * MinSlabFraction;
+	const double Half = EffectiveThickness * 0.5;
+
+	// Near face: keep the +N side of (Origin - N*half).
+	//   dot(N, P) + D >= 0 with D = -dot(N, Origin - N*half)
+	FFlowVizClipPlane Near;
+	Near.Normal = Normal;
+	Near.Distance = -FVector::DotProduct(Normal, Origin - Normal * Half);
+	Near.Label = TEXT("Slice near");
+	Near.bEnabled = true;
+	OutPlanes.Add(Near);
+
+	// Far face: keep the -N side of (Origin + N*half).
+	FFlowVizClipPlane Far;
+	Far.Normal = -Normal;
+	Far.Distance = -FVector::DotProduct(-Normal, Origin + Normal * Half);
+	Far.Label = TEXT("Slice far");
+	Far.bEnabled = true;
+	OutPlanes.Add(Far);
+
+	return 2;
+}
+
 FFlowVizClipPlane FFlowVizSliceViewModel::MakeClipPlane() const
 {
 	FFlowVizClipPlane Plane;

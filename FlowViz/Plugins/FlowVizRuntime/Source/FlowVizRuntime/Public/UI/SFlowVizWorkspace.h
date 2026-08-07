@@ -300,6 +300,7 @@ private:
 	void HandleClipChanged();
 	void HandleTransferFunctionChanged();
 	void HandleRenderSettingsChanged();
+	void HandleSliceChanged();
 
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;

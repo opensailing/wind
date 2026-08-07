@@ -66,6 +66,14 @@ public:
 	}
 		/** Borrowed, not owned. The workspace owns both. */
 		SLATE_ARGUMENT(FFlowVizSliceViewModel*, ViewModel)
+
+		/**
+		 * Fired after any control here has CHANGED the view model (#77). The
+		 * workspace subscribes and re-composes the slice into the pushed clip
+		 * model; the panel never mentions a volume, matching its siblings.
+		 * Unbound is legal and inert.
+		 */
+		SLATE_EVENT(FSimpleDelegate, OnSliceChanged)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -141,6 +149,11 @@ private:
 
 	/** True while Op is the selected aggregation - drives the button's highlight. */
 	bool IsSlabOpSelected(EFlowVizSlabOp Op) const;
+
+	void NotifySliceChanged() const;
+
+	/** Subscriber for edits. Unbound is legal and inert -- see the SLATE_EVENT. */
+	FSimpleDelegate OnSliceChanged;
 
 	/** Borrowed. Null is legal and inert. */
 	FFlowVizSliceViewModel* ViewModel = nullptr;
