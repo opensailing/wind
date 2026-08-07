@@ -58,6 +58,11 @@ public:
 	bool LoadCaseFromPath(const FString& CaseDirectory, FString& OutError);
 
 	/** The volume representation. Never null. */
+	class UCFDVizFlowComponent* GetFlowComponent() const
+	{
+		return FlowComponent;
+	}
+
 	UCFDVizVolumeComponent* GetVolumeComponent() const
 	{
 		return VolumeComponent;
@@ -78,6 +83,9 @@ public:
 	FName FieldId;
 
 	virtual void BeginPlay() override;
+
+	UPROPERTY()
+	TObjectPtr<class UCFDVizFlowComponent> FlowComponent;
 
 private:
 	/** The volume representation, attached to the root rather than being it - see the class comment. */
