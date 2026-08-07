@@ -11,6 +11,8 @@
 #include "CFDViz/CFDVizPayload.h"
 #include "CFDViz/CFDVizVolumeReader.h"
 #include "Flow/FlowVizChartSeries.h"
+#include "Flow/FlowVizCutPlane.h"
+#include "Flow/FlowVizFieldMask.h"
 #include "Flow/FlowVizFieldSampler.h"
 #include "Tasks/Task.h"
 
@@ -232,6 +234,18 @@ FCFDVizResult FFlowVizWorkspaceModel::OpenCase(const FString& CaseDirectory, FNa
 	// A fresh slice sits at the domain's centre rather than at the origin corner,
 	// where it would be coplanar with a face and look like it had not appeared.
 	Slice.CenterOnDomain();
+
+	/*
+	 * VISIBLE, Z-NORMAL, BY DEFAULT (renderer overhaul P3). The z-mid cut
+	 * plane is the genre's default picture for this data -- the honest hero
+	 * image on a quasi-2D case (research doc section 5 item 3) -- so a case
+	 * OPENS showing it rather than hiding the one view everyone expects
+	 * behind a toggle. The volume slab consumer keys off the same flag and
+	 * composes only when the volume mode draws, so this costs the default
+	 * picture nothing.
+	 */
+	Slice.SetAxisPreset(EFlowVizSliceAxis::Z);
+	Slice.SetVisible(true);
 
 	/* --- Unit scale for probes --------------------------------------------- */
 
@@ -470,6 +484,12 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 		/** The line probe's distance series (#85), when a line was set. */
 		bool bHasLineSeries = false;
 		FFlowVizChartSeries LineSeries;
+
+		/** The cut plane's mesh (renderer overhaul P3), when the slice is visible. */
+		bool bHasCutPlane = false;
+		FFlowVizMeshSection CutPlane;
+		double CutPlaneRangeMin = 0.0;
+		double CutPlaneRangeMax = 0.0;
 	};
 
 	FCriticalSection Mutex;
@@ -557,9 +577,22 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 	const int32 LineSamples = Probes.GetLineSampleCount();
 	const EFlowVizLineProbeAxis LineAxis = Probes.GetLineAxisMode();
 
+	// The cut plane's request (renderer overhaul P3): the slice view model's
+	// plane, copied by value. Built only when the slice is visible AND has a
+	// domain -- an invisible slice costs nothing.
+	const bool bWantCutPlane = Slice.IsVisible() && Slice.HasDomain();
+	FlowVizCutPlane::FCutPlaneRequest CutRequest;
+	if (bWantCutPlane)
+	{
+		CutRequest.Origin = Slice.GetOrigin();
+		CutRequest.Normal = Slice.GetNormal();
+		CutRequest.DomainSize = Slice.GetDomainSize();
+	}
+
 	UE::Tasks::Launch(TEXT("FlowVizWorkspaceSample"),
 		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
 			bHasLine, LineStart, LineEnd, LineSamples, LineAxis,
+			bWantCutPlane, CutRequest,
 			Requests = MoveTemp(Requests)]() mutable
 		{
 			FSampleQueue::FResult Result;
@@ -685,6 +718,25 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 				}
 			}
 
+			/*
+			 * THE CUT PLANE (renderer overhaul P3), same worker, same frame,
+			 * same displayed field -- the plane in the viewport is the data on
+			 * the timeline, never a neighbouring frame's. Built after the
+			 * probes so a sampler failure costs only the plane.
+			 */
+			if (bWantCutPlane)
+			{
+				FFlowVizFieldSampler PlaneSampler;
+				if (PlaneSampler.Build(*CaseRef, SampleFieldId, FrameIndex).IsOk())
+				{
+					FFlowVizFieldMask PlaneMask;
+					PlaneMask.Build(PlaneSampler);
+					Result.bHasCutPlane = FlowVizCutPlane::BuildCutPlaneMesh(
+						PlaneSampler, PlaneMask, CutRequest, Result.CutPlane,
+						Result.CutPlaneRangeMin, Result.CutPlaneRangeMax);
+				}
+			}
+
 			Queue->Push(MoveTemp(Result));
 		});
 }
@@ -721,6 +773,18 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 				bApplied = true;
 			}
 		}
+		if (Result.bHasCutPlane)
+		{
+			// Stored on the model like the line series: a measurement with no
+			// view-model owner, applied by the workspace's tick to the actor's
+			// cut-plane component.
+			CutPlanePayload.Sections.Reset();
+			CutPlanePayload.Sections.Add(MoveTemp(Result.CutPlane));
+			CutPlaneRangeMin = Result.CutPlaneRangeMin;
+			CutPlaneRangeMax = Result.CutPlaneRangeMax;
+			bCutPlaneFresh = true;
+		}
+
 		if (Result.bHasLineSeries)
 		{
 			LineSeries = MoveTemp(Result.LineSeries);
@@ -759,7 +823,9 @@ FFlowVizClipViewModel FFlowVizWorkspaceModel::ComposeClipWithSlice(
 	// composition must never write back into the model the panel edits.
 	FFlowVizClipViewModel Composed = Clip;
 
-	if (!Slice.IsVisible() || !Slice.HasDomain())
+	// BOTH switches: on screen, and explicitly slabbing the volume (see the
+	// view model's two-consumers comment).
+	if (!Slice.IsVisible() || !Slice.IsVolumeSlabEnabled() || !Slice.HasDomain())
 	{
 		return Composed;
 	}

@@ -69,6 +69,12 @@ public:
 		return ObstacleComponent;
 	}
 
+	/** The cut plane's surface (renderer overhaul P3). Its own component: per-frame rebuilds never dirty the obstacle. */
+	class UCFDVizSurfaceMeshComponent* GetCutPlaneComponent() const
+	{
+		return CutPlaneComponent;
+	}
+
 	UCFDVizVolumeComponent* GetVolumeComponent() const
 	{
 		return VolumeComponent;
@@ -95,6 +101,9 @@ public:
 
 	UPROPERTY()
 	TObjectPtr<class UCFDVizSurfaceMeshComponent> ObstacleComponent;
+
+	UPROPERTY()
+	TObjectPtr<class UCFDVizSurfaceMeshComponent> CutPlaneComponent;
 
 	/** Build every declared mesh's patches on a worker and apply on the game thread. */
 	void LoadBoundaryMeshes();

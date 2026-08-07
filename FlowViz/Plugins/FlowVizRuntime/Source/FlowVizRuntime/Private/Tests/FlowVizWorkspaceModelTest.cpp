@@ -1053,13 +1053,16 @@ bool FFlowVizWorkspaceModelSessionDefaultsTest::RunTest(const FString& Parameter
 		Workspace.Slice.GetSlabOp(), EFlowVizSlabOp::None);
 	TestEqual(TEXT("and it takes one sample, not the fixture's 6"),
 		Workspace.Slice.GetSlabSamples(), 1);
-	TestFalse(TEXT("a default slice is HIDDEN -- flipped with #77, when visible started "
-				   "meaning 'slab the volume': a default-visible slice would sliver every "
-				   "case on open. NOTE this now MATCHES the fixture's hidden state, so "
-				   "visibility is no longer a default-vs-fixture differential here; the "
-				   "round-trip test's poison state (visible) is what still exercises both "
-				   "directions"),
+	/*
+	 * P3 SPLIT THE FLAG. Visible now means "the cut plane mesh is on screen"
+	 * -- the default picture, so it defaults TRUE. The sliver hazard #77
+	 * flipped the old flag for lives on the volume-slab switch, which still
+	 * defaults false: no clip planes reach the volume on open.
+	 */
+	TestTrue(TEXT("a default slice is VISIBLE -- the cut plane is the default picture (P3)"),
 		Workspace.Slice.IsVisible());
+	TestFalse(TEXT("but the volume slab is OFF -- #77's sliver hazard lives on this flag now"),
+		Workspace.Slice.IsVolumeSlabEnabled());
 
 	/* --- Probes -------------------------------------------------------------- */
 

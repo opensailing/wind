@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Flow/FlowVizChartSeries.h"
+#include "Scene/FlowVizMeshPayload.h"
 #include "Playback/FlowVizCasePlayer.h"
 #include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizProbeViewModel.h"
@@ -359,6 +360,16 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	 */
 	const FFlowVizChartSeries& GetLineSeries() const { return LineSeries; }
 
+	/** The drained cut-plane mesh (renderer overhaul P3). ConsumeCutPlane clears the fresh flag; the payload stays readable. */
+	bool HasFreshCutPlane() const { return bCutPlaneFresh; }
+	const FFlowVizMeshPayload& ConsumeCutPlane()
+	{
+		bCutPlaneFresh = false;
+		return CutPlanePayload;
+	}
+	double GetCutPlaneRangeMin() const { return CutPlaneRangeMin; }
+	double GetCutPlaneRangeMax() const { return CutPlaneRangeMax; }
+
 private:
 	/** Shared with the sampling task; outlives this model if a task is still running. */
 	struct FSampleQueue;
@@ -366,6 +377,11 @@ private:
 	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> SampleQueue;
 
 	FFlowVizChartSeries LineSeries;
+
+	FFlowVizMeshPayload CutPlanePayload;
+	double CutPlaneRangeMin = 0.0;
+	double CutPlaneRangeMax = 0.0;
+	bool bCutPlaneFresh = false;
 
 	bool bPresentationMode = false;
 

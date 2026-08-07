@@ -1,6 +1,7 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
 #include "CFDViz/CFDVizColorMaps.h"
+#include "Render/FlowVizColorMapTexture.h"
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -217,6 +218,66 @@ bool FCFDVizColorMapTest::RunTest(const FString& Parameters)
 			}
 		}
 		TestEqual(TEXT("8 bands produce 7 transitions"), Transitions, 7);
+	}
+
+	return true;
+}
+
+
+/**
+ * The GPU bridge's parity (renderer overhaul P3): the LUT texture bytes are
+ * the authority's samples, bucket for bucket. This is the ONLY hop where
+ * CFDViz::ColorMaps crosses to the renderer; the Slate legend and capture
+ * burn-in read the CPU LUT directly, so this test is what makes "viewport,
+ * legend and export cannot disagree" a checked property instead of a hope.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizColorMapTextureParityTest,
+	"FlowViz.Render.ColorMapTextureParity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizColorMapTextureParityTest::RunTest(const FString& Parameters)
+{
+	const ECFDVizColorMap Maps[] = {
+		ECFDVizColorMap::Viridis, ECFDVizColorMap::Plasma, ECFDVizColorMap::Inferno,
+		ECFDVizColorMap::Magma, ECFDVizColorMap::CoolWarm, ECFDVizColorMap::BlueWhiteRed,
+		ECFDVizColorMap::Grayscale, ECFDVizColorMap::Turbo
+	};
+
+	for (const ECFDVizColorMap Map : Maps)
+	{
+		TArray<FColor> Bytes;
+		FlowVizColorMapTexture::BuildLutBytes(Map, Bytes);
+		if (!TestEqual(TEXT("the LUT is full width"),
+				Bytes.Num(), FlowVizColorMapTexture::LutWidth))
+		{
+			return false;
+		}
+
+		// Byte-level: each bucket is the authority sampled at ITS texel centre
+		// and rounded -- the same arithmetic, reproduced independently here.
+		int32 Mismatches = 0;
+		for (int32 Index = 0; Index < Bytes.Num(); ++Index)
+		{
+			const float Position = (Index + 0.5f) / FlowVizColorMapTexture::LutWidth;
+			if (Bytes[Index] != CFDViz::ColorMaps::Sample(Map, Position).QuantizeRound())
+			{
+				++Mismatches;
+			}
+		}
+		TestEqual(FString::Printf(
+			TEXT("map '%s': every texel matches the authority byte-for-byte"),
+			*CFDViz::ColorMaps::GetName(Map).ToString()), Mismatches, 0);
+	}
+
+	// CONTROL: two different maps produce different bytes -- a BuildLutBytes
+	// that ignored its argument would pass every parity check above.
+	{
+		TArray<FColor> A, B;
+		FlowVizColorMapTexture::BuildLutBytes(ECFDVizColorMap::Viridis, A);
+		FlowVizColorMapTexture::BuildLutBytes(ECFDVizColorMap::Turbo, B);
+		TestTrue(TEXT("CONTROL: distinct maps yield distinct LUTs"), A != B);
 	}
 
 	return true;

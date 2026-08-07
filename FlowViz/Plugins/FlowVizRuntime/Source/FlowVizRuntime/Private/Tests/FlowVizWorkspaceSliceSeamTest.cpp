@@ -150,8 +150,15 @@ bool FFlowVizWorkspaceSliceSeamTest::RunTest(const FString& Parameters)
 		{
 			return false;
 		}
-		TestFalse(TEXT("CONTROL: the slice starts hidden -- the flipped default, so the "
-					   "empty-clip control above was really about the default"),
+		// P3: visible now defaults TRUE (the cut plane is the default
+		// picture) and the sliver hazard moved to the volume-slab flag. Put
+		// the slice in the hidden state EXPLICITLY so the button click below
+		// still exercises hidden -> visible, and arm the slab so the push has
+		// planes to carry.
+		Slice.SetVisible(false);
+		Slice.SetVolumeSlabEnabled(true);
+		TestFalse(TEXT("CONTROL: the slice is hidden (set above), so the click is a "
+					   "hide-to-show transition"),
 			Slice.IsVisible());
 		VisibleButton->SimulateClick();  // show -- and push
 
@@ -304,10 +311,12 @@ bool FFlowVizSliceCoexistenceTest::RunTest(const FString& Parameters)
 		Slice.SetNormal(FVector(0.0, 0.0, 1.0)).IsOk()
 			&& Slice.SetOrigin(FVector(6.0, 2.0, SliceZ)).IsOk()
 			&& Slice.SetThickness(SlabThickness).IsOk());
-	// SHOWN EXPLICITLY: the slice defaults hidden (#77), and hidden means "do
-	// not slab" -- which is exactly what the vorticity volume's assertion below
-	// depends on for ITS actor.
+	// SHOWN AND ARMED EXPLICITLY: since P3 the slab needs BOTH switches --
+	// visible (defaults true now) and the volume-slab flag (defaults false,
+	// carrying #77's sliver hazard). The vorticity volume's zero-plane
+	// assertion below depends on ITS actor never getting these.
 	Slice.SetVisible(true);
+	Slice.SetVolumeSlabEnabled(true);
 
 	Workspace->PushToVolume();
 

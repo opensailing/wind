@@ -186,6 +186,49 @@ bool FFlowVizWorkspaceSamplingTest::RunTest(const FString& Parameters)
 			Series.MinY >= 0.9 && Series.MaxY <= 13.5);
 	}
 
+	/* == The cut plane rides the same drain (renderer overhaul P3) ========== */
+	{
+		// Visible slice + domain -> the worker builds the plane mesh and the
+		// drain stores it with a fresh flag the workspace consumes once.
+		Model.Slice.SetDomainSize(FVector(12.0, 4.0, 1.0));
+		Model.Slice.SetAxisPreset(EFlowVizSliceAxis::Z);
+		Model.Slice.CenterOnDomain();
+		Model.Slice.SetVisible(true);
+
+		Model.RequestSampleUpdate();
+		Model.WaitForPendingSamples();
+		if (!TestTrue(TEXT("the drain applied a result"), Model.DrainSampleResults()))
+		{
+			return false;
+		}
+
+		if (!TestTrue(TEXT("a fresh cut plane arrived with the drain"),
+				Model.HasFreshCutPlane()))
+		{
+			return false;
+		}
+		const FFlowVizMeshPayload& Plane = Model.ConsumeCutPlane();
+		TestFalse(TEXT("consuming clears the fresh flag -- one apply per build"),
+			Model.HasFreshCutPlane());
+		if (TestEqual(TEXT("one section"), Plane.Sections.Num(), 1))
+		{
+			TestTrue(TEXT("with real geometry"),
+				Plane.Sections[0].Vertices.Num() > 1000);
+			TestEqual(TEXT("and a scalar per vertex"),
+				Plane.Sections[0].ScalarUVs.Num(), Plane.Sections[0].Vertices.Num());
+		}
+		TestTrue(TEXT("the echoed range is non-degenerate"),
+			Model.GetCutPlaneRangeMax() > Model.GetCutPlaneRangeMin());
+
+		// CONTROL: an INVISIBLE slice builds nothing -- the flag stays down.
+		Model.Slice.SetVisible(false);
+		Model.RequestSampleUpdate();
+		Model.WaitForPendingSamples();
+		Model.DrainSampleResults();
+		TestFalse(TEXT("CONTROL: an invisible slice builds no cut plane"),
+			Model.HasFreshCutPlane());
+	}
+
 	/* == A workspace with no case refuses politely =========================== */
 	{
 		FFlowVizWorkspaceModel Empty;

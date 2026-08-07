@@ -5,6 +5,8 @@
 #include "Components/SceneComponent.h"
 #include "FlowVizRuntime.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Materials/MaterialInterface.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Scene/FlowVizBoundaryMesh.h"
 #include "Scene/FlowVizFlowComponent.h"
 #include "Scene/FlowVizMeshPayload.h"
@@ -40,6 +42,31 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 	// guarantees that.
 	ObstacleComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("Obstacle"));
 	ObstacleComponent->SetupAttachment(Root);
+
+	// The cut plane (P3): its own component so per-frame rebuilds never
+	// recreate the obstacle's render state.
+	CutPlaneComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("CutPlane"));
+	CutPlaneComponent->SetupAttachment(Root);
+
+	/*
+	 * MATERIALS BY PATH, TOLERANT OF ABSENCE. The assets are authored by
+	 * Tools/author_materials.py into plugin Content; a cooked build carries
+	 * them, but a headless test world without content mounting must still
+	 * construct the actor -- null keeps PMC's default material, which renders
+	 * (grey) rather than vanishing.
+	 */
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> SurfaceMaterial(
+		TEXT("/FlowVizRuntime/M_FlowVizSurface.M_FlowVizSurface"));
+	if (SurfaceMaterial.Succeeded())
+	{
+		ObstacleComponent->SetMaterial(0, SurfaceMaterial.Object);
+	}
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ColormapMaterial(
+		TEXT("/FlowVizRuntime/M_FlowVizColormapSurface.M_FlowVizColormapSurface"));
+	if (ColormapMaterial.Succeeded())
+	{
+		CutPlaneComponent->SetMaterial(0, ColormapMaterial.Object);
+	}
 }
 
 FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName InFieldId)

@@ -118,6 +118,17 @@ public:
 	void SetVisible(bool bInVisible);
 	bool IsVisible() const { return bVisible; }
 
+	/*
+	 * TWO CONSUMERS, TWO SWITCHES (renderer overhaul P3). bVisible now means
+	 * "the plane is on screen" -- as the opaque CUT PLANE MESH, the genre's
+	 * default picture. Slabbing the VOLUME to the plane is a second, opt-in
+	 * consumer: composed only when this flag is also up, because a
+	 * default-visible slice that always slabbed would sliver the volume on
+	 * every open (the hazard that used to force the slice to default hidden).
+	 */
+	void SetVolumeSlabEnabled(bool bInEnabled) { bVolumeSlab = bInEnabled; }
+	bool IsVolumeSlabEnabled() const { return bVolumeSlab; }
+
 	/** Show the manipulation widget. Separate from IsVisible: a hidden gizmo over a visible slice is a legitimate presentation state. */
 	void SetShowWidget(bool bShow);
 	bool IsWidgetShown() const { return bShowWidget; }
@@ -182,6 +193,7 @@ private:
 	 * case opened, before the user touched anything.
 	 */
 	bool bVisible = false;
+	bool bVolumeSlab = false;
 	bool bShowWidget = true;
 	bool bTrilinear = true;
 };

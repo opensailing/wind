@@ -4,6 +4,8 @@
 
 #include "FlowVizRuntime.h"
 #include "Playback/FlowVizCasePlayer.h"
+#include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizSurfaceMeshComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
 #include "UI/FlowVizWorkspaceModel.h"
@@ -749,6 +751,23 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 		{
 			ProbePanel->GetLineChart()->SetSeries(Model->GetLineSeries());
 		}
+
+		// The cut plane rides the same drain (renderer overhaul P3): freshly
+		// built mesh -> the case actor's dedicated component.
+		if (Model->HasFreshCutPlane())
+		{
+			if (UCFDVizVolumeComponent* BoundVolume = GetVolume())
+			{
+				if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+				{
+					if (Actor->GetCutPlaneComponent() != nullptr)
+					{
+						Actor->GetCutPlaneComponent()->SetSurfaceData(
+							Model->ConsumeCutPlane());
+					}
+				}
+			}
+		}
 	}
 	{
 		const int32 DisplayedFrame = Model->Player.GetDisplay().FrameA;
@@ -790,6 +809,11 @@ void SFlowVizWorkspace::HandleSliceChanged()
 	// Same policy as every sibling: the return is dropped, "no volume bound"
 	// is the ordinary setup state.
 	PushToVolume();
+
+	// The slice edit also moves the CUT PLANE (P3), whose geometry is built by
+	// the sampling worker -- re-request so the mesh follows the panel without
+	// waiting for the next frame change.
+	Model->RequestSampleUpdate();
 }
 
 void SFlowVizWorkspace::HandleRenderSettingsChanged()
