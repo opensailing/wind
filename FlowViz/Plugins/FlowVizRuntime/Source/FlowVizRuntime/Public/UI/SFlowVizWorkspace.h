@@ -13,6 +13,7 @@ struct FFlowVizWorkspaceModel;
 class UCFDVizVolumeComponent;
 class SFlowVizClipPanel;
 class SFlowVizDiagnosticsOverlay;
+class SFlowVizPipelinePanel;
 class SFlowVizProbePanel;
 class SFlowVizRenderSettingsPanel;
 class SFlowVizSlicePanel;
@@ -204,6 +205,7 @@ public:
 	{
 		return RenderSettingsPanel;
 	}
+	TSharedPtr<SFlowVizPipelinePanel> GetPipelinePanel() const { return PipelinePanel; }
 
 private:
 	/**
@@ -301,6 +303,7 @@ private:
 	void HandleTransferFunctionChanged();
 	void HandleRenderSettingsChanged();
 	void HandleSliceChanged();
+	void HandleFieldChanged();
 
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;
@@ -308,6 +311,7 @@ private:
 	TSharedPtr<SFlowVizSlicePanel> SlicePanel;
 	TSharedPtr<SFlowVizProbePanel> ProbePanel;
 	TSharedPtr<SFlowVizRenderSettingsPanel> RenderSettingsPanel;
+	TSharedPtr<SFlowVizPipelinePanel> PipelinePanel;
 
 	/**
 	 * The diagnostics readout, and the slot whose visibility carries its shown

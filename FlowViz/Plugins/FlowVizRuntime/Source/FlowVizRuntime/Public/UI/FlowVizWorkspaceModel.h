@@ -77,6 +77,28 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	 */
 	FFlowVizRenderSettingsViewModel RenderSettings;
 
+	/* --- Profiles (#83, plan.md section 14) --------------------------------- */
+
+	/**
+	 * Scientific or Presentation (VISUAL_QA.md's two bars).
+	 *
+	 * WHAT THE TOGGLE HONESTLY DOES in v0.1: it owns the session's
+	 * bPresentationMode field (which previously round-tripped with no owner)
+	 * and applies a render preset bundle -- Scientific: unlit, no jitter,
+	 * disclosure colours in force; Presentation: gradient lighting and jitter
+	 * on. It does NOT deliver VISUAL_QA section 2's film-grade bar (multiple
+	 * scattering, multi-scale density, tone mapping); that bar is stated in
+	 * the doc and open in the backlog, and pretending a lighting preset meets
+	 * it would be the exact fake-success rule 15 forbids.
+	 *
+	 * SWITCHING APPLIES THE BUNDLE ONCE, then the user may adjust freely: a
+	 * profile that kept re-imposing itself would fight every slider in the
+	 * render panel. So this is "is presentation mode SELECTED", not "are the
+	 * current settings presentation-shaped".
+	 */
+	void SetPresentationMode(bool bInPresentation);
+	bool IsPresentationMode() const { return bPresentationMode; }
+
 	/**
 	 * Open a case directory and point every view model at it.
 	 *
@@ -331,6 +353,8 @@ private:
 	struct FSampleQueue;
 
 	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> SampleQueue;
+
+	bool bPresentationMode = false;
 
 	/**
 	 * The parsed case, kept alive for as long as the workspace holds it.

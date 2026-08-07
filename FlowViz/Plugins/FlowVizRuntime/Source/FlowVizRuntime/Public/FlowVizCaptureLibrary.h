@@ -168,6 +168,50 @@ public:
 		float FOV = 90.0f);
 
 	/**
+	 * CaptureToPNG plus the DoD 15 footer: case name, field, physical time,
+	 * value range and a colour-bar legend, burned into the pixels before the
+	 * PNG is written (FlowVizAnnotate::BurnFooter). The annotation reads the
+	 * BOUND CASE ACTOR's own state -- its case name, field id, displayed time
+	 * and transfer function -- so the caption cannot disagree with the image
+	 * the way caller-supplied strings could.
+	 *
+	 * @return true only if an ANNOTATED png was written: a capture whose image
+	 *         is too small for the footer fails rather than silently writing
+	 *         an unannotated file under the annotated name.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
+		meta = (WorldContext = "WorldContextObject"))
+	static bool CaptureAnnotatedPNG(
+		const UObject* WorldContextObject,
+		class ACFDVizCaseActor* CaseActor,
+		const FString& OutputPath,
+		FVector Location,
+		FRotator Rotation,
+		int32 Width = 1280,
+		int32 Height = 720,
+		float FOV = 90.0f);
+
+private:
+	/**
+	 * The shared readback-to-PNG pipeline behind both capture entry points.
+	 * AnnotationRequest is a FlowVizCaptureLocal::FCaptureAnnotationRequest* or
+	 * null; void* because that type lives in the .cpp's named namespace (unity
+	 * build) and this header must not drag the annotation header into every
+	 * includer.
+	 */
+	static bool CapturePipeline(
+		const UObject* WorldContextObject,
+		const FString& OutputPath,
+		FVector Location,
+		FRotator Rotation,
+		int32 Width,
+		int32 Height,
+		float FOV,
+		const void* AnnotationRequest);
+
+public:
+
+	/**
 	 * Put a CFDViz case in the world, loaded, uploaded, and ready to march.
 	 *
 	 * Python cannot assemble this itself, and the reasons are the same class as

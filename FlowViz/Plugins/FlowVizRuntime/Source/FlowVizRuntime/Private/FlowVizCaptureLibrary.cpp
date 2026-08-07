@@ -2,6 +2,8 @@
 
 #include "FlowVizCaptureLibrary.h"
 
+#include "Capture/FlowVizAnnotate.h"
+
 #include "AssetCompilingManager.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -284,6 +286,20 @@ int32 UFlowVizCaptureLibrary::ResolveMaterials(const UObject* WorldContextObject
 	return Resolved;
 }
 
+namespace FlowVizCaptureLocal
+{
+	/**
+	 * The annotation for CaptureAnnotatedPNG, or unset for the plain capture.
+	 * Threaded through as a pointer so the shared pipeline below has ONE spot
+	 * where the pixels can be modified between readback and compression.
+	 */
+	struct FCaptureAnnotationRequest
+	{
+		bool bAnnotate = false;
+		FFlowVizCaptureAnnotation Annotation;
+	};
+}
+
 bool UFlowVizCaptureLibrary::CaptureToPNG(
 	const UObject* WorldContextObject,
 	const FString& OutputPath,
@@ -292,6 +308,20 @@ bool UFlowVizCaptureLibrary::CaptureToPNG(
 	int32 Width,
 	int32 Height,
 	float FOV)
+{
+	return CapturePipeline(
+		WorldContextObject, OutputPath, Location, Rotation, Width, Height, FOV, nullptr);
+}
+
+bool UFlowVizCaptureLibrary::CapturePipeline(
+	const UObject* WorldContextObject,
+	const FString& OutputPath,
+	FVector Location,
+	FRotator Rotation,
+	int32 Width,
+	int32 Height,
+	float FOV,
+	const void* AnnotationRequest)
 {
 	UWorld* World = ResolveWorld(WorldContextObject, TEXT("CaptureToPNG"));
 	if (World == nullptr)
@@ -407,6 +437,24 @@ bool UFlowVizCaptureLibrary::CaptureToPNG(
 	for (FColor& Pixel : Pixels)
 	{
 		Pixel.A = 255;
+	}
+
+	// The DoD 15 footer, when requested. AFTER the alpha fix (the strip is
+	// opaque either way) and BEFORE compression, so the annotation is in the
+	// file rather than over it. A refusal FAILS the capture: writing an
+	// unannotated file under the annotated name would be a fake success.
+	if (AnnotationRequest != nullptr)
+	{
+		const auto* Request =
+			static_cast<const FlowVizCaptureLocal::FCaptureAnnotationRequest*>(AnnotationRequest);
+		if (Request->bAnnotate
+			&& !FlowVizAnnotate::BurnFooter(Pixels, Width, Height, Request->Annotation))
+		{
+			UE_LOG(LogFlowViz, Error,
+				TEXT("CaptureAnnotatedPNG: %dx%d is too small for the annotation footer."),
+				Width, Height);
+			return false;
+		}
 	}
 
 	const FString AbsolutePath = FPaths::ConvertRelativePathToFull(OutputPath);
@@ -678,6 +726,59 @@ namespace
 
 		return Volume;
 	}
+}
+
+bool UFlowVizCaptureLibrary::CaptureAnnotatedPNG(
+	const UObject* WorldContextObject,
+	ACFDVizCaseActor* CaseActor,
+	const FString& OutputPath,
+	FVector Location,
+	FRotator Rotation,
+	int32 Width,
+	int32 Height,
+	float FOV)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("CaptureAnnotatedPNG"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+	const FFlowVizVolumeCaseBinding& Binding = Volume->GetCaseBinding();
+	if (!Binding.bIsValid)
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("CaptureAnnotatedPNG: the volume has no case bound; an annotation with no "
+				 "identity to state would be a decorative lie."));
+		return false;
+	}
+
+	/*
+	 * THE ANNOTATION READS THE BOUND STATE, not caller-supplied strings: the
+	 * caption cannot disagree with the image. Time is the DISPLAYED frame's --
+	 * what is actually on screen -- through the same frame selection the proxy
+	 * renders from.
+	 */
+	FlowVizCaptureLocal::FCaptureAnnotationRequest Request;
+	Request.bAnnotate = true;
+	Request.Annotation.CaseName = Binding.Case.Metadata.Name;
+	Request.Annotation.FieldName = Binding.FieldId.ToString();
+	Request.Annotation.TimeUnit = Binding.Case.Units.Time;
+
+	const FFlowVizVolumeFrameSelection Selection = Volume->GetFrameSelection();
+	const int32 DisplayedFrame = Selection.FrameA != INDEX_NONE ? Selection.FrameA : 0;
+	if (Binding.Case.Timeline.Times.IsValidIndex(DisplayedFrame))
+	{
+		Request.Annotation.Time = Binding.Case.Timeline.Times[DisplayedFrame];
+	}
+
+	const FFlowVizTransferFunctionViewModel& TransferFunction = Volume->GetTransferFunction();
+	Request.Annotation.RangeMin = TransferFunction.GetRangeMin();
+	Request.Annotation.RangeMax = TransferFunction.GetRangeMax();
+	Request.Annotation.ColorMap = TransferFunction.GetColorMap();
+	Request.Annotation.bReversed = TransferFunction.IsColorMapReversed();
+
+	return CapturePipeline(
+		WorldContextObject, OutputPath, Location, Rotation, Width, Height, FOV, &Request);
 }
 
 bool UFlowVizCaptureLibrary::SetVolumeCompositeMode(

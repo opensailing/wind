@@ -11,6 +11,7 @@
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
 #include "UI/SFlowVizDiagnosticsOverlay.h"
+#include "UI/SFlowVizPipelinePanel.h"
 #include "UI/SFlowVizProbePanel.h"
 #include "UI/SFlowVizRenderSettingsPanel.h"
 #include "UI/SFlowVizSlicePanel.h"
@@ -298,6 +299,20 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 						// display once every section is open. Controls that fall off
 						// the bottom of a fixed column are controls that do not exist.
 						SNew(SScrollBox)
+
+						+ SScrollBox::Slot()
+							.Padding(FMargin(0.0f, 0.0f, 0.0f, 2.0f * U))
+						[
+							FlowVizWorkspaceLocal::MakeSection(
+								LOCTEXT("PipelineHeading", "Pipeline"),
+								SAssignNew(PipelinePanel, SFlowVizPipelinePanel)
+									.Model(Model.Get())
+									// A field switch re-binds the transfer
+									// function and resets playback; the re-push
+									// is what makes the render follow (#83).
+									.OnFieldChanged(FSimpleDelegate::CreateSP(
+										this, &SFlowVizWorkspace::HandleFieldChanged)))
+						]
 
 						+ SScrollBox::Slot()
 							.Padding(FMargin(0.0f, 0.0f, 0.0f, 2.0f * U))
@@ -732,6 +747,11 @@ void SFlowVizWorkspace::HandleClipChanged()
 	// normal, not an error, and the clip panel's advisory already says the edits
 	// are not reaching a renderer - reporting it twice would put a warning in the
 	// log for every click during ordinary setup.
+	PushToVolume();
+}
+
+void SFlowVizWorkspace::HandleFieldChanged()
+{
 	PushToVolume();
 }
 

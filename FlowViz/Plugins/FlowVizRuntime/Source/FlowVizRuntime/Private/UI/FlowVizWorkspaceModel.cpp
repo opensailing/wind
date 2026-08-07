@@ -330,6 +330,10 @@ FCFDVizResult FFlowVizWorkspaceModel::SaveSession(const FString& FilePath) const
 	FlowVizSession::CaptureFromViewModels(
 		&Player, &TransferFunction, &Clip, &Slice, &Probes, &RenderSettings, State);
 
+	// The profile's owner (#83): before this, bPresentationMode round-tripped
+	// through the JSON with nothing to read or write it.
+	State.bPresentationMode = bPresentationMode;
+
 	return FlowVizSession::SaveToFile(State, FilePath);
 }
 
@@ -402,7 +406,38 @@ FCFDVizResult FFlowVizWorkspaceModel::LoadState(const FFlowVizSessionState& Stat
 	Record(FlowVizSession::ApplyToViewModels(
 		State, &Player, &TransferFunction, &Clip, &Slice, &Probes, &RenderSettings));
 
+	/*
+	 * THE PROFILE FLAG, WITHOUT THE BUNDLE. SetPresentationMode would stomp
+	 * the lighting and jitter the session just restored -- the saved settings
+	 * are the user's tuned state, not the bundle's entry point. The flag is
+	 * adopted; the settings speak for themselves.
+	 */
+	bPresentationMode = State.bPresentationMode;
+
 	return FirstFailure;
+}
+
+void FFlowVizWorkspaceModel::SetPresentationMode(bool bInPresentation)
+{
+	bPresentationMode = bInPresentation;
+
+	if (bInPresentation)
+	{
+		// The Presentation bundle: lit, jittered. The values are the view
+		// model's own defaults for the terms -- only the toggles move, so a
+		// user's tuned ambient survives a profile round trip.
+		RenderSettings.SetLightingEnabled(true);
+		RenderSettings.SetJitterEnabled(true);
+	}
+	else
+	{
+		// The Scientific bundle: VISUAL_QA rule 1 (lighting must not modulate
+		// apparent scalar value) and ADR 002 (jitter trades banding for
+		// shimmer). These SET rather than toggle: entering Scientific must
+		// land on the quantitative-honesty state whatever was tuned before.
+		RenderSettings.SetLightingEnabled(false);
+		RenderSettings.SetJitterEnabled(false);
+	}
 }
 
 /* ========================================================================== */
