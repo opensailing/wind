@@ -6,6 +6,7 @@
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/SFlowVizPipelinePanel.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SEditableTextBox.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -33,6 +34,16 @@ namespace FlowVizPipelinePanelTest
 		FSimpleDelegate MakeDelegate()
 		{
 			return FSimpleDelegate::CreateLambda([this]() { ++Count; });
+		}
+	};
+
+	struct FOpenRecorder
+	{
+		TArray<FString> Paths;
+		FFlowVizOpenCaseRequested MakeDelegate()
+		{
+			return FFlowVizOpenCaseRequested::CreateLambda(
+				[this](const FString& Path) { Paths.Add(Path); });
 		}
 	};
 }
@@ -108,6 +119,37 @@ bool FFlowVizPipelinePanelTest::RunTest(const FString& Parameters)
 		Row->SimulateClick();
 		TestEqual(TEXT("re-clicking the displayed field does not announce"),
 			Counter.Count, Before + 1);
+	}
+
+	/* == The open-case row announces, and only with a real path ============= */
+	{
+		FOpenRecorder Recorder;
+		const TSharedRef<SFlowVizPipelinePanel> OpenPanel =
+			SNew(SFlowVizPipelinePanel)
+				.OnOpenCaseRequested(Recorder.MakeDelegate());
+
+		// NO MODEL on purpose: opening is how a case ARRIVES, so the row must
+		// work on the empty workspace the packaged app starts with.
+		if (!TestTrue(TEXT("the open row exists without a case"),
+				OpenPanel->GetOpenPathBox().IsValid() && OpenPanel->GetOpenButton().IsValid()))
+		{
+			return false;
+		}
+
+		OpenPanel->GetOpenButton()->SimulateClick();
+		TestEqual(TEXT("CONTROL: an empty path does not announce -- a stray Enter is "
+					   "not a request to open nothing"),
+			Recorder.Paths.Num(), 0);
+
+		OpenPanel->GetOpenPathBox()->SetText(
+			FText::FromString(TEXT("  /some/case.cfdviz  ")));
+		OpenPanel->GetOpenButton()->SimulateClick();
+		if (!TestEqual(TEXT("a committed path announces once"), Recorder.Paths.Num(), 1))
+		{
+			return false;
+		}
+		TestEqual(TEXT("trimmed -- pasted paths arrive with whitespace"),
+			Recorder.Paths[0], FString(TEXT("/some/case.cfdviz")));
 	}
 
 	/* == Unbound: builds, disabled, null-safe ================================ */

@@ -29,6 +29,9 @@ class SVerticalBox;
  *
  * A NULL MODEL IS LEGAL AND INERT, matching every sibling panel.
  */
+/** The path the user asked to open. */
+DECLARE_DELEGATE_OneParam(FFlowVizOpenCaseRequested, const FString& /*CasePath*/);
+
 class FLOWVIZRUNTIME_API SFlowVizPipelinePanel : public SCompoundWidget
 {
 public:
@@ -43,6 +46,14 @@ public:
 
 		/** Fired after a click CHANGED the displayed field. The workspace re-pushes. */
 		SLATE_EVENT(FSimpleDelegate, OnFieldChanged)
+
+		/**
+		 * Fired when the user asks to open the case at Path (Open button or a
+		 * committed path). The PANEL does not open anything -- the workspace
+		 * routes this through the same console path the -case= flag uses, so
+		 * actor spawning and both-halves loading stay one tested code path.
+		 */
+		SLATE_EVENT(FFlowVizOpenCaseRequested, OnOpenCaseRequested)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -64,14 +75,23 @@ public:
 	/** The row button for the Nth offered field, in GetVolumeFieldIds order. */
 	TSharedPtr<SButton> GetFieldButton(int32 Index) const;
 
+	TSharedPtr<class SEditableTextBox> GetOpenPathBox() const { return OpenPathBox; }
+	TSharedPtr<SButton> GetOpenButton() const { return OpenButton; }
+
 private:
 	FReply OnFieldClicked(FName FieldId);
+	FReply OnOpenClicked();
+	FReply OnBrowseClicked();
 	FText GetCaseLabel() const;
 
 	/** Borrowed. Null is the unbound state. */
 	FFlowVizWorkspaceModel* Model = nullptr;
 
 	FSimpleDelegate OnFieldChanged;
+	FFlowVizOpenCaseRequested OnOpenCaseRequested;
+
+	TSharedPtr<class SEditableTextBox> OpenPathBox;
+	TSharedPtr<SButton> OpenButton;
 
 	TSharedPtr<SVerticalBox> RowsBox;
 	TArray<TSharedPtr<SButton>> FieldButtons;

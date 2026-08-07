@@ -312,7 +312,27 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 									// function and resets playback; the re-push
 									// is what makes the render follow (#83).
 									.OnFieldChanged(FSimpleDelegate::CreateSP(
-										this, &SFlowVizWorkspace::HandleFieldChanged)))
+										this, &SFlowVizWorkspace::HandleFieldChanged))
+									/*
+									 * ONE CODE PATH for every way a case opens:
+									 * the panel's request becomes the same
+									 * console command -case= and users type,
+									 * which spawns the actor and loads both
+									 * halves. A direct OpenCase here would be
+									 * the panels-only half all over again.
+									 */
+									.OnOpenCaseRequested(
+										FFlowVizOpenCaseRequested::CreateLambda(
+											[](const FString& CasePath)
+											{
+												if (GEngine != nullptr)
+												{
+													GEngine->Exec(nullptr,
+														*FString::Printf(
+															TEXT("FlowViz.LoadCase %s"),
+															*CasePath));
+												}
+											})))
 						]
 
 						+ SScrollBox::Slot()

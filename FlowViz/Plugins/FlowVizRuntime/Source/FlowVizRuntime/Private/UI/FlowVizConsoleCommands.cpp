@@ -13,6 +13,7 @@
 #include "EngineUtils.h"
 #include "Framework/Docking/TabManager.h"
 #include "Scene/FlowVizCaseActor.h"
+#include "UI/SFlowVizPipelinePanel.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizDiagnostics.h"
 #include "UI/FlowVizWorkspaceTab.h"
@@ -453,6 +454,12 @@ namespace FlowVizConsoleCommands
 			// nothing else will make the render follow. Same obligation
 			// SFlowVizWorkspace::LoadState documents for a session load.
 			Workspace->PushToVolume();
+
+			// The field list changed with the case; the rows are explicit-refresh.
+			if (Workspace->GetPipelinePanel().IsValid())
+			{
+				Workspace->GetPipelinePanel()->RefreshFields();
+			}
 
 			const FCFDVizCase* Case = Workspace->GetModel().GetCase();
 			Ar.Logf(TEXT("FlowViz: opened '%s' -- %d frames, displaying '%s'"),
