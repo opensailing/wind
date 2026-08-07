@@ -332,11 +332,26 @@ struct FFlowVizTransferFunction
 	/** Colour drawn for a value ABOVE ValueRangeMax. Magenta by default. */
 	FLinearColor OverRangeColor = FLinearColor(1.0f, 0.0f, 1.0f, 1.0f);
 
-	/** Colour drawn for NaN or infinity. Pure green by default. */
-	FLinearColor NaNColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f);
+	/**
+	 * Colour drawn for NaN or infinity. Pure green by default, and the shade
+	 * is LOAD-BEARING: FlowViz.Render.TransferFunction requires every flag
+	 * colour to sit >0.25 RGB from every entry of every shipped colormap --
+	 * including the grayscale ramp, which bans all body-like neutrals by
+	 * construction (a slate NaN on a grayscale map would read as data). A
+	 * masked OBSTACLE therefore draws green too; making obstacles read as
+	 * objects is the boundary MESH's job, not this colour's.
+	 *
+	 * ALPHA 0.4, NOT 1.0. The hue is the disclosure; opacity is only display
+	 * weight. At alpha 1 every sample inside a masked obstacle saturates the
+	 * ray instantly and the whole solid renders as one glaring opaque slab
+	 * that dominates the scene ("a green box" -- the first real user). At 0.4
+	 * the region reads as an unmistakably green ghost: still disclosed, still
+	 * >0.25 RGB from every colormap, no longer the loudest thing on screen.
+	 */
+	FLinearColor NaNColor = FLinearColor(0.0f, 1.0f, 0.0f, 0.4f);
 
-	/** Colour drawn for a cell the mask field rejected. Dark green by default - distinct from NaN, since the diagnostics panel counts them separately. */
-	FLinearColor MaskedColor = FLinearColor(0.0f, 0.55f, 0.0f, 1.0f);
+	/** Colour drawn for a cell the mask field rejected. Dark green by default - distinct from NaN, since the diagnostics panel counts them separately. Same display-weight alpha as NaNColor. */
+	FLinearColor MaskedColor = FLinearColor(0.0f, 0.55f, 0.0f, 0.4f);
 
 	/**
 	 * Whether the SHADER should clamp an out-of-range value into the domain
@@ -565,8 +580,8 @@ struct alignas(16) FFlowVizTransferFunctionShaderParameters
 	FLinearColor OverRangeColor = FLinearColor(1.0f, 0.0f, 1.0f, 1.0f);
 
 	/* row 4 */
-	/** Colour for NaN or infinity. */
-	FLinearColor NaNColor = FLinearColor(0.0f, 1.0f, 0.0f, 1.0f);
+	/** Colour for NaN or infinity. Alpha is display weight; see FFlowVizTransferFunction::NaNColor. */
+	FLinearColor NaNColor = FLinearColor(0.0f, 1.0f, 0.0f, 0.4f);
 
 	/* row 5 */
 	/** Colour for a masked cell. Distinct from NaNColor: the two are counted and reported separately. */

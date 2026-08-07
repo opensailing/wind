@@ -566,9 +566,25 @@ public:
 			 * time, never an expected state.
 			 */
 			IFlowVizVolumeRayMarchDispatcher* Dispatcher = FlowVizVolumeRayMarch::GetDispatcher();
-			const int32 SlotAIndex = (TextureSet != nullptr)
+			int32 SlotAIndex = (TextureSet != nullptr)
 				? TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameA)
 				: INDEX_NONE;
+
+			/*
+			 * HOLD THE LAST FRAME through upload gaps. During playback the
+			 * display frame's upload routinely lags the playhead by a frame or
+			 * two; skipping the march for that gap draws hull-only frames that
+			 * strobe at upload latency ("it blinks on and off over the
+			 * timeline" -- the app's first real user). A frame or two of held
+			 * image is what every video player does for the same problem.
+			 * Seek/rebind correctness is unaffected: a case or field change
+			 * calls InvalidateResidency, which empties the ring, so the
+			 * fallback can never show a PREVIOUS case's voxels.
+			 */
+			if (SlotAIndex == INDEX_NONE && TextureSet != nullptr)
+			{
+				SlotAIndex = TextureSet->FindMostRecentResidentSlot();
+			}
 			const FFlowVizVolumeSlotTextures* SlotATextures = (TextureSet != nullptr)
 				? TextureSet->GetSlotTextures(SlotAIndex)
 				: nullptr;

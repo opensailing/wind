@@ -1223,6 +1223,27 @@ int32 FlowVizVolumeRing::FindSlotForFrame(TArrayView<const FFlowVizVolumeSlotSta
 	return INDEX_NONE;
 }
 
+int32 FlowVizVolumeRing::FindMostRecentSlot(TArrayView<const FFlowVizVolumeSlotState> Slots)
+{
+	int32 Best = INDEX_NONE;
+	uint64 BestSerial = 0;
+	for (int32 Index = 0; Index < Slots.Num(); ++Index)
+	{
+		// Same exclusion as FindSlotForFrame: a slot mid-upload holds voxels
+		// that are being replaced under the sampler.
+		if (Slots[Index].FrameIndex == INDEX_NONE || Slots[Index].bUploadInFlight)
+		{
+			continue;
+		}
+		if (Best == INDEX_NONE || Slots[Index].LastUseSerial > BestSerial)
+		{
+			Best = Index;
+			BestSerial = Slots[Index].LastUseSerial;
+		}
+	}
+	return Best;
+}
+
 int32 FlowVizVolumeRing::ChooseUploadSlot(
 	TArrayView<const FFlowVizVolumeSlotState> Slots,
 	int32 FrameIndex,
@@ -1506,6 +1527,18 @@ int32 FFlowVizVolumeTextureSet::FindSlotForFrame(int32 FrameIndex) const
 	const int32 Slot = FlowVizVolumeRing::FindSlotForFrame(SlotStates, FrameIndex);
 	// A slot can be bookkeeping-resident and still hold no content if its first
 	// upload has not completed; such a slot must not be sampled.
+	if (Slot != INDEX_NONE && Slots.IsValidIndex(Slot) && !Slots[Slot].bHasContent)
+	{
+		return INDEX_NONE;
+	}
+	return Slot;
+}
+
+int32 FFlowVizVolumeTextureSet::FindMostRecentResidentSlot() const
+{
+	const int32 Slot = FlowVizVolumeRing::FindMostRecentSlot(SlotStates);
+	// The same content guard as FindSlotForFrame: bookkeeping-resident with no
+	// completed upload must not be sampled.
 	if (Slot != INDEX_NONE && Slots.IsValidIndex(Slot) && !Slots[Slot].bHasContent)
 	{
 		return INDEX_NONE;

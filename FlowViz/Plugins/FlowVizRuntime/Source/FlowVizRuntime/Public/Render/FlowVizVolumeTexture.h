@@ -844,6 +844,16 @@ namespace FlowVizVolumeRing
 	FLOWVIZRUNTIME_API int32 FindSlotForFrame(TArrayView<const FFlowVizVolumeSlotState> Slots, int32 FrameIndex);
 
 	/**
+	 * The most recently USED slot holding any frame at all (largest
+	 * LastUseSerial; in-flight slots excluded). INDEX_NONE when nothing is
+	 * resident. This is the HOLD-LAST-FRAME fallback: during playback the
+	 * display frame's upload can lag the playhead, and a renderer that draws
+	 * nothing for that gap strobes at upload latency -- verbatim "it blinks
+	 * on and off over the timeline" from the app's first real user.
+	 */
+	FLOWVIZRUNTIME_API int32 FindMostRecentSlot(TArrayView<const FFlowVizVolumeSlotState> Slots);
+
+	/**
 	 * Choose the slot to upload FrameIndex into.
 	 *
 	 * In order: a slot already holding this frame; then any never-filled slot;
@@ -1121,6 +1131,9 @@ public:
 
 	/** Slot holding this frame and ready to sample, or INDEX_NONE. */
 	int32 FindSlotForFrame(int32 FrameIndex) const;
+
+	/** The most recently used slot ready to sample -- the hold-last-frame fallback. INDEX_NONE when nothing is resident. */
+	int32 FindMostRecentResidentSlot() const;
 
 	/** Which slot an upload of FrameIndex would use, without reserving it. INDEX_NONE when every slot is pinned or busy. */
 	int32 PeekUploadSlot(int32 FrameIndex) const;

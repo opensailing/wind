@@ -906,6 +906,28 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 			FlowVizVolumeRing::FindSlotForFrame(Slots, 11), INDEX_NONE);
 		Slots[1].bUploadInFlight = false;
 
+		/* -- The hold-last-frame fallback (#88): the strobe fix. ------------- */
+
+		// The most recently USED resident slot, which is what the display holds
+		// through an upload gap. Slot 1 (serial 101) beats slot 0 (100).
+		TestEqual(TEXT("the most recent resident slot is the highest serial"),
+			FlowVizVolumeRing::FindMostRecentSlot(Slots), 1);
+
+		// Mid-upload slots are excluded for the same reason as FindSlotForFrame:
+		// falling back to torn voxels would trade a blink for garbage.
+		Slots[1].bUploadInFlight = true;
+		TestEqual(TEXT("the fallback never picks a slot mid-upload"),
+			FlowVizVolumeRing::FindMostRecentSlot(Slots), 0);
+		Slots[1].bUploadInFlight = false;
+
+		// An empty ring has nothing to hold: INDEX_NONE, not a crash and not
+		// slot 0's never-filled state.
+		TArray<FFlowVizVolumeSlotState> Empty;
+		Empty.SetNum(2);
+		TestEqual(TEXT("an empty ring yields INDEX_NONE -- there is no last frame "
+					   "before the first"),
+			FlowVizVolumeRing::FindMostRecentSlot(Empty), INDEX_NONE);
+
 		// Prefetching frame 12 while 10 and 11 are displayed: slot 2 is the only
 		// legal answer - it is neither pinned nor the most recently used.
 		TestEqual(TEXT("the prefetch evicts the LRU unpinned slot"),
