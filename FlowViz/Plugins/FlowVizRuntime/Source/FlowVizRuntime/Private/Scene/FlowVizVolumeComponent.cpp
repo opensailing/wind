@@ -494,6 +494,9 @@ public:
 		return bRayMarchDispatched;
 	}
 
+	/** Sentinel for LastLoggedDispatchReason: the last log line was the DISPATCHED one. */
+	static constexpr int32 DispatchReasonDispatched = -2;
+
 	virtual void GetDynamicMeshElements(
 		const TArray<const FSceneView*>& Views,
 		const FSceneViewFamily& ViewFamily,
@@ -585,15 +588,35 @@ public:
 			const FFlowVizDispatchStatus Status = FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
 				DispatchStatusChannel, Dispatcher, DynamicData, TextureSet, SlotATextures);
 
-			if (!Status.ShouldDispatch() && !bLoggedDispatchBlocker)
+			/*
+			 * LOG ON REASON CHANGE, not once ever. The once-latch buried the
+			 * story: a proxy that logged "parameters not built" at bind time
+			 * and then stalled forever on "upload has not landed" showed one
+			 * transient-looking warning and went silent -- indistinguishable
+			 * from recovery. A user's packaged app rendered the hull only and
+			 * the log had nothing to say about why.
+			 */
+			if (!Status.ShouldDispatch())
 			{
-				bLoggedDispatchBlocker = true;
-				UE_LOG(LogFlowViz, Warning,
-					TEXT("Volume ray-march SKIPPED and the hull is all this frame contains: %s ")
-					TEXT("(frameA=%d slotA=%d)"),
-					*FlowVizVolumeRayMarch::DescribeDispatchReason(Status.Reason),
-					DynamicData.FrameSelection.FrameA,
-					SlotAIndex);
+				if (LastLoggedDispatchReason != static_cast<int32>(Status.Reason))
+				{
+					LastLoggedDispatchReason = static_cast<int32>(Status.Reason);
+					UE_LOG(LogFlowViz, Warning,
+						TEXT("Volume ray-march SKIPPED and the hull is all this frame contains: %s ")
+						TEXT("(frameA=%d slotA=%d)"),
+						*FlowVizVolumeRayMarch::DescribeDispatchReason(Status.Reason),
+						DynamicData.FrameSelection.FrameA,
+						SlotAIndex);
+				}
+			}
+			else if (LastLoggedDispatchReason != DispatchReasonDispatched)
+			{
+				// The recovery half of the story: say ONCE that marching began,
+				// and re-arm the blocker log so a later stall speaks again.
+				LastLoggedDispatchReason = DispatchReasonDispatched;
+				UE_LOG(LogFlowViz, Display,
+					TEXT("Volume ray-march DISPATCHED: frame %d is marching."),
+					DynamicData.FrameSelection.FrameA);
 			}
 
 			if (Status.ShouldDispatch())
@@ -791,8 +814,8 @@ private:
 	/** Mutable because GetDynamicMeshElements is const; this is a diagnostic, not render state. */
 	mutable bool bRayMarchDispatched = false;
 
-	/** One warning per proxy, not one per frame per view. See the dispatch gate. */
-	mutable bool bLoggedDispatchBlocker = false;
+	/** One log line per REASON CHANGE, not per frame per view. See the dispatch gate. */
+	mutable int32 LastLoggedDispatchReason = INDEX_NONE;
 };
 
 /* -------------------------------------------------------------------------- */

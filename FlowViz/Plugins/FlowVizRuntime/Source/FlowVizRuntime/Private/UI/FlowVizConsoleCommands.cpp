@@ -461,6 +461,14 @@ namespace FlowVizConsoleCommands
 				Workspace->GetPipelinePanel()->RefreshFields();
 			}
 
+			/*
+			 * AUTO-PLAY. A user who opens a time-varying case wants to see it
+			 * move; a load that lands on frame 1/20, paused, at 0.000s reads
+			 * as "nothing really happened" -- verbatim how the gap was
+			 * reported. Opening is the request to watch.
+			 */
+			Workspace->GetModel().Player.Play();
+
 			const FCFDVizCase* Case = Workspace->GetModel().GetCase();
 			Ar.Logf(TEXT("FlowViz: opened '%s' -- %d frames, displaying '%s'"),
 				Case != nullptr ? *Case->Metadata.Name : TEXT("?"),
