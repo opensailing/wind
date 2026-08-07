@@ -568,8 +568,23 @@ out, since the checker matches source text) plus the setter-caller count that
 the checker does not measure.
 
 Tracked as #39 (writers, done) and #73 (the guard's own scoreability, done).
-**Still open: the 13 setters with no production caller, and a widget or console
-surface to drive them.**
+**Closed 2026-08-06, same day.** `SFlowVizRenderSettingsPanel` (the "Render"
+section of the workspace side panel) now drives every setter, announcing over
+`OnRenderSettingsChanged`; the workspace subscribes and pushes through
+`FFlowVizWorkspaceModel::PushRenderSettingsToVolume`, and `SetVolume` pushes
+state chosen before the volume existed. Five automation tests cover the panel,
+the seam and the workspace subscription; the subscription arm was verified by
+differential (deleting the `.OnRenderSettingsChanged` line fails exactly
+`FlowViz.UI.Workspace.RenderSettingsBinding`, restore goes green).
+
+The counterpart guard is `Tools/check_uncalled_setters.sh`, in the harness
+sweep beside the frozen-params check: it fails when any view model setter has
+no production caller, with tests not tests, own-file calls and same-named
+methods on other types all excluded. On the tree it found 28 of 58 — the 14
+here plus 14 pre-existing gaps across Clip, Probe, Timeline and
+TransferFunction, now allowlisted with reasons and tracked as **#75**. The
+checker refuses a stale allowlist entry, so each gap that closes forces its
+exemption out.
 
 ### 3. The CVF volume reader has no committed test
 

@@ -8,15 +8,18 @@ before the thing it describes existed — because a controls reference written
 before can still say what was promised and mark honestly what is missing.
 
 **Sections 2 and 4 have since been filled in from shipped code.** The console
-commands and the transport bar are operable; the render controls in §1 are
-mostly not, and keyboard and mouse (§3) do not exist at all. The rows that still
-read *wired* or *frozen* are the ones this document exists for.
+commands, the transport bar and (as of #74) the render controls are operable;
+keyboard and mouse (§3) do not exist at all. The rows that still read *wired*
+or *frozen* are the ones this document exists for.
 
-§1 was rewritten 2026-08-06 when its guard started passing. Every shader
-parameter now has a production writer, and thirteen render controls are still
-unreachable from a shipped build — the freeze moved from the shader defaults up
-into the view model's, where that guard does not look. A green check bounds the
-defect it was written for, not the class.
+§1 was rewritten twice on 2026-08-06. First when its guard started passing —
+every shader parameter had gained a production writer while thirteen render
+controls stayed unreachable, because the freeze had moved from the shader
+defaults up into the view model's, where that guard does not look. Then again
+when #74 closed that gap: `SFlowVizRenderSettingsPanel` now drives all
+seventeen setters, and a second checker (`check_uncalled_setters.sh`) watches
+the level the first one cannot. A green check bounds the defect it was written
+for, not the class — which is why there are now two of them.
 
 Every row below carries a state, and the states are measured rather than
 recalled:
@@ -37,94 +40,74 @@ angle except the one that matters. See [`BACKLOG.md`](BACKLOG.md) item 2e.
 
 ## 1. Render controls
 
-Measured 2026-08-06 by `Tools/check_frozen_params.sh`, which fails when a
-declared shader parameter has no production writer outside
-`FlowVizRayMarch::FillDefaults`. It now reports **0 frozen of 74 declared** —
-every parameter has a production writer, five allowlisted as deliberately
-constant.
+Measured 2026-08-06, twice, by two checkers that ask successive questions:
 
-**That is a weaker statement than it sounds, and the difference is this
-document's subject.** The 16 parameters §1.2 used to list as frozen are now
-written by `FFlowVizRenderSettingsViewModel::ApplyToRayMarchParameters`, which
-the dispatcher calls in production
-(`FlowVizVolumeRayMarchDispatcher.cpp:186`). But that writer copies its own
-member fields, and **14 of the view model's 17 setters have no production
-caller** — no Slate panel, no console command, and session save/reload does not
-carry them. So those parameters are no longer welded to `FillDefaults`'
-constant; they are welded to the *view model's* default instead. The freeze
-moved up one level, to where the checker cannot see it.
+- `Tools/check_frozen_params.sh` — does anything outside
+  `FlowVizRayMarch::FillDefaults` write each declared shader parameter?
+  **0 frozen of 74 declared** (5 allowlisted as deliberately constant).
+- `Tools/check_uncalled_setters.sh` — does each view model setter have a
+  production caller? **0 unallowlisted of 58 across 6 view models** (14
+  allowlisted as open gaps, tracked as #75 — none of them render settings).
 
-The checker is not wrong — "has a writer outside `FillDefaults`" is exactly what
-it claims to measure. It is a reminder that a green guard bounds the defect it
-was written for, not the class of defect. Re-deriving the historical 16 is in §5.
+The second checker exists because the first went green while 13 render controls
+were still welded: the parameters had gained a writer
+(`FFlowVizRenderSettingsViewModel::ApplyToRayMarchParameters`, called by the
+dispatcher at `FlowVizVolumeRayMarchDispatcher.cpp:186`), but 14 of that view
+model's 17 setters had no production caller, so the freeze had moved one level
+up — from `FillDefaults`' literals to the view model's member initialisers,
+past the edge of what the first checker measures. A green guard bounds the
+defect it encodes, not the class. Re-deriving both numbers is in §5.
 
-### 1.1 Wired — reach the GPU, no widget yet
+### 1.1 Operable — the "Render" section of the workspace side panel
 
-These have a real production writer: the two view models'
-`ApplyToRayMarchParameters` — nine from the transfer-function view model, three
-from the clip view model. What they lack is a Slate control on the other end.
+`SFlowVizRenderSettingsPanel`, added with #74, drives every previously-welded
+render setting. The workspace subscribes to its `OnRenderSettingsChanged` and
+pushes over `FFlowVizWorkspaceModel::PushRenderSettingsToVolume` — the same
+event-not-call channel as the clip and colour panels, so the panel itself never
+mentions a volume. `FlowViz.UI.RenderSettingsPanel.*` (3 tests) asserts the
+controls drive the view model, refused and no-op edits do not announce, and an
+unbound panel is disabled and null-safe; `FlowViz.UI.Workspace.RenderSettings*`
+(2 tests) asserts an edit in the panel reaches the bound volume's render-thread
+payload and that binding a volume pushes settings chosen before it existed.
 
 | Control | Parameter | Notes |
 |---|---|---|
-| Colour domain | `ValueRangeMin` / `ValueRangeMax` | Taken from the manifest's declared magnitude range. A zero-width domain is the invisible failure — every voxel reads LUT entry 0 and no reason bit fires — so the range is validated on the way in |
-| Clamp to range | `bClampToRange` | Off: out-of-range samples take the under/over colours. On: they clamp into the ramp |
-| Opacity | `OpacityMultiplier` | |
-| Component | `ComponentMode` | X / Y / Z / W / Magnitude. **Not** the compositing mode — see 1.2 |
-| Crop box | `CropBoxMin` / `CropBoxMax` | |
-| Clip planes | `ClipPlanes` / `NumClipPlanes` | |
-| Reason colours | `MaskedColor`, `NaNColor`, `UnderRangeColor`, `OverRangeColor` | The disclosure palette: each names *why* a voxel is not showing data |
+| Compositing mode | `CompositeMode` | All six modes, one button each. Also `BlueprintCallable` via `UFlowVizCaptureLibrary::SetVolumeCompositeMode` |
+| Iso value | `IsoValue` | Editable in Iso-surface mode only — no other mode reads it |
+| Lighting | `bEnableLighting` | Toggle; also `SetVolumeLightingEnabled` from Blueprint. Off by default per `VISUAL_QA.md` rule 1 |
+| Ambient / diffuse | `AmbientStrength`, `DiffuseStrength` | Live only while lit; clamped to [0, 1] |
+| Light direction | `LightDirection` | Per-axis entry; normalised on the way in, an all-zero direction refused |
+| Jitter | `bEnableJitter`, `JitterAmount`, `JitterSeed` | Toggle plus terms; off by default per ADR 002 |
+| Step size | `StepVoxels`, `ReferenceStepVoxels` | Zero refused — it is a stall and a divisor respectively |
+| Step ceiling | `MaxSteps` | Clamped to the shader's limit |
+| Early-out | `EarlyTerminationAlpha` | 1.0 never triggers, which is reference quality |
+| Field filtering | `bFilterField` | Interpolated / nearest toggle |
+| Strict status filter | `bStrictStatusFilter` | Reject filtered samples touching invalid voxels |
+| No-data colour | `NoDataColor` | Fixed swatch palette, not a picker — rule 4 requires the disclosure colours stay distinguishable |
 
-### 1.2 Reachable only from Blueprint — three of the sixteen
+### 1.2 Wired — reach the GPU, no widget yet
 
-These have both a production writer *and* a production caller that can move
-them. The caller is `UFlowVizCaptureLibrary`, whose entry points are
-`UFUNCTION(BlueprintCallable)`, so they are reachable from Blueprint and from
-the capture harness — but from no widget and no console command.
+These have a production writer and, mostly, a widget — the exceptions are what
+keeps this section alive. Nine parameters flow from the transfer-function view
+model and three from the clip view model.
 
-| Control | Parameter | Entry point |
+| Control | Parameter | Notes |
 |---|---|---|
-| Compositing mode | `CompositeMode` | `SetVolumeCompositeMode` — validated, not cast; an unrecognised mode is refused and the previous one kept |
-| Iso value | `IsoValue` | `SetVolumeCompositeMode`, applied whatever the mode, so selecting `IsoSurface` later needs no second call |
-| Lighting | `bEnableLighting` | `SetVolumeLightingEnabled` |
+| Colour domain | `ValueRangeMin` / `ValueRangeMax` | Operable — the range boxes in "Color & Opacity" (Manual mode) |
+| Clamp to range | `bClampToRange` | **No widget toggles the model** (`SetClampToRange` has no production caller — #75) |
+| Opacity | `OpacityMultiplier` | Operable — the opacity slider |
+| Component | `ComponentMode` | X / Y / Z / W / Magnitude. **Not** the compositing mode. Derived from the view model's component choice; no widget selects it (#75) |
+| Crop box | `CropBoxMin` / `CropBoxMax` | Operable — the crop controls in "Clipping" |
+| Clip planes | `ClipPlanes` / `NumClipPlanes` | Operable — preset planes can be added, removed, inverted; in-place editing has no control (`SetPlane`, #75) |
+| Reason colours | `MaskedColor`, `NaNColor`, `UnderRangeColor`, `OverRangeColor` | The disclosure palette: each names *why* a voxel is not showing data. Shipped defaults only — not editable anywhere (#75) |
 
-All six compositing modes can now be selected, which retires this section's
-former headline claim that five of six were unreachable. `FlowViz.Capture.RenderSettings`
-asserts the read-modify-write property that makes them independent: changing the
-mode must not silently reset lighting, and vice versa.
+The render defaults survived the fix on purpose: jitter is off because per-ray
+jitter causes temporal shimmer (ADR 002), and the render is unlit by default
+because [`VISUAL_QA.md`](VISUAL_QA.md) rule 1 forbids lighting from modulating
+apparent scalar value. What changed is that they are now defaults rather than
+the only reachable values.
 
-### 1.3 Frozen one level up — a default no shipped caller can move
-
-The remaining thirteen reach the GPU through the same view model, so
-`check_frozen_params.sh` counts them as written. Nothing in production calls
-their setters. The value in the table is still the only value a shipped build
-renders with; what changed is *which* default supplies it — the view model's
-member initialiser rather than `FillDefaults`' literal.
-
-| Control | Parameter | Welded to | Setter with no production caller |
-|---|---|---|---|
-| Ambient / diffuse | `AmbientStrength`, `DiffuseStrength` | 0.35 / 0.65 | `SetAmbientStrength`, `SetDiffuseStrength` |
-| Light direction | `LightDirection` | (-0.5, -0.6, -0.6) normalised | `SetLightDirection` |
-| Jitter | `bEnableJitter`, `JitterAmount`, `JitterSeed` | off / 1.0 / 0 | `SetJitterEnabled`, `SetJitterAmount`, `SetJitterSeed` |
-| Step size | `StepVoxels`, `ReferenceStepVoxels` | `FlowVizRayMarch` defaults | `SetStepVoxels`, `SetReferenceStepVoxels` |
-| Step ceiling | `MaxSteps` | default, clamped | `SetMaxSteps` |
-| Early-out | `EarlyTerminationAlpha` | default | `SetEarlyTerminationAlpha` |
-| Field filtering | `bFilterField` | 1 | `SetFieldFilteringEnabled` |
-| Strict status filter | `bStrictStatusFilter` | 0 | `SetStrictStatusFilter` |
-| No-data colour | `NoDataColor` | transparent black | `SetNoDataColor` |
-
-**The consequence worth stating plainly.** Lighting can now be switched on, but
-the three parameters that decide what lit output *looks* like cannot be tuned
-from a shipped build. Enabling lighting selects one fixed appearance. Jitter,
-step size and the early-out are likewise fixed, so the quality/performance
-trade-off in [`PERFORMANCE.md`](PERFORMANCE.md) cannot be exercised by a user.
-
-The defaults themselves are deliberate and should survive the fix: jitter is off
-because per-ray jitter causes temporal shimmer (ADR 002), and the render is unlit
-by default because [`VISUAL_QA.md`](VISUAL_QA.md) rule 1 forbids lighting from
-modulating apparent scalar value. The bug is that they are the *only* reachable
-values.
-
-Five further parameters are frozen and legitimately so — `CropPad0`, `CropPad1`,
+Five parameters are frozen and legitimately so — `CropPad0`, `CropPad1`,
 `LightPad0`, `FieldSampler`, `TransferFunctionSampler`. They are cbuffer padding
 and static sampler states, exempted by name and reason in
 `Plugins/FlowVizRuntime/Source/FlowVizRuntime/frozen_params_allow.txt`.
@@ -244,10 +227,26 @@ text, and `// OutParameters.CompositeMode = ...` still contains
 `.CompositeMode =`. Commenting the writer out leaves the verdict at 0, which
 reads as "the mutation had no effect" when it means the mutation never landed.
 
-That run is what re-derives §1.2/§1.3's sixteen. It does *not* re-derive the
-count of setters with no production caller, which is the number §1 now turns on;
-for that, see the loop over `Set*` declarations in
-`FlowVizRenderSettingsViewModel.h` — 14 of 17 as of 2026-08-06.
+That run is what re-derives the historical sixteen. The setter-level question —
+the one §1 now turns on — has its own checker, wired into the harness sweep
+beside this one:
+
+```sh
+# Which view model setters no production code calls. Exit 1 names
+# them; exit 2 is UNSCORED, same convention as above. The allowlist
+# (uncalled_setters_allow.txt) holds the open gaps tracked as #75,
+# and the checker refuses a stale entry, so a gap that closes cannot
+# leave its exemption behind.
+./Tools/check_uncalled_setters.sh
+
+./Tools/tests/test_check_uncalled_setters.sh
+```
+
+Its differential is the same shape: delete `SFlowVizRenderSettingsPanel`'s
+handler bodies (or its `.OnRenderSettingsChanged` subscription in
+`SFlowVizWorkspace.cpp` — that arm is what `FlowViz.UI.Workspace.
+RenderSettingsBinding` kills, verified 2026-08-06) and the workspace edits a
+model the renderer never sees again.
 
 For the console commands, search for the literal name **and** for
 `FAutoConsoleCommand` as a control. A search that returns zero for both tells you

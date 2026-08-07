@@ -210,6 +210,12 @@ fi
 # UNSCORED for an unknown length of time while UI_CONTROLS.md went on citing the
 # number it used to produce. Nothing was red. Nothing was measuring.
 #
+# check_uncalled_setters.sh is the same lesson from the other side: the
+# frozen-params check went GREEN while 13 render controls were still welded,
+# because the defect had moved one level up (a writer whose setters nobody
+# calls) -- so the sweep runs both questions, and a third guard with tests and
+# no slot here should be treated as suspect by default.
+#
 # The portability check is scoped to the directory being swept, so the runner's
 # own fixtures are checked too -- a fixture that cannot run under the shebang it
 # names is as broken as a real script, and finding it here is how it gets found
@@ -277,6 +283,16 @@ echo
 (
     cd "${HERE}/.." 2>/dev/null || exit 1
     run_tree_check "frozen shader parameters" "${HERE}/check_frozen_params.sh"
+) || tree_checks_failed=1
+
+# The question one hop up, and the reason both run: the frozen-params check
+# went green on 2026-08-06 while 13 render controls were still welded, because
+# the defect had moved from "no writer" to "a writer whose setters nobody
+# calls" -- exactly past that checker's edge. Same module anchoring.
+echo
+(
+    cd "${HERE}/.." 2>/dev/null || exit 1
+    run_tree_check "uncalled view model setters" "${HERE}/check_uncalled_setters.sh"
 ) || tree_checks_failed=1
 
 echo

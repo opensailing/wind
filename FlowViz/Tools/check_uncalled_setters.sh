@@ -148,27 +148,37 @@ mentions_type() {  # mentions_type <file> <type> -> 0 if file or companion .h me
     return 1
 }
 
+# ONE PASS PER CLASS, NOT PER SETTER. The gated file set depends only on the
+# class, so it is computed once and the candidate files' non-comment lines are
+# concatenated; each setter is then a single grep over that corpus. The naive
+# per-setter x per-file loop took ~20s on the real module, which matters
+# because the sweep's own tests invoke the sweep -- and the checker -- several
+# times over.
 : > "${WORK}/uncalled.txt"
-while IFS=' ' read -r cls setter; do
-    [[ -n "${cls}" && -n "${setter}" ]] || continue
+cut -d' ' -f1 "${WORK}/pairs.txt" | sort -u > "${WORK}/classes.txt"
+while IFS= read -r cls; do
+    [[ -n "${cls}" ]] || continue
     base="${cls#F}"   # FFlowVizAlphaViewModel -> FlowVizAlphaViewModel
-    found=0
+
+    : > "${WORK}/corpus.txt"
     while IFS= read -r f; do
         [[ -n "${f}" ]] || continue
         case "${f}" in
             */"${base}".h|*/"${base}".cpp) continue ;;
         esac
         mentions_type "${f}" "${cls}" || continue
-        if grep -E "((\.|->)${setter}[[:space:]]*\(|&${cls}::${setter}\b)" "${f}" 2>/dev/null \
-            | grep -qvE '^[[:space:]]*(//|\*|/\*)'; then
-            found=1
-            break
-        fi
+        grep -vE '^[[:space:]]*(//|\*|/\*)' "${f}" 2>/dev/null >> "${WORK}/corpus.txt"
     done < "${WORK}/prod_files.txt"
-    if [[ "${found}" -eq 0 ]]; then
-        printf '%s %s\n' "${base}" "${setter}" >> "${WORK}/uncalled.txt"
-    fi
-done < "${WORK}/pairs.txt"
+
+    while IFS=' ' read -r pcls setter; do
+        [[ "${pcls}" == "${cls}" && -n "${setter}" ]] || continue
+        if ! grep -qE "((\.|->)${setter}[[:space:]]*\(|&${cls}::${setter}\b)" \
+            "${WORK}/corpus.txt" 2>/dev/null; then
+            printf '%s %s\n' "${base}" "${setter}" >> "${WORK}/uncalled.txt"
+        fi
+    done < "${WORK}/pairs.txt"
+done < "${WORK}/classes.txt"
+sort -o "${WORK}/uncalled.txt" "${WORK}/uncalled.txt"
 
 # --- 4. The allowlist ---------------------------------------------------------
 #

@@ -12,6 +12,7 @@
 #include "UI/SFlowVizClipPanel.h"
 #include "UI/SFlowVizDiagnosticsOverlay.h"
 #include "UI/SFlowVizProbePanel.h"
+#include "UI/SFlowVizRenderSettingsPanel.h"
 #include "UI/SFlowVizSlicePanel.h"
 #include "UI/SFlowVizTransferFunctionPanel.h"
 #include "UI/SFlowVizTransportBar.h"
@@ -334,6 +335,24 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 							.Padding(FMargin(0.0f, 0.0f, 0.0f, 2.0f * U))
 						[
 							FlowVizWorkspaceLocal::MakeSection(
+								LOCTEXT("RenderSettingsHeading", "Render"),
+								SAssignNew(RenderSettingsPanel, SFlowVizRenderSettingsPanel)
+									.ViewModel(&Model->RenderSettings)
+									// THE CHANNEL TO THE RENDERER for mode,
+									// lighting, marching and sampling. Until #74
+									// this panel did not exist: the view model
+									// had 14 setters with no production caller,
+									// so the 16 parameters 2e names were still
+									// welded -- to the view model's defaults
+									// instead of FillDefaults'.
+									.OnRenderSettingsChanged(FSimpleDelegate::CreateSP(
+										this, &SFlowVizWorkspace::HandleRenderSettingsChanged)))
+						]
+
+						+ SScrollBox::Slot()
+							.Padding(FMargin(0.0f, 0.0f, 0.0f, 2.0f * U))
+						[
+							FlowVizWorkspaceLocal::MakeSection(
 								LOCTEXT("SliceHeading", "Slice"),
 								SAssignNew(SlicePanel, SFlowVizSlicePanel)
 									.ViewModel(&Model->Slice))
@@ -536,8 +555,10 @@ bool SFlowVizWorkspace::PushToVolume()
 	const bool bClipPushed = FFlowVizWorkspaceModel::PushClipToVolume(Model->Clip, Bound);
 	const bool bTransferFunctionPushed =
 		FFlowVizWorkspaceModel::PushTransferFunctionToVolume(Model->TransferFunction, Bound);
+	const bool bRenderSettingsPushed =
+		FFlowVizWorkspaceModel::PushRenderSettingsToVolume(Model->RenderSettings, Bound);
 
-	return bClipPushed && bTransferFunctionPushed;
+	return bClipPushed && bTransferFunctionPushed && bRenderSettingsPushed;
 }
 
 /* ========================================================================== */
@@ -682,6 +703,14 @@ void SFlowVizWorkspace::HandleClipChanged()
 	// normal, not an error, and the clip panel's advisory already says the edits
 	// are not reaching a renderer - reporting it twice would put a warning in the
 	// log for every click during ordinary setup.
+	PushToVolume();
+}
+
+void SFlowVizWorkspace::HandleRenderSettingsChanged()
+{
+	// Same policy as the clip handler: the return is dropped because "no volume
+	// bound yet" is the ordinary setup state, and the settings are value state
+	// that will be pushed whole the moment SetVolume binds one.
 	PushToVolume();
 }
 

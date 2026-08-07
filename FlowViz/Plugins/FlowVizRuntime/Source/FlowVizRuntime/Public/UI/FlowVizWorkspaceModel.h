@@ -6,6 +6,7 @@
 #include "Playback/FlowVizCasePlayer.h"
 #include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizProbeViewModel.h"
+#include "UI/FlowVizRenderSettingsViewModel.h"
 #include "UI/FlowVizSliceViewModel.h"
 #include "UI/FlowVizTimelineViewModel.h"
 #include "UI/FlowVizTransferFunctionViewModel.h"
@@ -63,6 +64,18 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	FFlowVizClipViewModel Clip;
 	FFlowVizSliceViewModel Slice;
 	FFlowVizProbeViewModel Probes;
+
+	/**
+	 * Compositing, lighting, marching and sampling -- the render controls that
+	 * are not colour and not geometry.
+	 *
+	 * Added with #74: the view model existed and the dispatcher read one, but
+	 * the workspace never held one, so no panel could edit what the renderer
+	 * saw. Default-constructed it is an identity over FillDefaults' output
+	 * (asserted by FlowViz.UI.RenderSettings), so a workspace that never touches
+	 * it renders exactly as before.
+	 */
+	FFlowVizRenderSettingsViewModel RenderSettings;
 
 	/**
 	 * Open a case directory and point every view model at it.
@@ -235,6 +248,24 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	 */
 	static bool PushTransferFunctionToVolume(
 		const FFlowVizTransferFunctionViewModel& Source, UCFDVizVolumeComponent* Volume);
+
+	/**
+	 * Copy the render settings into a volume component.
+	 *
+	 * SHAPED LIKE THE TRANSFER FUNCTION'S PUSH, NOT THE CLIP'S, and for the
+	 * same reason its header spells out: render settings are VALUE state. A
+	 * composite mode, a step size and a light direction mean the same thing
+	 * whether or not a case is open, so there is no domain to renormalise
+	 * against and no extent guard to refuse on. Adding the clip's
+	 * GetPhysicalSize guard here would silently drop every mode chosen while
+	 * the case dialog was still open.
+	 *
+	 * @param Source The model the panel edits. Not modified.
+	 * @param Volume Destination. Null is refused, not dereferenced.
+	 * @return False only when there was no component to push into.
+	 */
+	static bool PushRenderSettingsToVolume(
+		const FFlowVizRenderSettingsViewModel& Source, UCFDVizVolumeComponent* Volume);
 
 private:
 	/**

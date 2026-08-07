@@ -495,3 +495,19 @@ bool FFlowVizWorkspaceModel::PushTransferFunctionToVolume(
 	Volume->SetTransferFunction(Source);
 	return true;
 }
+
+bool FFlowVizWorkspaceModel::PushRenderSettingsToVolume(
+	const FFlowVizRenderSettingsViewModel& Source, UCFDVizVolumeComponent* Volume)
+{
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	// NO EXTENT GUARD, for the reason the header gives: render settings are
+	// value state, meaningful with no case open. COPIED, NOT ALIASED --
+	// SetRenderSettings takes a const& and stores by value, so the component's
+	// copy crosses to the render thread while the UI keeps mutating this one.
+	Volume->SetRenderSettings(Source);
+	return true;
+}

@@ -14,6 +14,7 @@ class UCFDVizVolumeComponent;
 class SFlowVizClipPanel;
 class SFlowVizDiagnosticsOverlay;
 class SFlowVizProbePanel;
+class SFlowVizRenderSettingsPanel;
 class SFlowVizSlicePanel;
 class SFlowVizTransferFunctionPanel;
 class SFlowVizTransportBar;
@@ -199,6 +200,10 @@ public:
 	TSharedPtr<SFlowVizClipPanel> GetClipPanel() const { return ClipPanel; }
 	TSharedPtr<SFlowVizSlicePanel> GetSlicePanel() const { return SlicePanel; }
 	TSharedPtr<SFlowVizProbePanel> GetProbePanel() const { return ProbePanel; }
+	TSharedPtr<SFlowVizRenderSettingsPanel> GetRenderSettingsPanel() const
+	{
+		return RenderSettingsPanel;
+	}
 
 private:
 	/**
@@ -294,12 +299,14 @@ private:
 	/** Subscriber for the clip panel's edits. Pushes, and reports nothing. */
 	void HandleClipChanged();
 	void HandleTransferFunctionChanged();
+	void HandleRenderSettingsChanged();
 
 	TSharedPtr<SFlowVizTransportBar> TransportBar;
 	TSharedPtr<SFlowVizTransferFunctionPanel> TransferFunctionPanel;
 	TSharedPtr<SFlowVizClipPanel> ClipPanel;
 	TSharedPtr<SFlowVizSlicePanel> SlicePanel;
 	TSharedPtr<SFlowVizProbePanel> ProbePanel;
+	TSharedPtr<SFlowVizRenderSettingsPanel> RenderSettingsPanel;
 
 	/**
 	 * The diagnostics readout, and the slot whose visibility carries its shown

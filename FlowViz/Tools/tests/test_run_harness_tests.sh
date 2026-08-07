@@ -297,7 +297,12 @@ printf '#!/bin/bash\necho "UNSCORED: scanned 3 script(s), below the floor of 20.
     > "${UNSCORED_TOOLS}/check_shell_portability.sh"
 printf '#!/bin/bash\necho "check_frozen_params: every declared parameter has a production writer."\nexit 0\n' \
     > "${UNSCORED_TOOLS}/check_frozen_params.sh"
-chmod +x "${UNSCORED_TOOLS}/check_shell_portability.sh" "${UNSCORED_TOOLS}/check_frozen_params.sh"
+# The setters stub passes so the exit 1 below is attributable to the UNSCORED
+# alone -- a missing third checker would also fail the sweep, for the wrong
+# reason (repo memory: verdict-harness-must-attribute-failures).
+printf '#!/bin/bash\necho "check_uncalled_setters: every view model setter has a production caller."\nexit 0\n' \
+    > "${UNSCORED_TOOLS}/check_uncalled_setters.sh"
+chmod +x "${UNSCORED_TOOLS}"/check_*.sh
 out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${UNSCORED_TOOLS}/run_harness_tests.sh" 2>&1)"
 unscored_exit=$?
 check "an UNSCORED portability check fails the sweep, it is not a pass" "1" \
@@ -317,7 +322,9 @@ printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n
     > "${SCORED_TOOLS}/check_shell_portability.sh"
 printf '#!/bin/bash\necho "check_frozen_params: every declared parameter has a production writer."\nexit 0\n' \
     > "${SCORED_TOOLS}/check_frozen_params.sh"
-chmod +x "${SCORED_TOOLS}/check_shell_portability.sh" "${SCORED_TOOLS}/check_frozen_params.sh"
+printf '#!/bin/bash\necho "check_uncalled_setters: every view model setter has a production caller."\nexit 0\n' \
+    > "${SCORED_TOOLS}/check_uncalled_setters.sh"
+chmod +x "${SCORED_TOOLS}"/check_*.sh
 out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${SCORED_TOOLS}/run_harness_tests.sh" 2>&1)"
 scored_exit=$?
 check "  CONTROL: the same tree with a scoreable checker exits 0" "0" "${scored_exit}"
@@ -350,7 +357,9 @@ printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n
     > "${FROZEN_TOOLS}/check_shell_portability.sh"
 printf '#!/bin/bash\necho "check_frozen_params: FROZEN PARAMETER(S) -- 16 of 74" >&2\necho "  CompositeMode" >&2\nexit 1\n' \
     > "${FROZEN_TOOLS}/check_frozen_params.sh"
-chmod +x "${FROZEN_TOOLS}/check_shell_portability.sh" "${FROZEN_TOOLS}/check_frozen_params.sh"
+printf '#!/bin/bash\necho "check_uncalled_setters: every view model setter has a production caller."\nexit 0\n' \
+    > "${FROZEN_TOOLS}/check_uncalled_setters.sh"
+chmod +x "${FROZEN_TOOLS}"/check_*.sh
 out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${FROZEN_TOOLS}/run_harness_tests.sh" 2>&1)"
 reports_exit=$?
 check "a frozen parameter fails the sweep" "1" "${reports_exit}"
@@ -368,12 +377,69 @@ cp "${RUNNER}" "${NOFROZEN_TOOLS}/run_harness_tests.sh"
 chmod +x "${NOFROZEN_TOOLS}/run_harness_tests.sh"
 printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n' \
     > "${NOFROZEN_TOOLS}/check_shell_portability.sh"
-chmod +x "${NOFROZEN_TOOLS}/check_shell_portability.sh"
+printf '#!/bin/bash\necho "check_uncalled_setters: every view model setter has a production caller."\nexit 0\n' \
+    > "${NOFROZEN_TOOLS}/check_uncalled_setters.sh"
+chmod +x "${NOFROZEN_TOOLS}"/check_*.sh
 # No check_frozen_params.sh beside it.
 out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${NOFROZEN_TOOLS}/run_harness_tests.sh" 2>&1)"
 nofrozen_exit=$?
 check "a missing frozen-params checker fails the sweep, it is not skipped" "1" \
     "${nofrozen_exit}"
+
+# --- The uncalled-setters slot, same three properties -------------------------
+#
+# This is the question ONE HOP UP from frozen params, and it is in the sweep
+# because the frozen-params check went green on 2026-08-06 while 13 render
+# controls were still welded -- the defect had moved from "no writer" to "a
+# writer whose setters nobody calls", exactly past that checker's edge. A sweep
+# that ran only the parameter-level check would have blessed that tree.
+
+D="${WORK}/setters_in_sweep"
+make_test "${D}" test_fine10.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${RUNNER}" 2>&1)"
+setters_exit=$?
+check "the sweep reports the uncalled-setters check by name" "yes" \
+    "$(grep -qi 'uncalled' <<<"${out}" && echo yes || echo no)"
+check "...and the real tree passes it" "0" "${setters_exit}"
+
+# An uncalled setter must fail the sweep -- the slot must not be wired to a
+# checker that can only say yes.
+D="${WORK}/setters_reports"
+make_test "${D}" test_fine11.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+SETTERS_TOOLS="${WORK}/setters_tools"
+mkdir -p "${SETTERS_TOOLS}"
+cp "${RUNNER}" "${SETTERS_TOOLS}/run_harness_tests.sh"
+chmod +x "${SETTERS_TOOLS}/run_harness_tests.sh"
+printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n' \
+    > "${SETTERS_TOOLS}/check_shell_portability.sh"
+printf '#!/bin/bash\necho "check_frozen_params: every declared parameter has a production writer."\nexit 0\n' \
+    > "${SETTERS_TOOLS}/check_frozen_params.sh"
+printf '#!/bin/bash\necho "check_uncalled_setters: UNCALLED SETTER(S) -- 14 of 58"\necho "  FlowVizRenderSettingsViewModel::SetCompositeMode"\nexit 1\n' \
+    > "${SETTERS_TOOLS}/check_uncalled_setters.sh"
+chmod +x "${SETTERS_TOOLS}"/check_*.sh
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${SETTERS_TOOLS}/run_harness_tests.sh" 2>&1)"
+setters_reports_exit=$?
+check "an uncalled setter fails the sweep" "1" "${setters_reports_exit}"
+check "...and the setter is named in the sweep output" "yes" \
+    "$(grep -q 'SetCompositeMode' <<<"${out}" && echo yes || echo no)"
+
+# Absent is not a skip, as with both siblings.
+D="${WORK}/setters_absent"
+make_test "${D}" test_fine12.sh 'echo "fine: 1 passed, 0 failed"; exit 0'
+NOSETTERS_TOOLS="${WORK}/nosetters_tools"
+mkdir -p "${NOSETTERS_TOOLS}"
+cp "${RUNNER}" "${NOSETTERS_TOOLS}/run_harness_tests.sh"
+chmod +x "${NOSETTERS_TOOLS}/run_harness_tests.sh"
+printf '#!/bin/bash\necho "scanned 3 script(s): portable to bash 3.2."\nexit 0\n' \
+    > "${NOSETTERS_TOOLS}/check_shell_portability.sh"
+printf '#!/bin/bash\necho "check_frozen_params: every declared parameter has a production writer."\nexit 0\n' \
+    > "${NOSETTERS_TOOLS}/check_frozen_params.sh"
+chmod +x "${NOSETTERS_TOOLS}"/check_*.sh
+# No check_uncalled_setters.sh beside it.
+out="$(FLOWVIZ_HARNESS_TESTS_DIR="${D}" "${NOSETTERS_TOOLS}/run_harness_tests.sh" 2>&1)"
+nosetters_exit=$?
+check "a missing uncalled-setters checker fails the sweep, it is not skipped" "1" \
+    "${nosetters_exit}"
 
 echo
 echo "run_harness_tests tests: $((checks - failures)) passed, ${failures} failed"
