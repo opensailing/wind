@@ -373,6 +373,29 @@ void SFlowVizProbePanel::Construct(const FArguments& InArgs)
 						.ColorAndOpacity(FSlateColor::UseForeground())
 				]
 			]
+
+			+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(FMargin(0.5f * U, 0.0f, 0.0f, 0.0f))
+			[
+				SAssignNew(LineAxisButton, SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(
+						FOnClicked::CreateSP(this, &SFlowVizProbePanel::OnLineAxisClicked))
+					.IsEnabled(PanelLive)
+					.ToolTipText(LOCTEXT("LineAxisTip",
+						"The line plot's x axis: distance along the line in solver units, or "
+						"0..1 of its length. Normalized is what makes two lines of different "
+						"lengths comparable."))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock)
+						.Text(TAttribute<FText>::CreateSP(
+							this, &SFlowVizProbePanel::GetLineAxisLabel))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
 		]
 
 		+ SVerticalBox::Slot()
@@ -708,6 +731,30 @@ FReply SFlowVizProbePanel::OnProbeRemoveClicked(FGuid Id)
 		RebuildProbeRows();
 	}
 	return FReply::Handled();
+}
+
+FReply SFlowVizProbePanel::OnLineAxisClicked()
+{
+	if (ViewModel != nullptr)
+	{
+		// TOGGLE between the two modes; the label (bound) names the one in force.
+		ViewModel->SetLineAxisMode(
+			ViewModel->GetLineAxisMode() == EFlowVizLineProbeAxis::Distance
+				? EFlowVizLineProbeAxis::NormalizedDistance
+				: EFlowVizLineProbeAxis::Distance);
+	}
+	return FReply::Handled();
+}
+
+FText SFlowVizProbePanel::GetLineAxisLabel() const
+{
+	if (ViewModel == nullptr)
+	{
+		return LOCTEXT("AxisUnavailable", "Axis");
+	}
+	return ViewModel->GetLineAxisMode() == EFlowVizLineProbeAxis::NormalizedDistance
+		? LOCTEXT("AxisNormalized", "0..1")
+		: LOCTEXT("AxisDistance", "Distance");
 }
 
 FReply SFlowVizProbePanel::OnSetLineClicked()

@@ -99,6 +99,13 @@ public:
 	TSharedPtr<SFlowVizNumericEntry> GetLineSamplesBox() const { return LineSamplesBox; }
 	TSharedPtr<SButton> GetSetLineButton() const { return SetLineButton; }
 
+	/**
+	 * Toggle the line plot's x axis: solver-unit distance <-> normalized 0..1
+	 * (#75: SetLineAxisMode had no production caller; normalized is what makes
+	 * two lines of different lengths comparable, and nothing could select it).
+	 */
+	TSharedPtr<SButton> GetLineAxisButton() const { return LineAxisButton; }
+
 	/** The "nothing samples these yet" disclosure. Never empty. */
 	FText GetNotSampledAdvisoryText() const;
 
@@ -135,6 +142,8 @@ private:
 	FReply OnProbeVisibleClicked(FGuid Id);
 	FReply OnProbeRemoveClicked(FGuid Id);
 	FReply OnSetLineClicked();
+	FReply OnLineAxisClicked();
+	FText GetLineAxisLabel() const;
 
 	void OnPlacementCommitted(const FText& NewText, ETextCommit::Type CommitType, int32 Axis);
 	void OnProbeNameCommitted(const FText& NewText, ETextCommit::Type CommitType, FGuid Id);
@@ -174,6 +183,7 @@ private:
 	TSharedPtr<SButton> AddProbeButton;
 	TSharedPtr<SButton> RemoveAllButton;
 	TSharedPtr<SButton> SetLineButton;
+	TSharedPtr<SButton> LineAxisButton;
 
 	/** The container the rows are built into. */
 	TSharedPtr<SVerticalBox> ProbeListBox;

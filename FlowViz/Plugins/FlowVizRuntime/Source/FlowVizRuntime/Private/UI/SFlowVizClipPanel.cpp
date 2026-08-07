@@ -427,6 +427,19 @@ void SFlowVizClipPanel::RebuildPlaneRows()
 			LOCTEXT("PlaneRemoveTip", "Delete this plane"),
 			FOnClicked::CreateSP(this, &SFlowVizClipPanel::OnPlaneRemoveClicked, Index));
 
+		// The in-place distance edit (#75). BOUND text, so an invert -- which
+		// negates the distance -- redisplay the real value without this row
+		// being rebuilt.
+		SAssignNew(Row.DistanceBox, SFlowVizNumericEntry)
+			.Text(TAttribute<FText>::CreateSP(
+				this, &SFlowVizClipPanel::GetPlaneDistanceText, Index))
+			.Font(FlowVizWorkspaceStyle::GetNumericFont())
+			.OnTextCommitted(FOnTextCommitted::CreateSP(
+				this, &SFlowVizClipPanel::OnPlaneDistanceCommitted, Index))
+			.ToolTipText(LOCTEXT("PlaneDistanceTip",
+				"The plane's offset along its normal, in solver units. Editing moves the "
+				"plane in place - the normal and the shown/hidden state survive."));
+
 		PlaneListBox->AddSlot()
 			.AutoHeight()
 			.Padding(FMargin(0.0f, 0.0f, 0.0f, 0.5f * U))
@@ -456,6 +469,18 @@ void SFlowVizClipPanel::RebuildPlaneRows()
 							this, &SFlowVizClipPanel::GetPlaneLabelText, Index))
 						.Font(FlowVizWorkspaceStyle::GetNumericFont())
 						.ColorAndOpacity(FSlateColor(FlowVizWorkspaceStyle::GetTextPrimaryColor()))
+				]
+
+				+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					.Padding(FMargin(0.5f * U, 0.0f, 0.0f, 0.0f))
+				[
+					SNew(SBox)
+						.MinDesiredWidth(10.0f * U)
+					[
+						Row.DistanceBox.ToSharedRef()
+					]
 				]
 
 				+ SHorizontalBox::Slot()
@@ -498,6 +523,12 @@ TSharedPtr<SButton> SFlowVizClipPanel::GetPlaneEnableButton(int32 Index) const
 TSharedPtr<SButton> SFlowVizClipPanel::GetPlaneInvertButton(int32 Index) const
 {
 	return PlaneRows.IsValidIndex(Index) ? PlaneRows[Index].InvertButton : TSharedPtr<SButton>();
+}
+
+TSharedPtr<SFlowVizNumericEntry> SFlowVizClipPanel::GetPlaneDistanceBox(int32 Index) const
+{
+	return PlaneRows.IsValidIndex(Index) ? PlaneRows[Index].DistanceBox
+										 : TSharedPtr<SFlowVizNumericEntry>();
 }
 
 TSharedPtr<SButton> SFlowVizClipPanel::GetPlaneRemoveButton(int32 Index) const
@@ -581,6 +612,58 @@ FText SFlowVizClipPanel::GetPlaneEnableGlyph(int32 Index) const
 	// label, and distinct from the delete glyph beside it.
 	return IsPlaneEnabled(Index) ? FText::FromString(TEXT("◉"))
 								 : FText::FromString(TEXT("○"));
+}
+
+void SFlowVizClipPanel::OnPlaneDistanceCommitted(
+	const FText& NewText, ETextCommit::Type CommitType, int32 Index)
+{
+	if (ViewModel == nullptr)
+	{
+		return;
+	}
+	const FFlowVizClipPlane* Current = ViewModel->FindPlane(Index);
+	if (Current == nullptr)
+	{
+		return;
+	}
+
+	double Parsed = 0.0;
+	if (!LexTryParseString(Parsed, *NewText.ToString()) || !FMath::IsFinite(Parsed))
+	{
+		// UNPARSEABLE OR NON-FINITE IS IGNORED, NOT COERCED: the bound attribute
+		// redisplays the real distance on the next paint.
+		return;
+	}
+	if (FMath::IsNearlyEqual(Parsed, Current->Distance, 1.0e-12))
+	{
+		// Re-committing the held value must not push an identical clip model.
+		return;
+	}
+
+	// EVERYTHING BUT THE DISTANCE IS THE CURRENT PLANE. SetPlane revalidates
+	// (a degenerate normal cannot arise here, but the refusal path is one code
+	// path either way) and normalises; the enabled state rides along, which is
+	// what makes this an EDIT rather than a delete-and-re-add.
+	FFlowVizClipPlane Updated = *Current;
+	Updated.Distance = Parsed;
+	if (ViewModel->SetPlane(Index, Updated).IsOk())
+	{
+		NotifyClipChanged();
+	}
+}
+
+FText SFlowVizClipPanel::GetPlaneDistanceText(int32 Index) const
+{
+	if (ViewModel == nullptr)
+	{
+		return FText::GetEmpty();
+	}
+	const FFlowVizClipPlane* Plane = ViewModel->FindPlane(Index);
+	if (Plane == nullptr)
+	{
+		return FText::GetEmpty();
+	}
+	return FText::FromString(FString::Printf(TEXT("%.4g"), Plane->Distance));
 }
 
 FText SFlowVizClipPanel::GetPlaneLabelText(int32 Index) const

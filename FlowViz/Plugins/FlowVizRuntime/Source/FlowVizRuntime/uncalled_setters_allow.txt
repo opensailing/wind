@@ -11,7 +11,5 @@
 # removal: an entry whose setter gains a caller makes the scan exit UNSCORED,
 # so a fixed gap cannot leave a stale mute behind.
 
-FlowVizClipViewModel::SetPlane:open gap (#75) - planes can be added, removed and inverted from the panel, but not edited in place
-FlowVizProbeViewModel::SetLineAxisMode:open gap (#75) - the probe panel offers no line-axis control
 FlowVizProbeViewModel::SetProbeReading:open gap (#75) - the seam an async GPU readback would call; until one exists probes cannot display a sampled value
 FlowVizTransferFunctionViewModel::SetCurrentFrameRange:open gap (#75) - nothing measures a per-frame range, which is why the "Per frame" range source is permanently disabled

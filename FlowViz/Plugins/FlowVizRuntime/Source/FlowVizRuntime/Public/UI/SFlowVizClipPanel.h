@@ -115,6 +115,13 @@ public:
 	/** Delete the plane at Index. */
 	TSharedPtr<SButton> GetPlaneRemoveButton(int32 Index) const;
 
+	/**
+	 * Edit the plane's distance in place (#75: SetPlane had no production
+	 * caller -- planes could be added, hidden, inverted and deleted, but not
+	 * MOVED without delete-and-re-add, which loses the enabled state).
+	 */
+	TSharedPtr<SFlowVizNumericEntry> GetPlaneDistanceBox(int32 Index) const;
+
 	/** Clear every plane. */
 	TSharedPtr<SButton> GetRemoveAllButton() const { return RemoveAllButton; }
 
@@ -148,6 +155,7 @@ private:
 		TSharedPtr<SButton> EnableButton;
 		TSharedPtr<SButton> InvertButton;
 		TSharedPtr<SButton> RemoveButton;
+		TSharedPtr<SFlowVizNumericEntry> DistanceBox;
 	};
 
 	bool IsBound() const { return ViewModel != nullptr; }
@@ -173,6 +181,8 @@ private:
 	FReply OnPlaneEnableClicked(int32 Index);
 	FReply OnPlaneInvertClicked(int32 Index);
 	FReply OnPlaneRemoveClicked(int32 Index);
+	void OnPlaneDistanceCommitted(const FText& NewText, ETextCommit::Type CommitType, int32 Index);
+	FText GetPlaneDistanceText(int32 Index) const;
 	FReply OnRemoveAllClicked();
 	FReply OnResetCropClicked();
 
