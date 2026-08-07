@@ -38,6 +38,14 @@ FlowViz/Tools/capture/blind_sessions/
 # Agent worktree scaffolding (EnterWorktree/Agent isolation), not project source.
 .claude/worktrees/
 
-# UAT packaging outputs (BuildCookRun writes both)
-FlowViz/Build/
+# UAT packaging outputs (BuildCookRun writes both). Contents, not the
+# directory: git refuses to descend into an ignored directory, which would
+# make the re-includes below dead rules.
+FlowViz/Build/*
+# ...except the Mac signing inputs: the entitlements here decide whether the
+# packaged app is sandboxed, which is the difference between Browse working
+# and Browse silently doing nothing. Config, not output.
+!FlowViz/Build/Mac/
+FlowViz/Build/Mac/*
+!FlowViz/Build/Mac/Resources/
 FlowViz/Packaged/
