@@ -291,6 +291,19 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFlowVizVolumeRayMarchParameters, FLOWVIZRUNTIME_A
 	SHADER_PARAMETER_TEXTURE(Texture2D, TransferFunctionTexture)
 	SHADER_PARAMETER_SAMPLER(SamplerState, FieldSampler)
 	SHADER_PARAMETER_SAMPLER(SamplerState, TransferFunctionSampler)
+	/*
+	 * Opaque scene depth (renderer overhaul P6). When bHasSceneDepth, each
+	 * ray's TMax is clamped at the opaque surface along it, so the volume
+	 * composites BEHIND the obstacle/cut-plane/iso meshes. DepthToSolver is
+	 * the scale from device-Z-derived view depth (Unreal units) to solver
+	 * units along the ray.
+	 */
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, SceneDepthTexture)
+	SHADER_PARAMETER(uint32, bHasSceneDepth)
+	SHADER_PARAMETER(float, DepthToSolver)
+	SHADER_PARAMETER(FVector4f, DeviceZToViewZ)
+	SHADER_PARAMETER(FVector2f, ViewRectMin)
+
 	SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 	SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutValue)
 END_SHADER_PARAMETER_STRUCT()

@@ -152,6 +152,43 @@ bool FFlowVizPipelinePanelTest::RunTest(const FString& Parameters)
 			Recorder.Paths[0], FString(TEXT("/some/case.cfdviz")));
 	}
 
+	/* == The mode toggles drive the model (renderer overhaul P6) ============ */
+	{
+		FAnnounceCounter ToggleCounter;
+		const TSharedRef<SFlowVizPipelinePanel> TogglePanel =
+			SNew(SFlowVizPipelinePanel)
+				.Model(&Model)
+				.OnFieldChanged(ToggleCounter.MakeDelegate());
+
+		// The defaults ARE the P6 picture: surfaces on, volume off.
+		TestTrue(TEXT("obstacle defaults visible"), Model.IsObstacleVisible());
+		TestTrue(TEXT("iso defaults enabled"), Model.IsIsoSurfaceEnabled());
+		TestTrue(TEXT("streamlines default enabled"), Model.AreStreamlinesEnabled());
+		TestFalse(TEXT("the VOLUME defaults OFF -- the fog is opt-in now"),
+			Model.IsVolumeVisible());
+
+		for (int32 Index = 0; Index < SFlowVizPipelinePanel::ModeToggleCount; ++Index)
+		{
+			TestTrue(FString::Printf(TEXT("toggle %d exists"), Index),
+				TogglePanel->GetModeToggleButton(Index).IsValid());
+		}
+
+		// Volume toggle: click flips the model and announces once.
+		const int32 Before = ToggleCounter.Count;
+		TogglePanel->GetModeToggleButton(4)->SimulateClick();
+		TestTrue(TEXT("clicking Volume turns the fog on"), Model.IsVolumeVisible());
+		TestEqual(TEXT("and announces once, so the workspace applies visibility"),
+			ToggleCounter.Count, Before + 1);
+		TogglePanel->GetModeToggleButton(4)->SimulateClick();
+		TestFalse(TEXT("clicking again turns it back off"), Model.IsVolumeVisible());
+
+		// Obstacle toggle drives its flag too.
+		TogglePanel->GetModeToggleButton(0)->SimulateClick();
+		TestFalse(TEXT("clicking Obstacle hides it"), Model.IsObstacleVisible());
+		TogglePanel->GetModeToggleButton(0)->SimulateClick();
+		TestTrue(TEXT("and shows it again"), Model.IsObstacleVisible());
+	}
+
 	/* == Unbound: builds, disabled, null-safe ================================ */
 	{
 		const TSharedRef<SFlowVizPipelinePanel> Unbound = SNew(SFlowVizPipelinePanel);

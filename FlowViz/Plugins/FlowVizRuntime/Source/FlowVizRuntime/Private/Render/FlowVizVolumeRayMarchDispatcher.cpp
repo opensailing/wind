@@ -3,6 +3,8 @@
 #include "FlowVizVolumeRayMarchDispatcher.h"
 
 #include "FlowVizRuntime.h"
+#include "PostProcess/PostProcessInputs.h"
+#include "SceneTexturesConfig.h"
 
 #include "CommonRenderResources.h"
 #include "Misc/CoreDelegates.h"
@@ -264,7 +266,8 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 
 void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	FRDGBuilder& GraphBuilder,
-	const FSceneView& View) const
+	const FSceneView& View,
+	FRDGTextureRef SceneDepthTexture) const
 {
 	TArray<FRequest> Requests;
 	{
@@ -404,6 +407,40 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		*Parameters = Request.Parameters;
 		Parameters->TransferFunctionTexture = LutTexture;
 
+		/*
+		 * SCENE DEPTH (P6): when the depth-aware hook drained us, each ray
+		 * clamps TMax at the opaque surface. DeviceZToInvViewZ comes from the
+		 * view's own projection (the engine's DeviceZ -> ViewZ convention);
+		 * DepthToSolver converts view-space Unreal units to solver units --
+		 * the inverse of the metres-to-centimetres the placement applies.
+		 * SHADER_USE_PARAMETER_STRUCT binds every declared resource, so the
+		 * depthless path still needs a valid texture: a 1x1 black dummy.
+		 */
+		if (SceneDepthTexture != nullptr)
+		{
+			Parameters->SceneDepthTexture = SceneDepthTexture;
+			Parameters->bHasSceneDepth = 1;
+			// The ENGINE'S OWN transform, not a re-derivation: ConvertFromDeviceZ
+			// in the shader is a four-line formula over exactly this vector, so
+			// re-deriving it from the projection matrix would be a second code
+			// path waiting to disagree.
+			Parameters->DeviceZToViewZ = View.InvDeviceZToWorldZTransform;
+			Parameters->DepthToSolver =
+				static_cast<float>(1.0 / CFDViz::MetersToUnrealCentimeters);
+			Parameters->ViewRectMin = FVector2f(Request.ViewRect.Min.X, Request.ViewRect.Min.Y);
+		}
+		else
+		{
+			Parameters->SceneDepthTexture = GraphBuilder.CreateTexture(
+				FRDGTextureDesc::Create2D(FIntPoint(1, 1), PF_R32_FLOAT,
+					FClearValueBinding::Black, TexCreate_ShaderResource),
+				TEXT("FlowVizVolumeRayMarch.DummyDepth"));
+			Parameters->bHasSceneDepth = 0;
+			Parameters->DeviceZToViewZ = FVector4f(0, 0, 0, 0);
+			Parameters->DepthToSolver = 1.0f;
+			Parameters->ViewRectMin = FVector2f(0, 0);
+		}
+
 		if (!FlowVizRayMarch::AddRayMarchPass(
 				GraphBuilder, FeatureLevel, Request.bFieldIsUint, Parameters, OutColor, OutValue))
 		{
@@ -511,7 +548,35 @@ void FlowVizVolumeRayMarchProduction::FViewExtension::PostRenderView_RenderThrea
 	FRDGBuilder& GraphBuilder,
 	FSceneView& InView)
 {
+	// The depthless fallback: any request PrePostProcessPass already drained
+	// is gone from the queue, so a view that DID run post processing is a
+	// no-op here and one that skipped it still marches (without occlusion).
 	GetProductionDispatcher().DrainView(GraphBuilder, InView);
+}
+
+void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderThread(
+	FRDGBuilder& GraphBuilder,
+	const FSceneView& InView,
+	const FPostProcessingInputs& Inputs)
+{
+	/*
+	 * THE DEPTH-AWARE DRAIN (renderer overhaul P6). SceneTextures here is the
+	 * uniform buffer wrapping the frame's GBuffer set; SceneDepthTexture is
+	 * what the march clamps rays against so the volume composites BEHIND the
+	 * opaque surface set. Runs before tonemapping, so the volume also finally
+	 * goes through the same post chain as everything else.
+	 */
+	FRDGTextureRef SceneDepth = nullptr;
+	if (Inputs.SceneTextures != nullptr)
+	{
+		const FSceneTextureUniformParameters* Contents =
+			Inputs.SceneTextures->GetContents();
+		if (Contents != nullptr)
+		{
+			SceneDepth = Contents->SceneDepthTexture;
+		}
+	}
+	GetProductionDispatcher().DrainView(GraphBuilder, InView, SceneDepth);
 }
 
 namespace FlowVizVolumeRayMarchDispatcherLocal

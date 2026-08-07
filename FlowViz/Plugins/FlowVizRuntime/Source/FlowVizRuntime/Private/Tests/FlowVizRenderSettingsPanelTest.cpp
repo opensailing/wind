@@ -239,7 +239,10 @@ bool FFlowVizRenderSettingsPanelBindingTest::RunTest(const FString& Parameters)
 
 	/* == Jitter ============================================================== */
 	{
-		TestFalse(TEXT("precondition: jitter off (ADR 002's default)"),
+		// P6 flipped the default ON (grain over banding, resolved by TAA); the
+		// toggle test now exercises on -> off.
+		TestTrue(TEXT("precondition: jitter ON (the P6 default -- banding traded for "
+					  "TAA-resolved grain)"),
 			Settings.IsJitterEnabled());
 
 		const TSharedPtr<SButton> JitterButton = Panel->GetJitterButton();
@@ -248,7 +251,7 @@ bool FFlowVizRenderSettingsPanelBindingTest::RunTest(const FString& Parameters)
 			return false;
 		}
 		JitterButton->SimulateClick();
-		TestTrue(TEXT("clicking the jitter toggle turns jitter on"), Settings.IsJitterEnabled());
+		TestFalse(TEXT("clicking the jitter toggle turns jitter OFF"), Settings.IsJitterEnabled());
 
 		const TSharedPtr<SFlowVizNumericEntry> AmountBox = Panel->GetJitterAmountBox();
 		const TSharedPtr<SFlowVizNumericEntry> SeedBox = Panel->GetJitterSeedBox();

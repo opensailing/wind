@@ -32,6 +32,17 @@ public class FlowVizRuntime : ModuleRules
 			"ApplicationCore"
 		});
 
+		/*
+		 * The Renderer's INTERNAL include dir, for PostProcess/PostProcessInputs.h:
+		 * FPostProcessingInputs is the documented payload of the
+		 * PrePostProcessPass_RenderThread seam (engine plugins like
+		 * ColorCorrectRegions consume it the same way), but UBT only hands the
+		 * Internal paths to engine modules. The struct is stable across 5.x and
+		 * the alternative -- redeclaring it -- is an ODR trap.
+		 */
+		PrivateIncludePaths.Add(
+			System.IO.Path.Combine(EngineDirectory, "Source/Runtime/Renderer/Internal"));
+
 		// The native "Browse..." folder picker. A Developer module, so it
 		// exists in Development desktop builds (our packaged config) but not
 		// Shipping -- the panel compiles the button out there and the path

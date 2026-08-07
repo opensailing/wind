@@ -657,9 +657,10 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("VISUAL_QA rule 1: lighting is OFF by default, so brightness cannot "
 					   "stand in for value"),
 			static_cast<int32>(P.bEnableLighting), 0);
-		TestEqual(TEXT("jitter is OFF by default (ADR 002 names per-ray jitter as a temporal "
-					   "shimmer risk); a caller that wants it asks"),
-			static_cast<int32>(P.bEnableJitter), 0);
+		TestEqual(TEXT("jitter is ON by default since P6: banding traded for grain the "
+					   "temporal AA resolves. ADR 002's shimmer risk was UNRESOLVED "
+					   "noise; the fixed seed keeps stills reproducible"),
+			static_cast<int32>(P.bEnableJitter), 1);
 		TestEqual(TEXT("front-to-back alpha compositing is the default mode"),
 			P.CompositeMode, static_cast<uint32>(EFlowVizCompositeMode::Alpha));
 		TestEqual(TEXT("FillDefaults binds no textures, so a caller who forgot SetVolumeTextures "

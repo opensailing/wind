@@ -41,6 +41,87 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 				.ColorAndOpacity(FSlateColor(FlowVizWorkspaceStyle::GetTextPrimaryColor()))
 		]
 
+		/*
+		 * THE MODE TOGGLES (renderer overhaul P6): a row of independent
+		 * switches, FluidX3D's interaction model. They compose freely because
+		 * everything except the volume is opaque and z-writing -- the P6
+		 * compositing rules are what make this row honest.
+		 */
+		+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(FMargin(0.0f, 0.0f, 0.0f, 1.0f * U))
+		[
+			SNew(SHorizontalBox)
+
+			+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0, 0, 0.5f * U, 0))
+			[
+				SAssignNew(ModeToggleButtons[0], SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 0))
+					.ToolTipText(LOCTEXT("ObstacleTip", "Show or hide the obstacle surface"))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock).Text(LOCTEXT("ObstacleMode", "Obstacle"))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0, 0, 0.5f * U, 0))
+			[
+				SAssignNew(ModeToggleButtons[1], SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 1))
+					.ToolTipText(LOCTEXT("CutPlaneTip", "Show or hide the cut plane"))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock).Text(LOCTEXT("CutPlaneMode", "Cut plane"))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0, 0, 0.5f * U, 0))
+			[
+				SAssignNew(ModeToggleButtons[2], SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 2))
+					.ToolTipText(LOCTEXT("IsoTip", "Show or hide the Q iso-surface"))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock).Text(LOCTEXT("IsoMode", "Iso"))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0, 0, 0.5f * U, 0))
+			[
+				SAssignNew(ModeToggleButtons[3], SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 3))
+					.ToolTipText(LOCTEXT("StreamTip", "Show or hide streamlines"))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock).Text(LOCTEXT("StreamMode", "Streamlines"))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				SAssignNew(ModeToggleButtons[4], SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 4))
+					.ToolTipText(LOCTEXT("VolumeTip",
+						"Show or hide the volume render (off by default -- surfaces are "
+						"the picture; the volume is the optional fog)"))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock).Text(LOCTEXT("VolumeMode", "Volume"))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
+		]
+
 		+ SVerticalBox::Slot()
 			.AutoHeight()
 		[
@@ -166,6 +247,32 @@ void SFlowVizPipelinePanel::RefreshFields()
 			Row.ToSharedRef()
 		];
 	}
+}
+
+TSharedPtr<SButton> SFlowVizPipelinePanel::GetModeToggleButton(int32 Index) const
+{
+	return (Index >= 0 && Index < ModeToggleCount) ? ModeToggleButtons[Index] : nullptr;
+}
+
+FReply SFlowVizPipelinePanel::OnModeToggleClicked(int32 ModeIndex)
+{
+	if (Model == nullptr)
+	{
+		return FReply::Handled();
+	}
+	switch (ModeIndex)
+	{
+	case 0: Model->SetObstacleVisible(!Model->IsObstacleVisible()); break;
+	case 1: Model->Slice.SetVisible(!Model->Slice.IsVisible()); break;
+	case 2: Model->SetIsoSurfaceEnabled(!Model->IsIsoSurfaceEnabled()); break;
+	case 3: Model->SetStreamlinesEnabled(!Model->AreStreamlinesEnabled()); break;
+	case 4: Model->SetVolumeVisible(!Model->IsVolumeVisible()); break;
+	default: return FReply::Handled();
+	}
+	// One announcement channel: the workspace pushes, which applies component
+	// visibility and (for the slice) recomposes the clip.
+	OnFieldChanged.ExecuteIfBound();
+	return FReply::Handled();
 }
 
 FReply SFlowVizPipelinePanel::OnOpenClicked()

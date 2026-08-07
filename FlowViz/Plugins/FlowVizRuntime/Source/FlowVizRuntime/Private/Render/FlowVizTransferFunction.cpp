@@ -70,8 +70,19 @@ namespace
 
 FFlowVizOpacityCurve FFlowVizOpacityCurve::MakeLinearRamp()
 {
+	/*
+	 * ANCHORED TRANSPARENT THROUGH THE BOTTOM QUARTER (renderer overhaul P6).
+	 * A ramp that rises from zero at position 0 still gives every quiescent
+	 * voxel a little alpha, and a domain-filling haze of little alphas is
+	 * the "glowing milk" the volume mode was demoted for. Both references
+	 * make boring fluid FULLY invisible (FluidX3D's importance weighting and
+	 * black-anchored colormap; ParaView users author exactly this curve by
+	 * hand); holding zero to 0.25 then rising is that policy as a default.
+	 * Still "linear ramp" to its callers: monotone, transparent-to-opaque.
+	 */
 	FFlowVizOpacityCurve Curve;
 	Curve.Points.Add(FFlowVizOpacityPoint(0.0f, 0.0f));
+	Curve.Points.Add(FFlowVizOpacityPoint(0.25f, 0.0f));
 	Curve.Points.Add(FFlowVizOpacityPoint(1.0f, 1.0f));
 	return Curve;
 }

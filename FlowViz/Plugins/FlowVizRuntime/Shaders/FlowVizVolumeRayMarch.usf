@@ -152,6 +152,12 @@ float4 OverRangeColor;
    it is read and which is downstream of all classification. */
 uint bClampToRange;
 
+/* Scene-depth clamp (P6). See the ray setup. */
+uint   bHasSceneDepth;
+float  DepthToSolver;        /* Unreal view units -> solver units */
+float4 DeviceZToViewZ;       /* the view's InvDeviceZToWorldZTransform */
+float2 ViewRectMin;          /* dispatch pixel -> scene texture pixel offset */
+
 /* -------------------------------------------------------------------------- */
 /* Resources                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -167,6 +173,9 @@ uint bClampToRange;
 
 Texture3D<uint4>  StatusTexture;
 Texture2D<float4> TransferFunctionTexture;
+
+/** Opaque scene depth (P6). Valid only when bHasSceneDepth; see the clamp. */
+Texture2D<float> SceneDepthTexture;
 
 SamplerState FieldSampler;
 SamplerState TransferFunctionSampler;
@@ -645,6 +654,35 @@ void FlowVizVolumeRayMarchCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	if (bHit)
 	{
 		bHit = FlowVizApplyClipPlanes(Origin, Dir, TMin, TMax);
+	}
+
+	/*
+	 * SCENE-DEPTH CLAMP (renderer overhaul P6). The opaque surface along this
+	 * ray -- obstacle mesh, cut plane, iso surface -- stops it: the volume
+	 * composites BEHIND the surface set instead of over it. DeviceZ converts
+	 * through the engine's own InvDeviceZToWorldZTransform formula; the view
+	 * depth (Unreal units, along the FORWARD axis) divides by cos(theta) to
+	 * become distance along THIS ray, then scales to solver units.
+	 */
+	if (bHit && bHasSceneDepth != 0)
+	{
+		const uint2 DepthPixel = Pixel + uint2(ViewRectMin);
+		const float DeviceZ = SceneDepthTexture.Load(int3(DepthPixel, 0)).r;
+		// The engine convention: ViewZ = 1/(DeviceZ*a + b) for perspective
+		// (stored in .z/.w), linear for ortho (.x/.y).
+		float ViewZ;
+		if (DeviceZToViewZ.w != 0.0f)
+		{
+			ViewZ = 1.0f / (DeviceZ * DeviceZToViewZ.z + DeviceZToViewZ.w);
+		}
+		else
+		{
+			ViewZ = DeviceZ * DeviceZToViewZ.x + DeviceZToViewZ.y;
+		}
+		const float CosTheta = max(dot(Dir, RayCameraForward), 1e-4f);
+		const float OpaqueT = (ViewZ * DepthToSolver) / CosTheta;
+		TMax = min(TMax, OpaqueT);
+		bHit = TMax > TMin;
 	}
 
 	if (bHit)

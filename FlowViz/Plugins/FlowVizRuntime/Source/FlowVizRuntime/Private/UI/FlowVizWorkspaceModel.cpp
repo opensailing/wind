@@ -458,6 +458,16 @@ void FFlowVizWorkspaceModel::SetPresentationMode(bool bInPresentation)
 	}
 }
 
+void FFlowVizWorkspaceModel::SetVolumeVisible(bool bVisible)
+{
+	bVolumeVisible = bVisible;
+}
+
+void FFlowVizWorkspaceModel::SetObstacleVisible(bool bVisible)
+{
+	bObstacleVisible = bVisible;
+}
+
 void FFlowVizWorkspaceModel::SetStreamlinesEnabled(bool bEnabled)
 {
 	if (bStreamlinesEnabled != bEnabled)

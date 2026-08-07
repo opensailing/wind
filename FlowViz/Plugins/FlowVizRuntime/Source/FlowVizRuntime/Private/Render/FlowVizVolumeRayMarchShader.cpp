@@ -84,7 +84,10 @@ void FlowVizRayMarch::FillDefaults(FFlowVizVolumeRayMarchParameters& OutParamete
 	// Jitter trades banding for noise, and per-ray jitter is a known cause of
 	// temporal shimmer (ADR 002's open question). Off by default; a caller that
 	// wants it asks for it.
-	OutParameters.bEnableJitter = 0;
+	// ON since P6: grain the temporal AA resolves beats banding (the research
+	// doc's "jitter always on with TAA-friendly noise"). ADR 002's shimmer
+	// concern was about UNRESOLVED noise; the fixed seed keeps stills stable.
+	OutParameters.bEnableJitter = 1;
 	OutParameters.JitterAmount = 1.0f;
 	OutParameters.JitterSeed = 0;
 

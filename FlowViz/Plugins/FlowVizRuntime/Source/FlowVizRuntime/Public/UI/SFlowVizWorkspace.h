@@ -101,6 +101,9 @@ public:
 	 */
 	bool PushToVolume();
 
+	/** Component visibility from the P6 mode toggles. Called by every push. */
+	void ApplyModeVisibility();
+
 	/* --- Sessions ---------------------------------------------------------- */
 
 	/**

@@ -574,8 +574,47 @@ void SFlowVizWorkspace::SetDiagnosticsOverlayShown(bool bShown)
 	}
 }
 
+void SFlowVizWorkspace::ApplyModeVisibility()
+{
+	/*
+	 * THE MODE SWITCHES REACH THE SCENE HERE (P6). Component visibility, not
+	 * data teardown: toggling a mode back on must not rebuild anything, so
+	 * the payloads stay resident and only SetVisibility flips. The volume
+	 * component's visibility IS the volume toggle -- hidden means the proxy
+	 * never dispatches, which with the default OFF is what demotes the fog.
+	 */
+	UCFDVizVolumeComponent* BoundVolume = GetVolume();
+	if (BoundVolume == nullptr)
+	{
+		return;
+	}
+	BoundVolume->SetVisibility(Model->IsVolumeVisible());
+	if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+	{
+		if (Actor->GetObstacleComponent() != nullptr)
+		{
+			Actor->GetObstacleComponent()->SetVisibility(Model->IsObstacleVisible());
+		}
+		if (Actor->GetCutPlaneComponent() != nullptr)
+		{
+			Actor->GetCutPlaneComponent()->SetVisibility(Model->Slice.IsVisible());
+		}
+		if (Actor->GetIsoSurfaceComponent() != nullptr)
+		{
+			Actor->GetIsoSurfaceComponent()->SetVisibility(Model->IsIsoSurfaceEnabled());
+		}
+		if (Actor->GetFlowComponent() != nullptr)
+		{
+			Actor->GetFlowComponent()->SetVisibility(
+				Model->AreStreamlinesEnabled(), /*bPropagateToChildren*/ true);
+		}
+	}
+}
+
 bool SFlowVizWorkspace::PushToVolume()
 {
+	ApplyModeVisibility();
+
 	// PushClipToVolume refuses a null component itself, so this could pass
 	// Volume.Get() straight through. It is written out because the two null
 	// cases mean different things and one of them is about to grow siblings:

@@ -78,8 +78,13 @@ public:
 	TSharedPtr<class SEditableTextBox> GetOpenPathBox() const { return OpenPathBox; }
 	TSharedPtr<SButton> GetOpenButton() const { return OpenButton; }
 
+	/** The P6 mode toggles, ordinal: Obstacle, CutPlane, Iso, Streamlines, Volume. */
+	static constexpr int32 ModeToggleCount = 5;
+	TSharedPtr<SButton> GetModeToggleButton(int32 Index) const;
+
 private:
 	FReply OnFieldClicked(FName FieldId);
+	FReply OnModeToggleClicked(int32 ModeIndex);
 	FReply OnOpenClicked();
 	FReply OnBrowseClicked();
 	FText GetCaseLabel() const;
@@ -92,6 +97,7 @@ private:
 
 	TSharedPtr<class SEditableTextBox> OpenPathBox;
 	TSharedPtr<SButton> OpenButton;
+	TSharedPtr<SButton> ModeToggleButtons[ModeToggleCount];
 
 	TSharedPtr<SVerticalBox> RowsBox;
 	TArray<TSharedPtr<SButton>> FieldButtons;

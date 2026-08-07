@@ -970,19 +970,26 @@ bool FFlowVizWorkspaceModelSessionDefaultsTest::RunTest(const FString& Parameter
 			 "the unfold is distinguishable"),
 		Workspace.TransferFunction.GetOpacityMultiplier(), 1.0f, UE_KINDA_SMALL_NUMBER);
 
-	// THE DEFAULT CURVE ALSO HAS TWO POINTS. This is why the round trip asserts
-	// the POSITIONS rather than only the count: (0,0),(1,1) and the fixture's
-	// (0.25,0.1),(0.75,0.9) are both two-point curves.
+	// THE DEFAULT CURVE HAS THREE POINTS SINCE P6: the ramp anchors alpha at
+	// zero through the bottom quarter -- (0,0),(0.25,0),(1,1) -- so quiescent
+	// fluid is fully invisible instead of a domain-filling haze. Still none of
+	// the positions coincide with the fixture's (0.25 shares a POSITION with
+	// the fixture's first point but carries a different value, which the round
+	// trip's value assertions distinguish).
 	const FFlowVizOpacityCurve& DefaultCurve = Workspace.TransferFunction.GetOpacityCurve();
 	if (TestEqual(
-			TEXT("the default opacity ramp has two control points, which is the same COUNT as "
-				 "the fixture's - the reason the round trip checks positions"),
-			DefaultCurve.Points.Num(), 2))
+			TEXT("the default opacity ramp has three control points -- the P6 "
+				 "transparent-anchor ramp"),
+			DefaultCurve.Points.Num(), 3))
 	{
 		TestEqual(TEXT("the default ramp starts at 0"),
 			DefaultCurve.Points[0].Position, 0.0f, UE_KINDA_SMALL_NUMBER);
-		TestEqual(TEXT("and ends at 1, so neither point coincides with a fixture point"),
-			DefaultCurve.Points[1].Position, 1.0f, UE_KINDA_SMALL_NUMBER);
+		TestEqual(TEXT("holds zero through the bottom quarter"),
+			DefaultCurve.Points[1].Position, 0.25f, UE_KINDA_SMALL_NUMBER);
+		TestEqual(TEXT("with zero opacity there"),
+			DefaultCurve.Points[1].Opacity, 0.0f, UE_KINDA_SMALL_NUMBER);
+		TestEqual(TEXT("and ends at 1"),
+			DefaultCurve.Points[2].Position, 1.0f, UE_KINDA_SMALL_NUMBER);
 	}
 
 	/* --- Clip ---------------------------------------------------------------- */

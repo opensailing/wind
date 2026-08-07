@@ -621,9 +621,14 @@ bool FFlowVizTransferFunctionViewModelColorMapTest::RunTest(const FString& Param
 
 			// Banding is a COLOUR control. If it ever quantised the opacity ramp
 			// too, an author banding a figure for legibility would silently also
-			// step its transparency.
+			// step its transparency. PROBED IN THE RAMP'S RISING HALF: the P6
+			// default holds alpha at zero through the bottom quarter, so the
+			// first two entries are legitimately equal there and the old [0]
+			// vs [1] probe stopped being able to detect quantisation at all.
+			const int32 RampA = Banded.Num() / 2;
+			const int32 RampB = RampA + 1;
 			TestNotEqual(TEXT("banding does NOT quantise the opacity ramp"),
-				Banded[0].A, Banded[1].A);
+				Banded[RampA].A, Banded[RampB].A);
 		}
 
 		// Reversal: the first entry of a reversed map must equal the last entry

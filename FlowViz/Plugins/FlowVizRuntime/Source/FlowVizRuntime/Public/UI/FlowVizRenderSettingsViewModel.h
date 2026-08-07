@@ -296,7 +296,13 @@ private:
 	uint32 MaxSteps = FlowVizRayMarch::DefaultMaxSteps;
 	float EarlyTerminationAlpha = FlowVizRayMarch::DefaultEarlyTerminationAlpha;
 
-	bool bEnableJitter = false;
+	/*
+	 * ON BY DEFAULT since P6: the jitter trades banding for grain the
+	 * temporal AA resolves, and the profile system stops toggling it --
+	 * committing to good defaults instead of exposing switches is the
+	 * research doc's "FluidX3D ships zero lighting toggles" lesson.
+	 */
+	bool bEnableJitter = true;
 	float JitterAmount = 1.0f;
 	uint32 JitterSeed = 0u;
 

@@ -83,7 +83,9 @@ bool FFlowVizRenderSettingsTest::RunTest(const FString& Parameters)
 			Applied.CompositeMode, Defaults.CompositeMode);
 		TestEqual(TEXT("a fresh view model leaves lighting off (VISUAL_QA rule 1)"),
 			Applied.bEnableLighting, Defaults.bEnableLighting);
-		TestEqual(TEXT("a fresh view model leaves jitter off (ADR 002 shimmer)"),
+		TestEqual(TEXT("a fresh view model has jitter ON (P6: banding traded for grain "
+					   "the temporal AA resolves; ADR 002's shimmer concern is answered "
+					   "by TAA-friendly noise, not by banding)"),
 			Applied.bEnableJitter, Defaults.bEnableJitter);
 		TestEqual(TEXT("a fresh view model does not change StepVoxels"),
 			Applied.StepVoxels, Defaults.StepVoxels);

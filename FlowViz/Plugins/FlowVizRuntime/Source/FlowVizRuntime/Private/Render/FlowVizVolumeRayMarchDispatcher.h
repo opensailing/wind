@@ -179,7 +179,9 @@ namespace FlowVizVolumeRayMarchProduction
 		//~ End IFlowVizVolumeRayMarchDispatcher
 
 		/** Marches and composites every request recorded for this view, and removes them. */
-		void DrainView(FRDGBuilder& GraphBuilder, const FSceneView& View) const;
+		/** @param SceneDepthTexture Opaque scene depth for ray clamping, or null (depthless fallback). */
+		void DrainView(FRDGBuilder& GraphBuilder, const FSceneView& View,
+			FRDGTextureRef SceneDepthTexture = nullptr) const;
 
 		/**
 		 * Drop requests belonging to no view in this family.
@@ -302,6 +304,18 @@ namespace FlowVizVolumeRayMarchProduction
 		//~ Begin ISceneViewExtension
 		virtual void PostRenderViewFamily_RenderThread(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily) override;
 		virtual void PostRenderView_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& InView) override;
+
+		/*
+		 * THE DEPTH-AWARE DRAIN (renderer overhaul P6). PrePostProcessPass
+		 * hands the plugin FPostProcessingInputs -- the documented seam for
+		 * SceneTextures -- so the march can clamp each ray at the opaque
+		 * depth and the volume composites BEHIND the obstacle, cut plane and
+		 * iso surface instead of over them. PostRenderView remains as the
+		 * depthless fallback for views that skip post processing (thumbnails,
+		 * scene captures without PP): a drained queue is empty there, so the
+		 * two hooks never double-march one request.
+		 */
+		virtual void PrePostProcessPass_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessingInputs& Inputs) override;
 		//~ End ISceneViewExtension
 	};
 

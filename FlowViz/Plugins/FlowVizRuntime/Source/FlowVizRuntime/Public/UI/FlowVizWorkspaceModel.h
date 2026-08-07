@@ -380,6 +380,19 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	}
 	double GetLastIsoValueUsed() const { return LastIsoValueUsed; }
 
+	/*
+	 * THE MODE TOGGLES (renderer overhaul P6). Independent switches, the
+	 * FluidX3D interaction model: obstacle / cut plane / iso / streamlines /
+	 * volume compose freely because everything except the volume is opaque
+	 * and z-writing. The VOLUME defaults OFF -- the research doc's demotion:
+	 * neither reference draws a volume cloud by default, and ours is what
+	 * made the picture read as fog.
+	 */
+	void SetVolumeVisible(bool bVisible);
+	bool IsVolumeVisible() const { return bVolumeVisible; }
+	void SetObstacleVisible(bool bVisible);
+	bool IsObstacleVisible() const { return bObstacleVisible; }
+
 	/** The drained streamlines (renderer overhaul P5), same consume contract. */
 	bool HasFreshStreamlines() const { return bStreamlinesFresh; }
 	const TArray<FFlowVizStreamline>& ConsumeStreamlines()
@@ -408,6 +421,9 @@ private:
 	double CutPlaneRangeMin = 0.0;
 	double CutPlaneRangeMax = 0.0;
 	bool bCutPlaneFresh = false;
+
+	bool bVolumeVisible = false;
+	bool bObstacleVisible = true;
 
 	TArray<FFlowVizStreamline> Streamlines;
 	bool bStreamlinesFresh = false;
