@@ -86,8 +86,20 @@ Tools/run_harness_tests.sh
     -archive -archivedirectory="$PWD/Packaged"
 ```
 
-The archived app lands in `Packaged/Mac/`. The sample case ships beside the
-executable so the packaged app opens it without manual importing.
+The archived app lands in `Packaged/Mac/`. Stage the sample beside the
+packaged content and smoke-test it headless (verified on this machine — the
+app opens the case with no manual importing):
+
+```bash
+cp -R Samples Packaged/Mac/FlowViz.app/Contents/UE/FlowViz/Samples
+Packaged/Mac/FlowViz.app/Contents/MacOS/FlowViz     -ExecCmds="FlowViz.LoadCase $PWD/Packaged/Mac/FlowViz.app/Contents/UE/FlowViz/Samples/MockCylinderWake.cfdviz U, FlowViz.DumpCase, Quit"     -unattended -nullrhi -nosplash
+```
+
+Note the COMMAS between ExecCmds commands: semicolons are not separators
+there and leak into the previous command's arguments (`U;` is not a field).
+The app's log lands in
+`~/Library/Containers/com.YourCompany.FlowViz/Data/Library/Logs/FlowViz/` —
+the packaged app is sandboxed, so it is not beside the project's Saved/.
 
 ## Where things are
 

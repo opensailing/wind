@@ -138,10 +138,16 @@ the Python side. Notices: `Docs/THIRD_PARTY_NOTICES.md`.
 
 ## Packaged build
 
-`Packaged/Mac/` via `RunUAT.sh BuildCookRun` (command in README.md); the
-first cook's global-shader compile dominates the wall time on this machine.
-The sample case is committed in-repo; DoD 4's "opens the supplied case
-without manual asset importing" is exercised in-editor by the console
-command path (`FlowViz.LoadCase`), and the packaged app's own launch check
-is the remaining verification once the archive lands. See BUILD.md for the
-packaging caveats observed here.
+`Packaged/Mac/FlowViz.app` via `RunUAT.sh BuildCookRun` (commands in
+README.md); the first cook's global-shader compile dominates the wall time.
+**DoD 4 is verified on the packaged app**: with the sample staged beside the
+packaged content, `FlowViz.LoadCase` from the packaged binary's console
+opened it headless — `opened 'Mock Cylinder Wake (low resolution)' -- 20
+frames, displaying 'U'` — with no manual asset importing.
+
+Two defects the packaged smoke test caught that the editor never could:
+GameDefaultMap named a level that did not exist (the cook WARNS and still
+reports BUILD SUCCESSFUL; the app exited with MapNotFound before ExecCmds
+ran), and the console commands' "open the FlowViz tab first" refusal pointed
+at a menu only the editor has — they now invoke the tab themselves. Both are
+the reason DoD 4 demands the PACKAGED check rather than the editor one.
