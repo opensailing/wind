@@ -161,6 +161,31 @@ bool FFlowVizWorkspaceSamplingTest::RunTest(const FString& Parameters)
 			FrameMin >= 0.0f && FrameMax <= 62.9375f + 1.0e-3f);
 	}
 
+	/* == The line series rides the same drain (#85) ========================== */
+	{
+		TestFalse(TEXT("CONTROL: no line series before a line probe exists"),
+			Model.GetLineSeries().bHasRange);
+
+		TestTrue(TEXT("CONTROL: a line probe is accepted"),
+			Model.Probes.SetLineProbe(
+				FVector(1.0, 3.0, 0.5), FVector(11.0, 3.0, 0.5)).IsOk());
+
+		Model.RequestSampleUpdate();
+		if (!TestTrue(TEXT("the line sample completes"), Model.WaitForPendingSamples(60.0)))
+		{
+			return false;
+		}
+		TestTrue(TEXT("draining applies the series"), Model.DrainSampleResults());
+
+		const FFlowVizChartSeries& Series = Model.GetLineSeries();
+		TestTrue(TEXT("the series has a range"), Series.bHasRange);
+		TestEqual(TEXT("with the line's own sample count"),
+			Series.Points.Num(), Model.Probes.GetLineSampleCount());
+		TestTrue(TEXT("inside the field's declared global bound -- the numbers under the "
+					  "plot are the displayed field's"),
+			Series.MinY >= 0.9 && Series.MaxY <= 13.5);
+	}
+
 	/* == A workspace with no case refuses politely =========================== */
 	{
 		FFlowVizWorkspaceModel Empty;

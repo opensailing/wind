@@ -2,6 +2,8 @@
 
 #include "UI/SFlowVizProbePanel.h"
 
+#include "UI/SFlowVizChartStrip.h"
+
 #include "Internationalization/Text.h"
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "Widgets/Input/SButton.h"
@@ -409,6 +411,18 @@ void SFlowVizProbePanel::Construct(const FArguments& InArgs)
 				.Font(FlowVizWorkspaceStyle::GetCaptionFont())
 				.ColorAndOpacity(FSlateColor(FlowVizWorkspaceStyle::GetTextDisabledColor()))
 				.AutoWrapText(true)
+		]
+
+		/* --- The distance plot (#85, DoD 12) ------------------------------- */
+
+		+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(FMargin(0.0f, 1.0f * U, 0.0f, 0.0f))
+		[
+			// FED, not bound: the workspace pushes the sampling service's
+			// series in after each drain. An empty strip draws its well, so
+			// the panel reads as "no data yet" rather than broken.
+			SAssignNew(LineChart, SFlowVizChartStrip)
 		]
 	];
 

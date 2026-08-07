@@ -106,6 +106,9 @@ public:
 	 */
 	TSharedPtr<SButton> GetLineAxisButton() const { return LineAxisButton; }
 
+	/** The line probe's distance plot (#85, DoD 12). Fed by the workspace from the sampling service. */
+	TSharedPtr<class SFlowVizChartStrip> GetLineChart() const { return LineChart; }
+
 	/** The "nothing samples these yet" disclosure. Never empty. */
 	FText GetNotSampledAdvisoryText() const;
 
@@ -184,6 +187,7 @@ private:
 	TSharedPtr<SButton> RemoveAllButton;
 	TSharedPtr<SButton> SetLineButton;
 	TSharedPtr<SButton> LineAxisButton;
+	TSharedPtr<class SFlowVizChartStrip> LineChart;
 
 	/** The container the rows are built into. */
 	TSharedPtr<SVerticalBox> ProbeListBox;

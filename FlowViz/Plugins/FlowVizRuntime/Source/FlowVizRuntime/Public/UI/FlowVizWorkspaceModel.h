@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Flow/FlowVizChartSeries.h"
 #include "Playback/FlowVizCasePlayer.h"
 #include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizProbeViewModel.h"
@@ -348,11 +349,23 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	/** Block until the in-flight sample (if any) reports. Test plumbing, matching FFlowVizCasePlayer::WaitForPendingLoads. */
 	bool WaitForPendingSamples(double TimeoutSeconds = 30.0);
 
+	/**
+	 * The line probe's latest distance series (#85), measured by the sampling
+	 * service at the displayed frame. Empty (no range) until a line exists and
+	 * a sample has drained. AN EXCEPTION to "this struct adds no state", made
+	 * knowingly: the series is a MEASUREMENT with no view-model owner -- it
+	 * belongs to no panel's editable state, and the probe view model is pure
+	 * value state that must not grow a worker-fed cache.
+	 */
+	const FFlowVizChartSeries& GetLineSeries() const { return LineSeries; }
+
 private:
 	/** Shared with the sampling task; outlives this model if a task is still running. */
 	struct FSampleQueue;
 
 	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> SampleQueue;
+
+	FFlowVizChartSeries LineSeries;
 
 	bool bPresentationMode = false;
 

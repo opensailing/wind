@@ -10,6 +10,8 @@
 
 #include "CFDViz/CFDVizPayload.h"
 #include "CFDViz/CFDVizVolumeReader.h"
+#include "Flow/FlowVizChartSeries.h"
+#include "Flow/FlowVizFieldSampler.h"
 #include "Tasks/Task.h"
 
 /**
@@ -464,6 +466,10 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 		bool bHasFrameRange = false;
 		float FrameMin = 0.0f;
 		float FrameMax = 0.0f;
+
+		/** The line probe's distance series (#85), when a line was set. */
+		bool bHasLineSeries = false;
+		FFlowVizChartSeries LineSeries;
 	};
 
 	FCriticalSection Mutex;
@@ -544,8 +550,16 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 		}
 	}
 
+	// The line probe's geometry, copied by value for the worker (#85).
+	const bool bHasLine = Probes.HasLineProbe();
+	const FVector LineStart = Probes.GetLineStart();
+	const FVector LineEnd = Probes.GetLineEnd();
+	const int32 LineSamples = Probes.GetLineSampleCount();
+	const EFlowVizLineProbeAxis LineAxis = Probes.GetLineAxisMode();
+
 	UE::Tasks::Launch(TEXT("FlowVizWorkspaceSample"),
 		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
+			bHasLine, LineStart, LineEnd, LineSamples, LineAxis,
 			Requests = MoveTemp(Requests)]() mutable
 		{
 			FSampleQueue::FResult Result;
@@ -653,6 +667,24 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 				}
 			}
 
+			/*
+			 * THE LINE SERIES (#85), from a field sampler over the same frame.
+			 * Built AFTER the probes and the range so a sampler build failure
+			 * costs only the chart, not the readings. The chart samples the
+			 * DISPLAYED field -- the numbers under the plot are the numbers on
+			 * screen.
+			 */
+			if (bHasLine)
+			{
+				FFlowVizFieldSampler LineSampler;
+				if (LineSampler.Build(*CaseRef, SampleFieldId, FrameIndex).IsOk())
+				{
+					Result.bHasLineSeries = FlowVizChart::BuildLineSeries(
+						LineSampler, LineStart, LineEnd, LineSamples, LineAxis,
+						Result.LineSeries);
+				}
+			}
+
 			Queue->Push(MoveTemp(Result));
 		});
 }
@@ -688,6 +720,11 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 			{
 				bApplied = true;
 			}
+		}
+		if (Result.bHasLineSeries)
+		{
+			LineSeries = MoveTemp(Result.LineSeries);
+			bApplied = true;
 		}
 	}
 	return bApplied;

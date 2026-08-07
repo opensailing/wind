@@ -11,6 +11,7 @@
 #include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizClipPanel.h"
 #include "UI/SFlowVizDiagnosticsOverlay.h"
+#include "UI/SFlowVizChartStrip.h"
 #include "UI/SFlowVizPipelinePanel.h"
 #include "UI/SFlowVizProbePanel.h"
 #include "UI/SFlowVizRenderSettingsPanel.h"
@@ -719,7 +720,16 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 	 * queue a disk read per frame; requesting on display change re-samples
 	 * exactly when the numbers on screen stop describing the picture.
 	 */
-	Model->DrainSampleResults();
+	if (Model->DrainSampleResults())
+	{
+		// The line chart is FED from the drain rather than bound: the series
+		// changes at most once per displayed frame, and this is the one place
+		// that knows a new one just arrived (#85).
+		if (ProbePanel.IsValid() && ProbePanel->GetLineChart().IsValid())
+		{
+			ProbePanel->GetLineChart()->SetSeries(Model->GetLineSeries());
+		}
+	}
 	{
 		const int32 DisplayedFrame = Model->Player.GetDisplay().FrameA;
 		if (DisplayedFrame != LastSampledFrame && Model->IsCaseOpen())
