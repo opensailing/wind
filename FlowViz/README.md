@@ -28,7 +28,7 @@ wake with an analytic vortex street) is **committed**, so this step is optional:
 
 ```bash
 cd Tools/cfdviz
-PYTHONPATH=src python3 -m cfdviz generate --output ../../Samples/MockCylinderWake.cfdviz
+PYTHONPATH=src python3 -m cfdviz generate-mock --output ../../Samples/MockCylinderWake.cfdviz --low-res
 PYTHONPATH=src python3 -m cfdviz validate ../../Samples/MockCylinderWake.cfdviz
 ```
 
