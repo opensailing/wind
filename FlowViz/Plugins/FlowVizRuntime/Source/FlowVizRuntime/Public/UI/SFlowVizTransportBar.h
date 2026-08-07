@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UI/SFlowVizTransferFunctionPanel.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/SCompoundWidget.h"
@@ -131,6 +132,29 @@ public:
 	/** The scrub slider, exposed for the same reason as the buttons - see SFlowVizScrubSlider::SimulateDrag. */
 	TSharedPtr<SFlowVizScrubSlider> GetScrubSlider() const { return ScrubSlider; }
 
+	/* --- The options cluster (#75). ---------------------------------------- */
+	/*
+	 * These five view model setters had NO production caller: loop, playback
+	 * mode, speed and interpolation were welded to the player's defaults the
+	 * way the render settings were welded to the view model's (#74). Same
+	 * defect, one panel over -- check_uncalled_setters.sh is what found it.
+	 */
+
+	/** Cycles Loop -> PingPong -> Once -> Loop. Its label names the mode IN FORCE. */
+	TSharedPtr<SButton> GetLoopModeButton() const { return LoopModeButton; }
+
+	/** Toggles Sequence <-> RealTime. */
+	TSharedPtr<SButton> GetPlaybackModeButton() const { return PlaybackModeButton; }
+
+	/** The button for FlowVizPlayback::SpeedPresets[Index], or null out of range. */
+	TSharedPtr<SButton> GetSpeedPresetButton(int32 Index) const;
+
+	/** Free-typed speed. Zero and non-finite are refused by the model and the box snaps back. */
+	TSharedPtr<SFlowVizNumericEntry> GetCustomSpeedBox() const { return CustomSpeedBox; }
+
+	/** Interpolation on/off. Off shows stored frames only. */
+	TSharedPtr<SButton> GetInterpolationButton() const { return InterpolationButton; }
+
 	/** What the fidelity badge currently reads. Exposed so a test can assert rule 7's disclosure is present. */
 	FText GetBadgeText() const;
 
@@ -161,6 +185,17 @@ private:
 	FReply OnLastFrameClicked();
 	void OnScrubValueChanged(float NewValue);
 
+	FReply OnLoopModeClicked();
+	FReply OnPlaybackModeClicked();
+	FReply OnSpeedPresetClicked(int32 PresetIndex);
+	void OnCustomSpeedCommitted(const FText& NewText, ETextCommit::Type CommitType);
+	FReply OnInterpolationClicked();
+
+	FText GetLoopModeLabel() const;
+	FText GetPlaybackModeLabel() const;
+	FText GetInterpolationLabel() const;
+	FText GetCustomSpeedText() const;
+
 	/** Borrowed. Null until a workspace hands one over, which is a legal inert state. */
 	FFlowVizTimelineViewModel* ViewModel = nullptr;
 
@@ -170,4 +205,10 @@ private:
 	TSharedPtr<SButton> FirstFrameButton;
 	TSharedPtr<SButton> LastFrameButton;
 	TSharedPtr<SFlowVizScrubSlider> ScrubSlider;
+
+	TSharedPtr<SButton> LoopModeButton;
+	TSharedPtr<SButton> PlaybackModeButton;
+	TArray<TSharedPtr<SButton>> SpeedPresetButtons;
+	TSharedPtr<SFlowVizNumericEntry> CustomSpeedBox;
+	TSharedPtr<SButton> InterpolationButton;
 };

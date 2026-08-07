@@ -192,6 +192,35 @@ public:
 	/** The opacity slider. Drag it headlessly with SimulateDrag -- see the type. */
 	TSharedPtr<SFlowVizOpacitySlider> GetOpacitySlider() const { return OpacitySlider; }
 
+	/* --- Clamp and the disclosure palette (#75). ---------------------------- */
+	/*
+	 * SetClampToRange and the four disclosure colour setters had no production
+	 * caller: #29 carried bClampToRange to the shader and no widget could flip
+	 * it. The disclosure colours are VISUAL_QA rule 4's surface -- each names
+	 * WHY a voxel is not showing data -- so each slot offers a FIXED palette
+	 * chosen to keep the five pairwise distinguishable; a free picker is how
+	 * NaN quietly becomes the same magenta as over-range.
+	 */
+
+	/** Slot indices for the disclosure swatch rows. */
+	static constexpr int32 DisclosureSlotNaN = 0;
+	static constexpr int32 DisclosureSlotMasked = 1;
+	static constexpr int32 DisclosureSlotUnderRange = 2;
+	static constexpr int32 DisclosureSlotOverRange = 3;
+	static constexpr int32 DisclosureSlotCount = 4;
+
+	/** Clamp-to-range toggle. Its label names the state in force. */
+	TSharedPtr<SButton> GetClampButton() const { return ClampButton; }
+
+	/** The swatch button at (Slot, Index), or null when either is out of range. */
+	TSharedPtr<SButton> GetDisclosureSwatchButton(int32 Slot, int32 Index) const;
+
+	/** How many swatches a slot offers. Static: the palettes are design decisions, not state. */
+	static int32 GetDisclosureSwatchCount(int32 Slot);
+
+	/** The colour the swatch at (Slot, Index) applies. Transparent black out of range. */
+	static FLinearColor GetDisclosureSwatchColor(int32 Slot, int32 Index);
+
 	/** The rule 8 advisory. Empty when the range is stable, non-empty when it is per-frame. */
 	FText GetRangeAdvisoryText() const;
 
@@ -238,6 +267,13 @@ private:
 
 	/** Subscriber for edits. Unbound is legal and inert -- see the SLATE_EVENT. */
 	FSimpleDelegate OnTransferFunctionChanged;
+
+	FReply OnClampClicked();
+	FReply OnDisclosureSwatchClicked(int32 Slot, int32 Index);
+	FText GetClampLabel() const;
+
+	TSharedPtr<SButton> ClampButton;
+	TArray<TSharedPtr<SButton>> DisclosureSwatchButtons[DisclosureSlotCount];
 
 	TMap<ECFDVizColorMap, TSharedPtr<SButton>> ColorMapButtons;
 	TArray<TSharedPtr<SButton>> RangeSourceButtons;

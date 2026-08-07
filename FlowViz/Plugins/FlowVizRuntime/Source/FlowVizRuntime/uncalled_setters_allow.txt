@@ -14,14 +14,4 @@
 FlowVizClipViewModel::SetPlane:open gap (#75) - planes can be added, removed and inverted from the panel, but not edited in place
 FlowVizProbeViewModel::SetLineAxisMode:open gap (#75) - the probe panel offers no line-axis control
 FlowVizProbeViewModel::SetProbeReading:open gap (#75) - the seam an async GPU readback would call; until one exists probes cannot display a sampled value
-FlowVizTimelineViewModel::SetLoopMode:open gap (#75) - the transport bar has no loop control
-FlowVizTimelineViewModel::SetPlaybackMode:open gap (#75) - the transport bar has no playback-mode control
-FlowVizTimelineViewModel::SetCustomSpeed:open gap (#75) - the transport bar has no speed control
-FlowVizTimelineViewModel::SetSpeedPresetIndex:open gap (#75) - the transport bar has no speed control
-FlowVizTimelineViewModel::SetInterpolationEnabled:open gap (#75) - the transport bar has no interpolation toggle
-FlowVizTransferFunctionViewModel::SetClampToRange:open gap (#75) - bClampToRange reaches the shader (#29) but no UI toggles the model
 FlowVizTransferFunctionViewModel::SetCurrentFrameRange:open gap (#75) - nothing measures a per-frame range, which is why the "Per frame" range source is permanently disabled
-FlowVizTransferFunctionViewModel::SetMaskedColor:open gap (#75) - the disclosure palette is not editable anywhere
-FlowVizTransferFunctionViewModel::SetNaNColor:open gap (#75) - the disclosure palette is not editable anywhere
-FlowVizTransferFunctionViewModel::SetUnderRangeColor:open gap (#75) - the disclosure palette is not editable anywhere
-FlowVizTransferFunctionViewModel::SetOverRangeColor:open gap (#75) - the disclosure palette is not editable anywhere

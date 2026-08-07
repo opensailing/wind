@@ -66,6 +66,37 @@ namespace FlowVizTransferFunctionPanelLocal
 		}
 	}
 
+	/*
+	 * The disclosure palettes, one row per slot (#75). NO COLOUR APPEARS IN TWO
+	 * SLOTS' PALETTES: rule 4 requires the disclosure colours to stay pairwise
+	 * distinguishable, and disjoint palettes make that true BY CONSTRUCTION for
+	 * every combination a user can select -- no cross-check needed at click
+	 * time. Index 0 of each row is the shipped default.
+	 */
+	const FLinearColor DisclosurePalettes
+		[SFlowVizTransferFunctionPanel::DisclosureSlotCount][2] = {
+		/* NaN */        { FLinearColor(0.0f, 1.0f, 0.0f, 1.0f),
+						   FLinearColor(1.0f, 1.0f, 0.0f, 1.0f) },
+		/* Masked */     { FLinearColor(0.0f, 0.55f, 0.0f, 1.0f),
+						   FLinearColor(0.3f, 0.3f, 0.3f, 1.0f) },
+		/* UnderRange */ { FLinearColor(0.0f, 1.0f, 1.0f, 1.0f),
+						   FLinearColor(0.0f, 0.25f, 1.0f, 1.0f) },
+		/* OverRange */  { FLinearColor(1.0f, 0.0f, 1.0f, 1.0f),
+						   FLinearColor(1.0f, 0.5f, 0.0f, 1.0f) },
+	};
+
+	const FText DisclosureSlotNames[SFlowVizTransferFunctionPanel::DisclosureSlotCount] = {
+		LOCTEXT("SlotNaN", "NaN"),
+		LOCTEXT("SlotMasked", "Masked"),
+		LOCTEXT("SlotUnder", "Under range"),
+		LOCTEXT("SlotOver", "Over range"),
+	};
+
+	const FText DisclosureSwatchNames[2] = {
+		LOCTEXT("SwatchDefault", "Default"),
+		LOCTEXT("SwatchAlt", "Alternate"),
+	};
+
 	/** Fixed decimals, for the same anti-jitter reason as the transport readout. */
 	FText FormatValue(float Value)
 	{
@@ -356,6 +387,79 @@ void SFlowVizTransferFunctionPanel::Construct(const FArguments& InArgs)
 			];
 	}
 
+	/* --- Clamp and the disclosure palette (#75) ----------------------------- */
+
+	SAssignNew(ClampButton, SButton)
+		.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+		.OnClicked(FOnClicked::CreateSP(this, &SFlowVizTransferFunctionPanel::OnClampClicked))
+		.IsEnabled(BoundEnabled)
+		.ToolTipText(LOCTEXT("ClampTip",
+			"How out-of-range values are shown. Disclosed: they take the under/over colours, "
+			"so off-scale data is visible as off-scale. Clamped: they take the end of the "
+			"ramp. The reported value and the reason bits are identical either way."))
+		.ContentPadding(FMargin(1.5f * U, 0.75f * U))
+		[
+			SNew(STextBlock)
+				.Text(TAttribute<FText>::CreateSP(
+					this, &SFlowVizTransferFunctionPanel::GetClampLabel))
+				.Font(FlowVizWorkspaceStyle::GetLabelFont())
+				.ColorAndOpacity(FSlateColor::UseForeground())
+		];
+
+	TSharedRef<SVerticalBox> DisclosureRows = SNew(SVerticalBox);
+	for (int32 Slot = 0; Slot < DisclosureSlotCount; ++Slot)
+	{
+		TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
+		Row->AddSlot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(FMargin(0.0f, 0.0f, 1.0f * U, 0.0f))
+		[
+			SNew(SBox)
+				.MinDesiredWidth(16.0f * U)
+			[
+				SNew(STextBlock)
+					.Text(FlowVizTransferFunctionPanelLocal::DisclosureSlotNames[Slot])
+					.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+					.ColorAndOpacity(FSlateColor(FlowVizWorkspaceStyle::GetTextSecondaryColor()))
+			]
+		];
+		for (int32 Index = 0; Index < GetDisclosureSwatchCount(Slot); ++Index)
+		{
+			TSharedPtr<SButton> Swatch;
+			SAssignNew(Swatch, SButton)
+				.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+				.OnClicked(FOnClicked::CreateSP(this,
+					&SFlowVizTransferFunctionPanel::OnDisclosureSwatchClicked, Slot, Index))
+				.IsEnabled(BoundEnabled)
+				.ToolTipText(LOCTEXT("DisclosureTip",
+					"The disclosure palette names WHY a voxel is not showing data. Fixed "
+					"choices per slot, kept distinguishable from the other four by "
+					"construction (VISUAL_QA rule 4)."))
+				.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock)
+						.Text(FlowVizTransferFunctionPanelLocal::DisclosureSwatchNames[Index])
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor(
+							FlowVizTransferFunctionPanelLocal::DisclosurePalettes[Slot][Index]))
+				];
+			DisclosureSwatchButtons[Slot].Add(Swatch);
+			Row->AddSlot()
+				.AutoWidth()
+				.Padding(FMargin(0.0f, 0.0f, 0.5f * U, 0.0f))
+			[
+				Swatch.ToSharedRef()
+			];
+		}
+		DisclosureRows->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(0.0f, 0.0f, 0.0f, 0.5f * U))
+		[
+			Row
+		];
+	}
+
 	/* --- Assembly ---------------------------------------------------------- */
 
 	ChildSlot
@@ -596,6 +700,31 @@ void SFlowVizTransferFunctionPanel::Construct(const FArguments& InArgs)
 						"Overall density. Scales the authored opacity curve without changing "
 						"its shape."))
 			]
+
+			/* --- Out-of-range display and the disclosure palette (#75) ---- */
+
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 2.0f * U, 0.0f, 0.5f * U))
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("DisclosureHeading", "OUT-OF-RANGE & DISCLOSURE"))
+					.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+					.ColorAndOpacity(FSlateColor(FlowVizWorkspaceStyle::GetTextSecondaryColor()))
+			]
+
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 0.0f, 0.0f, 1.0f * U))
+			[
+				ClampButton.ToSharedRef()
+			]
+
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+			[
+				DisclosureRows
+			]
 		]
 	];
 }
@@ -824,6 +953,98 @@ void SFlowVizTransferFunctionPanel::OnOpacityMultiplierChanged(float NewValue)
 			NotifyTransferFunctionChanged();
 		}
 	}
+}
+
+/* --- Clamp and disclosure (#75) ------------------------------------------- */
+
+FReply SFlowVizTransferFunctionPanel::OnClampClicked()
+{
+	if (ViewModel != nullptr)
+	{
+		// A toggle is always a change. SetClampToRange returns void and cannot
+		// refuse (the classification is unchanged either way -- see its header),
+		// so this announces unconditionally, like the reverse button.
+		ViewModel->SetClampToRange(!ViewModel->IsClampToRange());
+		NotifyTransferFunctionChanged();
+	}
+	return FReply::Handled();
+}
+
+FReply SFlowVizTransferFunctionPanel::OnDisclosureSwatchClicked(int32 Slot, int32 Index)
+{
+	if (ViewModel == nullptr)
+	{
+		return FReply::Handled();
+	}
+	const FLinearColor Chosen = GetDisclosureSwatchColor(Slot, Index);
+	const FFlowVizTransferFunction& Function = ViewModel->GetTransferFunction();
+
+	// GATED ON CHANGE per slot: re-clicking the selected swatch must not push a
+	// byte-identical transfer function to the render thread.
+	switch (Slot)
+	{
+		case DisclosureSlotNaN:
+			if (Function.NaNColor.Equals(Chosen)) { return FReply::Handled(); }
+			ViewModel->SetNaNColor(Chosen);
+			break;
+		case DisclosureSlotMasked:
+			if (Function.MaskedColor.Equals(Chosen)) { return FReply::Handled(); }
+			ViewModel->SetMaskedColor(Chosen);
+			break;
+		case DisclosureSlotUnderRange:
+			if (Function.UnderRangeColor.Equals(Chosen)) { return FReply::Handled(); }
+			ViewModel->SetUnderRangeColor(Chosen);
+			break;
+		case DisclosureSlotOverRange:
+			if (Function.OverRangeColor.Equals(Chosen)) { return FReply::Handled(); }
+			ViewModel->SetOverRangeColor(Chosen);
+			break;
+		default:
+			return FReply::Handled();
+	}
+	NotifyTransferFunctionChanged();
+	return FReply::Handled();
+}
+
+FText SFlowVizTransferFunctionPanel::GetClampLabel() const
+{
+	if (ViewModel == nullptr)
+	{
+		return LOCTEXT("ClampUnavailable", "Out-of-range");
+	}
+	// The label names the state in force. "Disclosed" is the honest default:
+	// off-scale data is visibly off-scale.
+	return ViewModel->IsClampToRange() ? LOCTEXT("ClampOn", "Out-of-range: clamped")
+									   : LOCTEXT("ClampOff", "Out-of-range: disclosed");
+}
+
+TSharedPtr<SButton> SFlowVizTransferFunctionPanel::GetDisclosureSwatchButton(
+	int32 Slot, int32 Index) const
+{
+	if (Slot < 0 || Slot >= DisclosureSlotCount)
+	{
+		return nullptr;
+	}
+	return DisclosureSwatchButtons[Slot].IsValidIndex(Index)
+		? DisclosureSwatchButtons[Slot][Index]
+		: nullptr;
+}
+
+int32 SFlowVizTransferFunctionPanel::GetDisclosureSwatchCount(int32 Slot)
+{
+	return (Slot >= 0 && Slot < DisclosureSlotCount)
+		? UE_ARRAY_COUNT(FlowVizTransferFunctionPanelLocal::DisclosurePalettes[Slot])
+		: 0;
+}
+
+FLinearColor SFlowVizTransferFunctionPanel::GetDisclosureSwatchColor(int32 Slot, int32 Index)
+{
+	if (Slot < 0 || Slot >= DisclosureSlotCount || Index < 0
+		|| Index >= GetDisclosureSwatchCount(Slot))
+	{
+		return FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	return FlowVizTransferFunctionPanelLocal::DisclosurePalettes[Slot][Index];
 }
 
 #undef LOCTEXT_NAMESPACE

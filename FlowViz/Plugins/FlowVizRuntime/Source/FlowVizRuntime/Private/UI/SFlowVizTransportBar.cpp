@@ -147,6 +147,96 @@ void SFlowVizTransportBar::Construct(const FArguments& InArgs)
 				.ColorAndOpacity(FSlateColor::UseForeground()));
 	}
 
+	/* --- The options cluster (#75) ----------------------------------------- */
+	/*
+	 * Loop, playback mode, speed and interpolation. Five view model setters
+	 * with no production caller until these controls existed -- the welded
+	 * defaults defect (#74), one panel over. Labels name the STATE IN FORCE
+	 * rather than the action, matching the slice panel's toggles: a button
+	 * reading "Loop" while the case pingpongs is a lie about which control the
+	 * user is holding.
+	 */
+
+	const TAttribute<bool> OptionsEnabled = TAttribute<bool>::CreateLambda(
+		[this]() { return ViewModel != nullptr && ViewModel->HasFrames(); });
+
+	auto MakeOptionButton = [this, U, &OptionsEnabled](TAttribute<FText> Label,
+							   const FText& Tooltip, FOnClicked OnClicked) -> TSharedRef<SButton>
+	{
+		return SNew(SButton)
+			.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+			.OnClicked(OnClicked)
+			.IsEnabled(OptionsEnabled)
+			.ToolTipText(Tooltip)
+			.ContentPadding(FMargin(1.5f * U, 0.75f * U))
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+					.Text(Label)
+					.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+					.ColorAndOpacity(FSlateColor::UseForeground())
+			];
+	};
+
+	LoopModeButton = MakeOptionButton(
+		TAttribute<FText>::CreateSP(this, &SFlowVizTransportBar::GetLoopModeLabel),
+		LOCTEXT("LoopModeTip",
+			"How playback treats the last frame: loop to the first, ping-pong back, or stop. "
+			"Click to cycle."),
+		FOnClicked::CreateSP(this, &SFlowVizTransportBar::OnLoopModeClicked));
+
+	PlaybackModeButton = MakeOptionButton(
+		TAttribute<FText>::CreateSP(this, &SFlowVizTransportBar::GetPlaybackModeLabel),
+		LOCTEXT("PlaybackModeTip",
+			"Sequence shows every stored frame in order; real-time advances by the case's own "
+			"physical clock, skipping or holding frames as needed."),
+		FOnClicked::CreateSP(this, &SFlowVizTransportBar::OnPlaybackModeClicked));
+
+	InterpolationButton = MakeOptionButton(
+		TAttribute<FText>::CreateSP(this, &SFlowVizTransportBar::GetInterpolationLabel),
+		LOCTEXT("InterpolationTip",
+			"Blend between stored frames, or hold each one. Blending is smooth and shows "
+			"values the solver never computed; the badge discloses which is on screen."),
+		FOnClicked::CreateSP(this, &SFlowVizTransportBar::OnInterpolationClicked));
+
+	TSharedRef<SHorizontalBox> SpeedCluster = SNew(SHorizontalBox);
+	for (int32 Index = 0; Index < FlowVizPlayback::NumSpeedPresets; ++Index)
+	{
+		TSharedPtr<SButton> PresetButton;
+		SAssignNew(PresetButton, SButton)
+			.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+			.OnClicked(
+				FOnClicked::CreateSP(this, &SFlowVizTransportBar::OnSpeedPresetClicked, Index))
+			.IsEnabled(OptionsEnabled)
+			.ToolTipText(LOCTEXT("SpeedPresetTip", "Playback speed multiplier."))
+			.ContentPadding(FMargin(1.0f * U, 0.75f * U))
+			[
+				SNew(STextBlock)
+					.Text(FText::FromString(
+						FString::Printf(TEXT("%gx"), FlowVizPlayback::SpeedPresets[Index])))
+					.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+					.ColorAndOpacity(FSlateColor::UseForeground())
+			];
+		SpeedPresetButtons.Add(PresetButton);
+		SpeedCluster->AddSlot()
+			.AutoWidth()
+			.Padding(FMargin(Index == 0 ? 0.0f : 0.25f * U, 0.0f, 0.0f, 0.0f))
+			[
+				PresetButton.ToSharedRef()
+			];
+	}
+
+	SAssignNew(CustomSpeedBox, SFlowVizNumericEntry)
+		.Text(TAttribute<FText>::CreateSP(this, &SFlowVizTransportBar::GetCustomSpeedText))
+		.Font(FlowVizWorkspaceStyle::GetNumericFont())
+		.OnTextCommitted(FOnTextCommitted::CreateSP(
+			this, &SFlowVizTransportBar::OnCustomSpeedCommitted))
+		.IsEnabled(OptionsEnabled)
+		.ToolTipText(LOCTEXT("CustomSpeedTip",
+			"Any speed multiplier. Zero is refused - a playing case at speed zero is "
+			"indistinguishable from a paused one on screen and differs in every diagnostic."));
+
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -271,6 +361,69 @@ void SFlowVizTransportBar::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+
+	/*
+	 * THE OPTIONS ROW, BELOW THE TRANSPORT ROW. Wrapped after the fact rather
+	 * than restructuring the declarative block above: the transport row's slots
+	 * are position-sensitive (tests reach them by getter, not index) and the
+	 * whole bar is one bordered strip either way.
+	 */
+	{
+		const TSharedRef<SWidget> TransportRow = ChildSlot.GetWidget();
+		ChildSlot
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight() [ TransportRow ]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 0.5f * U, 0.0f, 0.0f))
+			[
+				SNew(SBorder)
+					.BorderImage(FlowVizWorkspaceStyle::GetFlatBrush())
+					.BorderBackgroundColor(FlowVizWorkspaceStyle::GetPanelColor())
+					.Padding(FMargin(2.0f * U, 1.0f * U))
+					.VAlign(VAlign_Center)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(FMargin(0.0f, 0.0f, 0.5f * U, 0.0f))
+					[
+						LoopModeButton.ToSharedRef()
+					]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(FMargin(0.0f, 0.0f, 2.0f * U, 0.0f))
+					[
+						PlaybackModeButton.ToSharedRef()
+					]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(FMargin(0.0f, 0.0f, 0.5f * U, 0.0f))
+					[
+						SpeedCluster
+					]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(FMargin(0.0f, 0.0f, 2.0f * U, 0.0f))
+					[
+						SNew(SBox).MinDesiredWidth(14.0f * U) [ CustomSpeedBox.ToSharedRef() ]
+					]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+					[
+						InterpolationButton.ToSharedRef()
+					]
+					+ SHorizontalBox::Slot().FillWidth(1.0f) [ SNew(SBox) ]
+				]
+			]
+		];
+	}
 }
 
 /* ========================================================================== */
@@ -413,6 +566,122 @@ FSlateColor SFlowVizTransportBar::GetBadgeColor() const
 /* Actions                                                                     */
 /* ========================================================================== */
 
+/* --- The options cluster's handlers and labels (#75) ---------------------- */
+
+FReply SFlowVizTransportBar::OnLoopModeClicked()
+{
+	if (ViewModel != nullptr)
+	{
+		// CYCLE, not toggle: three states, one button. The order is the enum's
+		// own, so the label (which names the state in force) and the cycle agree.
+		EFlowVizLoopMode Next = EFlowVizLoopMode::Loop;
+		switch (ViewModel->GetLoopMode())
+		{
+			case EFlowVizLoopMode::Loop: Next = EFlowVizLoopMode::PingPong; break;
+			case EFlowVizLoopMode::PingPong: Next = EFlowVizLoopMode::Once; break;
+			case EFlowVizLoopMode::Once: Next = EFlowVizLoopMode::Loop; break;
+		}
+		ViewModel->SetLoopMode(Next);
+	}
+	return FReply::Handled();
+}
+
+FReply SFlowVizTransportBar::OnPlaybackModeClicked()
+{
+	if (ViewModel != nullptr)
+	{
+		const EFlowVizPlaybackMode Next =
+			ViewModel->GetPlaybackMode() == EFlowVizPlaybackMode::Sequence
+				? EFlowVizPlaybackMode::RealTime
+				: EFlowVizPlaybackMode::Sequence;
+		ViewModel->SetPlaybackMode(Next);
+	}
+	return FReply::Handled();
+}
+
+FReply SFlowVizTransportBar::OnSpeedPresetClicked(int32 PresetIndex)
+{
+	if (ViewModel != nullptr)
+	{
+		// The refusal (out-of-range index) keeps the prior speed; nothing to
+		// report from a click that a bounds-checked button list cannot produce.
+		ViewModel->SetSpeedPresetIndex(PresetIndex);
+	}
+	return FReply::Handled();
+}
+
+void SFlowVizTransportBar::OnCustomSpeedCommitted(
+	const FText& NewText, ETextCommit::Type CommitType)
+{
+	if (ViewModel == nullptr)
+	{
+		return;
+	}
+	double Parsed = 0.0;
+	if (!LexTryParseString(Parsed, *NewText.ToString()))
+	{
+		// UNPARSEABLE IS IGNORED, NOT COERCED: the bound attribute redisplays
+		// the real speed on the next paint, so the box visibly snaps back.
+		return;
+	}
+	// Zero and non-finite are refused by the MODEL (SetCustomSpeed), keeping
+	// the prior speed -- same one-refusal-path rule as every numeric entry.
+	ViewModel->SetCustomSpeed(Parsed);
+}
+
+FReply SFlowVizTransportBar::OnInterpolationClicked()
+{
+	if (ViewModel != nullptr)
+	{
+		ViewModel->SetInterpolationEnabled(!ViewModel->IsInterpolationEnabled());
+	}
+	return FReply::Handled();
+}
+
+FText SFlowVizTransportBar::GetLoopModeLabel() const
+{
+	if (ViewModel == nullptr)
+	{
+		return LOCTEXT("LoopUnavailable", "Loop");
+	}
+	switch (ViewModel->GetLoopMode())
+	{
+		case EFlowVizLoopMode::PingPong: return LOCTEXT("LoopPingPong", "Ping-pong");
+		case EFlowVizLoopMode::Once: return LOCTEXT("LoopOnce", "Play once");
+		default: return LOCTEXT("LoopLoop", "Loop");
+	}
+}
+
+FText SFlowVizTransportBar::GetPlaybackModeLabel() const
+{
+	if (ViewModel == nullptr)
+	{
+		return LOCTEXT("ModeUnavailable", "Mode");
+	}
+	return ViewModel->GetPlaybackMode() == EFlowVizPlaybackMode::RealTime
+		? LOCTEXT("ModeRealTime", "Real-time")
+		: LOCTEXT("ModeSequence", "Sequence");
+}
+
+FText SFlowVizTransportBar::GetInterpolationLabel() const
+{
+	if (ViewModel == nullptr)
+	{
+		return LOCTEXT("InterpUnavailable", "Blend");
+	}
+	return ViewModel->IsInterpolationEnabled() ? LOCTEXT("InterpOn", "Blended")
+											   : LOCTEXT("InterpOff", "Stored frames");
+}
+
+FText SFlowVizTransportBar::GetCustomSpeedText() const
+{
+	if (ViewModel == nullptr)
+	{
+		return FText::GetEmpty();
+	}
+	return FText::FromString(FString::Printf(TEXT("%g"), ViewModel->GetSpeed()));
+}
+
 FReply SFlowVizTransportBar::OnPlayPauseClicked()
 {
 	if (ViewModel != nullptr)
@@ -467,6 +736,11 @@ void SFlowVizTransportBar::OnScrubValueChanged(float NewValue)
 	{
 		ViewModel->ScrubToNormalized(static_cast<double>(NewValue));
 	}
+}
+
+TSharedPtr<SButton> SFlowVizTransportBar::GetSpeedPresetButton(int32 Index) const
+{
+	return SpeedPresetButtons.IsValidIndex(Index) ? SpeedPresetButtons[Index] : nullptr;
 }
 
 #undef LOCTEXT_NAMESPACE
