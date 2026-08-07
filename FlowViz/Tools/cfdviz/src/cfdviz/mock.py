@@ -395,6 +395,33 @@ def low_resolution_parameters(**overrides: Any) -> MockCaseParameters:
     return MockCaseParameters(**settings)
 
 
+def high_resolution_parameters(**overrides: Any) -> MockCaseParameters:
+    """The film-tier demo preset (renderer overhaul P4) — generated, never
+    committed.
+
+    168x84x36 gives ~34 interior z-samples of Q: enough depth for marching
+    cubes to grow real tubes instead of the stacked bands the 6-cell grid
+    produces. Forty frames cover five shedding cycles at the same interval.
+    At float16 + zlib this is roughly 400 MB on disk, which is why it lives
+    behind Tools/generate_demo_case.sh and a .gitignore entry rather than in
+    source control; the low-resolution preset stays the committed test
+    fixture.
+    """
+    settings: dict[str, Any] = {
+        "name": "Mock Cylinder Wake (high resolution)",
+        "dimensions": (168, 84, 36),
+        "frame_count": 40,
+        "frame_interval": 0.05,
+        "cylinder_radius": 0.45,
+        "core_radius": 0.22,
+        "float_type": "float16",
+        "level": 6,
+        "brick_size": (32, 32, 8),
+    }
+    settings.update(overrides)
+    return MockCaseParameters(**settings)
+
+
 # ---------------------------------------------------------------------------
 # Finite differences in physical coordinates
 # ---------------------------------------------------------------------------

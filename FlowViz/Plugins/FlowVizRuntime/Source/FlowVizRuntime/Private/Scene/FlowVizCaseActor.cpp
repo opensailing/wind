@@ -48,6 +48,9 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 	CutPlaneComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("CutPlane"));
 	CutPlaneComponent->SetupAttachment(Root);
 
+	IsoSurfaceComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("IsoSurface"));
+	IsoSurfaceComponent->SetupAttachment(Root);
+
 	/*
 	 * MATERIALS BY PATH, TOLERANT OF ABSENCE. The assets are authored by
 	 * Tools/author_materials.py into plugin Content; a cooked build carries
@@ -66,6 +69,9 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 	if (ColormapMaterial.Succeeded())
 	{
 		CutPlaneComponent->SetMaterial(0, ColormapMaterial.Object);
+		// The iso surface shares the colormap material: same LUT, same UV0
+		// scalar contract -- one color authority (P3's rule).
+		IsoSurfaceComponent->SetMaterial(0, ColormapMaterial.Object);
 	}
 }
 

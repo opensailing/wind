@@ -752,18 +752,25 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 			ProbePanel->GetLineChart()->SetSeries(Model->GetLineSeries());
 		}
 
-		// The cut plane rides the same drain (renderer overhaul P3): freshly
-		// built mesh -> the case actor's dedicated component.
-		if (Model->HasFreshCutPlane())
+		// The cut plane and iso surface ride the same drain (P3/P4): freshly
+		// built meshes -> the case actor's dedicated components.
+		if (Model->HasFreshCutPlane() || Model->HasFreshIsoSurface())
 		{
 			if (UCFDVizVolumeComponent* BoundVolume = GetVolume())
 			{
 				if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
 				{
-					if (Actor->GetCutPlaneComponent() != nullptr)
+					if (Model->HasFreshCutPlane()
+						&& Actor->GetCutPlaneComponent() != nullptr)
 					{
 						Actor->GetCutPlaneComponent()->SetSurfaceData(
 							Model->ConsumeCutPlane());
+					}
+					if (Model->HasFreshIsoSurface()
+						&& Actor->GetIsoSurfaceComponent() != nullptr)
+					{
+						Actor->GetIsoSurfaceComponent()->SetSurfaceData(
+							Model->ConsumeIsoSurface());
 					}
 				}
 			}

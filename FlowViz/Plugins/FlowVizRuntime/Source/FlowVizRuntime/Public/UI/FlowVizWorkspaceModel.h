@@ -370,6 +370,21 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	double GetCutPlaneRangeMin() const { return CutPlaneRangeMin; }
 	double GetCutPlaneRangeMax() const { return CutPlaneRangeMax; }
 
+	/** The drained iso surface (renderer overhaul P4), same consume contract. */
+	bool HasFreshIsoSurface() const { return bIsoSurfaceFresh; }
+	const FFlowVizMeshPayload& ConsumeIsoSurface()
+	{
+		bIsoSurfaceFresh = false;
+		return IsoSurfacePayload;
+	}
+	double GetLastIsoValueUsed() const { return LastIsoValueUsed; }
+
+	/** The iso toggle and value (0 = the P90 default). Both re-request on change. */
+	void SetIsoSurfaceEnabled(bool bEnabled);
+	bool IsIsoSurfaceEnabled() const { return bIsoSurfaceEnabled; }
+	void SetIsoValue(double InIsoValue);
+	double GetIsoValue() const { return IsoValue; }
+
 private:
 	/** Shared with the sampling task; outlives this model if a task is still running. */
 	struct FSampleQueue;
@@ -382,6 +397,12 @@ private:
 	double CutPlaneRangeMin = 0.0;
 	double CutPlaneRangeMax = 0.0;
 	bool bCutPlaneFresh = false;
+
+	FFlowVizMeshPayload IsoSurfacePayload;
+	double LastIsoValueUsed = 0.0;
+	bool bIsoSurfaceFresh = false;
+	bool bIsoSurfaceEnabled = true;
+	double IsoValue = 0.0;
 
 	bool bPresentationMode = false;
 

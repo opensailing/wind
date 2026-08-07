@@ -65,6 +65,7 @@ from .mock import (
     MockCaseParameters,
     default_parameters,
     generate_mock_case,
+    high_resolution_parameters,
     low_resolution_parameters,
 )
 
@@ -158,6 +159,9 @@ def _add_generate_mock(subparsers: argparse._SubParsersAction) -> None:
     generate.add_argument(
         "--output", type=Path, required=True, help="destination case directory"
     )
+    generate.add_argument(
+        "--high-res", action="store_true",
+        help="use the film-tier demo preset: 168x84x36, 40 frames (~400 MB)")
     generate.add_argument(
         "--low-res", action="store_true",
         help=(
@@ -468,7 +472,11 @@ def _generate_mock(arguments: argparse.Namespace) -> int:
         if key in overrides:
             overrides[key] = tuple(overrides[key])
 
-    build = low_resolution_parameters if arguments.low_res else default_parameters
+    build = default_parameters
+    if arguments.low_res:
+        build = low_resolution_parameters
+    if arguments.high_res:
+        build = high_resolution_parameters
     try:
         parameters = build(**overrides)
     except (ValueError, CodecError) as exc:

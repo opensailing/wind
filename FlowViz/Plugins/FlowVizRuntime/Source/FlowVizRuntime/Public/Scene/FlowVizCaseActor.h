@@ -75,6 +75,12 @@ public:
 		return CutPlaneComponent;
 	}
 
+	/** The Q iso-surface (renderer overhaul P4). Also its own component, for the same isolation. */
+	class UCFDVizSurfaceMeshComponent* GetIsoSurfaceComponent() const
+	{
+		return IsoSurfaceComponent;
+	}
+
 	UCFDVizVolumeComponent* GetVolumeComponent() const
 	{
 		return VolumeComponent;
@@ -104,6 +110,9 @@ public:
 
 	UPROPERTY()
 	TObjectPtr<class UCFDVizSurfaceMeshComponent> CutPlaneComponent;
+
+	UPROPERTY()
+	TObjectPtr<class UCFDVizSurfaceMeshComponent> IsoSurfaceComponent;
 
 	/** Build every declared mesh's patches on a worker and apply on the game thread. */
 	void LoadBoundaryMeshes();

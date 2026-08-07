@@ -886,3 +886,30 @@ def test_a_transposed_index_would_reach_a_different_value(tiny_case: Path):
         "the transposed index returns the same value as the real one for "
         "every (entity, component), so no payload comparison can catch it"
     )
+
+
+def test_high_resolution_preset_is_deep_enough_for_marching_cubes():
+    """The film-tier preset (renderer overhaul P4).
+
+    36 z-cells is the property the preset exists for: marching cubes needs
+    interior depth to grow tubes, and the committed 6-cell grid cannot.
+    Everything else mirrors the low-res preset so the two cases differ only
+    in resolution and length.
+    """
+    from cfdviz.mock import high_resolution_parameters, low_resolution_parameters
+
+    high = high_resolution_parameters()
+    low = low_resolution_parameters()
+
+    assert high.dimensions == (168, 84, 36)
+    assert high.dimensions[2] >= 32, "the z-depth IS the point of this preset"
+    assert high.frame_count == 40
+    # Same physics, same obstacle: only resolution and duration differ.
+    assert high.cylinder_radius == low.cylinder_radius
+    assert high.frame_interval == low.frame_interval
+    assert high.float_type == low.float_type
+
+    # Overrides pass through, so tests can generate tiny variants quickly.
+    tiny = high_resolution_parameters(dimensions=(8, 6, 4), frame_count=2)
+    assert tiny.dimensions == (8, 6, 4)
+    assert tiny.frame_count == 2

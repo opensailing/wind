@@ -13,6 +13,7 @@
 #include "Flow/FlowVizChartSeries.h"
 #include "Flow/FlowVizCutPlane.h"
 #include "Flow/FlowVizFieldMask.h"
+#include "Flow/FlowVizIsoSurface.h"
 #include "Flow/FlowVizFieldSampler.h"
 #include "Tasks/Task.h"
 
@@ -456,6 +457,30 @@ void FFlowVizWorkspaceModel::SetPresentationMode(bool bInPresentation)
 	}
 }
 
+void FFlowVizWorkspaceModel::SetIsoSurfaceEnabled(bool bEnabled)
+{
+	if (bIsoSurfaceEnabled != bEnabled)
+	{
+		bIsoSurfaceEnabled = bEnabled;
+		RequestSampleUpdate();
+	}
+}
+
+void FFlowVizWorkspaceModel::SetIsoValue(double InIsoValue)
+{
+	// 0 restores the P90 default; negatives and non-finite are refused quietly
+	// (the slider cannot produce them; a session file could).
+	if (!FMath::IsFinite(InIsoValue) || InIsoValue < 0.0)
+	{
+		return;
+	}
+	if (IsoValue != InIsoValue)
+	{
+		IsoValue = InIsoValue;
+		RequestSampleUpdate();
+	}
+}
+
 /* ========================================================================== */
 /* The sampling service (#75)                                                  */
 /* ========================================================================== */
@@ -490,6 +515,11 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 		FFlowVizMeshSection CutPlane;
 		double CutPlaneRangeMin = 0.0;
 		double CutPlaneRangeMax = 0.0;
+
+		/** The Q iso-surface (renderer overhaul P4), when the case carries qCriterion. */
+		bool bHasIsoSurface = false;
+		FFlowVizMeshSection IsoSurface;
+		double IsoValueUsed = 0.0;
 	};
 
 	FCriticalSection Mutex;
@@ -581,6 +611,15 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 	// plane, copied by value. Built only when the slice is visible AND has a
 	// domain -- an invisible slice costs nothing.
 	const bool bWantCutPlane = Slice.IsVisible() && Slice.HasDomain();
+
+	// The iso surface (P4): wants the case's own qCriterion (the generator's
+	// second-order stencils beat anything recomputed from decimated U) and U
+	// for coloring. Absent fields simply mean no iso -- a case need not carry
+	// vortex diagnostics.
+	const bool bWantIsoSurface = bIsoSurfaceEnabled
+		&& SharedCase.IsValid()
+		&& SharedCase->FindField(TEXT("qCriterion")) != nullptr;
+	const double IsoValueOverride = IsoValue;
 	FlowVizCutPlane::FCutPlaneRequest CutRequest;
 	if (bWantCutPlane)
 	{
@@ -592,7 +631,7 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 	UE::Tasks::Launch(TEXT("FlowVizWorkspaceSample"),
 		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
 			bHasLine, LineStart, LineEnd, LineSamples, LineAxis,
-			bWantCutPlane, CutRequest,
+			bWantCutPlane, CutRequest, bWantIsoSurface, IsoValueOverride,
 			Requests = MoveTemp(Requests)]() mutable
 		{
 			FSampleQueue::FResult Result;
@@ -719,6 +758,98 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 			}
 
 			/*
+			 * THE ISO SURFACE (renderer overhaul P4): marching cubes over the
+			 * case's own qCriterion at this frame. The default iso value is
+			 * P90 of positive Q -- per case, honest across unit systems --
+			 * unless the user pinned one.
+			 */
+			if (bWantIsoSurface)
+			{
+				FFlowVizFieldSampler QSampler;
+				if (QSampler.Build(*CaseRef, TEXT("qCriterion"), FrameIndex).IsOk())
+				{
+					FlowVizIsoSurface::FIsoGrid IsoGrid;
+					IsoGrid.Counts = QSampler.GetValueCounts();
+					IsoGrid.Origin = QSampler.GetGrid().Origin;
+					IsoGrid.Spacing = QSampler.GetGrid().Spacing;
+					IsoGrid.Values.Reserve(
+						IsoGrid.Counts.X * IsoGrid.Counts.Y * IsoGrid.Counts.Z);
+					TArray<double> VoxelValue;
+					for (int32 GZ = 0; GZ < IsoGrid.Counts.Z; ++GZ)
+					{
+						for (int32 GY = 0; GY < IsoGrid.Counts.Y; ++GY)
+						{
+							for (int32 GX = 0; GX < IsoGrid.Counts.X; ++GX)
+							{
+								QSampler.GetVoxelValue(FIntVector(GX, GY, GZ), VoxelValue);
+								IsoGrid.Values.Add(VoxelValue[0]);
+							}
+						}
+					}
+
+					double UseIso = IsoValueOverride;
+					const bool bHaveIso = UseIso > 0.0
+						|| FlowVizIsoSurface::PercentilePositiveIsoValue(
+							IsoGrid.Values, 90.0, UseIso);
+					if (bHaveIso && FlowVizIsoSurface::ExtractIsoSurface(
+							IsoGrid, UseIso, Result.IsoSurface))
+					{
+						Result.IsoValueUsed = UseIso;
+						Result.bHasIsoSurface = true;
+
+						/*
+						 * COLOR BY |U|, the genre's convention: per-vertex
+						 * scalars from the velocity sampler at the vertex
+						 * positions, normalized against the field's declared
+						 * global magnitude bound so the coloring is stable
+						 * across frames (a per-frame range would make the
+						 * tubes pulse hue with playback).
+						 */
+						FFlowVizFieldSampler USampler;
+						if (USampler.Build(*CaseRef, TEXT("U"), FrameIndex).IsOk())
+						{
+							const FMatrix UnrealToSolver = MakeUnrealToSolverTransform();
+							double MagMax = 1.0;
+							if (const FCFDVizField* UField = CaseRef->FindField(TEXT("U")))
+							{
+								// The declared per-component bounds give a
+								// conservative magnitude ceiling: sqrt of the
+								// sum of the larger |bound| per component.
+								// Usable only when the flag says the pair is
+								// coherent (manifest rule: read flags, not
+								// arrays).
+								if (UField->Statistics.bHasComponentRange)
+								{
+									double SumSq = 0.0;
+									for (int32 Component = 0;
+										Component < UField->Statistics.GlobalComponentMax.Num();
+										++Component)
+									{
+										const double Bound = FMath::Max(
+											FMath::Abs(UField->Statistics.GlobalComponentMin[Component]),
+											FMath::Abs(UField->Statistics.GlobalComponentMax[Component]));
+										SumSq += Bound * Bound;
+									}
+									MagMax = FMath::Max(FMath::Sqrt(SumSq), 1e-9);
+								}
+							}
+							Result.IsoSurface.ScalarUVs.Reserve(
+								Result.IsoSurface.Vertices.Num());
+							for (const FVector& Vertex : Result.IsoSurface.Vertices)
+							{
+								const FVector Solver =
+									UnrealToSolver.TransformPosition(Vertex);
+								FVector Velocity = FVector::ZeroVector;
+								USampler.SampleVector(Solver, Velocity);
+								Result.IsoSurface.ScalarUVs.Add(static_cast<float>(
+									FMath::Clamp(Velocity.Size() / MagMax, 0.0, 1.0)));
+							}
+						}
+					}
+				}
+			}
+
+			/*
 			 * THE CUT PLANE (renderer overhaul P3), same worker, same frame,
 			 * same displayed field -- the plane in the viewport is the data on
 			 * the timeline, never a neighbouring frame's. Built after the
@@ -773,6 +904,14 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 				bApplied = true;
 			}
 		}
+		if (Result.bHasIsoSurface)
+		{
+			IsoSurfacePayload.Sections.Reset();
+			IsoSurfacePayload.Sections.Add(MoveTemp(Result.IsoSurface));
+			LastIsoValueUsed = Result.IsoValueUsed;
+			bIsoSurfaceFresh = true;
+		}
+
 		if (Result.bHasCutPlane)
 		{
 			// Stored on the model like the line series: a measurement with no

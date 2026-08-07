@@ -229,6 +229,41 @@ bool FFlowVizWorkspaceSamplingTest::RunTest(const FString& Parameters)
 			Model.HasFreshCutPlane());
 	}
 
+	/* == The iso surface rides the same drain (renderer overhaul P4) ======== */
+	{
+		// The sample case carries qCriterion, so the default-enabled iso
+		// pipeline builds a surface at P90 of positive Q, colored by |U|.
+		Model.RequestSampleUpdate();
+		Model.WaitForPendingSamples();
+		Model.DrainSampleResults();
+
+		if (!TestTrue(TEXT("a fresh iso surface arrived"), Model.HasFreshIsoSurface()))
+		{
+			return false;
+		}
+		const FFlowVizMeshPayload& Iso = Model.ConsumeIsoSurface();
+		TestFalse(TEXT("consuming clears the fresh flag"), Model.HasFreshIsoSurface());
+		if (TestEqual(TEXT("one section"), Iso.Sections.Num(), 1))
+		{
+			TestTrue(TEXT("with triangles -- the wake has vortices at P90"),
+				Iso.Sections[0].Indices.Num() >= 3);
+			TestEqual(TEXT("and a color-by-|U| scalar per vertex"),
+				Iso.Sections[0].ScalarUVs.Num(), Iso.Sections[0].Vertices.Num());
+		}
+		TestTrue(TEXT("the iso value used is positive -- P90 of positive Q"),
+			Model.GetLastIsoValueUsed() > 0.0);
+
+		// The toggle gates the build: disabled means no fresh payload.
+		Model.SetIsoSurfaceEnabled(false);
+		Model.WaitForPendingSamples();
+		Model.DrainSampleResults();
+		TestFalse(TEXT("CONTROL: a disabled iso pipeline builds nothing"),
+			Model.HasFreshIsoSurface());
+		Model.SetIsoSurfaceEnabled(true);
+		Model.WaitForPendingSamples();
+		Model.DrainSampleResults();
+	}
+
 	/* == A workspace with no case refuses politely =========================== */
 	{
 		FFlowVizWorkspaceModel Empty;
