@@ -184,6 +184,143 @@ else
     echo "        The skip check is not reading the log. Every assertion above is vacuous."
 fi
 
+# --- a truncated session must not report a full green -------------------------
+#
+# THE DEFECT THIS SECTION EXISTS FOR, observed 2026-08-06. The engine crashed
+# on the render thread partway through a run. 51 tests had completed, all of
+# them passing; the remaining 55 never started. run_tests.sh printed
+#
+#     51/51 passed
+#
+# and exited 0, because FOUND and PASSED were both grep counts over Completed
+# lines in the SAME log. The denominator moves with the numerator, so a session
+# that dies at test 51 is arithmetically indistinguishable from a suite of 51.
+#
+# The engine already logs the answer before running anything:
+#
+#     LogAutomationCommandLine: Display: Found 106 automation tests based on 'FlowViz'
+#
+# followed by one indented line per test name. That is the engine's own filter
+# result -- reading it is not a reimplementation of its matching rules, which
+# is what makes it trustworthy as a denominator.
+
+enumerated() {
+    printf "[2026.08.06-06.34.43:037][407]LogAutomationCommandLine: Display: Found %s automation tests based on '%s'\n" \
+        "$1" "$2"
+    shift 2
+    for name in "$@"; do
+        printf '[2026.08.06-06.34.43:038][407]LogAutomationCommandLine: Display: \t%s\n' "${name}"
+    done
+}
+
+# Four enumerated, two completed: the session died after Crc32C.
+TRUNCATED="${WORK}/truncated.log"
+{
+    enumerated 4 FlowViz \
+        FlowViz.CFDViz.ColorMaps FlowViz.CFDViz.Crc32C \
+        FlowViz.Render.VolumeTexture FlowViz.UI.Workspace.Bind
+    started    FlowViz.CFDViz.ColorMaps
+    completed  FlowViz.CFDViz.ColorMaps Success
+    started    FlowViz.CFDViz.Crc32C
+    completed  FlowViz.CFDViz.Crc32C Success
+} > "${TRUNCATED}"
+
+# The SAME four tests, all of which ran. Byte-identical enumeration block.
+COMPLETE="${WORK}/complete.log"
+{
+    enumerated 4 FlowViz \
+        FlowViz.CFDViz.ColorMaps FlowViz.CFDViz.Crc32C \
+        FlowViz.Render.VolumeTexture FlowViz.UI.Workspace.Bind
+    started    FlowViz.CFDViz.ColorMaps
+    completed  FlowViz.CFDViz.ColorMaps Success
+    started    FlowViz.CFDViz.Crc32C
+    completed  FlowViz.CFDViz.Crc32C Success
+    started    FlowViz.Render.VolumeTexture
+    completed  FlowViz.Render.VolumeTexture Success
+    started    FlowViz.UI.Workspace.Bind
+    completed  FlowViz.UI.Workspace.Bind Success
+} > "${COMPLETE}"
+
+trunc_out="$("${RUN_TESTS}" --summarize "${TRUNCATED}" 2>&1)"
+trunc_rc=$?
+complete_out="$("${RUN_TESTS}" --summarize "${COMPLETE}" 2>&1)"
+complete_rc=$?
+
+check "a truncated run exits non-zero" "1" "${trunc_rc}"
+check "a complete run still exits 0"   "0" "${complete_rc}"
+
+# The count must be against what the ENGINE found, not against what ran.
+# "2/2 passed" is the exact sentence the defect printed.
+check_contains "the denominator is the enumerated total, not the completed count" \
+    "2/4" "${trunc_out}"
+check_lacks "and never restates the completed count as the total" \
+    "2/2" "${trunc_out}"
+
+# Naming them, for the same reason skips are named: a bare "2 of 4" does not
+# say whether a tail was cut or a subtree was skipped, and those have
+# different causes. The names are what tell you which.
+check_contains "a test that never ran is named" \
+    "FlowViz.Render.VolumeTexture" "${trunc_out}"
+check_contains "including the last one" \
+    "FlowViz.UI.Workspace.Bind" "${trunc_out}"
+check_lacks "a test that DID run is not named as missing" \
+    "FlowViz.CFDViz.Crc32C" "$(printf '%s\n' "${trunc_out}" | awk '/never ran/{f=1} f&&NF==0{f=0} f')"
+
+# A complete run must stay quiet. A "did not run" report that fires on every
+# run would be turned off within a day, which is how the skip report nearly
+# died too.
+check_lacks "a complete run reports nothing missing" \
+    "never ran" "${complete_out}"
+check_contains "and reports the full count" \
+    "4/4 passed" "${complete_out}"
+
+# --- THE CONTROL for the truncation check ------------------------------------
+#
+# Every assertion above is satisfied by a summarizer that never reads the
+# enumeration at all and simply complains whenever it sees fewer than four
+# Completed lines.
+#
+# Comparing trunc_out against complete_out would NOT catch that: those two
+# fixtures also differ in their test records, so their summaries differ either
+# way. That comparison passes vacuously -- it is the shape of a pass criterion
+# that cannot fail (repo memory: verify-metrics-can-fail).
+#
+# So the control varies ONLY the thing under test. Same two completed tests,
+# same everything, with the enumeration block deleted. A summarizer reading it
+# must say something different about these two logs; one that ignores it
+# cannot tell them apart.
+TRUNC_NO_ENUM="${WORK}/truncated_no_enumeration.log"
+grep -v "automation tests based on\|Display: 	FlowViz" "${TRUNCATED}" > "${TRUNC_NO_ENUM}"
+
+trunc_no_enum_out="$("${RUN_TESTS}" --summarize "${TRUNC_NO_ENUM}" 2>&1)"
+
+checks=$((checks + 1))
+if [[ "${trunc_out}" != "${trunc_no_enum_out}" ]]; then
+    echo "  ok    CONTROL: the enumeration block is what changes the verdict"
+else
+    failures=$((failures + 1))
+    echo "  FAIL  CONTROL: identical summary with and without the enumeration block"
+    echo "        The enumerated total is not being read. Every truncation assertion above"
+    echo "        is an accident of the fixture having exactly two completed tests."
+fi
+
+# The second control, for the opposite error. A summarizer that treats the
+# enumeration line as the denominator ALWAYS would report "0/4" for a log that
+# has no enumeration at all -- every pre-2026-08-06 log, and every log from
+# `--summarize` over a fixture that predates this section. Those must keep
+# working off the completed count.
+NO_ENUM="${WORK}/no_enumeration.log"
+{
+    started    FlowViz.CFDViz.Crc32C
+    completed  FlowViz.CFDViz.Crc32C Success
+} > "${NO_ENUM}"
+
+no_enum_out="$("${RUN_TESTS}" --summarize "${NO_ENUM}" 2>&1)"
+no_enum_rc=$?
+check "a log with no enumeration line falls back to the completed count" \
+    "1/1" "$(printf '%s\n' "${no_enum_out}" | grep -oE '[0-9]+/[0-9]+' | head -1)"
+check "and does not fail for want of a denominator" "0" "${no_enum_rc}"
+
 # --- exit status -------------------------------------------------------------
 #
 # A skip is not a failure. It must not turn the build red, or the useful
@@ -213,6 +350,150 @@ check_contains "and the skip is still reported alongside it" \
 : > "${WORK}/empty.log"
 "${RUN_TESTS}" --summarize "${WORK}/empty.log" >/dev/null 2>&1
 check "an empty log is an error, not a pass" "4" "$?"
+
+# --- a crash is not a filter typo --------------------------------------------
+#
+# THE DEFECT THIS SECTION EXISTS FOR, observed 2026-08-06 while re-running an
+# UNSCORED mutant. A ClockSeam arm removed FTSTicker::RemoveTicker from the
+# workspace destructor, so the handler kept ticking a freed model. The engine
+# took a SIGSEGV inside FFlowVizCasePlayer::Tick, between the test's Started
+# line and its Completed line. run_tests.sh printed:
+#
+#     FAIL: no tests matched 'FlowViz.UI.Workspace.ClockSeam'. Check the test path.
+#
+# The filter was correct. The test had STARTED. The message sent a reader off to
+# audit a test path that was never wrong, while the actual evidence -- a null
+# dereference with a full stack -- sat unmentioned in the same log.
+#
+# The crash detection added by the truncation work above already exists, at the
+# "FOUND BUT NEVER RAN" block. It is UNREACHABLE here: that block runs after the
+# RAN==0 early exit, and a session that dies before its first test completes has
+# RAN==0 by construction. So the earlier fix closed the branch where SOME tests
+# completed and left the branch where NONE did (repo memory:
+# audit-the-second-branch-of-every-documented-hazard).
+#
+# Three states currently produce byte-identical output and exit 4:
+#
+#     the filter genuinely matched nothing   (the message is correct)
+#     the engine crashed during a test       (the message is a lie)
+#     the engine died before any test ran    (the message is a lie)
+#
+# Only the first should say "check the test path".
+
+critical_error() {
+    printf '[2026.08.06-15.08.23:619][594]LogMac: === Critical error: ===\n'
+    printf 'SIGSEGV: invalid attempt to access memory at address 0x0\n'
+    printf '\n'
+    printf '[2026.08.06-15.08.23:619][594]LogMac: 0x51f51d8c libUnrealEditor-FlowVizRuntime.dylib!FFlowVizCasePlayer::Tick(double)   [UnknownFile])\n'
+    printf '0x06169bc0 libUnrealEditor-Core.dylib!FTSTicker::Tick(float)   [UnknownFile])\n'
+}
+
+# The real shape: enumerated, started, then died. No Completed line at all.
+#
+# NAMED WITHOUT THE WORD "crash", deliberately. The summary echoes "Full log:
+# <path>", so a fixture called crashed_mid_test.log makes every assertion
+# looking for "crash" pass on the FILENAME. The first red run of this section
+# did exactly that -- "says the engine crashed" went green against
+# "FAIL: no tests matched" because the path was in the same output. A search
+# pattern is a pass criterion (repo memory: a-search-pattern-is-a-pass-criterion).
+CRASHED="${WORK}/died_mid_test.log"
+{
+    enumerated 1 FlowViz.UI.Workspace.ClockSeam FlowViz.UI.Workspace.ClockSeam
+    started    FlowViz.UI.Workspace.ClockSeam
+    critical_error
+} > "${CRASHED}"
+
+# A genuine typo: the engine enumerated nothing and nothing ever started.
+# This is the control that keeps the fix honest -- a "fix" that simply deletes
+# the misleading sentence would pass every assertion above it and fail here.
+NO_MATCH="${WORK}/no_match.log"
+{
+    printf "[2026.08.06-06.34.43:037][407]LogAutomationCommandLine: Display: Found 0 automation tests based on 'FlowViz.Typo.NotAThing'\n"
+} > "${NO_MATCH}"
+
+crashed_out="$("${RUN_TESTS}" --summarize "${CRASHED}" 2>&1)"
+crashed_rc=$?
+no_match_out="$("${RUN_TESTS}" --summarize "${NO_MATCH}" 2>&1)"
+no_match_rc=$?
+
+check_lacks "a crashed session is NOT reported as an unmatched filter" \
+    "no tests matched" "${crashed_out}"
+check_lacks "and does not tell the reader to go check a correct test path" \
+    "Check the test path" "${crashed_out}"
+
+# What it must say instead. The stack is the whole reason the log is worth
+# opening, and naming the test says WHERE it died -- the two facts that turn
+# "something went wrong" into a diagnosis.
+check_contains "a crashed session says the engine crashed" \
+    "crash" "$(printf '%s' "${crashed_out}" | tr 'A-Z' 'a-z')"
+check_contains "and shows the signal" \
+    "SIGSEGV" "${crashed_out}"
+check_contains "and names the test that was running when it died" \
+    "FlowViz.UI.Workspace.ClockSeam" "${crashed_out}"
+
+# A crash is not a pass. It must stay non-zero, and it must NOT reuse exit 4 --
+# mutate.sh classifies on the output, but a distinct code lets any caller tell
+# an unrunnable machine from a wrong filter without parsing prose.
+checks=$((checks + 1))
+if [[ "${crashed_rc}" -ne 0 && "${crashed_rc}" -ne 4 ]]; then
+    echo "  ok    a crash exits non-zero with a code distinct from the filter error"
+else
+    failures=$((failures + 1))
+    echo "  FAIL  a crash exits non-zero with a code distinct from the filter error"
+    echo "        expected: not 0 and not 4"
+    echo "        actual:   ${crashed_rc}"
+fi
+
+# THE CONTROL. A genuine empty match must be unchanged -- same message, same
+# exit 4. Without this, deleting the sentence outright passes everything above.
+check_contains "CONTROL: a genuinely unmatched filter still says so" \
+    "no tests matched" "${no_match_out}"
+check_contains "CONTROL: and still points at the test path as the thing to check" \
+    "Check the test path" "${no_match_out}"
+check "CONTROL: and still exits 4" "4" "${no_match_rc}"
+
+# THE SECOND CONTROL, for the vacuous-pass direction. Everything above is
+# satisfiable by a summarizer that ignores the log and keys off, say, whether
+# the file has more than one line. These two fixtures both have RAN==0; they
+# differ in whether a crash occurred. If the summary cannot distinguish them,
+# it is not reading the crash and the assertions above are accidents.
+#
+# COMPARED WITH THE "Full log:" LINE STRIPPED. The two fixtures live at
+# different paths, which the summary echoes, so the raw outputs differ no matter
+# what the summarizer does -- a comparison that cannot fail is not a control
+# (repo memory: verify-metrics-can-fail). Removing the one line that is
+# guaranteed to differ leaves only the diagnosis to compare.
+strip_log_path() { printf '%s\n' "$1" | grep -v "^Full log:"; }
+
+checks=$((checks + 1))
+if [[ "$(strip_log_path "${crashed_out}")" != "$(strip_log_path "${no_match_out}")" ]]; then
+    echo "  ok    CONTROL: the summary distinguishes a crash from an empty filter match"
+else
+    failures=$((failures + 1))
+    echo "  FAIL  CONTROL: identical summary for a crashed run and an unmatched filter"
+    echo "        Both have zero completed tests. If the output is the same, the crash"
+    echo "        is not being read and every assertion above is vacuous."
+fi
+
+# A session that died BEFORE any test started is the third state. It is not a
+# filter typo either: the engine enumerated four tests, so the filter matched.
+DIED_EARLY="${WORK}/died_before_starting.log"
+{
+    enumerated 4 FlowViz \
+        FlowViz.CFDViz.ColorMaps FlowViz.CFDViz.Crc32C \
+        FlowViz.Render.VolumeTexture FlowViz.UI.Workspace.Bind
+    critical_error
+} > "${DIED_EARLY}"
+
+died_early_out="$("${RUN_TESTS}" --summarize "${DIED_EARLY}" 2>&1)"
+
+check_lacks "a session that died before its first test is not a filter error either" \
+    "no tests matched" "${died_early_out}"
+
+# "4" alone would match a timestamp, a path fragment, or the enumeration line
+# echoed back -- the count has to be attached to a claim about what ran.
+check_contains "and it reports none-of-N ran rather than none-found" \
+    "0/4" "${died_early_out}"
 
 # --- the default log path must not be shared between checkouts ---------------
 #

@@ -21,23 +21,30 @@ class SVerticalBox;
  * panel - a session load, a preset applied from elsewhere - leaves the two
  * disagreeing, with the UI showing planes that are not being rendered.
  *
- * WHAT THIS PANEL DOES NOT CLAIM, AND WHY IT IS SAID HERE RATHER THAN LEFT TO BE
- * DISCOVERED. FFlowVizClipViewModel::ApplyToRayMarchParameters - the function
- * that would put these planes into the shader's constant buffer - HAS NO
- * PRODUCTION CALLER. Grep it: every call site is a test. The render path calls
- * FillDefaults (which writes NumClipPlanes = 0) and then
- * FFlowVizRenderSettingsViewModel::ApplyToRayMarchParameters, which does not
- * touch the clip rows. So a plane added here is authored, validated, listed and
- * persisted - and does not yet change a pixel.
+ * THE CHANNEL TO THE RENDERER, AND WHY IT IS AN EVENT RATHER THAN A CALL. This
+ * panel edits a view model and fires OnClipChanged; the workspace subscribes and
+ * calls FFlowVizWorkspaceModel::PushClipToVolume. The panel therefore never
+ * mentions a volume component, which is what lets it be built and operated
+ * before any case is open.
  *
- * THAT IS DISCLOSED IN THE PANEL ITSELF, not only in this comment. Construct
- * builds an advisory strip saying so. The alternative - shipping controls that
- * look exactly like working ones - is the failure engineering rule 15 exists to
- * prevent, and it is the more dangerous version of it: a plane that does nothing
- * looks identical to a plane pointing the wrong way, so a user would spend the
- * afternoon debugging their normals. The controls are live against the model
- * because the model is what a session saves and what the render path will read
- * when someone wires it; the advisory is what keeps that from being a lie.
+ * THAT CHANNEL DID NOT EXIST UNTIL IT DID, and the panel used to say so. The
+ * render path clipped long before this panel reached it: the dispatcher calls
+ * FFlowVizClipViewModel::ApplyToRayMarchParameters on the proxy's own model, fed
+ * from UCFDVizVolumeComponent::SetClip. What was missing was this direction -
+ * every production SetClip caller was UFlowVizCaptureLibrary, building its own
+ * model from Volume->GetClip(). So a plane added HERE was authored, validated,
+ * listed and persisted, and did not change a pixel, while the identical plane
+ * added from Python did.
+ *
+ * THE ADVISORY THAT SAID SO IS NOW CONDITIONAL, NOT DELETED. It is shown while
+ * no volume is bound, because then the claim is still true - the workspace is
+ * built before a case is open, and a panel whose controls really are inert must
+ * say so. It retires on SetVolumeBound(true). Deleting it outright would have
+ * been the same lie in reverse the first time a user opened the workspace with
+ * no case: controls that look exactly like working ones, which is the failure
+ * engineering rule 15 exists to prevent, in its more dangerous form - a plane
+ * that does nothing looks identical to a plane pointing the wrong way, so the
+ * afternoon goes on debugging normals.
  *
  * A NULL VIEW MODEL IS A LEGAL, INERT STATE - the workspace builds panels before
  * a case is open. Every accessor tolerates it by reporting "nothing available",
@@ -60,9 +67,33 @@ public:
 	}
 		/** Borrowed, not owned. The workspace owns both. */
 		SLATE_ARGUMENT(FFlowVizClipViewModel*, ViewModel)
+
+		/**
+		 * Fired after any control here has CHANGED the view model.
+		 *
+		 * THE PANEL DOES NOT KNOW WHAT A VOLUME IS, and this is how it stays that
+		 * way. The workspace subscribes and pushes; a panel that reached for a
+		 * component itself would need one to be operable, and it is built before
+		 * any case is open.
+		 *
+		 * FIRED ONLY ON AN ACTUAL CHANGE, not on every click. AddPresetPlane
+		 * refuses at MaxClipPlanes and with no domain, and a push on a refused
+		 * edit would be a render-thread flush for a frame that is identical.
+		 */
+		SLATE_EVENT(FSimpleDelegate, OnClipChanged)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
+
+	/**
+	 * Tell the panel whether its edits now reach a renderer.
+	 *
+	 * DRIVES THE ADVISORY, and nothing else. The panel does not use this to
+	 * decide whether to fire OnClipChanged - a subscriber that is bound has
+	 * already decided it wants the callbacks, and making the panel second-guess
+	 * that would be two opinions about one question.
+	 */
+	void SetVolumeBound(bool bInVolumeBound);
 
 	/* --- Test seams. See SFlowVizTransportBar.h for why these are public. --- */
 
@@ -84,6 +115,13 @@ public:
 	/** Delete the plane at Index. */
 	TSharedPtr<SButton> GetPlaneRemoveButton(int32 Index) const;
 
+	/**
+	 * Edit the plane's distance in place (#75: SetPlane had no production
+	 * caller -- planes could be added, hidden, inverted and deleted, but not
+	 * MOVED without delete-and-re-add, which loses the enabled state).
+	 */
+	TSharedPtr<SFlowVizNumericEntry> GetPlaneDistanceBox(int32 Index) const;
+
 	/** Clear every plane. */
 	TSharedPtr<SButton> GetRemoveAllButton() const { return RemoveAllButton; }
 
@@ -96,6 +134,17 @@ public:
 	/** The "these planes do not reach the renderer yet" disclosure. Never empty. */
 	FText GetNotWiredAdvisoryText() const;
 
+	/**
+	 * Whether that disclosure is currently shown.
+	 *
+	 * TRUE UNTIL A VOLUME IS BOUND. The advisory used to be unconditional, and
+	 * nothing asserted on it - so it would have outlived its subject silently the
+	 * moment the channel opened, telling users a live control does nothing. That
+	 * is the same wasted afternoon it was written to prevent, pointed the other
+	 * way.
+	 */
+	bool IsNotWiredAdvisoryVisible() const { return !bVolumeBound; }
+
 	/** How many plane rows are currently built. Derived from the view model, never cached. */
 	int32 GetPlaneRowCount() const { return PlaneRows.Num(); }
 
@@ -106,9 +155,21 @@ private:
 		TSharedPtr<SButton> EnableButton;
 		TSharedPtr<SButton> InvertButton;
 		TSharedPtr<SButton> RemoveButton;
+		TSharedPtr<SFlowVizNumericEntry> DistanceBox;
 	};
 
 	bool IsBound() const { return ViewModel != nullptr; }
+
+	/** Visibility of the advisory strip, bound so it follows SetVolumeBound. */
+	EVisibility GetNotWiredAdvisoryVisibility() const;
+
+	/**
+	 * Announce that the view model changed.
+	 *
+	 * Called ONLY where an edit actually took, never on a refused one - see the
+	 * SLATE_EVENT comment above.
+	 */
+	void NotifyClipChanged() const;
 
 	/** Rule 15: another plane would fit AND there is a model to put it in. */
 	bool CanAddPlane() const;
@@ -120,6 +181,8 @@ private:
 	FReply OnPlaneEnableClicked(int32 Index);
 	FReply OnPlaneInvertClicked(int32 Index);
 	FReply OnPlaneRemoveClicked(int32 Index);
+	void OnPlaneDistanceCommitted(const FText& NewText, ETextCommit::Type CommitType, int32 Index);
+	FText GetPlaneDistanceText(int32 Index) const;
 	FReply OnRemoveAllClicked();
 	FReply OnResetCropClicked();
 
@@ -144,6 +207,20 @@ private:
 	void RebuildPlaneRows();
 
 	FFlowVizClipViewModel* ViewModel = nullptr;
+
+	/** Subscriber for edits. Unbound is legal and inert - see the SLATE_EVENT. */
+	FSimpleDelegate OnClipChanged;
+
+	/**
+	 * NOT DERIVED FROM OnClipChanged.IsBound().
+	 *
+	 * The two are different questions and conflating them was tempting: a
+	 * subscriber can be attached before any volume is, and the workspace does
+	 * exactly that - it subscribes at Construct and binds a volume when a case
+	 * opens. Deriving the advisory from the subscription would have retired it
+	 * while the edits still reached nothing.
+	 */
+	bool bVolumeBound = false;
 
 	TMap<EFlowVizClipPreset, TSharedPtr<SButton>> PresetButtons;
 	TArray<FPlaneRow> PlaneRows;

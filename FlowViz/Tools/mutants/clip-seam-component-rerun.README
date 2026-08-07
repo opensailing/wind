@@ -1,0 +1,34 @@
+Why this file exists, and how to read its result.
+
+The first component campaign returned:
+
+    UNSCORED  proxy join dropped   -- "FAIL: no tests matched 'FlowViz'"
+    killed    payload writer dropped
+    SURVIVED  IDENTITY CONTROL     (correct)
+
+An UNSCORED re-run ALONE proves nothing -- repo memory
+rerun-unknowns-with-controls. If arm 1 is re-run by itself and scores, there is
+no way to tell whether the mutant is genuinely killed or whether the
+environment merely cooperated this time. So both already-scored siblings ride
+along with KNOWN expected verdicts. Three outcomes, three conclusions:
+
+  siblings reproduce (killed / SURVIVED) AND arm 1 scores
+      -> the environment is sound and arm 1's new verdict is the real one.
+         The first "no tests matched" was a transient.
+
+  siblings reproduce AND arm 1 is UNSCORED again
+      -> the fault is specific to THIS mutant, not the environment. Most
+         likely the mutant makes the module fail to load, so the filter
+         matches nothing -- an INVALID-shaped result wearing UNSCORED's
+         clothes, and it needs reading as such, not as a survivor.
+
+  siblings do NOT reproduce
+      -> the whole run is untrustworthy and NOTHING in it is a verdict,
+         including arm 1. Fix the environment before drawing any conclusion.
+
+The identity control is last, as always: if it does not SURVIVE, the harness is
+scoring noise and every other line is void.
+
+The rationale lives here rather than at the top of the .txt because
+parse_mutants.py splits on `%%` and raises ValueError on any record that is not
+exactly three `--`-separated fields. A prose header would abort the campaign.

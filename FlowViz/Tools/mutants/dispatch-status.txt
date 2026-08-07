@@ -1,0 +1,142 @@
+a volume with no marcher at all reports a healthy march -- the fail-OPEN direction
+--
+	if (Dispatcher == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+	}
+--
+	if (Dispatcher == nullptr)
+	{
+		// MUTANT: the worst direction. A capture that rendered nothing reports a
+		// healthy march, which is the false green VISUAL_QA rule 6 forbids --
+		// produced by the very facility built to prevent one.
+		//
+		// Written as a WRONG ASSIGNMENT rather than `if (false)`. The dead-branch
+		// form does not compile here: -Werror,-Wunreachable-code rejects the
+		// orphaned body, and an arm that cannot build scores INVALID, which is
+		// indistinguishable in a summary line from an arm nobody wrote. This
+		// form tests the same property -- a null dispatcher must never report
+		// Dispatched -- and reaches a verdict.
+		Status.Reason = EFlowVizDispatchReason::Dispatched;
+	}
+%%
+the missing-parameters case reported as a missing dispatcher -- one reason for two fixes
+--
+	else if (!DynamicData.bHasParameters)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoParameters;
+	}
+--
+	else if (!DynamicData.bHasParameters)
+	{
+		// MUTANT: the reasons collapse. Both render the same box; one means
+		// "install a marcher" and the other means "wait for an upload".
+		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+	}
+%%
+a missing texture set reported as a frame that has not landed -- a fault reported as a wait
+--
+	else if (TextureSet == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoTextureSet;
+	}
+--
+	else if (TextureSet == nullptr)
+	{
+		// MUTANT: a construction fault reported as something that resolves on
+		// its own, so the reader waits for a frame that will never come.
+		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+	}
+%%
+a non-resident display frame marched anyway -- the null the gate exists to stop
+--
+	else if (SlotATextures == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+	}
+--
+	else if (SlotATextures == nullptr)
+	{
+		// MUTANT: the slot check inverted into a green light, so a frame whose
+		// upload has not landed is dispatched with a null slot A. ShouldDispatch
+		// is what the proxy gates on, so this arm does not merely mislabel the
+		// frame -- it marches it.
+		//
+		// Assignment rather than `else if (false)`, for the reason recorded on
+		// the fail-open arm above: the dead-branch form does not compile under
+		// -Werror,-Wunreachable-code and would score INVALID instead of a verdict.
+		Status.Reason = EFlowVizDispatchReason::Dispatched;
+	}
+%%
+two reasons share a description, so the log cannot tell them apart
+--
+	case EFlowVizDispatchReason::NoTextureSet:
+		return TEXT("the component has no texture set - a construction fault, not something that resolves on its own");
+--
+	case EFlowVizDispatchReason::NoTextureSet:
+		// MUTANT: the same string as NoParameters. The classifier still answers
+		// correctly; the only artifact a headless capture leaves cannot say so.
+		return TEXT("the shader parameters are not built - no case is bound, or no frame has been uploaded, so the field's layout is unknown");
+%%
+the component never publishes what the frame decided
+--
+	Channel->Reason.Store(Status.Reason);
+
+	return Status;
+--
+	// MUTANT: the render thread keeps the answer to itself -- computed
+	// correctly, unreachable. This arm SURVIVED once, when the store was a
+	// separate statement in the proxy that no test could observe; the assertions
+	// all drove ReportDispatchStatus_RenderThread directly and so supplied the
+	// very status the proxy was supposed to produce.
+	return Status;
+%%
+only failures are published, so a volume that stops marching still reads healthy
+--
+	Channel->Reason.Store(Status.Reason);
+--
+	// MUTANT: publish only the good news. THE STALE-SUCCESS DIRECTION -- a
+	// volume that marched once and then stopped goes on reading healthy, which
+	// turns a regression into a green. This is the more dangerous of the two
+	// publish arms and the one a set-only latch gets right by accident, so the
+	// test asserts the transition back to a blocker rather than either state
+	// alone. Also SURVIVED before the publish was folded into the classifier.
+	if (Status.ShouldDispatch())
+	{
+		Channel->Reason.Store(Status.Reason);
+	}
+%%
+the classifier's answer is published but a fresh default is returned to the gate
+--
+	Channel->Reason.Store(Status.Reason);
+
+	return Status;
+--
+	// MUTANT: the gate and the diagnostic disagree.
+	//
+	// NEW ARM, added with the fold. Folding classify-and-publish into one call
+	// removes the "forgot to publish" defect, but it introduces a shape that
+	// could not exist before: this function now has two outputs, and nothing
+	// inherent makes them the same value. That is the De Morgan-duals defect
+	// ClassifyDispatch was extracted to end -- the proxy gating on one answer
+	// while the log describes another -- reappearing one layer up.
+	//
+	// A fix is only finished when it has been checked for the defect it was
+	// fixing, so this arm exists to prove the new seam is tested too.
+	Channel->Reason.Store(Status.Reason);
+
+	return FFlowVizDispatchStatus{};
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or every kill above is a standing red.
+--
+	FFlowVizDispatchStatus Status;
+
+	/*
+	 * ORDERED BY WHAT HAS TO BE FIXED FIRST,
+--
+	// MUTANT: identity control, no behaviour change
+	FFlowVizDispatchStatus Status;
+
+	/*
+	 * ORDERED BY WHAT HAS TO BE FIXED FIRST,
+%%

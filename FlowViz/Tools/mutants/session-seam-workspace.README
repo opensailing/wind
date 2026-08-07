@@ -1,0 +1,80 @@
+session-seam-workspace.txt -- can the workspace's session tests actually fail?
+==============================================================================
+
+    SFlowVizWorkspace.cpp  vs  FlowViz.UI.Workspace.SessionSeam
+    killed 2   SURVIVED 1   INVALID 0   UNSCORED 0   skipped 0
+
+The lone SURVIVED is the identity control, which is the verdict it must have.
+Had it been killed, every other verdict on this page would be void -- a harness
+that "catches" a comment is reacting to something other than the mutant.
+
+WHAT WAS UNDER TEST
+-------------------
+`SFlowVizWorkspace::LoadState` applies a session to the view models and then
+pushes the result into the bound volume component. Before task #64 the push did
+not exist: a session load restored every panel and left the render showing the
+PREVIOUS session. A screenshot of that bug looks entirely correct, because the
+panels -- the part a human reads -- are right. That is why it warranted a test
+rather than a glance.
+
+PER-ARM ATTRIBUTION
+-------------------
+Attribution here is READ OFF THE LOGS, not derived. `Tools/run_tests.sh` writes
+a timestamped backup of the engine log on every invocation, so the per-arm
+detail survives even though `TEST_LOG` itself is overwritten each arm. (The
+sibling campaign, session-workspace.README, could not do this and says so.)
+
+The mapping does not rest on timestamps alone: each arm has a DISTINCT
+pass-count signature, so the three runs identify themselves.
+
+  baseline  13:21:20Z   2/2   pristine tree green under the filter
+  arm 1     13:22:01Z   0/2   both tests fail            -> killed
+  arm 2     13:22:35Z   1/2   ONLY MissingCase fails     -> killed
+  arm 3     13:23:06Z   2/2   nothing fails              -> SURVIVED (control)
+
+arm 1 -- "the load applies but never pushes"
+    The `PushToVolume()` call is DELETED. Both tests fail, and they fail to the
+    POISON values rather than to defaults:
+
+        colour map      expected 2 (Inferno), was 4 (Turbo   = poison)
+        value range max expected 11.75,       was -7.25      (poison)
+        clip planes     expected 1,           was 0          (poison)
+
+    That the observed values are the poison and not the defaults is the point.
+    A fixture that poisons nothing cannot tell "the push did not happen" from
+    "the push happened and copied a default" -- repo memory
+    a-defaults-helper-can-supply-the-observed-value.
+
+arm 2 -- "the push is guarded on success"
+    `PushToVolume()` wrapped in `if (Applied.IsOk())`. This is the mutant worth
+    the whole campaign, because it is the implementation a careful person would
+    WRITE. It reads as prudence and is exactly backwards: a session whose case
+    file has moved reports FileNotFound and still applies every panel, so the
+    guard leaves the render stale in precisely the relink flow.
+
+    SessionSeam PASSED under this mutant. Only SessionSeamMissingCase failed.
+    The happy-path test alone would have certified the bug. That is the whole
+    argument for the second test existing, and it is here as a measurement
+    rather than as a claim.
+
+arm 3 -- IDENTITY CONTROL
+    A comment inserted above `SaveSession`. Must survive, and did. Its purpose
+    is to make the other two verdicts mean something: without it, "killed" is
+    consistent with a harness that fails on any edit at all.
+
+WHY NO ARM USED `if (false)`
+----------------------------
+FlowVizRuntime builds with `-Werror` including `-Wunreachable-code`, so
+`if (false) PushToVolume();` does not compile and would have scored INVALID --
+not scored at all. Arm 4 of the sibling session-workspace campaign learned this
+the expensive way. Arm 1 here is therefore a DELETION, and arm 2 uses a
+condition the compiler cannot fold.
+
+WHAT THIS CAMPAIGN DOES NOT COVER
+---------------------------------
+`SaveSession` is a one-line forward to the model and is exercised only as a
+fixture step here -- the model-side save is covered by session-workspace.txt.
+Nothing on this page speaks to the UI affordance: both entry points take a
+FString path, and no menu item or file picker calls either (task #53). The
+picker is deliberately absent -- this module has no DesktopPlatform dependency
+and acquiring one would break packaged builds.

@@ -1,0 +1,18 @@
+# View model setters that are KNOWN to have no production caller, exempt from
+# check_uncalled_setters.sh so the sweep can guard NEW setters while a gap is
+# open.
+#
+# Format: <ViewModelName>::<Setter>:<reason>
+#
+# THE BAR IS DIFFERENT FROM frozen_params_allow.txt, and lower. That file's
+# entries are DELIBERATELY constant -- padding and samplers that should never
+# gain a caller. An entry HERE is an open gap with a tracking number, and it is
+# expected to be REMOVED when its control lands. The checker enforces the
+# removal: an entry whose setter gains a caller makes the scan exit UNSCORED,
+# so a fixed gap cannot leave a stale mute behind.
+#
+# EMPTY AS OF 2026-08-06. All 28 findings from the checker's first real run are
+# closed: 14 by the render settings panel (#74), 14 by the transport options
+# row, the disclosure controls, in-place plane editing, the line-axis toggle
+# and the workspace sampling service (#75). If you are adding the first new
+# entry, it needs a tracking number and a reason a reviewer can check.

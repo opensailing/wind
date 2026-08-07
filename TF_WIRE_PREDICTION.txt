@@ -1,0 +1,185 @@
+Mutation campaign over the #48 transfer-function seam, at e2bf9d5.
+Written BEFORE the run. A campaign read only afterwards proves nothing: any
+outcome can be narrated as expected once it is on the screen.
+
+WHY THIS CAMPAIGN EXISTS. #48's tests and its fix were written together rather
+than test-first, against the repo's own standing rule. A green suite therefore
+shows the tests PASS, not that they can FAIL. Three of these four arms delete or
+corrupt a seam the tests are supposed to be watching; if any survives, the
+assertion above it is decorative.
+
+tf-wire.txt, over Private/Render/FlowVizVolumeRayMarchDispatcher.cpp,
+filtered on FlowViz.Render (the seam test's suite).
+
+    arm 1  SURVIVE  identity control -- a comment. A killed control means the
+                    harness is scoring noise and arms 2-4 are void with it.
+
+    arm 2  KILLED   the ApplyToRayMarchParameters call is deleted. Caught by
+                    FlowViz.Render.TransferFunctionSeam channel 1, which peeks
+                    the recorded parameter block and asserts ValueRangeMin/Max
+                    and bClampToRange against the configured fixture.
+
+    arm 3  KILLED   the Request.TransferFunction assignment is deleted, so the
+                    drain builds from a default-constructed function. Caught by
+                    channel 2 (GetResidentColorMap == Inferno) AND by channel 2b.
+                    Two independent assertions, which is the point: channel 2
+                    alone could not distinguish this from arm 4.
+
+    arm 4  KILLED   the drain rebuilds through MakeDefault(ColorMap, 0, 1),
+                    preserving the map and discarding bReverseColorMap,
+                    ColorBands and the opacity curve. THIS IS THE ARM THAT
+                    MATTERS. It is the bug the first draft of this seam actually
+                    had, and it is invisible to every assertion that reads
+                    GetResidentColorMap. Only channel 2b can kill it.
+
+                    IF ARM 4 SURVIVES, channel 2b is not doing what its comment
+                    claims, and the reverse/banding/opacity controls are unverified
+                    regardless of what the suite reports.
+
+    => predicted killed 3  SURVIVED 1 (the control)
+
+STANDING RULES, either of which voids the run:
+  - arm 1 must SURVIVE.
+  - the baseline must be green before any arm is applied. A standing red makes
+    every arm score killed, and an all-killed report reads as thorough coverage.
+
+NOTE ON THE FILTER. FlowViz.Render, not FlowViz -- task #61 records that the bare
+FlowViz filter silently omits 43 UI tests, so a campaign run under it would score
+against a suite missing most of the relevant assertions. The seam test lives in
+FlowViz.Render and that is what is being exercised here; the panel-to-component
+links have their own tests under FlowViz.UI and are not what these four arms cut.
+
+--------------------------------------------------------------------------
+RUN 1 ABORTED, NOT SCORED. 2026-08-06.
+
+Killed during its baseline phase, before any arm was applied. Its baseline
+suite was CRASHING: FlowViz.Render.TransferFunctionSeam took a SIGSEGV in
+DrainView (*View.Family on a familyless fixture view), which killed the editor
+on the render thread.
+
+That is the condition the standing rules already name -- a standing red makes
+every arm score KILLED, and an all-KILLED report reads as thorough coverage.
+Here it would have been worse than a standing red: the crash also truncated
+the session, and the pre-#61 runner reported the truncated run as green, so
+the campaign would have believed its baseline was clean while scoring against
+a suite that died before reaching most of its assertions.
+
+Fixed first, in this order, because the instrument had to be trustworthy
+before the measurement meant anything:
+  #61  ad2766c  count the ENUMERATED total, not the completed count
+  #62  b2a5c70  guard DrainView; fix the identity control it exposed
+
+Baseline now: 106/106, exit 0, no critical error, 5 named GPU skips.
+
+The four arms and the predictions above are UNCHANGED and still stand. Nothing
+in either fix touches what the arms cut: #62 added a guard AFTER the LUT build
+that arms 3 and 4 mutate, and channel 2b -- the only assertion that can kill
+arm 4 -- is untouched. Arm 4 remains the decisive one.
+
+--------------------------------------------------------------------------
+RUN 2 SCORED. 2026-08-06, against e2bf9d5 in wind-worktrees/dispatchobs,
+filter FlowViz.Render.
+
+    arm 1  SURVIVED   predicted SURVIVE   identity control -- correct
+    arm 2  killed     predicted KILLED
+    arm 3  killed     predicted KILLED
+    arm 4  killed     predicted KILLED
+    => killed 3  SURVIVED 1  INVALID 0  UNSCORED 0  skipped 0
+
+The prediction matched on every arm. Baseline was green before scoring and the
+identity control survived, so the verdicts are readable. All 14 enumerated tests
+completed in all four arms -- no truncation, which is the failure that voided
+run 1.
+
+ATTRIBUTED PER ARM. FlowViz.Render.TransferFunctionSeam is the only test that
+failed in any arm, and each arm's log names the assertions:
+
+    arm 2  the default ceiling / the chosen range / its upper bound /
+           the opacity multiplier -- all read 0 or the default (channel 1)
+    arm 3  the CHOSEN colour map / a SECOND choice replaces the first /
+           reverse / banding (channels 2 and 2b, as predicted -- two
+           independent assertions, which is why arm 3 is distinguishable
+           from arm 4)
+    arm 4  reverse / banding ONLY (channel 2b)
+
+ARM 4 CONFIRMS CHANNEL 2b IS LOAD-BEARING. It is the bug this seam's first draft
+actually had, it is invisible to every assertion that reads GetResidentColorMap,
+and 2b killed it. The reverse toggle, the banding control and the opacity
+multiplier are verified rather than decorative.
+
+BUT READ WHICH ASSERTIONS KILLED IT, not just that it died. Arm 4's name claims
+three casualties -- "reverse, banding and opacity dropped" -- and only TWO
+assertions fired. BuildLut reads four inputs (ColorMap, bReverseColorMap,
+ColorBands, Opacity); channel 2b asserts three of them, and NOTHING in
+Private/Tests reads the resident opacity CURVE.
+
+A COMPOUND ARM DIES ON ITS FIRST FAILURE and reports one verdict for three
+claims, so arm 4's KILLED reads as "all three covered" while the third claim
+rode along untested. A mutant dropping ONLY the opacity curve would SURVIVE
+today. Filed as task #63, with a narrow single-claim arm to prove it -- the
+verdict this campaign cannot produce is exactly the one that arm will.
+
+That is the general lesson and it is worth more than the four verdicts above: an
+arm that cuts N things scores like an arm that cuts 1. Prefer narrow arms, and
+when an arm must be compound, check its kill against every claim in its name.
+
+================================================================================
+
+RUN 3 SCORED. 2026-08-06, against ebf0f98 in wind-worktrees/dispatchobs, filter
+FlowViz.Render. Five arms: the four above plus the NARROW opacity-curve arm that
+run 2 called for. Baseline green before scoring, identity control SURVIVED.
+
+    killed 4  SURVIVED 1  INVALID 0  UNSCORED 0  skipped 0
+
+The lone survivor is the identity control, which is the required result. All 14
+enumerated tests completed in the scoring arm (14 found / 14 Result={...}), so
+nothing was truncated -- worth checking explicitly, because a session that dies
+mid-run reports what it managed as green (#61, #62).
+
+ARM 5 FLIPPED THE GAP: SURVIVED -> killed. That flip is the whole close. A test
+added without an arm that fails on it is a test whose falsifiability is assumed
+rather than shown, and the assumption is wrong often enough to be worth 30
+minutes of build.
+
+    arm 5   FlowViz.Render.TransferFunctionSeam, channel 2b, ONE assertion:
+            'the OPACITY CURVE reaches the LUT build ...' -- expected 3, got 0.
+
+THE "BEFORE" VERDICT IS ATTRIBUTED, NOT INFERRED. The test and the arm were
+added in the same commit, so there is no separate pre-change run to point at.
+It does not need one: across all 14 tests, arm 5 produced EXACTLY ONE failing
+assertion, and it is the one #63 added. Every other assertion in the suite --
+including the other two the same channel asserts -- passed under this mutant.
+Delete the new assertion and nothing in the suite fails, which is what SURVIVED
+means. Repo memory attribute-kills-to-a-test-not-a-suite: the failing test, not
+the arm's position in the list, is what carries the claim.
+
+GOT 0, WHICH IS THE RIGHT KIND OF WRONG. An empty FFlowVizOpacityCurve is not
+"zero opacity" -- it evaluates to 1.0 everywhere, so a dropped curve does not
+blank the volume, it silently composites through a flat ramp. The failure had to
+be a POINT COUNT rather than a sampled alpha for exactly that reason: sample the
+curve and a drop reads as a plausible value.
+
+THE COUNT CHECK GUARDS THE INDEXING, and it earned that on this run. The two
+follow-up assertions read Points[1]; against arm 5 that is an empty array. They
+are nested under the count check, so the test FAILED rather than crashed -- and
+a crash here would have taken the process down and been reported as a truncated
+green run (#62), i.e. as a SURVIVOR. The guard is the difference between this
+arm scoring killed and scoring a false SURVIVED.
+
+WHY THE FIXTURE'S CURVE IS NOT MakeLinearRamp(). That helper's points are (0,0)
+and (1,1), which agree with an empty curve's 1.0-everywhere reading at neither
+endpoint usefully and, more to the point, carry no interior shape. The fixture
+authors THREE points with an interior (0.5, 0.25) precisely so the assertion can
+distinguish "the authored curve arrived" from "a default ramp arrived that
+happens to share its endpoints". Repo memory degenerate-data-defeats-assertions.
+
+AND THE CONTROL FIRED FIRST. Channel 2b asserts SetOpacityCurve(...).IsOk()
+before the drain, so a REFUSED setter aborts the test instead of leaving the
+default empty curve resident -- which is byte-identical to what a dropped curve
+produces. Without that control, "resident curve has 0 points" would have been
+ambiguous between the seam dropping it and the fixture never setting it.
+
+ALL FOUR BuildLut INPUTS ARE NOW ASSERTED: ColorMap, bReverseColorMap,
+ColorBands, Opacity. The seam test carries a note saying so, and saying that a
+new input needs both an assertion AND a narrow arm -- because run 2's lesson was
+that a compound arm reports one verdict for every claim in its name.

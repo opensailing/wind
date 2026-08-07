@@ -1078,6 +1078,55 @@ bool FFlowVizProxySettingsTest::RunTest(const FString& Parameters)
 			static_cast<int32>(EFlowVizCompositeMode::Minimum));
 	}
 
+	/* == THE CLIP MODEL, THE SAME THREE-LINK PATH ONE CHANNEL OVER =========== */
+	//
+	// Link 1 for clipping. FlowViz.Render.ClipSeam covers link 3 by setting
+	// Context.Clip itself, so it cannot see a payload that drops the field --
+	// exactly the trade the settings channel already paid for once. The identity
+	// control comes first for the same reason it does above: a fresh component
+	// must marshal a clip model that clips nothing, or wiring this changed the
+	// picture merely by existing.
+	{
+		const FFlowVizVolumeProxyDynamicData Fresh = Volume->MakeProxyDynamicData();
+		TestEqual(TEXT("a fresh component marshals no clip planes, so wiring this changed no picture"),
+			Fresh.Clip.GetPlaneCount(), 0);
+
+		// A DOMAIN IS SET FIRST, and this is not incidental. Without it
+		// AddPlane's model has no extent, ApplyToRayMarchParameters refuses, and
+		// a payload that dropped the planes would be indistinguishable from one
+		// that carried them -- both clip nothing. See the note on the context
+		// struct: a default clip model reaches identity by a different route.
+		FFlowVizClipViewModel Clip;
+		TestTrue(TEXT("the fixture's domain was accepted, so the assertions below are about marshalling"),
+			Clip.SetDomainSize(FVector(4.0, 8.0, 16.0)).IsOk());
+
+		FFlowVizClipPlane Plane;
+		Plane.Normal = FVector(0.0, 1.0, 0.0);
+		Plane.Distance = 3.25;
+		Plane.bEnabled = true;
+		TestTrue(TEXT("the fixture's plane was accepted"), Clip.AddPlane(Plane).IsOk());
+
+		Volume->SetClip(Clip);
+
+		TestEqual(TEXT("the component reports back the clip model it was given"),
+			Volume->GetClip().GetPlaneCount(), 1);
+
+		const FFlowVizVolumeProxyDynamicData Data = Volume->MakeProxyDynamicData();
+
+		TestEqual(TEXT("the clip plane reaches the render-thread payload"),
+			Data.Clip.GetPlaneCount(), 1);
+
+		// The plane's CONTENTS, not just the count. A payload carrying a
+		// default-constructed model of the right size would pass a count-only
+		// assertion and clip against a degenerate plane.
+		FFlowVizVolumeRayMarchParameters Applied;
+		FlowVizRayMarch::FillDefaults(Applied);
+		TestTrue(TEXT("the marshalled model still has its domain, so it can be applied"),
+			Data.Clip.ApplyToRayMarchParameters(Applied).IsOk());
+		TestEqual(TEXT("and it is the authored plane that arrives"),
+			Applied.ClipPlanes[0].W, 3.25f);
+	}
+
 	return true;
 }
 
@@ -1095,6 +1144,11 @@ bool FFlowVizProxySettingsTest::RunTest(const FString& Parameters)
  *   1. component -> payload ....... FlowViz.Scene.ProxySettings
  *   2. payload -> context ......... THIS TEST -- previously nothing
  *   3. context -> shader params ... FlowViz.Render.SettingsSeam
+ *
+ * THE CLIP MODEL RIDES THE SAME THREE LINKS and is covered at the same three
+ * places, added when the clip seam was wired. Link 3 alone was not enough for
+ * the same reason it was not enough here: ClipSeam assigns Context.Clip itself,
+ * so it cannot see a broken join either side of it.
  *
  * MEASURED, not assumed. With link 2 deleted -- `Context.RenderSettings =
  * DynamicData.RenderSettings` removed from the proxy's dispatch site -- the
@@ -1130,6 +1184,18 @@ bool FFlowVizDispatchContextTest::RunTest(const FString& Parameters)
 	Data.RenderSettings.SetCompositeMode(EFlowVizCompositeMode::Average);
 	Data.RenderSettings.SetLightingEnabled(true);
 
+	// The clip model rides the same payload and needs the same join. A domain is
+	// set because a model without one applies nothing, which would make a
+	// dropped join and a carried one produce identical shader parameters.
+	Data.Clip.SetDomainSize(FVector(4.0, 8.0, 16.0));
+	{
+		FFlowVizClipPlane Plane;
+		Plane.Normal = FVector(0.0, 0.0, 1.0);
+		Plane.Distance = 6.75;
+		Plane.bEnabled = true;
+		Data.Clip.AddPlane(Plane);
+	}
+
 	const FMatrix LocalToWorld = FMatrix(
 		FPlane(2.0, 0.0, 0.0, 0.0),
 		FPlane(0.0, 3.0, 0.0, 0.0),
@@ -1159,6 +1225,28 @@ bool FFlowVizDispatchContextTest::RunTest(const FString& Parameters)
 			static_cast<int32>(EFlowVizCompositeMode::Average));
 		TestTrue(TEXT("and its lighting flag, which is a separately frozen parameter"),
 			Context.RenderSettings.IsLightingEnabled());
+
+		/*
+		 * THE SAME MISSING LINK, one channel over. FlowViz.Render.ClipSeam
+		 * assigns Context.Clip itself and FlowViz.Scene.ProxySettings stops at
+		 * the payload, so with `Context.Clip = DynamicData.Clip` deleted both
+		 * would still pass -- the identical hole this test was written to close
+		 * for RenderSettings.
+		 *
+		 * The plane's CONTENTS are checked, not just the count: a context
+		 * holding a default-constructed model would carry no planes at all, but
+		 * one built from the wrong source could carry a plane with the right
+		 * count and the wrong offset.
+		 */
+		TestEqual(TEXT("the payload's clip plane reaches the dispatcher's context"),
+			Context.Clip.GetPlaneCount(), 1);
+
+		FFlowVizVolumeRayMarchParameters Applied;
+		FlowVizRayMarch::FillDefaults(Applied);
+		TestTrue(TEXT("the context's clip model kept its domain, so it can be applied"),
+			Context.Clip.ApplyToRayMarchParameters(Applied).IsOk());
+		TestEqual(TEXT("and it is the authored plane that arrives"),
+			Applied.ClipPlanes[0].W, 6.75f);
 
 		// The fields that were already carried. Asserted so a refactor of this
 		// assembly cannot fix the settings while dropping something else -- the
@@ -1230,6 +1318,314 @@ bool FFlowVizDispatchContextTest::RunTest(const FString& Parameters)
 			static_cast<int32>(Context.RenderSettings.GetCompositeMode()),
 			static_cast<int32>(EFlowVizCompositeMode::Alpha));
 		TestFalse(TEXT("and lighting stays off"), Context.RenderSettings.IsLightingEnabled());
+	}
+
+	return true;
+}
+
+/**
+ * "No marcher wired" and "the marcher ran and drew nothing" must be
+ * distinguishable from outside the proxy.
+ *
+ * THE HAZARD IS NAMED IN THREE PLACES AND WAS SOLVED IN NONE. The class comment
+ * on IFlowVizVolumeRayMarchDispatcher states it, the proxy's
+ * WasRayMarchDispatched() comment states it, and VISUAL_QA section 3 rule 6
+ * forbids calling an unrendered feature working on exactly this basis. All three
+ * pointed at an accessor on FFlowVizVolumeSceneProxy -- a class declared inside
+ * FlowVizVolumeComponent.cpp, so nothing outside that one translation unit could
+ * ever call it. The flag was computed correctly and was unreachable, which is
+ * the repo-memory shape "prose claiming a hazard is solved": a comment naming
+ * the mechanism turns the auditor away, and grepping the mechanism for CALLERS
+ * finds none.
+ *
+ * TWO SEPARATE DEFECTS ARE CLOSED HERE, and the second is why this is not just
+ * a getter:
+ *
+ *  1. The flag never left the render thread. Now marshalled back to an atomic on
+ *     the component, so a capture script, a console command or a test can ask.
+ *
+ *  2. The gate and its diagnostic log RESTATED THE SAME FOUR CONDITIONS with
+ *     opposite polarity, independently. `if (Dispatcher != nullptr) { if
+ *     (bHasParameters && TextureSet != nullptr) { if (TexturesA) ... } }` decided
+ *     whether to march; a separate `if (Dispatcher == nullptr || !bHasParameters
+ *     || TextureSet == nullptr || SlotATextures == nullptr)` decided what to say
+ *     about it. Two hand-written De Morgan duals of each other, and nothing made
+ *     them agree. Edit one and the log describes a frame that did not happen --
+ *     which is worse than no log, because it is evidence pointing away from the
+ *     defect. Both now call FlowVizVolumeRayMarch::ClassifyDispatch, so the
+ *     answer that gates the march IS the answer that gets reported.
+ *
+ * WHY A CLASSIFIER TEST AND NOT A RENDERED FRAME. The gate lives in
+ * GetDynamicMeshElements -- render thread, live scene, RHI, collector -- so a
+ * test that drove it would self-skip under the default -nullrhi suite and cover
+ * nothing (repo memory green-totals-can-hide-skips). Testing the primitive
+ * directly is only meaningful because the primitive IS the production decision:
+ * the proxy has no second copy of this rule to drift from.
+ *
+ * EVERY REASON IS ASSERTED SEPARATELY, because the whole point is that they are
+ * different fixes. A test that only checked "not dispatched" would pass against
+ * a classifier that returned the same reason for all four, which is precisely
+ * the black screen this exists to break apart.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizDispatchStatusTest,
+	"FlowViz.Scene.DispatchStatus",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizDispatchStatusTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizVolumeComponentTestHelpers;
+
+	// Stand-ins for resources whose real construction needs an RHI. The
+	// classifier only ever tests these for null -- it must not dereference
+	// them, and if it ever starts to, this test crashes rather than passing.
+	FFlowVizVolumeSlotTextures SlotA;
+	FFlowVizVolumeTextureSet TextureSet;
+
+	FRecordingDispatcher Dispatcher;
+
+	FFlowVizVolumeProxyDynamicData Ready;
+	Ready.bHasParameters = true;
+
+	/* == THE CASE THAT MUST MARCH, FIRST ===================================== */
+	//
+	// The control. Without it every assertion below is satisfied by a classifier
+	// that refuses everything -- which would report a beautifully detailed reason
+	// for a volume that renders fine, and would also stop the volume rendering.
+	{
+		const FFlowVizDispatchStatus Status = FlowVizVolumeRayMarch::ClassifyDispatch(
+			&Dispatcher, Ready, &TextureSet, &SlotA);
+
+		TestTrue(TEXT("everything present means the volume marches"), Status.ShouldDispatch());
+		TestEqual(TEXT("and the reason says so rather than naming a blocker"),
+			static_cast<int32>(Status.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::Dispatched));
+	}
+
+	/* == The four blockers, each distinct ==================================== */
+	//
+	// Same black screen, four unrelated fixes: install a dispatcher / wait for
+	// the layout / construct the texture set / wait for the upload to land. The
+	// first headless capture failed here and the log could not say which.
+	{
+		const FFlowVizDispatchStatus NoDispatcher = FlowVizVolumeRayMarch::ClassifyDispatch(
+			nullptr, Ready, &TextureSet, &SlotA);
+		TestFalse(TEXT("no dispatcher installed does not march"), NoDispatcher.ShouldDispatch());
+		TestEqual(TEXT("and says the marcher is missing, not that the data is"),
+			static_cast<int32>(NoDispatcher.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoDispatcher));
+
+		FFlowVizVolumeProxyDynamicData NoParams;
+		NoParams.bHasParameters = false;
+		const FFlowVizDispatchStatus Unparameterised = FlowVizVolumeRayMarch::ClassifyDispatch(
+			&Dispatcher, NoParams, &TextureSet, &SlotA);
+		TestFalse(TEXT("no shader parameters does not march"), Unparameterised.ShouldDispatch());
+		TestEqual(TEXT("and says the parameters are missing"),
+			static_cast<int32>(Unparameterised.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoParameters));
+
+		const FFlowVizDispatchStatus NoTextures = FlowVizVolumeRayMarch::ClassifyDispatch(
+			&Dispatcher, Ready, nullptr, &SlotA);
+		TestFalse(TEXT("no texture set does not march"), NoTextures.ShouldDispatch());
+		TestEqual(TEXT("and says the texture set is missing, not the slot"),
+			static_cast<int32>(NoTextures.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoTextureSet));
+
+		const FFlowVizDispatchStatus NotResident = FlowVizVolumeRayMarch::ClassifyDispatch(
+			&Dispatcher, Ready, &TextureSet, nullptr);
+		TestFalse(TEXT("a display frame that has not landed does not march"), NotResident.ShouldDispatch());
+		TestEqual(TEXT("and says the frame is not resident -- a wait, not a wiring fault"),
+			static_cast<int32>(NotResident.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
+	}
+
+	/* == Every reason has a distinct description ============================= */
+	//
+	// The log line is the only artifact a capture run leaves behind, so two
+	// reasons that print the same string are two reasons nobody can tell apart
+	// after the fact -- which is the original defect wearing a message.
+	{
+		TSet<FString> Seen;
+		const EFlowVizDispatchReason AllReasons[] = {
+			EFlowVizDispatchReason::Dispatched,
+			EFlowVizDispatchReason::NoDispatcher,
+			EFlowVizDispatchReason::NoParameters,
+			EFlowVizDispatchReason::NoTextureSet,
+			EFlowVizDispatchReason::FrameNotResident,
+		};
+
+		for (const EFlowVizDispatchReason Reason : AllReasons)
+		{
+			const FString Description = FlowVizVolumeRayMarch::DescribeDispatchReason(Reason);
+
+			TestFalse(FString::Printf(TEXT("reason %d has a description"), static_cast<int32>(Reason)),
+				Description.IsEmpty());
+			TestFalse(FString::Printf(TEXT("reason %d's description is unique"), static_cast<int32>(Reason)),
+				Seen.Contains(Description));
+			Seen.Add(Description);
+		}
+
+		TestEqual(TEXT("all five reasons described, so none falls through to a default"),
+			Seen.Num(), static_cast<int32>(UE_ARRAY_COUNT(AllReasons)));
+	}
+
+	/* == The component reports it, which is the part that was unreachable ==== */
+	{
+		UCFDVizVolumeComponent* Volume = NewObject<UCFDVizVolumeComponent>();
+		if (!TestNotNull(TEXT("a volume component was created"), Volume))
+		{
+			return false;
+		}
+
+		Volume->AddToRoot();
+		ON_SCOPE_EXIT
+		{
+			Volume->RemoveFromRoot();
+		};
+
+		/*
+		 * THE IDENTITY CONTROL AND THE FAIL-CLOSED DIRECTION AT ONCE.
+		 *
+		 * A component that has never been rendered must report NOT dispatched.
+		 * The tempting default is "true, we will correct it after the first
+		 * frame", and that default makes this whole facility worse than nothing:
+		 * a headless capture that never renders would report a healthy march,
+		 * which is the false green VISUAL_QA rule 6 exists to forbid.
+		 */
+		TestFalse(TEXT("a component that has never rendered reports no march, rather than assuming one"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("and its reason is that no frame has been rendered yet -- not a blocker it cannot know about"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NeverRendered));
+
+		// The other half. Without this, a hardcoded `return false` passes
+		// everything above -- the exact shape recorded in repo memory as
+		// "audit the second branch of every documented hazard".
+		FFlowVizDispatchStatus Marched;
+		Marched.Reason = EFlowVizDispatchReason::Dispatched;
+		Volume->ReportDispatchStatus_RenderThread(Marched);
+
+		TestTrue(TEXT("once a frame reports a march, the component says so"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("and carries the reason, not just the boolean"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::Dispatched));
+
+		// And back again, because a latch that can only be set would report a
+		// stale march forever after one good frame -- the worst direction, since
+		// it turns a regression into a green.
+		FFlowVizDispatchStatus Blocked;
+		Blocked.Reason = EFlowVizDispatchReason::FrameNotResident;
+		Volume->ReportDispatchStatus_RenderThread(Blocked);
+
+		TestFalse(TEXT("a later frame that did not march clears it, so this is not a one-way latch"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("and the reason updates to the current blocker"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
+	}
+
+	/* == Classifying PUBLISHES. Everything above supplies the answer ========== */
+	//
+	// WHY THIS BLOCK EXISTS: two mutants survived the whole suite.
+	//
+	//   1. deleting the proxy's store to the channel outright
+	//   2. wrapping that store in `if (Status.ShouldDispatch())`, so only
+	//      successes are published and a volume that marched once and then
+	//      stopped keeps reading healthy
+	//
+	// Both are the stale-success direction this facility exists to prevent, and
+	// both survived because every assertion above HANDS ReportDispatchStatus_-
+	// RenderThread the very status the proxy is supposed to compute and publish.
+	// A test that supplies the input cannot discover that production never
+	// produces it -- the same shape as FlowViz.Render.Wiring, where every test
+	// installed its own dispatcher and so none could notice that production
+	// installed none.
+	//
+	// The fix is structural rather than another assertion: publishing is no
+	// longer a separate statement the proxy has to remember, it is what
+	// ClassifyDispatchAndPublish DOES. Mutant 1 now deletes the classification
+	// too, so the volume cannot march at all; mutant 2 has no separate store
+	// left to wrap. The rule is unrepresentable rather than merely checked.
+	//
+	// Reachable without an RHI for the reason recorded on ClassifyDispatch: a
+	// test that drove GetDynamicMeshElements would self-skip under the default
+	// -nullrhi suite and cover nothing while reporting Success.
+	{
+		UCFDVizVolumeComponent* Volume = NewObject<UCFDVizVolumeComponent>();
+		if (!TestNotNull(TEXT("a volume component was created"), Volume))
+		{
+			return false;
+		}
+
+		Volume->AddToRoot();
+		ON_SCOPE_EXIT
+		{
+			Volume->RemoveFromRoot();
+		};
+
+		const TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe> Channel =
+			Volume->GetDispatchStatusChannel();
+
+		FFlowVizVolumeSlotTextures PublishSlotA;
+		FFlowVizVolumeTextureSet PublishTextureSet;
+		FRecordingDispatcher PublishDispatcher;
+
+		FFlowVizVolumeProxyDynamicData PublishReady;
+		PublishReady.bHasParameters = true;
+
+		// THE FAILURE DIRECTION FIRST, because it is the one a set-only latch
+		// would get right by accident.
+		const FFlowVizDispatchStatus Blocked =
+			FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				Channel, nullptr, PublishReady, &PublishTextureSet, &PublishSlotA);
+
+		TestEqual(TEXT("classifying a blocked frame returns the blocker"),
+			static_cast<int32>(Blocked.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoDispatcher));
+		TestEqual(TEXT("and PUBLISHES it, so the component can be asked without a proxy"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::NoDispatcher));
+		TestFalse(TEXT("a blocked frame reads as not marched"), Volume->WasRayMarchDispatched());
+
+		// THE SUCCESS DIRECTION. Without it, "publish nothing at all" passes
+		// everything above -- the channel already defaults to a non-dispatched
+		// reason, so an unwritten channel is indistinguishable from a correctly
+		// reported blocker.
+		const FFlowVizDispatchStatus Marched =
+			FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				Channel, &PublishDispatcher, PublishReady, &PublishTextureSet, &PublishSlotA);
+
+		TestTrue(TEXT("everything present still means the volume marches"), Marched.ShouldDispatch());
+		TestTrue(TEXT("and the success is published too, not only the failures"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("with the reason that says it marched"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::Dispatched));
+
+		// AND BACK, which is the arm that kills "publish only on success". A
+		// volume that marched once and then stopped must stop reading healthy.
+		const FFlowVizDispatchStatus Stopped =
+			FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				Channel, &PublishDispatcher, PublishReady, &PublishTextureSet, /*SlotA*/ nullptr);
+
+		TestEqual(TEXT("a frame that stops marching returns the new blocker"),
+			static_cast<int32>(Stopped.Reason),
+			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
+		TestFalse(TEXT("and the component stops reading healthy -- no stale success"),
+			Volume->WasRayMarchDispatched());
+		TestEqual(TEXT("with the reason overwritten rather than latched"),
+			static_cast<int32>(Volume->GetLastDispatchStatus().Reason),
+			static_cast<int32>(EFlowVizDispatchReason::FrameNotResident));
+
+		// The returned value and the published value are the same answer. If
+		// these could differ, the proxy would gate on one and report the other
+		// -- the De Morgan-duals defect that ClassifyDispatch was extracted to
+		// end, reintroduced one layer up.
+		TestEqual(TEXT("what is returned to the gate is what is published to the diagnostic"),
+			static_cast<int32>(Stopped.Reason),
+			static_cast<int32>(Channel->Reason.Load()));
 	}
 
 	return true;

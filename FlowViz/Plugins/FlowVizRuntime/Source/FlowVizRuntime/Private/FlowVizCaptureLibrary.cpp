@@ -2,6 +2,8 @@
 
 #include "FlowVizCaptureLibrary.h"
 
+#include "Capture/FlowVizAnnotate.h"
+
 #include "AssetCompilingManager.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -284,6 +286,20 @@ int32 UFlowVizCaptureLibrary::ResolveMaterials(const UObject* WorldContextObject
 	return Resolved;
 }
 
+namespace FlowVizCaptureLocal
+{
+	/**
+	 * The annotation for CaptureAnnotatedPNG, or unset for the plain capture.
+	 * Threaded through as a pointer so the shared pipeline below has ONE spot
+	 * where the pixels can be modified between readback and compression.
+	 */
+	struct FCaptureAnnotationRequest
+	{
+		bool bAnnotate = false;
+		FFlowVizCaptureAnnotation Annotation;
+	};
+}
+
 bool UFlowVizCaptureLibrary::CaptureToPNG(
 	const UObject* WorldContextObject,
 	const FString& OutputPath,
@@ -292,6 +308,20 @@ bool UFlowVizCaptureLibrary::CaptureToPNG(
 	int32 Width,
 	int32 Height,
 	float FOV)
+{
+	return CapturePipeline(
+		WorldContextObject, OutputPath, Location, Rotation, Width, Height, FOV, nullptr);
+}
+
+bool UFlowVizCaptureLibrary::CapturePipeline(
+	const UObject* WorldContextObject,
+	const FString& OutputPath,
+	FVector Location,
+	FRotator Rotation,
+	int32 Width,
+	int32 Height,
+	float FOV,
+	const void* AnnotationRequest)
 {
 	UWorld* World = ResolveWorld(WorldContextObject, TEXT("CaptureToPNG"));
 	if (World == nullptr)
@@ -407,6 +437,24 @@ bool UFlowVizCaptureLibrary::CaptureToPNG(
 	for (FColor& Pixel : Pixels)
 	{
 		Pixel.A = 255;
+	}
+
+	// The DoD 15 footer, when requested. AFTER the alpha fix (the strip is
+	// opaque either way) and BEFORE compression, so the annotation is in the
+	// file rather than over it. A refusal FAILS the capture: writing an
+	// unannotated file under the annotated name would be a fake success.
+	if (AnnotationRequest != nullptr)
+	{
+		const auto* Request =
+			static_cast<const FlowVizCaptureLocal::FCaptureAnnotationRequest*>(AnnotationRequest);
+		if (Request->bAnnotate
+			&& !FlowVizAnnotate::BurnFooter(Pixels, Width, Height, Request->Annotation))
+		{
+			UE_LOG(LogFlowViz, Error,
+				TEXT("CaptureAnnotatedPNG: %dx%d is too small for the annotation footer."),
+				Width, Height);
+			return false;
+		}
 	}
 
 	const FString AbsolutePath = FPaths::ConvertRelativePathToFull(OutputPath);
@@ -558,12 +606,18 @@ ACFDVizCaseActor* UFlowVizCaptureLibrary::SpawnCaseActor(
 	}
 
 	/*
-	 * THE STEP NOTHING IN PRODUCTION PERFORMS. ACFDVizCaseActor::BeginPlay
-	 * loads and never uploads, and a component with no upload has no
-	 * UploadedScalarLayout, so TryMakeShaderParameters returns false and the
-	 * proxy's bHasParameters stays false. The proxy then draws its box and its
-	 * hull and never touches the dispatcher. Without this line the actor looks
-	 * completely healthy and marches nothing.
+	 * THE STEP THIS HEADLESS PATH HAS TO PERFORM ITSELF. ACFDVizCaseActor::
+	 * BeginPlay loads and never uploads, and a texture set with no upload has no
+	 * field layout, so TryMakeShaderParameters returns false, the proxy's
+	 * bHasParameters stays false, and it draws its box and its hull without ever
+	 * touching the dispatcher. Without this line the actor looks completely
+	 * healthy and marches nothing.
+	 *
+	 * Interactive sessions get their voxels from the case player instead, which
+	 * decodes on a worker and enqueues into the same set (SFlowVizWorkspace::
+	 * SetVolume). This capture path has no player and no clock -- it renders one
+	 * still of one frame -- so the synchronous upload is the whole of its
+	 * playback.
 	 */
 	const FCFDVizResult UploadResult = Volume->UploadFrame(FrameIndex);
 	if (!UploadResult.IsOk())
@@ -674,6 +728,59 @@ namespace
 	}
 }
 
+bool UFlowVizCaptureLibrary::CaptureAnnotatedPNG(
+	const UObject* WorldContextObject,
+	ACFDVizCaseActor* CaseActor,
+	const FString& OutputPath,
+	FVector Location,
+	FRotator Rotation,
+	int32 Width,
+	int32 Height,
+	float FOV)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("CaptureAnnotatedPNG"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+	const FFlowVizVolumeCaseBinding& Binding = Volume->GetCaseBinding();
+	if (!Binding.bIsValid)
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("CaptureAnnotatedPNG: the volume has no case bound; an annotation with no "
+				 "identity to state would be a decorative lie."));
+		return false;
+	}
+
+	/*
+	 * THE ANNOTATION READS THE BOUND STATE, not caller-supplied strings: the
+	 * caption cannot disagree with the image. Time is the DISPLAYED frame's --
+	 * what is actually on screen -- through the same frame selection the proxy
+	 * renders from.
+	 */
+	FlowVizCaptureLocal::FCaptureAnnotationRequest Request;
+	Request.bAnnotate = true;
+	Request.Annotation.CaseName = Binding.Case.Metadata.Name;
+	Request.Annotation.FieldName = Binding.FieldId.ToString();
+	Request.Annotation.TimeUnit = Binding.Case.Units.Time;
+
+	const FFlowVizVolumeFrameSelection Selection = Volume->GetFrameSelection();
+	const int32 DisplayedFrame = Selection.FrameA != INDEX_NONE ? Selection.FrameA : 0;
+	if (Binding.Case.Timeline.Times.IsValidIndex(DisplayedFrame))
+	{
+		Request.Annotation.Time = Binding.Case.Timeline.Times[DisplayedFrame];
+	}
+
+	const FFlowVizTransferFunctionViewModel& TransferFunction = Volume->GetTransferFunction();
+	Request.Annotation.RangeMin = TransferFunction.GetRangeMin();
+	Request.Annotation.RangeMax = TransferFunction.GetRangeMax();
+	Request.Annotation.ColorMap = TransferFunction.GetColorMap();
+	Request.Annotation.bReversed = TransferFunction.IsColorMapReversed();
+
+	return CapturePipeline(
+		WorldContextObject, OutputPath, Location, Rotation, Width, Height, FOV, &Request);
+}
+
 bool UFlowVizCaptureLibrary::SetVolumeCompositeMode(
 	ACFDVizCaseActor* CaseActor, int32 CompositeMode, float IsoValue)
 {
@@ -746,6 +853,92 @@ bool UFlowVizCaptureLibrary::SetVolumeLightingEnabled(ACFDVizCaseActor* CaseActo
 
 	UE_LOG(LogFlowViz, Log, TEXT("SetVolumeLightingEnabled(%d) applied to '%s'."),
 		bEnabled ? 1 : 0, *CaseActor->GetName());
+
+	return true;
+}
+
+bool UFlowVizCaptureLibrary::AddVolumeClipPlane(
+	ACFDVizCaseActor* CaseActor,
+	FVector Normal,
+	double Distance)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("AddVolumeClipPlane"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	FFlowVizClipViewModel Clip = Volume->GetClip();
+
+	/*
+	 * THE DOMAIN COMES FROM THE VOLUME, EVERY CALL, and is re-set rather than
+	 * set once. A field can be replaced between calls -- loading a second case
+	 * into the same actor is the normal way to use this -- and the crop box
+	 * reaches the shader as a FRACTION of the domain. A stale domain therefore
+	 * does not fail, it clips at a plausible wrong place, which is the class of
+	 * error nobody investigates because the picture still looks like a picture.
+	 *
+	 * SetDomainSize refuses a non-positive or non-finite axis, which is exactly
+	 * the state of a volume with no field uploaded yet. Refused here rather than
+	 * guessing a unit domain: a plane authored against a domain nobody chose
+	 * would be off by whatever the real extent turns out to be.
+	 */
+	const FVector PhysicalSize = Volume->GetPhysicalSize();
+	if (!Clip.SetDomainSize(PhysicalSize).IsOk())
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("AddVolumeClipPlane: '%s' has no usable domain (physical size %s). "
+				 "Load a case before adding clip planes; nothing was changed."),
+			*CaseActor->GetName(), *PhysicalSize.ToString());
+		return false;
+	}
+
+	FFlowVizClipPlane Plane;
+	Plane.Normal = Normal;
+	Plane.Distance = Distance;
+	Plane.bEnabled = true;
+
+	// AddPlane refuses a degenerate normal and a full plane array, and adds
+	// nothing when it refuses -- so the local copy is unchanged and the volume
+	// is never told. Both refusals are reported with the reason: "it did not
+	// work" and "you already have the maximum" send someone to different places.
+	const FCFDVizResult Added = Clip.AddPlane(Plane);
+	if (!Added.IsOk())
+	{
+		UE_LOG(LogFlowViz, Error,
+			TEXT("AddVolumeClipPlane: %s Volume '%s' keeps its %d existing plane(s)."),
+			*Added.Message, *CaseActor->GetName(), Volume->GetClip().GetPlaneCount());
+		return false;
+	}
+
+	// THE CALL THAT DID NOT EXIST ANYWHERE IN PRODUCTION, for this channel.
+	Volume->SetClip(Clip);
+
+	UE_LOG(LogFlowViz, Log,
+		TEXT("AddVolumeClipPlane: normal %s distance %f applied to '%s' (%d plane(s) now)."),
+		*Normal.ToString(), Distance, *CaseActor->GetName(), Clip.GetPlaneCount());
+
+	return true;
+}
+
+bool UFlowVizCaptureLibrary::ClearVolumeClipping(ACFDVizCaseActor* CaseActor)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("ClearVolumeClipping"));
+	if (Volume == nullptr)
+	{
+		return false;
+	}
+
+	// Both halves. Removing the planes and leaving a crop box behind is still a
+	// clipped volume, and "clear" that half-clears is worse than no call at all
+	// -- the caller believes the volume is whole.
+	FFlowVizClipViewModel Clip = Volume->GetClip();
+	Clip.RemoveAllPlanes();
+	Clip.ResetCropBox();
+	Volume->SetClip(Clip);
+
+	UE_LOG(LogFlowViz, Log, TEXT("ClearVolumeClipping: '%s' is no longer clipped."),
+		*CaseActor->GetName());
 
 	return true;
 }

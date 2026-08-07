@@ -37,3 +37,7 @@ FlowViz/Tools/capture/blind_sessions/
 
 # Agent worktree scaffolding (EnterWorktree/Agent isolation), not project source.
 .claude/worktrees/
+
+# UAT packaging outputs (BuildCookRun writes both)
+FlowViz/Build/
+FlowViz/Packaged/

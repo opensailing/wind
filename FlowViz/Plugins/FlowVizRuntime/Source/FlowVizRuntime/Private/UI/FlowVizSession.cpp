@@ -122,6 +122,34 @@ namespace FlowVizSessionLocal
 		return EFlowVizRangeSource::Global;
 	}
 
+	FString CompositeModeToString(EFlowVizCompositeMode Mode)
+	{
+		// A SWITCH, NOT A CAST, same as every enum here: a cast keeps compiling
+		// -- and silently means a different mode -- if the enum is reordered.
+		switch (Mode)
+		{
+			case EFlowVizCompositeMode::Alpha: return TEXT("alpha");
+			case EFlowVizCompositeMode::Maximum: return TEXT("maximum");
+			case EFlowVizCompositeMode::Minimum: return TEXT("minimum");
+			case EFlowVizCompositeMode::Average: return TEXT("average");
+			case EFlowVizCompositeMode::IsoSurface: return TEXT("isoSurface");
+			case EFlowVizCompositeMode::Diagnostic: return TEXT("diagnostic");
+			default: return TEXT("alpha");
+		}
+	}
+
+	EFlowVizCompositeMode CompositeModeFromString(const FString& Name)
+	{
+		if (Name == TEXT("maximum")) { return EFlowVizCompositeMode::Maximum; }
+		if (Name == TEXT("minimum")) { return EFlowVizCompositeMode::Minimum; }
+		if (Name == TEXT("average")) { return EFlowVizCompositeMode::Average; }
+		if (Name == TEXT("isoSurface")) { return EFlowVizCompositeMode::IsoSurface; }
+		if (Name == TEXT("diagnostic")) { return EFlowVizCompositeMode::Diagnostic; }
+		// ALPHA IS THE FALLBACK: it is the default render and the only mode
+		// that cannot mislead -- an unrecognised name lands on the honest one.
+		return EFlowVizCompositeMode::Alpha;
+	}
+
 	FString SlabOpToString(EFlowVizSlabOp Op)
 	{
 		switch (Op)
@@ -385,6 +413,49 @@ FCFDVizResult FlowVizSession::SaveToString(
 		Line->SetObjectField(TEXT("end"), FlowVizSessionLocal::MakeVector(State.LineEnd));
 		Line->SetNumberField(TEXT("samples"), State.LineSamples);
 		Root->SetObjectField(TEXT("lineProbe"), Line);
+	}
+
+	/* --- Render settings (#76) --------------------------------------------- */
+
+	{
+		// Written unconditionally, no bHas flag: unlike a slice, render settings
+		// always exist -- a default-constructed view model IS a meaningful scene
+		// (Alpha, unlit), and it is what a pre-#76 session loads as anyway.
+		const FFlowVizRenderSettingsViewModel& RS = State.RenderSettings;
+		TSharedRef<FJsonObject> Render = MakeShared<FJsonObject>();
+		Render->SetStringField(TEXT("compositeMode"),
+			FlowVizSessionLocal::CompositeModeToString(RS.GetCompositeMode()));
+		Render->SetNumberField(TEXT("isoValue"), RS.GetIsoValue());
+		Render->SetBoolField(TEXT("lighting"), RS.IsLightingEnabled());
+		Render->SetNumberField(TEXT("ambientStrength"), RS.GetAmbientStrength());
+		Render->SetNumberField(TEXT("diffuseStrength"), RS.GetDiffuseStrength());
+		{
+			const FVector3f Direction = RS.GetLightDirection();
+			TSharedRef<FJsonObject> Dir = MakeShared<FJsonObject>();
+			Dir->SetNumberField(TEXT("x"), Direction.X);
+			Dir->SetNumberField(TEXT("y"), Direction.Y);
+			Dir->SetNumberField(TEXT("z"), Direction.Z);
+			Render->SetObjectField(TEXT("lightDirection"), Dir);
+		}
+		Render->SetNumberField(TEXT("stepVoxels"), RS.GetStepVoxels());
+		Render->SetNumberField(TEXT("referenceStepVoxels"), RS.GetReferenceStepVoxels());
+		Render->SetNumberField(TEXT("maxSteps"), static_cast<double>(RS.GetMaxSteps()));
+		Render->SetNumberField(TEXT("earlyTerminationAlpha"), RS.GetEarlyTerminationAlpha());
+		Render->SetBoolField(TEXT("jitter"), RS.IsJitterEnabled());
+		Render->SetNumberField(TEXT("jitterAmount"), RS.GetJitterAmount());
+		Render->SetNumberField(TEXT("jitterSeed"), static_cast<double>(RS.GetJitterSeed()));
+		Render->SetBoolField(TEXT("fieldFiltering"), RS.IsFieldFilteringEnabled());
+		Render->SetBoolField(TEXT("strictStatusFilter"), RS.IsStrictStatusFilter());
+		{
+			const FLinearColor NoData = RS.GetNoDataColor();
+			TSharedRef<FJsonObject> Color = MakeShared<FJsonObject>();
+			Color->SetNumberField(TEXT("r"), NoData.R);
+			Color->SetNumberField(TEXT("g"), NoData.G);
+			Color->SetNumberField(TEXT("b"), NoData.B);
+			Color->SetNumberField(TEXT("a"), NoData.A);
+			Render->SetObjectField(TEXT("noDataColor"), Color);
+		}
+		Root->SetObjectField(TEXT("renderSettings"), Render);
 	}
 
 	/* --- Workspace -------------------------------------------------------- */
@@ -667,6 +738,123 @@ FCFDVizResult FlowVizSession::LoadFromString(
 		}
 	}
 
+	/* --- Render settings (#76) --------------------------------------------- */
+
+	{
+		/*
+		 * ROUTED THROUGH THE SETTERS, NOT ASSIGNED. The view model's fields are
+		 * private behind validating setters, and that is exactly right here: a
+		 * hand-edited session carrying stepVoxels: 0 or an all-zero light
+		 * direction must land on the previous (default) value the way the same
+		 * typo in the panel would, not stall the GPU loop. Absent keys leave the
+		 * default in place, which is how a pre-#76 session loads unchanged.
+		 */
+		const TSharedPtr<FJsonObject>* Render = nullptr;
+		if (Root->TryGetObjectField(TEXT("renderSettings"), Render) && Render != nullptr)
+		{
+			FFlowVizRenderSettingsViewModel& RS = Parsed.RenderSettings;
+			const FString ModeName =
+				FlowVizSessionLocal::ReadString(*Render, TEXT("compositeMode"));
+			if (!ModeName.IsEmpty())
+			{
+				RS.SetCompositeMode(FlowVizSessionLocal::CompositeModeFromString(ModeName));
+			}
+			float FloatValue = 0.0f;
+			FloatValue = RS.GetIsoValue();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("isoValue"), FloatValue);
+			RS.SetIsoValue(FloatValue);
+
+			bool BoolValue = RS.IsLightingEnabled();
+			FlowVizSessionLocal::ReadBool(*Render, TEXT("lighting"), BoolValue);
+			RS.SetLightingEnabled(BoolValue);
+
+			FloatValue = RS.GetAmbientStrength();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("ambientStrength"), FloatValue);
+			RS.SetAmbientStrength(FloatValue);
+
+			FloatValue = RS.GetDiffuseStrength();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("diffuseStrength"), FloatValue);
+			RS.SetDiffuseStrength(FloatValue);
+
+			{
+				const TSharedPtr<FJsonObject>* Dir = nullptr;
+				if ((*Render)->TryGetObjectField(TEXT("lightDirection"), Dir) && Dir != nullptr)
+				{
+					double X = 0.0, Y = 0.0, Z = 0.0;
+					if ((*Dir)->TryGetNumberField(TEXT("x"), X)
+						&& (*Dir)->TryGetNumberField(TEXT("y"), Y)
+						&& (*Dir)->TryGetNumberField(TEXT("z"), Z))
+					{
+						// SetLightDirection refuses zero and non-finite, keeping
+						// the default -- the same refusal the panel's boxes get.
+						RS.SetLightDirection(FVector3f(
+							static_cast<float>(X), static_cast<float>(Y),
+							static_cast<float>(Z)));
+					}
+				}
+			}
+
+			FloatValue = RS.GetStepVoxels();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("stepVoxels"), FloatValue);
+			RS.SetStepVoxels(FloatValue);
+
+			FloatValue = RS.GetReferenceStepVoxels();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("referenceStepVoxels"), FloatValue);
+			RS.SetReferenceStepVoxels(FloatValue);
+
+			int32 IntValue = static_cast<int32>(RS.GetMaxSteps());
+			FlowVizSessionLocal::ReadInt(*Render, TEXT("maxSteps"), IntValue);
+			if (IntValue > 0)
+			{
+				RS.SetMaxSteps(static_cast<uint32>(IntValue));
+			}
+
+			FloatValue = RS.GetEarlyTerminationAlpha();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("earlyTerminationAlpha"), FloatValue);
+			RS.SetEarlyTerminationAlpha(FloatValue);
+
+			BoolValue = RS.IsJitterEnabled();
+			FlowVizSessionLocal::ReadBool(*Render, TEXT("jitter"), BoolValue);
+			RS.SetJitterEnabled(BoolValue);
+
+			FloatValue = RS.GetJitterAmount();
+			FlowVizSessionLocal::ReadFloat(*Render, TEXT("jitterAmount"), FloatValue);
+			RS.SetJitterAmount(FloatValue);
+
+			IntValue = static_cast<int32>(RS.GetJitterSeed());
+			FlowVizSessionLocal::ReadInt(*Render, TEXT("jitterSeed"), IntValue);
+			if (IntValue >= 0)
+			{
+				RS.SetJitterSeed(static_cast<uint32>(IntValue));
+			}
+
+			BoolValue = RS.IsFieldFilteringEnabled();
+			FlowVizSessionLocal::ReadBool(*Render, TEXT("fieldFiltering"), BoolValue);
+			RS.SetFieldFilteringEnabled(BoolValue);
+
+			BoolValue = RS.IsStrictStatusFilter();
+			FlowVizSessionLocal::ReadBool(*Render, TEXT("strictStatusFilter"), BoolValue);
+			RS.SetStrictStatusFilter(BoolValue);
+
+			{
+				const TSharedPtr<FJsonObject>* Color = nullptr;
+				if ((*Render)->TryGetObjectField(TEXT("noDataColor"), Color) && Color != nullptr)
+				{
+					double R = 0.0, G = 0.0, B = 0.0, A = 0.0;
+					if ((*Color)->TryGetNumberField(TEXT("r"), R)
+						&& (*Color)->TryGetNumberField(TEXT("g"), G)
+						&& (*Color)->TryGetNumberField(TEXT("b"), B)
+						&& (*Color)->TryGetNumberField(TEXT("a"), A))
+					{
+						RS.SetNoDataColor(FLinearColor(
+							static_cast<float>(R), static_cast<float>(G),
+							static_cast<float>(B), static_cast<float>(A)));
+					}
+				}
+			}
+		}
+	}
+
 	/* --- Workspace -------------------------------------------------------- */
 
 	FlowVizSessionLocal::ReadBool(Root, TEXT("presentationMode"), Parsed.bPresentationMode);
@@ -815,6 +1003,7 @@ void FlowVizSession::CaptureFromViewModels(
 	const FFlowVizClipViewModel* Clip,
 	const FFlowVizSliceViewModel* Slice,
 	const FFlowVizProbeViewModel* Probes,
+	const FFlowVizRenderSettingsViewModel* RenderSettings,
 	FFlowVizSessionState& OutState)
 {
 	/*
@@ -885,6 +1074,13 @@ void FlowVizSession::CaptureFromViewModels(
 		OutState.LineEnd = Probes->GetLineEnd();
 		OutState.LineSamples = Probes->GetLineSampleCount();
 	}
+
+	if (RenderSettings != nullptr)
+	{
+		// A plain copy: the state member is the same type, so the setters'
+		// invariants travel with it and there is nothing to re-validate.
+		OutState.RenderSettings = *RenderSettings;
+	}
 }
 
 FCFDVizResult FlowVizSession::ApplyToViewModels(
@@ -893,7 +1089,8 @@ FCFDVizResult FlowVizSession::ApplyToViewModels(
 	FFlowVizTransferFunctionViewModel* TransferFunction,
 	FFlowVizClipViewModel* Clip,
 	FFlowVizSliceViewModel* Slice,
-	FFlowVizProbeViewModel* Probes)
+	FFlowVizProbeViewModel* Probes,
+	FFlowVizRenderSettingsViewModel* RenderSettings)
 {
 	/*
 	 * BEST EFFORT, WITH THE FIRST FAILURE REPORTED.
@@ -1043,6 +1240,15 @@ FCFDVizResult FlowVizSession::ApplyToViewModels(
 			Record(Probes->SetLineProbe(State.LineStart, State.LineEnd));
 			Record(Probes->SetLineSampleCount(State.LineSamples));
 		}
+	}
+
+	if (RenderSettings != nullptr)
+	{
+		// Copy, not setter-by-setter: the loader already routed every parsed
+		// value through the validating setters, so this state cannot hold a
+		// value the setters would refuse -- re-validating here would just be a
+		// second chance to drift from the load path.
+		*RenderSettings = State.RenderSettings;
 	}
 
 	return FirstFailure;

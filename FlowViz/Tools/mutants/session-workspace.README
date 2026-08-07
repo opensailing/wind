@@ -1,0 +1,105 @@
+Campaign session-workspace, over Private/UI/FlowVizWorkspaceModel.cpp with
+filter FlowViz.UI.WorkspaceModel. Run 2026-08-06 12:55-13:14Z in
+wind-worktrees/dispatchobs against ef0c4ad, 10 arms.
+
+    verdict   arm
+    --------  ----------------------------------------------------------
+    killed    the session's field id dropped -- opens the first non-mask field
+    killed    the apply runs BEFORE the case opens (the ordering hazard)
+    killed    a missing case ABORTS -- the panels never arrive
+    INVALID   a missing case is opened ANYWAY            <-- see BELOW; the
+                                                             re-run found a
+                                                             REAL GAP
+    killed    the transfer function is not captured (SaveSession null)
+    killed    the clip model is not captured
+    killed    the slice model is not captured
+    killed    the probe model is not captured
+    killed    the player is not captured
+    SURVIVED  IDENTITY CONTROL                                    (correct)
+
+    killed 8  SURVIVED 1  INVALID 1  UNSCORED 0  skipped 0
+
+The identity control SURVIVED, which is what makes the other nine verdicts
+readable at all: the harness was demonstrably able to let a no-op through, so
+the eight kills are about the mutants rather than about a standing red. Its
+per-arm log (the last one written, see the caveat below) shows all four tests
+Success. Baseline built clean and the suite was green before any arm was
+applied.
+
+THE INVALID IS A REAL FINDING ABOUT THE ARM, NOT ABOUT THE CODE.
+
+    if (State.bCaseFound)  ->  if (true)
+
+    FlowVizWorkspaceModel.cpp:386:10: error: code will never be executed
+    [-Werror,-Wunreachable-code]
+
+`if (true)` lets the compiler prove the else branch dead, and this module builds
+with -Werror. The BEHAVIOUR the arm wanted to express - open the case even when
+the parse said it is missing, so CloseCase runs and the user loses the case they
+had open - is a real defect worth scoring; the arm was only wrong about how to
+express it invisibly to the compiler. Re-run as session-workspace-arm4.txt with
+
+    if (State.bCaseFound)  ->  if (!State.ResolvedCasePath.IsEmpty())
+
+which is true in exactly the cases `if (true)` would be (the enclosing guard has
+already established the path is non-empty) while leaving the else formally
+reachable. Repo memory unreachable-code-cannot-be-differentially-tested.
+
+Until that re-run lands, ONE BRANCH OF THIS FUNCTION IS UNVERIFIED BY MUTATION:
+nothing has yet demonstrated that the `bCaseFound` test is load-bearing. It is
+asserted by FlowViz.UI.WorkspaceModel.SessionMissingCase - which checks that a
+load whose case moved reports FileNotFound and leaves the previously-open case
+open - but an assertion existing is not the same as an assertion being able to
+fail, which is the entire reason this campaign exists.
+
+THE RE-RUN LANDED, AND THE PARAGRAPH ABOVE WAS TOO OPTIMISTIC. The arm SURVIVED.
+SessionMissingCase's three assertions were ALL TRUE OF THE MUTANT: OpenCase
+validates into a local and reaches CloseCase only after every gate passes, so
+the open case survives either way and IsCaseOpen() cannot separate them; and
+both implementations return FileNotFound naming the same path. The test's own
+comment asserted the opposite about OpenCase and was simply wrong. Closed by
+asserting the relink MESSAGE, which is the one thing that differs. Full account
+in session-workspace-arm4.README; the arm now scores killed.
+
+WHICH ASSERTIONS KILLED WHICH ARM. DERIVED, NOT READ OFF A LOG - and that is a
+defect in how this campaign was run rather than a property of the results.
+TEST_LOG was pointed at a single path that mutate.sh OVERWRITES per arm, so only
+the last arm's log (the identity control) survived to be read. The attribution
+below is reasoned from which assertions each mutant necessarily breaks, and is
+weaker evidence than the clip-seam READMEs beside it, which quote real failure
+text. A future campaign should point TEST_LOG at a per-arm path.
+
+    field id dropped        SessionRoundTrip and SessionMissingCase both assert
+                            Player.GetFieldId() and TransferFunction.GetFieldId()
+                            equal the fixture's field. NAME_None opens the first
+                            non-mask field instead, so both go red.
+
+    apply before open       SessionRoundTrip. OpenCase resets playback settings,
+                            seeks to frame 0 and resets the crop box, so an apply
+                            that ran first is silently undone: the restored
+                            playback settings, physical time and crop assertions
+                            fail while the case itself still opens.
+
+    missing case ABORTS     SessionMissingCase, and ONLY that test - this is the
+                            arm the new test was written for. Its whole subject
+                            is VerifyRestoredPanels running with the case half
+                            deliberately absent. Under this mutant the early
+                            return skips ApplyToViewModels entirely, so every
+                            panel assertion fails. SessionRoundTrip cannot see
+                            it: its case is found, so FirstFailure is Ok and the
+                            inserted guard never fires.
+
+    five null-capture arms  SessionRoundTrip. Each drops one view model from the
+                            capture, so that model's values come back as
+                            defaults after the reload. They are five separate
+                            arms rather than one compound arm on purpose: a
+                            compound arm dies on whichever model is checked
+                            first and the other four ride along untested. Repo
+                            memory a-compound-mutant-scores-like-a-narrow-one.
+
+WHAT THE CAMPAIGN DID NOT COVER. Every arm here is about the MODEL. Nothing in
+this file's tests binds a UCFDVizVolumeComponent, so no arm could have shown
+that a restored session reaches the renderer - the panels can be perfectly
+restored while the image on screen is still the previous session's. That gap is
+task #64 and is covered by FlowViz.UI.Workspace.SessionSeam, in a different
+file, against a different filter.

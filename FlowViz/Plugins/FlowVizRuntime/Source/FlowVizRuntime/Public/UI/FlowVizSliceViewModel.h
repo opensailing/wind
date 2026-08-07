@@ -23,14 +23,14 @@
  * the plane convention - is shared by construction: MakeClipPlane() converts,
  * so there is one definition of "which side is which".
  *
- * NO RENDERER CONSUMES THIS YET. There is no UCFDVizSliceComponent in the tree
- * (plan.md section 5E lists one; only the volume component exists). The state
- * and its legal transitions are modelled and tested; nothing draws a slice. The
- * distinction is stated here rather than left for a reader to discover, and is
- * why this class exposes no ApplyTo* method - there is nothing to apply to. What
- * it does expose is MakeClipPlane(), whose consumer DOES exist, so the
- * plane-orientation logic is checked against a real consumer rather than
- * against itself.
+ * THE RENDERER CONSUMES THIS AS A SLAB OF THE VOLUME (#77). There is still no
+ * UCFDVizSliceComponent: a slab is two opposed half-spaces, and the clip
+ * machinery already renders half-spaces end to end, so SFlowVizWorkspace
+ * composes MakeSlabPlanes() into the PUSHED clip model -- one definition of
+ * "which side", one shader path, no new parameters. The composition happens at
+ * push time, never inside the clip view model the user edits, so the clip
+ * panel shows no phantom rows and hiding the slice retracts exactly its own
+ * two planes.
  *
  * THREADING. Game thread, pure value state.
  */
@@ -141,6 +141,27 @@ public:
 	 */
 	FFlowVizClipPlane MakeClipPlane() const;
 
+	/**
+	 * The slab as two opposed clip planes: keep >= (slice - t/2) AND
+	 * keep <= (slice + t/2). Appended, so a caller composes onto an existing
+	 * plane list.
+	 *
+	 * A LITERAL ZERO-THICKNESS SLAB IS NEVER EMITTED. The ray-marcher
+	 * integrates a 3D field, and two coincident opposed planes keep a
+	 * measure-zero set -- a "slice" that renders as nothing, indistinguishable
+	 * from a slice outside the domain. So thickness 0 (a plane, per the panel)
+	 * renders as the MINIMUM slab: MinSlabFraction of the domain's extent along
+	 * the normal. The panel's own thickness readout still says 0; the disclosure
+	 * is this comment plus the fraction being a named constant rather than a
+	 * magic number.
+	 *
+	 * @return The number of planes appended: 2, or 0 with no domain.
+	 */
+	int32 MakeSlabPlanes(TArray<FFlowVizClipPlane>& OutPlanes) const;
+
+	/** The minimum rendered slab, as a fraction of the domain extent along the normal. */
+	static constexpr double MinSlabFraction = 0.02;
+
 private:
 	bool bHasDomain = false;
 	FVector DomainSize = FVector::OneVector;
@@ -153,7 +174,14 @@ private:
 	EFlowVizSlabOp SlabOp = EFlowVizSlabOp::None;
 
 	float Opacity = 1.0f;
-	bool bVisible = true;
+	/*
+	 * HIDDEN BY DEFAULT, and this flipped when the slice gained a renderer
+	 * (#77). While nothing consumed the slice, "visible" was aspiration and
+	 * true was harmless. Now visible means "clip the volume to the slab" -- a
+	 * default-visible slice would slab every volume to a sliver the moment a
+	 * case opened, before the user touched anything.
+	 */
+	bool bVisible = false;
 	bool bShowWidget = true;
 	bool bTrilinear = true;
 };

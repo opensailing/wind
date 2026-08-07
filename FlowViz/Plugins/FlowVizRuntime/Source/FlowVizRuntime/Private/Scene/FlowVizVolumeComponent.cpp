@@ -198,6 +198,31 @@ FFlowVizVolumeRayMarchContext FlowVizVolumeRayMarch::MakeDispatchContext(
 	 */
 	Context.RenderSettings = DynamicData.RenderSettings;
 
+	/*
+	 * THE SAME ASSIGNMENT, one channel over. Its absence had a longer reach: the
+	 * clip view model had no production caller anywhere, so FillDefaults'
+	 * NumClipPlanes = 0 was what every frame ever rendered used, and the shader's
+	 * clip loop ran zero times. SFlowVizClipPanel drew an advisory strip saying
+	 * the panel it belonged to did nothing.
+	 *
+	 * Copied by value, on the render thread, out of the marshalled payload -- the
+	 * component's own Clip is game-thread state and must not be read here.
+	 */
+	Context.Clip = DynamicData.Clip;
+
+	/*
+	 * THE THIRD SUCH ASSIGNMENT, and the one whose absence was hardest to see.
+	 * The other two produced a visibly wrong picture once anyone looked -- flat
+	 * alpha compositing, an unclipped volume. This one produces a picture that
+	 * looks CONSIDERED: viridis over [0,1], which is a defensible default, while
+	 * the panel's colormap buttons and range readout show whatever the user
+	 * chose. Nothing on screen disagrees with anything else on screen.
+	 *
+	 * Copied by value out of the marshalled payload, on the render thread, for
+	 * the same reason as the two above.
+	 */
+	Context.TransferFunction = DynamicData.TransferFunction;
+
 	Context.SlotA = SlotATextures;
 	Context.SlotB = SlotBTextures;
 	Context.Alpha = Context.SlotB != nullptr ? DynamicData.FrameSelection.Alpha : 0.0f;
@@ -211,6 +236,113 @@ FFlowVizVolumeRayMarchContext FlowVizVolumeRayMarch::MakeDispatchContext(
 		DynamicData.FrameSelection, /*bSlotBResident=*/Context.SlotB != nullptr);
 
 	return Context;
+}
+
+FFlowVizDispatchStatus FlowVizVolumeRayMarch::ClassifyDispatch(
+	const IFlowVizVolumeRayMarchDispatcher* Dispatcher,
+	const FFlowVizVolumeProxyDynamicData& DynamicData,
+	const FFlowVizVolumeTextureSet* TextureSet,
+	const FFlowVizVolumeSlotTextures* SlotATextures)
+{
+	FFlowVizDispatchStatus Status;
+
+	/*
+	 * ORDERED BY WHAT HAS TO BE FIXED FIRST, not by how the old nested ifs
+	 * happened to be written. A volume with no dispatcher AND no upload is
+	 * reported as NoDispatcher: waiting for the upload is pointless while
+	 * nothing would march it.
+	 *
+	 * NOTHING IS DEREFERENCED HERE. All three pointers are compared to null and
+	 * nothing else, so a caller may pass a slot whose RHI textures have not been
+	 * created. A test relies on that: it passes stack-allocated stand-ins that
+	 * would crash rather than pass if this ever started reading through them.
+	 */
+	if (Dispatcher == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoDispatcher;
+	}
+	else if (!DynamicData.bHasParameters)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoParameters;
+	}
+	else if (TextureSet == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::NoTextureSet;
+	}
+	else if (SlotATextures == nullptr)
+	{
+		Status.Reason = EFlowVizDispatchReason::FrameNotResident;
+	}
+	else
+	{
+		Status.Reason = EFlowVizDispatchReason::Dispatched;
+	}
+
+	return Status;
+}
+
+FFlowVizDispatchStatus FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+	const TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe>& Channel,
+	const IFlowVizVolumeRayMarchDispatcher* Dispatcher,
+	const FFlowVizVolumeProxyDynamicData& DynamicData,
+	const FFlowVizVolumeTextureSet* TextureSet,
+	const FFlowVizVolumeSlotTextures* SlotATextures)
+{
+	const FFlowVizDispatchStatus Status =
+		ClassifyDispatch(Dispatcher, DynamicData, TextureSet, SlotATextures);
+
+	/*
+	 * UNCONDITIONAL, AND THAT IS THE ENTIRE POINT.
+	 *
+	 * Publishing only when Status.ShouldDispatch() leaves a volume that marched
+	 * once and then stopped reading healthy forever -- a regression that
+	 * presents as a green. That mutation survived the whole suite before this
+	 * function existed, because the store was a separate statement in the proxy
+	 * that a condition could be wrapped around. Here there is nothing to wrap:
+	 * the classification and the report are one operation, and the reason
+	 * handed back to the gate is the same value that was published.
+	 *
+	 * Plain store rather than compare-exchange: the newest frame's answer is
+	 * the right one.
+	 */
+	Channel->Reason.Store(Status.Reason);
+
+	return Status;
+}
+
+FString FlowVizVolumeRayMarch::DescribeDispatchReason(EFlowVizDispatchReason Reason)
+{
+	/*
+	 * EACH STRING NAMES THE FIX, not the symptom. "The volume did not render" is
+	 * what the reader already knows -- they are looking at a box. What they
+	 * cannot see is which of five unrelated things to go and do.
+	 *
+	 * A SWITCH WITH NO default:, deliberately. Adding a reason without a
+	 * description then fails to compile, rather than silently printing the
+	 * fallback for a state nobody has words for -- and two reasons that print
+	 * alike are two nobody can distinguish afterwards, which is the original
+	 * defect wearing a message. FlowViz.Scene.DispatchStatus asserts they are
+	 * all distinct.
+	 */
+	switch (Reason)
+	{
+	case EFlowVizDispatchReason::NeverRendered:
+		return TEXT("no frame has reached the render thread yet - the volume has not been drawn even once");
+	case EFlowVizDispatchReason::Dispatched:
+		return TEXT("dispatched - the ray-march ran for this volume");
+	case EFlowVizDispatchReason::NoDispatcher:
+		return TEXT("NO RAY-MARCHER IS INSTALLED - nothing is marching any volume; check module startup registered one");
+	case EFlowVizDispatchReason::NoParameters:
+		return TEXT("the shader parameters are not built - no case is bound, or no frame has been uploaded, so the field's layout is unknown");
+	case EFlowVizDispatchReason::NoTextureSet:
+		return TEXT("the component has no texture set - a construction fault, not something that resolves on its own");
+	case EFlowVizDispatchReason::FrameNotResident:
+		return TEXT("the display frame's upload has not landed on the render thread yet - transient, resolves as the upload completes");
+	}
+
+	// Unreachable while the switch above is exhaustive. Returned rather than
+	// checkf'd so a diagnostic can never be the thing that takes down a capture.
+	return TEXT("unrecognised dispatch reason");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -288,6 +420,7 @@ public:
 		, TextureSet(&const_cast<UCFDVizVolumeComponent*>(Component)->GetTextureSet())
 		, BoundingBoxColor(Component->BoundingBoxColor)
 		, bDrawBoundingBox(Component->bDrawBoundingBox)
+		, DispatchStatusChannel(Component->GetDispatchStatusChannel())
 	{
 		bWillEverBeLit = false;
 
@@ -414,6 +547,16 @@ public:
 			 * capture run failed exactly here and the log could not say which
 			 * condition was responsible.
 			 *
+			 * ONE CLASSIFIER, NOT A GATE AND A SEPARATE LOG CONDITION. Those
+			 * used to be two hand-written De Morgan duals of each other -- the
+			 * nested ifs decided whether to march, an independent four-term
+			 * disjunction decided what to say about it, and nothing kept them
+			 * dual. Editing either would have made this log describe a frame
+			 * that did not happen, which is worse than no log: it is evidence
+			 * pointing away from the defect, and in a headless capture it is the
+			 * only evidence there is. Now the value that gates the march IS the
+			 * value that gets reported.
+			 *
 			 * Logged ONCE per proxy rather than per frame - at 60fps per view
 			 * this would otherwise bury the log - and at Warning, because a
 			 * volume that is in the scene and not marching is a defect every
@@ -427,46 +570,52 @@ public:
 				? TextureSet->GetSlotTextures(SlotAIndex)
 				: nullptr;
 
-			if (!bLoggedDispatchBlocker
-				&& (Dispatcher == nullptr || !DynamicData.bHasParameters
-					|| TextureSet == nullptr || SlotATextures == nullptr))
+			// CLASSIFY AND PUBLISH IN ONE CALL, never as two statements.
+			//
+			// This used to be ClassifyDispatch followed by a separate store into
+			// the channel, and two mutations of that store survived the entire
+			// suite: deleting it, and wrapping it in `if (Status.ShouldDispatch())`
+			// so that only successes were reported. The second is the one that
+			// matters -- a volume that marched once and then stopped would go on
+			// reading healthy, turning a regression into a green.
+			//
+			// There is no separate store here to delete or to make conditional.
+			// Publishing IS what this call does, so the reason that gates the
+			// march below is necessarily the reason that reached the diagnostic.
+			const FFlowVizDispatchStatus Status = FlowVizVolumeRayMarch::ClassifyDispatchAndPublish(
+				DispatchStatusChannel, Dispatcher, DynamicData, TextureSet, SlotATextures);
+
+			if (!Status.ShouldDispatch() && !bLoggedDispatchBlocker)
 			{
 				bLoggedDispatchBlocker = true;
 				UE_LOG(LogFlowViz, Warning,
-					TEXT("Volume ray-march SKIPPED and the hull is all this frame contains. ")
-					TEXT("dispatcher=%s bHasParameters=%s textureSet=%s frameA=%d slotA=%d slotATextures=%s"),
-					Dispatcher != nullptr ? TEXT("installed") : TEXT("MISSING"),
-					DynamicData.bHasParameters ? TEXT("yes") : TEXT("NO - no dynamic-data push has arrived, or TryMakeShaderParameters failed"),
-					TextureSet != nullptr ? TEXT("present") : TEXT("MISSING"),
+					TEXT("Volume ray-march SKIPPED and the hull is all this frame contains: %s ")
+					TEXT("(frameA=%d slotA=%d)"),
+					*FlowVizVolumeRayMarch::DescribeDispatchReason(Status.Reason),
 					DynamicData.FrameSelection.FrameA,
-					SlotAIndex,
-					SlotATextures != nullptr ? TEXT("resident") : TEXT("NOT RESIDENT - the upload has not landed on the render thread"));
+					SlotAIndex);
 			}
 
-			if (Dispatcher != nullptr)
+			if (Status.ShouldDispatch())
 			{
-				if (DynamicData.bHasParameters && TextureSet != nullptr)
-				{
-					const int32 SlotA = SlotAIndex;
-					const int32 SlotB = TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameB);
+				// Dispatcher, TextureSet and SlotATextures are all non-null here
+				// BY CLASSIFICATION, not by a second set of checks - re-testing
+				// them would recreate exactly the duplicate rule this replaced.
+				const int32 SlotB = TextureSet->FindSlotForFrame(DynamicData.FrameSelection.FrameB);
 
-					if (const FFlowVizVolumeSlotTextures* TexturesA = SlotATextures)
-					{
-						// Assembled by a named function, not inline, so the
-						// assignments are reachable from a test. Inline, dropping
-						// any one of them was invisible: FlowViz.Scene.ProxySettings
-						// proved the payload carried the settings and the whole
-						// 90-test suite stayed green with the context assignment
-						// deleted. See FlowVizVolumeRayMarch::MakeDispatchContext.
-						const FFlowVizVolumeRayMarchContext Context =
-							FlowVizVolumeRayMarch::MakeDispatchContext(
-								View, LocalToWorld, DynamicData,
-								TexturesA, TextureSet->GetSlotTextures(SlotB));
+				// Assembled by a named function, not inline, so the assignments
+				// are reachable from a test. Inline, dropping any one of them was
+				// invisible: FlowViz.Scene.ProxySettings proved the payload
+				// carried the settings and the whole 90-test suite stayed green
+				// with the context assignment deleted. See
+				// FlowVizVolumeRayMarch::MakeDispatchContext.
+				const FFlowVizVolumeRayMarchContext Context =
+					FlowVizVolumeRayMarch::MakeDispatchContext(
+						View, LocalToWorld, DynamicData,
+						SlotATextures, TextureSet->GetSlotTextures(SlotB));
 
-						Dispatcher->DispatchVolumeRayMarch(Context);
-						bRayMarchDispatched = true;
-					}
-				}
+				Dispatcher->DispatchVolumeRayMarch(Context);
+				bRayMarchDispatched = true;
 			}
 		}
 	}
@@ -626,6 +775,19 @@ private:
 	/** True when the placement matrix mirrors, which for a CFDViz case it always does. Kept for diagnostics. */
 	bool bReverseWinding = false;
 
+	/**
+	 * Where this proxy publishes what each frame decided.
+	 *
+	 * A SHARED REFERENCE, NOT A POINTER TO THE COMPONENT. The marshalling rule
+	 * at the top of this file forbids a game-thread UObject pointer living in
+	 * the proxy: a proxy outlives some component operations and is destroyed on
+	 * the render thread, so that pointer is a use-after-free waiting for a
+	 * collection at the wrong moment. Both sides hold the channel; whichever
+	 * dies second releases it, and a proxy that outlives its component writes
+	 * into memory it still owns.
+	 */
+	TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe> DispatchStatusChannel;
+
 	/** Mutable because GetDynamicMeshElements is const; this is a diagnostic, not render state. */
 	mutable bool bRayMarchDispatched = false;
 
@@ -638,6 +800,7 @@ private:
 /* -------------------------------------------------------------------------- */
 
 UCFDVizVolumeComponent::UCFDVizVolumeComponent()
+	: DispatchStatusChannel(MakeShared<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe>())
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
@@ -759,7 +922,14 @@ FCFDVizResult UCFDVizVolumeComponent::LoadCase(const FString& CaseDirectory, FNa
 
 	NewBinding.bIsValid = true;
 	CaseBinding = MoveTemp(NewBinding);
-	UploadedScalarLayout = FFlowVizVolumeLayout();
+
+	// WHAT WAS RESIDENT BELONGED TO THE OLD BINDING. Frame numbers index the
+	// bound case, so slots kept across this line would answer for the previous
+	// case's frames -- real voxels, sampled through the new case's transform.
+	if (TextureSet.IsValid())
+	{
+		TextureSet->InvalidateResidency();
+	}
 
 	// Bounds and placement both changed, so the proxy is rebuilt rather than
 	// updated: its hull geometry is baked at construction.
@@ -780,7 +950,14 @@ FCFDVizResult UCFDVizVolumeComponent::LoadCase(const FString& CaseDirectory, FNa
 void UCFDVizVolumeComponent::ClearCase()
 {
 	CaseBinding = FFlowVizVolumeCaseBinding();
-	UploadedScalarLayout = FFlowVizVolumeLayout();
+
+	// Same reason as LoadCase: an unloaded component must not keep answering for
+	// frames of the case it no longer has.
+	if (TextureSet.IsValid())
+	{
+		TextureSet->InvalidateResidency();
+	}
+
 	MarkRenderStateDirty();
 	UpdateBounds();
 }
@@ -943,13 +1120,31 @@ FVector2D UCFDVizVolumeComponent::GetDisplayValueRange() const
 
 bool UCFDVizVolumeComponent::TryMakeShaderParameters(FFlowVizVolumeShaderParameters& OutParams) const
 {
-	if (!HasRenderableVolume() || !UploadedScalarLayout.IsValid())
+	if (!HasRenderableVolume() || !TextureSet.IsValid())
 	{
 		return false;
 	}
-	return CaseBinding.Transform
-		.MakeShaderParameters(UploadedScalarLayout, GetDisplayValueRange(), OutParams)
-		.IsOk();
+
+	/*
+	 * ASKED OF THE TEXTURE SET, not remembered from this component's own upload.
+	 *
+	 * This used to read a member filled by UploadFrame, which made the answer
+	 * "did I, personally, upload a frame" -- and the interactive path does not
+	 * go through UploadFrame at all. FFlowVizCasePlayer decodes on a worker and
+	 * enqueues into this same set directly, so under playback the voxels arrived
+	 * and this returned false anyway: bHasParameters stayed false, the proxy
+	 * reported NoParameters, and a fully loaded case marched nothing. Asking the
+	 * set makes the question "are there voxels of a known shape in these
+	 * textures", which is what the parameters actually describe and is true for
+	 * either uploader.
+	 */
+	const FFlowVizVolumeLayout& Layout = TextureSet->GetUploadedFieldLayout();
+	if (!Layout.IsValid())
+	{
+		return false;
+	}
+
+	return CaseBinding.Transform.MakeShaderParameters(Layout, GetDisplayValueRange(), OutParams).IsOk();
 }
 
 FCFDVizResult UCFDVizVolumeComponent::UploadFrame(int32 FrameIndex)
@@ -1016,11 +1211,10 @@ FCFDVizResult UCFDVizVolumeComponent::UploadFrame(int32 FrameIndex)
 		return BuildResult;
 	}
 
-	// The layout the shader parameter block is built from. Taken from whichever
-	// texture this field actually landed in, so a vector field does not produce
-	// parameters describing an absent scalar texture.
-	UploadedScalarLayout = bAsVector ? Upload.VectorLayout : Upload.ScalarLayout;
-
+	// The layout the shader parameter block is built from is recorded by
+	// EnqueueUpload, from whichever texture this field actually landed in --
+	// see FFlowVizVolumeTextureSet::GetUploadedFieldLayout. Nothing to cache
+	// here: the set is the one place both uploaders meet.
 	const FCFDVizResult UploadResult = TextureSet->EnqueueUpload(MoveTemp(Upload));
 	if (!UploadResult.IsOk())
 	{
@@ -1064,6 +1258,21 @@ void UCFDVizVolumeComponent::GetUsedMaterials(TArray<UMaterialInterface*>& OutMa
 	}
 }
 
+FFlowVizDispatchStatus UCFDVizVolumeComponent::GetLastDispatchStatus() const
+{
+	FFlowVizDispatchStatus Status;
+	Status.Reason = DispatchStatusChannel->Reason.Load();
+	return Status;
+}
+
+void UCFDVizVolumeComponent::ReportDispatchStatus_RenderThread(FFlowVizDispatchStatus Status)
+{
+	// Plain store, not a compare-exchange: the newest frame's answer is the
+	// right one. A set-only latch would report a stale success forever after a
+	// single good frame, turning a regression into a green.
+	DispatchStatusChannel->Reason.Store(Status.Reason);
+}
+
 FFlowVizVolumeProxyDynamicData UCFDVizVolumeComponent::MakeProxyDynamicData() const
 {
 	FFlowVizVolumeProxyDynamicData Data;
@@ -1073,6 +1282,15 @@ FFlowVizVolumeProxyDynamicData UCFDVizVolumeComponent::MakeProxyDynamicData() co
 	// The channel that had no writer. Copied, never referenced: this crosses to
 	// the render thread and the component may be edited or collected meanwhile.
 	Data.RenderSettings = RenderSettings;
+
+	// The other channel that had no writer, and copied for the same reason: the
+	// view model owns a plane array, so a reference here would have the render
+	// thread reading a TArray the game thread can reallocate mid-frame.
+	Data.Clip = Clip;
+
+	// THE THIRD SUCH CHANNEL. Copied for the same reason again -- the view model
+	// owns an opacity curve with a keypoint array behind it.
+	Data.TransferFunction = TransferFunction;
 
 	return Data;
 }
@@ -1084,6 +1302,27 @@ void UCFDVizVolumeComponent::SetRenderSettings(const FFlowVizRenderSettingsViewM
 	// Nothing here changes geometry or bounds, so the proxy does not need
 	// rebuilding -- only its marshalled copy needs replacing. MarkRenderStateDirty
 	// would recreate the proxy and re-seed the hull to change a composite mode.
+	MarkRenderDynamicDataDirty();
+}
+
+void UCFDVizVolumeComponent::SetClip(const FFlowVizClipViewModel& InClip)
+{
+	Clip = InClip;
+
+	// Same reasoning as SetRenderSettings: clipping happens in the shader
+	// against the full volume, so the hull, the bounds and the uploaded textures
+	// are all unaffected. Only the marshalled copy needs replacing.
+	MarkRenderDynamicDataDirty();
+}
+
+void UCFDVizVolumeComponent::SetTransferFunction(
+	const FFlowVizTransferFunctionViewModel& InTransferFunction)
+{
+	TransferFunction = InTransferFunction;
+
+	// Same reasoning as SetRenderSettings and SetClip: colour is decided
+	// per-sample in the shader, so no geometry, bounds or uploaded texture
+	// depends on it. Only the marshalled copy needs replacing.
 	MarkRenderDynamicDataDirty();
 }
 

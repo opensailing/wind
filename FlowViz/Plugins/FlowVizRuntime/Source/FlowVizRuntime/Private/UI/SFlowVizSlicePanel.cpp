@@ -162,6 +162,7 @@ namespace FlowVizSlicePanelLocal
 void SFlowVizSlicePanel::Construct(const FArguments& InArgs)
 {
 	ViewModel = InArgs._ViewModel;
+	OnSliceChanged = InArgs._OnSliceChanged;
 
 	const float U = FlowVizWorkspaceStyle::GetUnit();
 
@@ -560,13 +561,19 @@ bool SFlowVizSlicePanel::IsInterpolationAdvisoryVisible() const
 
 FText SFlowVizSlicePanel::GetNotDrawnAdvisoryText() const
 {
-	// UNCONDITIONAL. There is no slice renderer at all, so there is no state in
-	// which this is untrue - and a notice that comes and goes would suggest the
-	// slice is sometimes drawn.
-	return LOCTEXT("NotDrawnAdvisory",
-		"Not drawn yet: no renderer consumes this slice. The plane, slab and appearance "
-		"are authored and saved, but nothing appears in the viewport - so an empty "
-		"viewport here does not mean the slice is misplaced.");
+	/*
+	 * REWRITTEN WHEN THE SLICE GAINED A RENDERER (#77). It renders as a SLAB of
+	 * the volume -- the visible slice composes two opposed clip planes into the
+	 * pushed clip -- so the old "nothing consumes this" text became the stale
+	 * advisory #54 exists to prevent. What remains worth disclosing is the
+	 * MECHANISM's two edges: opacity and trilinear affect the volume render as
+	 * a whole rather than a dedicated slice surface, and the slab shares the
+	 * clip budget (six planes).
+	 */
+	return LOCTEXT("SlabAdvisory",
+		"Drawn as a slab of the volume: showing the slice clips the render to the "
+		"slab. It shares the six-plane clip budget with the Clipping panel - with "
+		"five or more user planes the slab does not fit and the volume stays whole.");
 }
 
 /* ========================================================================== */
@@ -594,11 +601,17 @@ bool SFlowVizSlicePanel::IsSlabOpSelected(EFlowVizSlabOp Op) const
 /* Handlers                                                                    */
 /* ========================================================================== */
 
+void SFlowVizSlicePanel::NotifySliceChanged() const
+{
+	OnSliceChanged.ExecuteIfBound();
+}
+
 FReply SFlowVizSlicePanel::OnAxisClicked(EFlowVizSliceAxis Axis)
 {
 	if (IsBound())
 	{
 		ViewModel->SetAxisPreset(Axis);
+		NotifySliceChanged();
 	}
 	return FReply::Handled();
 }
@@ -610,7 +623,10 @@ FReply SFlowVizSlicePanel::OnSlabOpClicked(EFlowVizSlabOp Op)
 		// The refusal on a zero-thickness slice is not handled here: the button is
 		// disabled in that state, so reaching this line already means the model
 		// will accept it. Swallowing an error here would let those two drift.
-		ViewModel->SetSlabOp(Op);
+		if (ViewModel->SetSlabOp(Op).IsOk())
+		{
+			NotifySliceChanged();
+		}
 	}
 	return FReply::Handled();
 }
@@ -620,6 +636,9 @@ FReply SFlowVizSlicePanel::OnVisibleClicked()
 	if (IsBound())
 	{
 		ViewModel->SetVisible(!ViewModel->IsVisible());
+		// ALWAYS announced: visibility is precisely the control that adds or
+		// retracts the slab planes from the pushed clip (#77).
+		NotifySliceChanged();
 	}
 	return FReply::Handled();
 }
@@ -638,6 +657,7 @@ FReply SFlowVizSlicePanel::OnTrilinearClicked()
 	if (IsBound())
 	{
 		ViewModel->SetTrilinear(!ViewModel->IsTrilinear());
+		NotifySliceChanged();
 	}
 	return FReply::Handled();
 }
@@ -646,7 +666,10 @@ void SFlowVizSlicePanel::OnPositionChanged(float NewValue)
 {
 	if (IsBound())
 	{
-		ViewModel->SetNormalizedPosition(static_cast<double>(NewValue));
+		if (ViewModel->SetNormalizedPosition(static_cast<double>(NewValue)).IsOk())
+		{
+			NotifySliceChanged();
+		}
 	}
 }
 
@@ -654,7 +677,10 @@ void SFlowVizSlicePanel::OnOpacityChanged(float NewValue)
 {
 	if (IsBound())
 	{
-		ViewModel->SetOpacity(NewValue);
+		if (ViewModel->SetOpacity(NewValue).IsOk())
+		{
+			NotifySliceChanged();
+		}
 	}
 }
 
@@ -673,7 +699,10 @@ void SFlowVizSlicePanel::OnThicknessCommitted(const FText& NewText, ETextCommit:
 		return;
 	}
 
-	ViewModel->SetThickness(Value);
+	if (ViewModel->SetThickness(Value).IsOk())
+	{
+		NotifySliceChanged();
+	}
 }
 
 void SFlowVizSlicePanel::OnSlabSamplesCommitted(const FText& NewText, ETextCommit::Type CommitType)
@@ -691,7 +720,10 @@ void SFlowVizSlicePanel::OnSlabSamplesCommitted(const FText& NewText, ETextCommi
 
 	// TRUNCATED, not rounded: a sample count is a count, and FMath::RoundToInt on
 	// 1.5 would give 2 samples from a field that reads "1.5".
-	ViewModel->SetSlabSamples(static_cast<int32>(Value));
+	if (ViewModel->SetSlabSamples(static_cast<int32>(Value)).IsOk())
+	{
+		NotifySliceChanged();
+	}
 }
 
 /* ========================================================================== */

@@ -4,6 +4,7 @@
 
 #include "Components/SceneComponent.h"
 #include "FlowVizRuntime.h"
+#include "Scene/FlowVizFlowComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
 
 ACFDVizCaseActor::ACFDVizCaseActor()
@@ -22,6 +23,11 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 
 	VolumeComponent = CreateDefaultSubobject<UCFDVizVolumeComponent>(TEXT("Volume"));
 	VolumeComponent->SetupAttachment(Root);
+
+	// Glyphs and streamlines live beside the volume (#86): same actor, same
+	// transform, so flow geometry and volume agree about where the case is.
+	FlowComponent = CreateDefaultSubobject<UCFDVizFlowComponent>(TEXT("Flow"));
+	FlowComponent->SetupAttachment(Root);
 }
 
 FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName InFieldId)

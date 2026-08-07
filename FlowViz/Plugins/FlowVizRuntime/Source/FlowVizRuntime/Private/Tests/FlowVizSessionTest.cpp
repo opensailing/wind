@@ -136,6 +136,30 @@ namespace FlowVizSessionTest
 		State.Annotations.Add(TEXT("Vortex shedding begins around t = 0.3 s"));
 		State.Annotations.Add(TEXT("Figure 4b"));
 
+		/*
+		 * EVERY RENDER SETTING NON-DEFAULT, through the view model's own
+		 * setters (the fields are private, which is the point: a session state
+		 * cannot hold a render settings value the setters would refuse).
+		 * Defaults here would round-trip a writer that dropped the whole block
+		 * -- degenerate-data-defeats-assertions.
+		 */
+		State.RenderSettings.SetCompositeMode(EFlowVizCompositeMode::IsoSurface);
+		State.RenderSettings.SetIsoValue(0.4375f);
+		State.RenderSettings.SetLightingEnabled(true);
+		State.RenderSettings.SetAmbientStrength(0.2f);
+		State.RenderSettings.SetDiffuseStrength(0.8f);
+		State.RenderSettings.SetLightDirection(FVector3f(1.0f, 0.0f, 0.0f));
+		State.RenderSettings.SetStepVoxels(0.375f);
+		State.RenderSettings.SetReferenceStepVoxels(0.75f);
+		State.RenderSettings.SetMaxSteps(640u);
+		State.RenderSettings.SetEarlyTerminationAlpha(0.875f);
+		State.RenderSettings.SetJitterEnabled(true);
+		State.RenderSettings.SetJitterAmount(0.5f);
+		State.RenderSettings.SetJitterSeed(42u);
+		State.RenderSettings.SetFieldFilteringEnabled(false);
+		State.RenderSettings.SetStrictStatusFilter(true);
+		State.RenderSettings.SetNoDataColor(FLinearColor(1.0f, 0.0f, 1.0f, 1.0f));
+
 		return State;
 	}
 }
@@ -189,6 +213,7 @@ bool FFlowVizSessionRoundTripTest::RunTest(const FString& Parameters)
 			TEXT("\"camera\""),
 			TEXT("\"panelVisibility\""),
 			TEXT("\"annotations\""),
+			TEXT("\"renderSettings\""),
 		};
 		for (const TCHAR* Key : RequiredKeys)
 		{
@@ -259,6 +284,39 @@ bool FFlowVizSessionRoundTripTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("the opacity multiplier survives"),
 			Loaded.Opacity.OpacityMultiplier, 0.6f);
+	}
+
+	/* == Render settings (#76) ============================================== */
+	{
+		// A saved workspace used to reopen in Alpha, unlit: the session format
+		// predated FFlowVizWorkspaceModel::RenderSettings, so a tuned MIP or
+		// iso-surface figure silently lost its mode on reload. Every field is
+		// non-default in the fixture, so a dropped key fails HERE rather than
+		// round-tripping its own omission.
+		const FFlowVizRenderSettingsViewModel& RS = Loaded.RenderSettings;
+		TestEqual(TEXT("the composite mode survives"),
+			RS.GetCompositeMode(), EFlowVizCompositeMode::IsoSurface);
+		TestEqual(TEXT("the iso value survives"), RS.GetIsoValue(), 0.4375f);
+		TestTrue(TEXT("lighting ON survives - the default is off, so this catches "
+					  "a dropped field a default-valued fixture would not"),
+			RS.IsLightingEnabled());
+		TestEqual(TEXT("the ambient term survives"), RS.GetAmbientStrength(), 0.2f);
+		TestEqual(TEXT("the diffuse term survives"), RS.GetDiffuseStrength(), 0.8f);
+		TestTrue(TEXT("the light direction survives"),
+			RS.GetLightDirection().Equals(FVector3f(1.0f, 0.0f, 0.0f), 1.0e-6f));
+		TestEqual(TEXT("the step size survives"), RS.GetStepVoxels(), 0.375f);
+		TestEqual(TEXT("the reference step survives"), RS.GetReferenceStepVoxels(), 0.75f);
+		TestEqual(TEXT("the step ceiling survives"), RS.GetMaxSteps(), 640u);
+		TestEqual(TEXT("the early-out alpha survives"),
+			RS.GetEarlyTerminationAlpha(), 0.875f);
+		TestTrue(TEXT("jitter ON survives"), RS.IsJitterEnabled());
+		TestEqual(TEXT("the jitter amount survives"), RS.GetJitterAmount(), 0.5f);
+		TestEqual(TEXT("the jitter seed survives"), RS.GetJitterSeed(), 42u);
+		TestFalse(TEXT("field filtering OFF survives - the default is on"),
+			RS.IsFieldFilteringEnabled());
+		TestTrue(TEXT("the strict status filter survives"), RS.IsStrictStatusFilter());
+		TestTrue(TEXT("the no-data colour survives"),
+			RS.GetNoDataColor().Equals(FLinearColor(1.0f, 0.0f, 1.0f, 1.0f)));
 	}
 
 	/* == Clip planes and crop =============================================== */
@@ -678,6 +736,40 @@ bool FFlowVizSessionPathsTest::RunTest(const FString& Parameters)
 				Loaded.FieldId, FName(TEXT("U")));
 		}
 
+		// AN OLDER SESSION WITHOUT renderSettings LOADS WITH DEFAULTS. Every
+		// v1.0 file on disk predates #76; refusing them, or half-reading them,
+		// would break every session saved before the key existed.
+		{
+			FString Old = Json;
+			TestTrue(TEXT("CONTROL: the current writer emits renderSettings"),
+				Old.Contains(TEXT("\"renderSettings\"")));
+			const int32 KeyAt = Old.Find(TEXT("\"renderSettings\""));
+			// Excise the whole object: from the key to the matching close brace.
+			int32 Depth = 0, End = KeyAt;
+			for (int32 i = KeyAt; i < Old.Len(); ++i)
+			{
+				if (Old[i] == TEXT('{')) { ++Depth; }
+				if (Old[i] == TEXT('}') && --Depth == 0) { End = i; break; }
+			}
+			// Also swallow the trailing comma-newline the writer puts after it.
+			int32 Tail = End + 1;
+			while (Tail < Old.Len() && (Old[Tail] == TEXT(',') || FChar::IsWhitespace(Old[Tail])))
+			{
+				++Tail;
+			}
+			Old = Old.Left(KeyAt) + Old.Mid(Tail);
+			TestFalse(TEXT("CONTROL: the excision removed the key"),
+				Old.Contains(TEXT("\"renderSettings\"")));
+
+			FFlowVizSessionState Loaded;
+			TestTrue(TEXT("a session saved before renderSettings existed still loads"),
+				FlowVizSession::LoadFromString(Old, FString(), Loaded).IsOk());
+			TestEqual(TEXT("and its render settings are the defaults, not garbage"),
+				Loaded.RenderSettings.GetCompositeMode(), EFlowVizCompositeMode::Alpha);
+			TestFalse(TEXT("unlit, as a fresh workspace is"),
+				Loaded.RenderSettings.IsLightingEnabled());
+		}
+
 		// A NEWER MAJOR IS REFUSED. A major bump means a key changed MEANING, so
 		// reading it anyway restores a plausible wrong scene - worse than not
 		// opening, because nothing looks broken.
@@ -778,7 +870,8 @@ bool FFlowVizSessionViewModelsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("a line sample count is accepted"), Probes.SetLineSampleCount(48).IsOk());
 
 		FFlowVizSessionState State;
-		FlowVizSession::CaptureFromViewModels(nullptr, nullptr, &Clip, &Slice, &Probes, State);
+		FlowVizSession::CaptureFromViewModels(
+			nullptr, nullptr, &Clip, &Slice, &Probes, nullptr, State);
 
 		TestEqual(TEXT("the live clip plane is captured"), State.ClipPlanes.Num(), 1);
 		if (State.ClipPlanes.Num() == 1)
@@ -805,7 +898,8 @@ bool FFlowVizSessionViewModelsTest::RunTest(const FString& Parameters)
 		// A workspace with no slice must not get a default slice materialising out
 		// of nowhere on the next reload.
 		FFlowVizSessionState State;
-		FlowVizSession::CaptureFromViewModels(nullptr, nullptr, nullptr, nullptr, nullptr, State);
+		FlowVizSession::CaptureFromViewModels(
+			nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, State);
 		TestFalse(TEXT("no slice view model means no slice was captured"), State.bHasSlice);
 		TestFalse(TEXT("no clip view model means no crop was captured"), State.bHasCropBox);
 		TestEqual(TEXT("and no clip planes"), State.ClipPlanes.Num(), 0);
@@ -902,7 +996,7 @@ bool FFlowVizSessionViewModelsTest::RunTest(const FString& Parameters)
 
 		FFlowVizSessionState Captured;
 		FlowVizSession::CaptureFromViewModels(
-			nullptr, nullptr, &Original, nullptr, nullptr, Captured);
+			nullptr, nullptr, &Original, nullptr, nullptr, nullptr, Captured);
 
 		FString Json;
 		TestTrue(TEXT("saving succeeds"),

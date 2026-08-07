@@ -7,7 +7,9 @@
 #include "CFDViz/CFDVizManifest.h"
 #include "RenderCommandFence.h"
 #include "Render/FlowVizVolumeTexture.h"
+#include "UI/FlowVizClipViewModel.h"
 #include "UI/FlowVizRenderSettingsViewModel.h"
+#include "UI/FlowVizTransferFunctionViewModel.h"
 
 #include "FlowVizVolumeComponent.generated.h"
 
@@ -216,6 +218,55 @@ struct FFlowVizVolumeRayMarchContext
 	 * asserts that first, as the control for every other assertion in it.
 	 */
 	FFlowVizRenderSettingsViewModel RenderSettings;
+
+	/**
+	 * Which planes and crop box cut this volume.
+	 *
+	 * THE SECOND CHANNEL THAT WAS NEVER WRITTEN, and a more complete example of
+	 * the same defect than RenderSettings was. FFlowVizClipViewModel validates
+	 * every plane before writing any, zeroes the unused tail so a disabled plane
+	 * cannot reappear when the count rises, and converts crop units in exactly
+	 * one place -- all of it covered by FlowViz.UI.ClipViewModel, all of it
+	 * passing, and none of it reachable: every caller of
+	 * ApplyToRayMarchParameters was a test. What shipped was FillDefaults'
+	 * `NumClipPlanes = 0`, so the shader's clip loop ran zero times on every
+	 * frame ever rendered, and SFlowVizClipPanel drew an advisory strip saying
+	 * the panel did nothing.
+	 *
+	 * DEFAULT-CONSTRUCTED IS AN IDENTITY over FillDefaults -- but for a
+	 * different reason than RenderSettings, and one worth stating because it
+	 * makes a careless test vacuous. A default clip model has NO DOMAIN, so
+	 * ApplyToRayMarchParameters returns an error and writes nothing at all. A
+	 * context that ignores this field and one that applies an unconfigured model
+	 * are therefore indistinguishable; any assertion about clipping must
+	 * configure a domain first. FlowViz.Render.ClipSeam pins that as its control.
+	 */
+	FFlowVizClipViewModel Clip;
+
+	/**
+	 * How this volume is coloured.
+	 *
+	 * THE THIRD CHANNEL, AND THE ONLY ONE WITH TWO ENDS. RenderSettings and Clip
+	 * each reach the shader through the constant buffer alone. A transfer
+	 * function reaches it through the cbuffer AND through the LUT texture, and
+	 * before this field existed both ends were cut: every caller of
+	 * ApplyToRayMarchParameters was a test, and the dispatcher built its LUT
+	 * from a hard-coded MakeDefault(ColorMaps::Default, ...).
+	 *
+	 * That pairing is what makes a partial fix dangerous here. Wiring only the
+	 * cbuffer would carry the user's RANGE while still rendering every field
+	 * through viridis -- and the range readout would agree with the picker, so
+	 * the image would look considered rather than wrong. FlowViz.Render.
+	 * TransferFunctionSeam asserts the two channels separately for that reason.
+	 *
+	 * DEFAULT-CONSTRUCTED IS AN IDENTITY over FillDefaults, by the same argument
+	 * as RenderSettings and by a different route than Clip: a default transfer
+	 * function VALIDATES (unlike a default clip model, which has no domain and
+	 * writes nothing), and the values it writes are the ones FillDefaults
+	 * already put there. So a context that ignores this field renders exactly as
+	 * before, which is what the identity control in that test pins.
+	 */
+	FFlowVizTransferFunctionViewModel TransferFunction;
 
 	/** Textures for display frame A. Never null when a dispatch is issued. */
 	const FFlowVizVolumeSlotTextures* SlotA = nullptr;
@@ -493,18 +544,20 @@ struct FFlowVizVolumeRayMarchContext
  * bearing: "no marcher wired" and "marcher ran and produced nothing" look
  * identical on screen and have nothing in common as fixes.
  *
- * NOTHING CAN ASK WHICH ONE HAPPENED. This comment used to say the proxy
- * "says so via FFlowVizVolumeSceneProxy::WasRayMarchDispatched". The accessor
- * exists and returns the right answer, but FFlowVizVolumeSceneProxy is a
- * private class declared inside FlowVizVolumeComponent.cpp, so no code outside
- * that one translation unit CAN call it - it is not unwired, it is unreachable.
- * Grep for the name returns its definition, this paragraph, and no caller.
+ * WHICH ONE HAPPENED IS NOW ASKABLE, via UCFDVizVolumeComponent::
+ * GetLastDispatchStatus() - game thread, no RHI, no scene.
  *
- * So the hazard named above is live and undiagnosable, and the sentence that
- * used to sit here made it read as solved. Wiring a dispatcher does not fix
- * this; the accessor stays dead until something deliberately exposes the flag
- * (an atomic on the component, marshalled back from the render thread).
- * DO NOT cite this accessor as evidence the two cases are distinguishable.
+ * IT WAS NOT, FOR A LONG TIME, AND THIS COMMENT SAID IT WAS. It used to point
+ * at FFlowVizVolumeSceneProxy::WasRayMarchDispatched, which computes the right
+ * answer inside a class declared in FlowVizVolumeComponent.cpp - so no code
+ * outside that one translation unit could call it. Not unwired: unreachable.
+ * Grepping the name returned its definition, that paragraph, and no caller.
+ * A comment naming the mechanism that handles a hazard is how the hazard keeps
+ * its cover, which is why the fix marshals the flag out rather than restating
+ * that it is available.
+ *
+ * The proxy still holds the render-thread copy; it reports it back to the
+ * component through ReportDispatchStatus_RenderThread each frame.
  */
 class IFlowVizVolumeRayMarchDispatcher
 {
@@ -547,12 +600,188 @@ struct FFlowVizVolumeProxyDynamicData
 	/** How to composite, light and step. The channel that was never written. */
 	FFlowVizRenderSettingsViewModel RenderSettings;
 
+	/** Which planes and crop box cut the volume. The second such channel. */
+	FFlowVizClipViewModel Clip;
+
+	/**
+	 * Which colours the field is drawn in, and over what range. The third such
+	 * channel, and the one whose absence was hardest to see: the panel that
+	 * edits it PAINTS from the same view model, so every control visibly
+	 * responded while the volume rendered through viridis over [0,1].
+	 */
+	FFlowVizTransferFunctionViewModel TransferFunction;
+
 	/** True when Parameters was actually built. False means the field's layout is not known yet - typically before the first upload. */
 	bool bHasParameters = false;
 };
 
+/**
+ * Why this volume did or did not ray-march.
+ *
+ * FIVE ANSWERS BECAUSE THERE ARE FIVE FIXES. Every one of the four blockers
+ * produces the identical picture - the proxy's opaque hull, a box - and a
+ * headless capture of that box is not distinguishable by eye from a correctly
+ * marched volume that happens to be dense. Reporting only "did not march" would
+ * be true and useless: install a dispatcher, wait for a layout, construct a
+ * texture set and wait for an upload to land have nothing in common.
+ *
+ * Ordered so the first thing missing is the one named. A volume with no
+ * dispatcher AND no textures is reported as NoDispatcher, because installing the
+ * marcher is what has to happen first.
+ */
+enum class EFlowVizDispatchReason : uint8
+{
+	/** No frame has reached the render thread yet. The FAIL-CLOSED default: never assume a march nobody has performed. */
+	NeverRendered = 0,
+
+	/** The march ran. The only value for which ShouldDispatch() is true. */
+	Dispatched,
+
+	/** FlowVizVolumeRayMarch::GetDispatcher() is null - nothing is ray-marching any volume, anywhere. */
+	NoDispatcher,
+
+	/** TryMakeShaderParameters has not succeeded: no case bound, or no frame uploaded, so the field's layout is unknown. */
+	NoParameters,
+
+	/** The component has no texture set. A construction fault, not a wait. */
+	NoTextureSet,
+
+	/** The display frame's upload has not landed on the render thread. Transient; resolves on its own. */
+	FrameNotResident,
+};
+
+/**
+ * The classifier's answer, kept as a struct so it can grow a frame index or a
+ * timestamp without changing every call site.
+ */
+struct FFlowVizDispatchStatus
+{
+	EFlowVizDispatchReason Reason = EFlowVizDispatchReason::NeverRendered;
+
+	/** True only for Dispatched. Written once, here, so no call site re-derives it. */
+	bool ShouldDispatch() const
+	{
+		return Reason == EFlowVizDispatchReason::Dispatched;
+	}
+};
+
+/**
+ * Where the render thread leaves its answer for the game thread to find.
+ *
+ * A SHARED OBJECT RATHER THAN A POINTER BACK TO THE COMPONENT, and that is a
+ * lifetime requirement, not a style choice. This file's marshalling comment
+ * forbids a pointer into the component appearing in anything the proxy holds: a
+ * scene proxy outlives some component operations and is destroyed on the render
+ * thread, so a raw UObject pointer is a use-after-free waiting for a collection
+ * at the wrong moment, and a TWeakObjectPtr cannot be safely resolved off the
+ * game thread either.
+ *
+ * Both sides hold a reference, so whichever is destroyed second releases it. A
+ * proxy writing into a channel whose component is already gone writes to memory
+ * it still owns, which is the whole point.
+ */
+struct FFlowVizDispatchStatusChannel
+{
+	/**
+	 * Written by the render thread, read by the game thread.
+	 *
+	 * ATOMIC BECAUSE THE TWO GENUINELY RACE. A plain enum here is a data race
+	 * whose symptom is a diagnostic that intermittently reads stale - the least
+	 * detectable kind of wrong answer, because a diagnostic that is occasionally
+	 * wrong reads as the renderer being flaky rather than as a broken
+	 * diagnostic. One byte, nothing published alongside it.
+	 */
+	TAtomic<EFlowVizDispatchReason> Reason{ EFlowVizDispatchReason::NeverRendered };
+};
+
 namespace FlowVizVolumeRayMarch
 {
+	/**
+	 * Should this volume march, and if not, why not?
+	 *
+	 * ONE FUNCTION BECAUSE THERE USED TO BE TWO, AND THEY COULD DISAGREE. The
+	 * proxy gated the march with
+	 *
+	 *     if (Dispatcher != nullptr)
+	 *       if (bHasParameters && TextureSet != nullptr)
+	 *         if (SlotATextures != nullptr) ... march
+	 *
+	 * and then a SEPARATE expression decided what to log about it:
+	 *
+	 *     if (Dispatcher == nullptr || !bHasParameters
+	 *         || TextureSet == nullptr || SlotATextures == nullptr) ... warn
+	 *
+	 * Two hand-written De Morgan duals of one rule, with nothing forcing them to
+	 * stay dual. Edit either and the log describes a frame that did not happen -
+	 * strictly worse than no log, because it is evidence pointing away from the
+	 * defect, and this log is the only artifact a headless capture leaves.
+	 *
+	 * Now the answer that GATES the march is the answer that gets REPORTED,
+	 * because they are the same value.
+	 *
+	 * Pure, and takes no RHI, no view and no collector, so the gate is reachable
+	 * from a test that does not need a live scene. That matters more than it
+	 * sounds: the previous rule lived in GetDynamicMeshElements, where any test
+	 * driving it self-skips under the default -nullrhi suite and covers nothing
+	 * while reporting Success (repo memory green-totals-can-hide-skips).
+	 *
+	 * NOTHING HERE IS DEREFERENCED. All three pointers are tested against null
+	 * only, so a caller may pass a slot whose textures are not yet created.
+	 */
+	FLOWVIZRUNTIME_API FFlowVizDispatchStatus ClassifyDispatch(
+		const IFlowVizVolumeRayMarchDispatcher* Dispatcher,
+		const FFlowVizVolumeProxyDynamicData& DynamicData,
+		const FFlowVizVolumeTextureSet* TextureSet,
+		const FFlowVizVolumeSlotTextures* SlotATextures);
+
+	/**
+	 * Classify, publish the answer, and hand it back. THE ONLY WAY THE PROXY
+	 * SHOULD DECIDE, because it is the only way that cannot forget to report.
+	 *
+	 * WHY THIS EXISTS AND ClassifyDispatch ALONE IS NOT ENOUGH. The proxy used
+	 * to call ClassifyDispatch and then, as a separate statement, store the
+	 * reason into the channel. Two mutations of that store survived the entire
+	 * suite:
+	 *
+	 *   - deleting it, so the render thread computed the right answer and kept
+	 *     it to itself;
+	 *   - wrapping it in `if (Status.ShouldDispatch())`, so only successes were
+	 *     published and a volume that marched once and then stopped went on
+	 *     reading healthy forever.
+	 *
+	 * The second is the stale-success direction, and it is the one that turns a
+	 * regression into a green. Neither was caught because every test drove
+	 * ReportDispatchStatus_RenderThread directly, SUPPLYING the status the proxy
+	 * was supposed to produce -- structurally the same blind spot as
+	 * FlowViz.Render.Wiring, where every test installed its own dispatcher and
+	 * so none could see that production installed none.
+	 *
+	 * Folding the publish into the classification makes "gate on it but do not
+	 * report it" unrepresentable rather than merely tested against: there is no
+	 * separate statement left to delete or to wrap in a condition. A mutant that
+	 * removes the publish now removes the classification with it, and the volume
+	 * stops marching entirely -- loud, rather than a silent diagnostic.
+	 *
+	 * TAKES THE CHANNEL, NOT THE COMPONENT. A game-thread UObject pointer must
+	 * not live on the render thread; see FFlowVizDispatchStatusChannel. This is
+	 * also what lets a test call the real production path with no live scene,
+	 * no RHI and no collector -- a test that drove GetDynamicMeshElements would
+	 * self-skip under the default -nullrhi suite and cover nothing while
+	 * reporting Success (repo memory green-totals-can-hide-skips).
+	 *
+	 * Dereferences none of the three pointers; they are compared to null only,
+	 * exactly as in ClassifyDispatch.
+	 */
+	FLOWVIZRUNTIME_API FFlowVizDispatchStatus ClassifyDispatchAndPublish(
+		const TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe>& Channel,
+		const IFlowVizVolumeRayMarchDispatcher* Dispatcher,
+		const FFlowVizVolumeProxyDynamicData& DynamicData,
+		const FFlowVizVolumeTextureSet* TextureSet,
+		const FFlowVizVolumeSlotTextures* SlotATextures);
+
+	/** A human-readable reason for the log and the diagnostics overlay. Distinct per reason - two that read alike are two nobody can tell apart afterwards. */
+	FLOWVIZRUNTIME_API FString DescribeDispatchReason(EFlowVizDispatchReason Reason);
+
 	/**
 	 * Did a requested blend lose its second half?
 	 *
@@ -746,6 +975,19 @@ public:
 	}
 
 	/**
+	 * Read-only overload, for callers that only inspect.
+	 *
+	 * The diagnostics collector reads the uploaded layout to report the volume's
+	 * resolution; without this, reporting a number would require a mutable
+	 * component, and a const-correctness workaround is how a read-only observer
+	 * acquires the ability to change what it observes.
+	 */
+	const FFlowVizVolumeTextureSet& GetTextureSet() const
+	{
+		return *TextureSet;
+	}
+
+	/**
 	 * Decode one frame and hand it to the render thread.
 	 *
 	 * Synchronous and therefore NOT for the game thread in production - it does
@@ -760,6 +1002,54 @@ public:
 	FCFDVizResult UploadFrame(int32 FrameIndex);
 
 	/* --- Diagnostics -------------------------------------------------------- */
+
+	/**
+	 * Did this volume actually ray-march, and if not, why not?
+	 *
+	 * THE ANSWER THAT USED TO BE CORRECT AND UNREACHABLE. The proxy has always
+	 * known; FFlowVizVolumeSceneProxy is private to FlowVizVolumeComponent.cpp,
+	 * so nothing could ask it. See IFlowVizVolumeRayMarchDispatcher's comment for
+	 * why that mattered: "no marcher wired" and "the marcher ran and drew
+	 * nothing" are the same black screen and have nothing in common as fixes,
+	 * and VISUAL_QA section 3 rule 6 forbids calling an unrendered feature
+	 * working on exactly that basis.
+	 *
+	 * REPORTS NeverRendered UNTIL A FRAME SAYS OTHERWISE, and that direction is
+	 * the load-bearing one. Defaulting to "dispatched, we will correct it after
+	 * the first frame" would make a headless capture that never rendered report
+	 * a healthy march - a false green produced by the very facility meant to
+	 * prevent one.
+	 *
+	 * LAGS BY UP TO A FRAME. The render thread writes it while the game thread
+	 * reads, so the value is the last frame the renderer finished, not the one
+	 * in flight. Fine for a diagnostic; do not build a gate out of it.
+	 */
+	FFlowVizDispatchStatus GetLastDispatchStatus() const;
+
+	/** Shorthand for GetLastDispatchStatus().ShouldDispatch(). Prefer the full status when reporting a failure - the reason is the actionable part. */
+	bool WasRayMarchDispatched() const
+	{
+		return GetLastDispatchStatus().ShouldDispatch();
+	}
+
+	/**
+	 * Render thread. Publish what this frame decided.
+	 *
+	 * NOT A LATCH. A frame that did not march overwrites one that did, because a
+	 * set-only flag would report a stale success forever after one good frame -
+	 * which turns a regression into a green, the one direction that must not be
+	 * possible here.
+	 */
+	void ReportDispatchStatus_RenderThread(FFlowVizDispatchStatus Status);
+
+	/**
+	 * The channel the proxy writes into. Shared, so the proxy never holds a
+	 * pointer back into this UObject - see FFlowVizDispatchStatusChannel.
+	 */
+	TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe> GetDispatchStatusChannel() const
+	{
+		return DispatchStatusChannel;
+	}
 
 	/** Draw the volume's bounding box as a wireframe. On by default while no ray-marcher is registered, since otherwise nothing at all appears. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FlowViz|Debug")
@@ -797,8 +1087,10 @@ public:
 	 * Build the shader parameter block for the bound field's layout.
 	 *
 	 * @return false when no case is bound or no frame has been uploaded yet -
-	 *         UploadedScalarLayout is what UploadFrame fills, and without it
-	 *         there is no layout to describe.
+	 *         the layout comes from the texture set, which records it as each
+	 *         upload is accepted, and without one there is no shape to describe.
+	 *         EITHER uploader satisfies this: this component's own UploadFrame,
+	 *         or a case player enqueuing decoded frames into the same set.
 	 *
 	 * PUBLIC BECAUSE THE VALUES IN IT ARE ONLY CHECKABLE HERE. This block is
 	 * handed to the render thread and copied into a cbuffer; by the time it can
@@ -831,6 +1123,64 @@ public:
 	 * the hull and re-seed the textures to change a composite mode.
 	 */
 	void SetRenderSettings(const FFlowVizRenderSettingsViewModel& InSettings);
+
+	/* --- Clipping ----------------------------------------------------------- */
+
+	/**
+	 * Which planes and crop box cut this volume.
+	 *
+	 * Game-thread state, like RenderSettings, reaching the render thread only
+	 * through MakeProxyDynamicData by value. Returned by const reference so a
+	 * caller reads without copying; edits go through SetClip so the proxy is
+	 * told.
+	 */
+	const FFlowVizClipViewModel& GetClip() const
+	{
+		return Clip;
+	}
+
+	/**
+	 * Replace the clip state and push it to the render thread.
+	 *
+	 * MarkRenderDynamicDataDirty, not MarkRenderStateDirty: clipping is done in
+	 * the shader against the full volume, so it changes no geometry and no
+	 * bounds. Recreating the proxy would rebuild the hull and re-seed the
+	 * textures in order to move a plane.
+	 *
+	 * NO VALIDATION HERE. The view model rejects a degenerate plane at AddPlane
+	 * and SetPlane, and re-validates the whole set when it applies; a second
+	 * check here would be a different opinion about the same question, and the
+	 * one place they disagreed would be the bug.
+	 */
+	void SetClip(const FFlowVizClipViewModel& InClip);
+
+	/* --- Transfer function --------------------------------------------------- */
+
+	/** Which colours this volume is drawn in. See SetTransferFunction. */
+	const FFlowVizTransferFunctionViewModel& GetTransferFunction() const
+	{
+		return TransferFunction;
+	}
+
+	/**
+	 * Replace the transfer function and push it to the render thread.
+	 *
+	 * MarkRenderDynamicDataDirty, for the same reason as SetClip and
+	 * SetRenderSettings: colour is decided per-sample in the shader, so nothing
+	 * about the hull, the bounds or the uploaded textures depends on it.
+	 * Recreating the proxy to change a colormap would re-seed every texture.
+	 *
+	 * THE COLORMAP CHANGE IS NOT FREE ON THE RENDER SIDE, unlike the other two
+	 * channels: the dispatcher rebuilds its LUT texture when the resident map
+	 * differs from the requested one. That happens once per change, in DrainView,
+	 * rather than per frame -- see FDispatcher::DrainView.
+	 *
+	 * NO VALIDATION HERE. The view model refuses an inverted range at
+	 * SetManualRange and an unshipped colormap at SetColorMap; a second opinion
+	 * here would be a different one, and the case where they disagreed would be
+	 * the bug.
+	 */
+	void SetTransferFunction(const FFlowVizTransferFunctionViewModel& InTransferFunction);
 
 	/**
 	 * Build the frame's marshalled payload for the proxy.
@@ -878,8 +1228,14 @@ private:
 
 	TSharedPtr<IFlowVizVolumeFrameSource> FrameSource;
 
-	/** Layout of the most recently uploaded scalar field, needed for the shader parameter block. Invalid before the first upload. */
-	FFlowVizVolumeLayout UploadedScalarLayout;
+	/*
+	 * NO CACHED UPLOAD LAYOUT HERE, DELIBERATELY. It lives on the texture set
+	 * (FFlowVizVolumeTextureSet::GetUploadedFieldLayout) because two independent
+	 * callers upload into that set -- this component's UploadFrame and
+	 * FFlowVizCasePlayer's decode drain -- and a copy kept here would only ever
+	 * know about the first. That is precisely the bug it caused: under playback
+	 * the voxels arrived and TryMakeShaderParameters still said no.
+	 */
 
 	/**
 	 * How this volume composites, lights and steps. Game thread; marshalled by
@@ -891,6 +1247,41 @@ private:
 	 * meaningful rather than vacuous.
 	 */
 	FFlowVizRenderSettingsViewModel RenderSettings;
+
+	/**
+	 * Which planes and crop box cut this volume. Game thread; marshalled by
+	 * value in MakeProxyDynamicData.
+	 *
+	 * Default-constructed has NO DOMAIN, so applying it writes nothing and the
+	 * volume renders unclipped -- an identity over FillDefaults, reached by a
+	 * different route than RenderSettings' (which is an identity because its
+	 * defaults match). Worth the distinction: it means a test that forgets to
+	 * set a domain cannot tell a wired seam from a missing one.
+	 */
+	FFlowVizClipViewModel Clip;
+
+	/**
+	 * Which colours this volume is drawn in. Game thread; marshalled by value in
+	 * MakeProxyDynamicData.
+	 *
+	 * Default-constructed is viridis over [0,1] with an opacity multiplier of 1,
+	 * which is exactly what the dispatcher hard-coded before this field existed
+	 * -- so a component nobody configures renders as it always did. That is an
+	 * identity by MATCHING DEFAULTS, like RenderSettings, and unlike Clip (whose
+	 * identity comes from having no domain and therefore applying nothing).
+	 *
+	 * Worth stating because it decides what a test must do to be able to fail:
+	 * asserting with a default transfer function cannot distinguish a wired seam
+	 * from a missing one. FlowViz.Render.TransferFunctionSeam picks Inferno over
+	 * [-3.25, 11.75] for that reason, and none of those numbers is a default.
+	 */
+	FFlowVizTransferFunctionViewModel TransferFunction;
+
+	/**
+	 * Where the proxy leaves what the last frame decided. Never null; shared
+	 * with the proxy so neither side has to outlive the other. See the type.
+	 */
+	TSharedRef<FFlowVizDispatchStatusChannel, ESPMode::ThreadSafe> DispatchStatusChannel;
 
 	/** Set once ReleaseResources has been enqueued, so IsReadyForFinishDestroy can wait for the render thread exactly once. */
 	bool bResourcesReleased = false;

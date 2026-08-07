@@ -1,0 +1,76 @@
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+	OnClipChanged = InArgs._OnClipChanged;
+--
+	// MUTANT: identity control, no behaviour change
+	OnClipChanged = InArgs._OnClipChanged;
+%%
+the event argument is never read -- the subscription in the caller compiles and does nothing
+--
+	OnClipChanged = InArgs._OnClipChanged;
+--
+	// MUTANT: SLATE_EVENT argument dropped
+%%
+the preset handler announces nothing -- the model changes, the renderer never hears
+--
+		if (bAdded)
+		{
+			NotifyClipChanged();
+		}
+--
+		// MUTANT: preset edit not announced
+%%
+a REFUSED preset is announced anyway -- a push for a frame that cannot have changed
+--
+		const bool bAdded = ViewModel->AddPresetPlane(Preset).IsOk();
+--
+		const bool bAdded = (ViewModel->AddPresetPlane(Preset), true);
+%%
+enable-toggle announces nothing -- a hidden plane keeps clipping the render
+--
+		if (ViewModel->SetPlaneEnabled(Index, !IsPlaneEnabled(Index)).IsOk())
+		{
+			// ANNOUNCED, even though the plane count is unchanged. The shader is
+			// given the ENABLED planes, so hiding one changes the image - a push
+			// gated on the count would leave a hidden plane still clipping.
+			NotifyClipChanged();
+		}
+--
+		ViewModel->SetPlaneEnabled(Index, !IsPlaneEnabled(Index));
+%%
+invert announces nothing -- the plane flips in the panel and not in the image
+--
+		if (ViewModel->InvertPlane(Index).IsOk())
+		{
+			NotifyClipChanged();
+		}
+--
+		ViewModel->InvertPlane(Index);
+%%
+remove announces nothing -- a deleted plane keeps clipping forever
+--
+		if (bRemoved)
+		{
+			NotifyClipChanged();
+		}
+--
+		// MUTANT: removal not announced
+%%
+the advisory latches -- once retired it never returns, so an unbound panel claims it is live
+--
+void SFlowVizClipPanel::SetVolumeBound(bool bInVolumeBound)
+{
+	bVolumeBound = bInVolumeBound;
+}
+--
+void SFlowVizClipPanel::SetVolumeBound(bool bInVolumeBound)
+{
+	bVolumeBound = bVolumeBound || bInVolumeBound;
+}
+%%
+the advisory is never shown -- an inert control discloses nothing
+--
+	return IsNotWiredAdvisoryVisible() ? EVisibility::Visible : EVisibility::Collapsed;
+--
+	return EVisibility::Collapsed;
+%%

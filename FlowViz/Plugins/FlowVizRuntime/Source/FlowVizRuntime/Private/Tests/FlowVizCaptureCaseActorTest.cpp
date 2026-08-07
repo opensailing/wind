@@ -479,13 +479,92 @@ bool FFlowVizCaptureRenderSettingsTest::RunTest(const FString& Parameters)
 	// also cleared".
 	{
 		AddExpectedError(TEXT("is not a composite mode"),
-			EAutomationExpectedErrorFlags::Contains, 1);
+			EAutomationExpectedErrorFlags::Contains, 2);
 
 		TestFalse(TEXT("a value outside the enum is refused"),
 			UFlowVizCaptureLibrary::SetVolumeCompositeMode(Actor, 99, /*IsoValue*/ 2.5f));
 		TestEqual(TEXT("and the previous mode is kept rather than cleared"),
 			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
 			static_cast<int32>(EFlowVizCompositeMode::Maximum));
+
+		/*
+		 * NEGATIVE, WHICH NOTHING HERE USED TO PASS.
+		 *
+		 * Found by mutation: deleting the `CompositeMode < 0` half of the guard
+		 * SURVIVED this suite, because every rejection case above was positive.
+		 * A survivor cannot distinguish "the guard is redundant" from "the guard
+		 * is untested", and those want opposite responses.
+		 *
+		 * MEASURED, and the guard IS redundant for correctness: static_cast to
+		 * uint32 sends -1 to 4294967295, -2 to 4294967294 and INT32_MIN to
+		 * 2147483648, and SetCompositeModeByValue's exhaustive switch refuses
+		 * every one -- no negative int32 can alias a mode. The mutant is
+		 * equivalent, and this assertion is therefore expected to stay green
+		 * whether the guard is there or not.
+		 *
+		 * BOTH ARE KEPT ANYWAY, for different reasons. The guard stays because
+		 * its redundancy depends entirely on the switch being exhaustive: the
+		 * moment someone adds a range check "for simplicity", -1 becomes a huge
+		 * value under whatever `<=` bound they wrote, and the guard is what
+		 * still refuses it. The assertion stays because it pins the BEHAVIOUR
+		 * (negatives are refused, the mode is kept) rather than the guard, so it
+		 * goes red on that day regardless of which of the two is edited.
+		 */
+		TestFalse(TEXT("a negative value is refused too -- it casts to a huge uint32, not to a mode"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(Actor, -1, /*IsoValue*/ 2.5f));
+		TestEqual(TEXT("and it also keeps the previous mode"),
+			static_cast<int32>(Volume->GetRenderSettings().GetCompositeMode()),
+			static_cast<int32>(EFlowVizCompositeMode::Maximum));
+	}
+
+	/* == A non-finite ISO VALUE is refused, and refused by this caller ======== */
+	//
+	// FOUND BY MUTATION, and it was hidden twice over. The arm that discards
+	// SetIsoValue's return -- applying the value but ignoring the refusal --
+	// first scored INVALID (it was written as unreachable code, which does not
+	// compile here), and an INVALID reads in a summary exactly like an arm
+	// nobody wrote. Rewritten so it compiles, it then SURVIVED: nothing in this
+	// suite asserted that this function propagates the refusal.
+	//
+	// WHY THE PRIMITIVE'S OWN TEST IS NOT ENOUGH. FlowViz.UI.RenderSettings
+	// already proves SetIsoValue refuses NaN. That is the same two-verified-
+	// halves-with-an-unverified-join shape that left the render settings
+	// unwired: the setter refuses, and separately this function is supposed to
+	// act on that refusal, and nothing checked the second part.
+	//
+	// WHAT A DROPPED REFUSAL LOOKS LIKE: an infinite or NaN threshold is never
+	// crossed, so the iso-surface renders EMPTY -- which is indistinguishable
+	// on screen from a correctly configured surface whose data is out of range.
+	// The user is sent to check their case file for a defect in their input
+	// handling.
+	{
+		AddExpectedError(TEXT("iso value"), EAutomationExpectedErrorFlags::Contains, 2);
+
+		// Establish a known-good state first, so a refusal that also CLEARS is
+		// distinguishable from one that leaves things alone.
+		TestTrue(TEXT("a finite iso value with a valid mode is accepted"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+				Actor, static_cast<int32>(EFlowVizCompositeMode::IsoSurface), /*IsoValue*/ 2.5f));
+		TestEqual(TEXT("and it reaches the volume"),
+			Volume->GetRenderSettings().GetIsoValue(), 2.5f);
+
+		// THE ARM THE MUTANT SURVIVED. NaN via sqrt(-1) rather than a literal,
+		// matching how FlowViz.UI.RenderSettings builds one.
+		TestFalse(TEXT("a NaN iso value is refused by the capture entry point, not just by the setter"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+				Actor, static_cast<int32>(EFlowVizCompositeMode::IsoSurface), FMath::Sqrt(-1.0f)));
+		TestEqual(TEXT("and the previous iso value survives the refusal"),
+			Volume->GetRenderSettings().GetIsoValue(), 2.5f);
+
+		// Infinity too: SetIsoValue tests IsFinite rather than !IsNaN, and an
+		// infinite threshold is never crossed either. Without this case, a guard
+		// weakened to a NaN-only check passes everything above.
+		TestFalse(TEXT("an infinite iso value is refused as well -- finite, not merely non-NaN"),
+			UFlowVizCaptureLibrary::SetVolumeCompositeMode(
+				Actor, static_cast<int32>(EFlowVizCompositeMode::IsoSurface),
+				TNumericLimits<float>::Max() * 2.0f));
+		TestEqual(TEXT("and that refusal keeps the previous value too"),
+			Volume->GetRenderSettings().GetIsoValue(), 2.5f);
 	}
 
 	/* == A null actor is refused, not dereferenced =========================== */

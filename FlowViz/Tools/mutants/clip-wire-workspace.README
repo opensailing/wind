@@ -1,0 +1,102 @@
+Campaign clip-wire-workspace, run 2026-08-06 against a150df8 in an isolated
+worktree, over Private/UI/SFlowVizWorkspace.cpp with filter FlowViz.UI. BEFORE
+and AFTER the gap below was closed (after = re-run 06:24-06:31Z against d1010c7,
+same worktree, same filter):
+
+    before    after     arm
+    --------  --------  ----------------------------------------------
+    SURVIVED  SURVIVED  IDENTITY CONTROL                      (correct)
+    killed    killed    the workspace never subscribes
+    SURVIVED  killed    binding a volume does not push        <-- THE GAP
+    killed    killed    the panel is never told about the binding
+    killed    killed    the advisory tracks validity rather than binding
+    killed    killed    an unbound push reports success
+
+    before:  killed 4  SURVIVED 2  INVALID 0  UNSCORED 0  skipped 0
+    after:   killed 5  SURVIVED 1  INVALID 0  UNSCORED 0  skipped 0
+
+Baseline was green before scoring in both runs and the identity control survived
+both, so these verdicts are readable rather than noise. The lone remaining
+survivor is that control, which is the required result.
+
+WHICH TEST KILLED THE GAP ARM, since a KILLED only says the suite went red:
+FlowViz.UI.Workspace.BindPushesExistingState, failing its own assertion
+('binding a volume pushes the state the model ALREADY held, so a session's
+planes render immediately rather than waiting for an edit'). No other test in
+the suite failed on that arm, so the attribution is exact rather than inferred
+from arm order. All 40 enumerated tests completed in all six arms.
+Repo memory attribute-kills-to-a-test-not-a-suite.
+
+NOT ONE LINE OF SFlowVizWorkspace.cpp CHANGED to flip it -- the close is a test.
+Had it required editing the code under test, the arm would have been reporting a
+real defect rather than a gap, and that is a different commit.
+
+ONE REAL SURVIVOR, AND IT WAS NOT A DEFECT IN SetVolume. The production code
+calls PushToVolume() at the end of the bind, exactly as it should. A SURVIVED
+arm says THE SUITE CANNOT TELL -- never that the code is wrong. Read the source
+before filing any survivor as work; clip-wire-push.README records what happens
+when that step is skipped.
+
+THE GAP -- BINDING A VOLUME DOES NOT PUSH.
+
+The arm deletes the PushToVolume() call at the end of SetVolume and leaves the
+assignment and the panel disclosure intact. It survives a green suite.
+
+WHY THE EXISTING TEST CANNOT CATCH IT, which is the whole lesson here.
+FlowViz.UI.Workspace.VolumeBinding binds a volume whose clip model is still
+EMPTY -- it even asserts plane count 0 immediately after SetVolume, as a control
+-- and only then presses a preset button. So the bind-time push has nothing to
+carry, and the later edit-driven push covers for a bind-time push that never
+happened. The ORDERING hides the branch. Nothing is weak about the assertions;
+they are simply downstream of the only moment that could have failed.
+
+That control assertion is worth looking at twice. `plane count is 0 right after
+SetVolume` is a correct and useful control for the test it belongs to, and it is
+also the exact statement a missing bind-time push would produce. The same line
+reads as rigour and as the defect, depending on what the model held going in.
+
+WHAT DELETING THE CALL COSTS: a workspace with planes already authored -- a
+loaded session, or a case opened before the actor existed -- renders unclipped
+until the user touches something. A control that has to be wiggled to take. Same
+shape as #26, #40/#41, #42 and #50: the unit is correct, the channel exists, and
+nothing drives it at the moment that matters.
+
+CLOSED BY FlowViz.UI.Workspace.BindPushesExistingState, which authors the clip
+state BEFORE binding and asserts the volume is already clipped with no further
+edit. It asserts the authored DISTANCE and NORMAL, not just the plane count: a
+push that fabricated a default plane would satisfy a count assertion. Repo
+memory degenerate-data-defeats-assertions.
+
+Tracked as task #60.
+
+THE OTHER SURVIVOR IS THE IDENTITY CONTROL, which is the correct result and not
+a gap. Of six arms, one is the control and one was the finding above; the other
+four were killed on the first run, and the finding on the second. (The no-extent
+survivor belongs to clip-wire-push, decided as an equivalent mutant in #58 -- a
+different campaign over a different file.)
+
+A NOTE FOR THE NEXT RE-RUN. SFlowVizWorkspace.cpp has changed since d1010c7:
+#48 rewrote PushToVolume to push the transfer function alongside the clip. All
+six anchors here were re-checked against that HEAD -- parsed through
+parse_mutants.py and counted against the file, rather than eyeballing their
+first lines -- and each still matches exactly once, so every arm still applies.
+
+apply_mutant already refuses both failure modes (exit 3 absent, exit 4
+ambiguous), so a drifted anchor SKIPs rather than mutating the wrong site. The
+hazard is not a bad mutation; it is that SKIP is neither SURVIVED nor killed.
+mutate.sh prints the skip per-arm and carries `skipped N` in its summary, but
+its EXIT CODE reads only SURVIVED and UNSCORED -- so a campaign whose every arm
+drifted would print `killed 0 ... skipped 6` and exit 0, the same code as a
+clean sweep. An arm that stops applying stops testing anything, and the
+killed-count does not fall when it happens: it just has fewer terms.
+
+So read the skip count, not the exit status. That is why the verdict tables
+above carry their skipped column explicitly (0 in both runs, all six arms
+applied).
+
+Arm 1 is the identity control and must SURVIVE. If it ever does not, the harness
+is scoring noise and every line above is void.
+
+The rationale lives here rather than at the top of the .txt because
+parse_mutants.py splits on `%%` and raises ValueError on any record that is not
+exactly three `--`-separated fields. A prose header would abort the campaign.

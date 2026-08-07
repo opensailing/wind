@@ -1,0 +1,33 @@
+the component defaults to Dispatched before any frame has rendered
+--
+	TAtomic<EFlowVizDispatchReason> Reason{ EFlowVizDispatchReason::NeverRendered };
+--
+	// MUTANT: fail-OPEN default. A headless capture that never rendered reports
+	// a healthy march -- the false green VISUAL_QA rule 6 forbids, produced by
+	// the very facility meant to prevent one.
+	TAtomic<EFlowVizDispatchReason> Reason{ EFlowVizDispatchReason::Dispatched };
+%%
+ShouldDispatch true for anything that is not an outright missing marcher
+--
+	bool ShouldDispatch() const
+	{
+		return Reason == EFlowVizDispatchReason::Dispatched;
+	}
+--
+	bool ShouldDispatch() const
+	{
+		// MUTANT: NeverRendered, NoParameters and FrameNotResident now all count
+		// as a march -- and this is the value the PROXY GATES ON, so this arm
+		// dispatches with a null slot A as well as lying about it.
+		return Reason != EFlowVizDispatchReason::NoDispatcher;
+	}
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or every kill above is a standing red.
+--
+struct FFlowVizDispatchStatus
+{
+--
+// MUTANT: identity control, no behaviour change
+struct FFlowVizDispatchStatus
+{
+%%

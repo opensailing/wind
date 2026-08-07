@@ -42,6 +42,28 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
+# Refuse to build in a checkout with a live mutation campaign, unless we ARE
+# that campaign. Checked before the lock is taken: a refusal should not first
+# queue behind someone else's hour-long build.
+#
+# The checkout is resolved from THIS SCRIPT's location, not the caller's cwd --
+# `git rev-parse` without -C answers about wherever the shell is standing, and
+# a guard that consulted one checkout's marker while the build compiled
+# another's files would protect nothing. See Tools/mutation_window.sh.
+_LOCK_TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "${_LOCK_TOOLS}/mutation_window.sh"
+if _MARKER="$(marker_path_for "${_LOCK_TOOLS}")"; then
+    if [[ "$(check_mutation_window "${_MARKER}" "${FLOWVIZ_MUTATION_TOKEN:-}")" == "blocked" ]]; then
+        refuse_mutation_window "${_MARKER}" "this build"
+        # 76 = EX_PROTOCOL, and deliberately NOT the 75 (EX_TEMPFAIL) this
+        # script returns for a lock timeout. mutate.sh RETRIES on 75; an open
+        # window is permanent until the campaign ends, so reusing 75 would turn
+        # a refusal into a retry loop that eventually reports something else.
+        exit 76
+    fi
+fi
+
 acquired=0
 
 release_lock() {

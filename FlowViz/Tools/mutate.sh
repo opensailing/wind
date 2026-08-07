@@ -112,16 +112,150 @@
 #
 set -uo pipefail
 
+# RUN FROM A PRIVATE COPY. Bash does not read a script into memory: it reads
+# lazily from an open fd, tracking a byte offset (`lsof` on a live campaign
+# shows fd 255r on this file). Editing this file while a campaign runs shifts
+# every offset past the insertion point, so the running shell resumes parsing
+# mid-token and executes whatever text now sits at its saved offset.
+#
+# For most scripts that is a crash. Here it is worse and specifically so: this
+# script copies over production source and applies deliberate defects. A
+# corrupted resume can leave a mutant live in a shared checkout, apply one arm
+# under another arm's name, or skip the restore entirely -- and each of those
+# prints something that reads like a verdict. A campaign is a twenty-minute-per-
+# arm process; "do not edit the file for the next four hours" is not a control,
+# it is a hope. Tools/tests/test_mutate_selfcopy.sh reproduces the corruption on
+# an unguarded stand-in as a control, then asserts this block is present and
+# runs before anything destructive.
+#
+# The copy keeps the NAME mutate.sh (in a private dir) so `pgrep -f mutate.sh`
+# still finds a running campaign -- that is how the edit-path refusal below, and
+# a human, ask whether one is live.
+#
+# FLOWVIZ_MUTATE_ORIGIN carries the original Tools/ directory across the exec:
+# PROJECT_DIR is derived from BASH_SOURCE, which after the re-exec points into
+# the temp dir, and every path this script resolves -- verdict.sh, the repo root,
+# the source file -- hangs off it.
+if [[ -z "${FLOWVIZ_MUTATE_REEXEC:-}" ]]; then
+    _origin_tools="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    _selfdir="$(mktemp -d -t flowviz_mutate_self)"
+    if cat "${BASH_SOURCE[0]}" > "${_selfdir}/mutate.sh" 2>/dev/null; then
+        chmod +x "${_selfdir}/mutate.sh"
+        FLOWVIZ_MUTATE_REEXEC=1 \
+        FLOWVIZ_MUTATE_ORIGIN="${_origin_tools}" \
+        FLOWVIZ_MUTATE_SELFDIR="${_selfdir}" \
+            exec "${_selfdir}/mutate.sh" "$@"
+    fi
+    # Copy failed (no space, read-only tmp). Fall through and run from the
+    # checked-out file rather than refusing: an unprotected campaign is worth
+    # more than no campaign, and the risk is only realised if someone edits it.
+    rm -rf "${_selfdir}"
+    echo "warning: could not create a private copy; edits to Tools/mutate.sh" >&2
+    echo "         during this run WILL corrupt it." >&2
+fi
+
+# Remove the private copy on the way OUT, never right after the exec.
+#
+# Unlinking the image immediately after launching it KILLS the process on macOS
+# -- measured, exit 137/SIGKILL -- because the kernel is still paging the image
+# in. Unlinking one that is already running is safe. So the tidy-looking
+# "delete it the instant we no longer need the path" is the one spelling that
+# cannot work. The stand-in test measures all three cases (immediate rm, delayed
+# rm, no rm) on the machine running the suite rather than trusting this note.
+#
+# This trap is REPLACED twice below, as arms are set up; each replacement
+# re-adds this rm. A trap that only exists here would be silently dropped.
+if [[ -n "${FLOWVIZ_MUTATE_SELFDIR:-}" ]]; then
+    trap 'rm -rf "${FLOWVIZ_MUTATE_SELFDIR}"' EXIT
+fi
+
 SRC="${1:?usage: mutate.sh <source-file> <test-filter> <mutants-file>}"
 FILTER="${2:?missing test filter}"
 MUTANTS="${3:?missing mutants file}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# After the re-exec BASH_SOURCE points into the private temp dir, so the origin
+# passed through the exec is authoritative. Falling back to BASH_SOURCE covers
+# the no-copy path above.
+PROJECT_DIR="$(cd "${FLOWVIZ_MUTATE_ORIGIN:-$(dirname "${BASH_SOURCE[0]}")}/.." && pwd)"
 REPO_ROOT="$(cd "${PROJECT_DIR}/.." && pwd)"
 UE_ROOT="${UE_ROOT:-/Users/Shared/Epic Games/UE_5.8}"
 BUILD_LOG="${BUILD_LOG:-/tmp/mutate_build.log}"
 TEST_LOG="${TEST_LOG:-/tmp/mutate_test.log}"
 SRC_BASE="$(basename "${SRC}")"
+
+# WHERE THE EVIDENCE FOR EACH VERDICT IS KEPT.
+#
+# BUILD_LOG and TEST_LOG above are ONE PATH EACH, and the per-arm loop below
+# redirects every arm's build and every arm's suite run into them. Each arm
+# clobbers the last, so a finished ten-arm campaign leaves exactly one log: the
+# tenth's.
+#
+# The verdicts are unaffected -- classify_* reads each log while it is still the
+# current arm's. What is destroyed is the EVIDENCE, which is what a reader
+# checks the verdicts against afterwards. Tools/mutants/session-workspace.README
+# says so in its own words and asked for this fix:
+#
+#     WHICH ASSERTIONS KILLED WHICH ARM. DERIVED, NOT READ OFF A LOG - and that
+#     is a defect in how this campaign was run rather than a property of the
+#     results. ... A future campaign should point TEST_LOG at a per-arm path.
+#
+# Derivation is a claim about what a mutant SHOULD break, checked against
+# nothing. Repo memory a-compound-mutant-scores-like-a-narrow-one is exactly
+# what it cannot see: an arm named for three casualties that died on two, with
+# the third riding along untested. Derivation reports all three, and reads as
+# thorough.
+#
+# Observed live while this very fix was being written. The workspace-clock
+# campaign's arm 5 came back UNSCORED with "no tests matched" -- a crashed
+# editor, not a result -- and by the time the summary printed, arm 6 had already
+# truncated the log holding the only account of it. The re-run had to start from
+# nothing.
+#
+# ARCHIVED, NOT REDIRECTED. The active BUILD_LOG/TEST_LOG paths are left exactly
+# as they were and each arm's logs are COPIED aside after it is scored. Pointing
+# the classifiers at a moving target would put the log path inside the loop,
+# where every existing test that pins BUILD_LOG/TEST_LOG stops describing the
+# script that ships -- and those tests are the reason the classifier is
+# trustworthy at all.
+#
+# Per campaign, not per checkout: mktemp -d, so two campaigns cannot land in one
+# directory even if they start in the same second. Repo memory
+# isolation-ends-at-the-shared-output-path.
+MUTATE_LOG_DIR="${MUTATE_LOG_DIR:-$(mktemp -d -t mutate_logs)}"
+mkdir -p "${MUTATE_LOG_DIR}"
+
+# Copy this arm's logs somewhere the next arm will not overwrite.
+#
+# Named <index>-<arm name>-{build,test}.log. BOTH parts are load-bearing: the
+# index preserves the order the summary prints in, and the name is what a reader
+# holding a verdict line actually has in hand. Index alone would make finding an
+# arm's log a counting exercise against the mutants file -- which is the
+# derivation this exists to eliminate.
+#
+# Non-fatal by construction. A campaign that has scored an arm must not abort
+# because it could not archive the paperwork; the trailing `true` keeps a full
+# disk or a read-only /tmp from turning four good verdicts into none.
+#
+# The stem is derived in ONE place. The engine log has to be named before the
+# suite runs (it is passed to run_tests.sh as LOG) while the build and test
+# copies are named after, so two call sites need the same answer -- and two
+# copies of the rule are two things to keep in step. A drift between them would
+# put an arm's engine log under a name no reader would think to look for.
+arm_log_stem() {  # arm_log_stem <index> <name> -> "<dir>/<index>-<slug>"
+    local index="$1" name="$2" slug
+    # Everything that is not alphanumeric becomes a dash, so an arm name
+    # containing a slash cannot write outside the directory.
+    slug="$(tr -c '[:alnum:]' '-' <<<"${name}" | cut -c1-60)"
+    printf '%s/%s-%s' "${MUTATE_LOG_DIR}" "${index}" "${slug}"
+}
+
+archive_arm_logs() {
+    local index="$1" name="$2" stem
+    stem="$(arm_log_stem "${index}" "${name}")"
+    cp "${BUILD_LOG}" "${stem}-build.log" 2>/dev/null || true
+    cp "${TEST_LOG}" "${stem}-test.log" 2>/dev/null || true
+    return 0
+}
 
 # Constraint 2: classification lives in its own file so it can be exercised
 # against known-answer inputs without building anything. Sourced before the cd
@@ -129,8 +263,59 @@ SRC_BASE="$(basename "${SRC}")"
 # shellcheck source=/dev/null
 source "${PROJECT_DIR}/Tools/verdict.sh"
 
+# check_harness_drift lives here, and the call at the end of this script had
+# NEVER resolved without this line -- observed live 2026-08-06 as
+# "line 623: check_harness_drift: command not found", printed after a
+# five-arm campaign had already scored every arm.
+#
+# So the drift-provenance block -- the entire point of the self-copy work,
+# which exists to say "these verdicts came from a harness that is no longer on
+# disk" -- has been dead since it was written. It could not warn; it aborted.
+#
+# WHAT THE TEST SUITE SAW INSTEAD. test_mutate_selfcopy.sh sources
+# mutation_window.sh itself before calling the function, so it was in scope for
+# the test and absent here, and its check on THIS file was
+# `grep -q 'check_harness_drift'` -- which asserts the call is written, not
+# that it resolves. 26 green checks over a call that always died.
+#
+# Tools/tests/test_mutate_resolves_calls.sh runs a whole fixture campaign and
+# fails if "command not found" appears anywhere in its output, which is the
+# property grep cannot express.
+# shellcheck source=/dev/null
+source "${PROJECT_DIR}/Tools/mutation_window.sh"
+
 cd "${REPO_ROOT}" || exit 2
 [[ -f "${SRC}" ]] || { echo "error: no such source file: ${SRC}" >&2; exit 2; }
+
+# BOTH path arguments are checked here, together, because both resolve against
+# REPO_ROOT and only one of them used to say so.
+#
+# The mutants file was previously first touched at the parse, several hundred
+# lines below -- past the baseline build AND the pristine suite. So the same
+# typo (a path relative to FlowViz/ rather than to the repo root) cost two
+# seconds on argument 1 and ten minutes on argument 3. Observed live
+# 2026-08-06: a clip-seam campaign built and ran the whole suite, then aborted
+# with FileNotFoundError on a mutants file it could have rejected instantly.
+#
+# The late abort was CORRECT -- it refused to score rather than reporting an
+# empty run as a clean one -- so this is a cost fix, not a correctness fix.
+# But the cost is not only the operator's time: between the cd and the parse
+# this script writes the mutation marker and takes the global build lock, so a
+# doomed invocation blocks every other agent's build to reach an error it
+# already had the information to print.
+#
+# -r rather than -f: an unreadable file fails the parse just as surely as an
+# absent one, and reports here rather than as a Python traceback.
+#
+# The message names the resolution root deliberately. "no such file" alone
+# sends the reader off to confirm the file exists -- and it does exist, just
+# not relative to the directory this script cd'd into. Naming the root is what
+# turns the error into a diagnosis.
+[[ -r "${MUTANTS}" ]] || {
+    echo "error: no such mutants file: ${MUTANTS}" >&2
+    echo "       relative paths resolve from ${REPO_ROOT}" >&2
+    exit 2
+}
 
 # Is anyone else editing the file we are about to snapshot and repeatedly
 # overwrite? Checked HERE, before the backup, because the backup is the thing
@@ -181,15 +366,75 @@ cp "${SRC}" "${BACKUP}"
 #
 # Under .git/ so that it survives the `git checkout -- .` and `git stash` that
 # follow a mutation run, and so it can never itself be staged.
-MARKER="$(git rev-parse --git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
+MARKER="$(git rev-parse --absolute-git-dir 2>/dev/null)/FLOWVIZ_MUTATION_ACTIVE"
+#
+# harness_sha fingerprints the copy this process is ACTUALLY executing, so the
+# end of the run can tell whether Tools/mutate.sh was edited underneath it. The
+# private copy above means such an edit no longer corrupts anything -- it means
+# the campaign quietly finishes on the old code while the reader assumes the
+# new. Recorded here, reported by report_harness_drift below.
+HARNESS_SHA="$(shasum -a 256 < "${BASH_SOURCE[0]}" 2>/dev/null | cut -d' ' -f1)"
 {
     echo "pid=$$"
     echo "source=${SRC}"
     echo "started=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "harness_sha=${HARNESS_SHA}"
 } > "${MARKER}" 2>/dev/null || true
 
-restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; }
-trap restore EXIT INT TERM
+# The marker now stops builds as well as commits: Tools/mutation_window.sh,
+# sourced by build_lock.sh and run_tests.sh, refuses to run in a checkout whose
+# window is open. THIS campaign has to keep building, so it identifies itself by
+# exporting the same pid it just declared. Only processes descended from here
+# inherit it.
+#
+# Exported HERE, beside the declaration, so the two can never disagree -- and
+# before the baseline build below, which is already inside the window and would
+# otherwise refuse itself. Nothing about that deadlock would look like a guard
+# working; it would look like the build breaking.
+export FLOWVIZ_MUTATION_TOKEN="$$"
+
+# Every exit path also drops the private copy this script is running from. It is
+# folded into restore() rather than left as a separate trap because `trap ...
+# EXIT` REPLACES the previous handler -- the self-copy trap installed at the top
+# is gone the moment the line below runs. Putting the rm in the one function
+# that all three later handlers call is what keeps it from being lost again.
+drop_selfcopy() { [[ -n "${FLOWVIZ_MUTATE_SELFDIR:-}" ]] && rm -rf "${FLOWVIZ_MUTATE_SELFDIR}"; return 0; }
+restore() { cp "${BACKUP}" "${SRC}"; rm -f "${MARKER}"; drop_selfcopy; }
+
+# A SIGNAL ENDS THE CAMPAIGN. It used to restore and then carry on, because a
+# trap handler resumes the script unless it exits -- this line was
+# `trap restore EXIT INT TERM`, one handler for all three.
+#
+# Observed live 2026-08-05: a campaign was sent TERM so its mutant list could be
+# corrected, and printed
+#
+#     SURVIVED  the classifier reports Dispatched no matter what
+#
+# for an arm that does not compile. The TERM arrived during that arm's build,
+# restore() put the pristine file back, and the build and suite then ran against
+# UNMUTATED SOURCE. A mutant that cannot build was reported as a coverage gap.
+#
+# That is the dangerous direction. A lost verdict announces itself; a
+# manufactured one sends someone to write a test for a defect that is not there,
+# and the arm it lands on is whichever happened to be building, so nothing about
+# it reads as unusual afterwards.
+#
+# The quieter harm is the marker. mutation_guard.sh (the pre-commit hook) reads
+# it to refuse a commit while a mutation is live, so clearing it with arms still
+# to apply disarms that hook for the rest of the run -- precisely the window in
+# which a live mutant can be committed.
+#
+# Tools/tests/test_mutate_signal.sh pins both spellings: it reproduces the old
+# damage as a control, then asserts the new handler scores nothing further.
+interrupted_notice() {
+    echo >&2
+    echo "INTERRUPTED: signalled mid-campaign. Verdicts printed before this" >&2
+    echo "  line stand; nothing after it was scored, and the remaining arms" >&2
+    echo "  were never run. Re-run to score them." >&2
+}
+on_signal() { restore; interrupted_notice; exit 143; }
+trap restore EXIT
+trap on_signal INT TERM
 
 # Constraint 1: the exit status of Build.sh is meaningless; read the log.
 # classify_build (verdict.sh) decides what the log says, and it is retried on
@@ -223,7 +468,12 @@ build() {
             # previous one. Force the source strictly newer and rebuild. If it
             # still compiles nothing, fall through to UNSCORED rather than score
             # a binary we know is stale.
-            noop)           touch -A 01 "${SRC}"; sleep 1; continue ;;
+            # -A takes [[hh]mm]SS and parses from the RIGHT, so the argument is
+            # SECONDS unless it is long enough to reach the minutes and hours
+            # fields: `01` is one second, `010000` is one hour. This read as
+            # "+1 hour" and was "+1 second" -- see the comment at the touch in
+            # build()'s tail for what that cost.
+            noop)           touch -A 010000 "${SRC}"; sleep 1; continue ;;
             infrastructure) sleep 15; continue ;;
             *)              return 1 ;;
         esac
@@ -259,7 +509,31 @@ PY
     # tests to run against the previous, unmutated binary and score SURVIVED.
     # Touching into the future guarantees the source is strictly newer than any
     # object built from it.
-    [[ ${status} -eq 0 ]] && touch -A 01 "${SRC}"
+    #
+    # THE ARGUMENT IS NOT AN HOUR UNLESS IT IS SIX DIGITS. `man touch` gives
+    # -A [-][[hh]mm]SS, parsed from the RIGHT, so `01` -- which is what stood
+    # here -- advanced the mtime by ONE SECOND. Measured, not read:
+    #
+    #     -A 01     -> +1s        -A 0100 -> +60s        -A 010000 -> +3600s
+    #
+    # Live consequence 2026-08-06: a campaign spun for 25 minutes without
+    # scoring an arm. Its source was 1683s behind the objects, the build ran 0
+    # actions, `noop` above touched +1s and retried, and at ~40s per iteration
+    # the source needed ~19 hours to overtake. The tree compiled perfectly the
+    # whole time.
+    #
+    # The hang was the SAFE half. Here in build()'s tail the same literal runs
+    # after every successful mutant build, so a build taking longer than a
+    # second left the source older than its own objects -- and the NEXT arm
+    # compiled nothing and was tested against the PREVIOUS arm's binary, which
+    # scores SURVIVED. `noop` is the guard against exactly that, and this bug
+    # sat inside the guard's remedy, so the protection and the hole were the
+    # same line.
+    #
+    # Tools/tests/test_mtime_advance.sh pins the platform semantics and both
+    # sites. Its assertions are about MAGNITUDE: "the mtime advanced" is true of
+    # the bug.
+    [[ ${status} -eq 0 ]] && touch -A 010000 "${SRC}"
     return ${status}
 }
 
@@ -297,8 +571,15 @@ fi
 # nothing unless the pristine tree is green under THAT filter.
 echo "=== running the suite pristine: a KILLED means nothing without this ==="
 BASELINE_TEST_LOG="${BASELINE_TEST_LOG:-$(mktemp -t mutate_baseline)}"
+# The baseline gets its own engine log too, for the same reason the arms do --
+# and more so. This is the identity control: every killed in the summary means
+# "the suite was green here and red under the mutant", so when a campaign comes
+# back all-KILLED the first thing to check is whether the pristine run was
+# actually green. Leaving it on the shared per-checkout path meant arm 1
+# overwrote the evidence for that before anyone could read it.
+BASELINE_ENGINE_LOG="${MUTATE_LOG_DIR}/00-baseline-engine.log"
 for _lock_attempt in $(seq 1 40); do
-    "${PROJECT_DIR}/Tools/build_lock.sh" \
+    LOG="${BASELINE_ENGINE_LOG}" "${PROJECT_DIR}/Tools/build_lock.sh" \
         "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${BASELINE_TEST_LOG}" 2>&1
     BASELINE_EXIT=$?
     [[ "${BASELINE_EXIT}" -ne 75 ]] && break
@@ -351,22 +632,43 @@ KILLED=0; SURVIVED=0; INVALID=0; UNSCORED=0; SKIPPED=0
 # concurrently. RECORDS is created by mktemp, so two campaigns cannot collide
 # even if they start in the same second.
 RECORDS="$(mktemp -t mutate_records)"
+# SAME SPLIT AS THE TRAP ABOVE, and for the same reason. This pair REPLACES the
+# earlier one -- a second `trap ... INT TERM` overrides the first -- so writing
+# it as one handler for all three signals here would reinstate the defect for
+# every arm in the loop below, which is the entire campaign. The split has to be
+# repeated, not merely established once.
 cleanup() { restore; rm -f "${RECORDS}"; }
-trap cleanup EXIT INT TERM
+on_signal() { cleanup; interrupted_notice; exit 143; }
+trap cleanup EXIT
+trap on_signal INT TERM
 
 if ! python3 "${PROJECT_DIR}/Tools/parse_mutants.py" "${MUTANTS}" > "${RECORDS}"; then
     echo "ABORT: could not parse ${MUTANTS}; no verdict would mean anything."
     exit 2
 fi
 
+ARM_INDEX=0
+
 while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
     NAME=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${NAME_J}")
     FROM=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${FROM_J}")
     TO=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "${TO_J}")
 
+    # Zero-padded so `sort` and `ls` order the archive the way the summary
+    # prints it. Incremented for EVERY record, including ones that go on to
+    # SKIP, so an arm's index is its position in the mutants file rather than
+    # its position among the arms that happened to run -- the second would
+    # renumber every later arm whenever an earlier one went stale.
+    ARM_INDEX=$((ARM_INDEX+1))
+    ARM_TAG="$(printf '%02d' "${ARM_INDEX}")"
+
     cp "${BACKUP}" "${SRC}"
     apply_mutant "${FROM}" "${TO}"
     case $? in
+        # No archive on these two paths, deliberately: nothing was built and
+        # nothing was run, so BUILD_LOG and TEST_LOG still hold the PREVIOUS
+        # arm's output. Copying them here would file one arm's evidence under
+        # another arm's name, which is worse than having none.
         3) echo "SKIP      ${NAME} -- pattern not found; the mutant is stale"
            SKIPPED=$((SKIPPED+1)); continue ;;
         4) echo "SKIP      ${NAME} -- pattern matches more than once; too broad"
@@ -390,8 +692,19 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
         # classify_test_run, which finds no `<n>/<m> passed.` summary in the log
         # and returns UNSCORED -- a refusal to conclude, which is the correct
         # answer for a run that never happened.
+        # A per-arm engine log. run_tests.sh's default is derived from the
+        # CHECKOUT path, so every arm of a campaign wrote the same file and
+        # each summary's "Full log:" line pointed at whichever arm ran last.
+        # TEST_LOG holds mutate.sh's own summary of the run; the engine detail
+        # -- the stack, the assertion text, which test started -- lives in the
+        # file run_tests.sh writes, and that was the copy being overwritten.
+        # Attribution could only ever be DERIVED by matching timestamps.
+        #
+        # Exported rather than passed as an argument: run_tests.sh already
+        # honours LOG, and build_lock.sh sits between us and it.
+        ARM_ENGINE_LOG="$(arm_log_stem "${ARM_TAG}" "${NAME}")-engine.log"
         for _lock_attempt in $(seq 1 40); do
-            "${PROJECT_DIR}/Tools/build_lock.sh" \
+            LOG="${ARM_ENGINE_LOG}" "${PROJECT_DIR}/Tools/build_lock.sh" \
                 "${PROJECT_DIR}/Tools/run_tests.sh" "${FILTER}" >"${TEST_LOG}" 2>&1
             TEST_EXIT=$?
             [[ "${TEST_EXIT}" -ne 75 ]] && break
@@ -419,10 +732,47 @@ while IFS=$'\t' read -r NAME_J FROM_J TO_J; do
         grep -aE "error:" "${BUILD_LOG}" | head -2 | sed 's/^/            /'
         UNSCORED=$((UNSCORED+1))
     fi
+
+    # ONE CALL, AFTER THE WHOLE if/elif/else, covering every path that got as
+    # far as a build. Placing it inside each branch would mean a branch added
+    # later silently ships without evidence -- and UNSCORED and INVALID are the
+    # two verdicts whose logs are read most, because they are the ones that
+    # have to be re-run.
+    archive_arm_logs "${ARM_TAG}" "${NAME}"
 done < "${RECORDS}"
 
 cp "${BACKUP}" "${SRC}"
 echo
 echo "=== ${SRC_BASE} vs ${FILTER} ==="
 echo "killed ${KILLED}  SURVIVED ${SURVIVED}  INVALID ${INVALID}  UNSCORED ${UNSCORED}  skipped ${SKIPPED}"
+# Printed unconditionally, and printed HERE rather than at startup: a reader
+# reaches for the logs when they see a verdict they want to check, and a path
+# announced twenty minutes and one build earlier has scrolled away.
+echo "per-arm logs: ${MUTATE_LOG_DIR}"
+
+# Did Tools/mutate.sh change while this campaign was running? The private copy
+# means such an edit could not corrupt anything -- and that is exactly why it
+# has to be said out loud. The verdicts above are sound, but they describe a
+# harness that is no longer the one in the checkout, and a reader comparing them
+# against the current file would be comparing against code that never ran.
+#
+# Printed AFTER the summary, and never changes the exit status: the run was
+# coherent. This is provenance, not a failure.
+_drift="$(check_harness_drift "${MARKER}" "$(shasum -a 256 < "${PROJECT_DIR}/Tools/mutate.sh" 2>/dev/null | cut -d' ' -f1)")"
+case "${_drift}" in
+    drifted)
+        echo
+        echo "NOTE: Tools/mutate.sh was EDITED while this campaign ran."
+        echo "  The verdicts above are sound -- this run executed from a private"
+        echo "  copy taken at startup, so the edit could not reach it. But they"
+        echo "  were produced by the PRE-EDIT harness. Reading them as evidence"
+        echo "  about the file now on disk attributes them to code that never ran."
+        echo "  Re-run to score against the current harness."
+        ;;
+    unknown)
+        echo
+        echo "NOTE: could not tell whether Tools/mutate.sh changed during this run."
+        ;;
+esac
+
 [[ "${SURVIVED}" -eq 0 && "${UNSCORED}" -eq 0 ]] || exit 1

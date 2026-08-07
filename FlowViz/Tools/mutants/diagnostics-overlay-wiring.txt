@@ -1,0 +1,45 @@
+the_workspace_never_builds_an_overlay
+--
+							SAssignNew(DiagnosticsOverlay, SFlowVizDiagnosticsOverlay)
+--
+							SNew(SFlowVizDiagnosticsOverlay)
+%%
+the_overlay_gets_no_model_at_all
+--
+								.Model(Model.Get())
+--
+								// MUTANT: no model, so it reports on nothing
+%%
+the_volume_never_reaches_the_overlay
+--
+		DiagnosticsOverlay->SetVolume(InVolume);
+--
+		// MUTANT: the component rows stay at zero forever
+%%
+the_overlay_ships_visible
+--
+							.Visibility(EVisibility::Collapsed)
+--
+							.Visibility(EVisibility::SelfHitTestInvisible)
+%%
+the_shown_state_is_a_bool_nothing_acts_on
+--
+		DiagnosticsOverlayContainer->SetVisibility(
+			bShown ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed);
+--
+		// MUTANT: the flag is recorded and the slot never moves
+%%
+the_toggle_is_a_one_way_switch
+--
+	bDiagnosticsOverlayShown = bShown;
+--
+	bDiagnosticsOverlayShown = bDiagnosticsOverlayShown || bShown;
+%%
+IDENTITY CONTROL -- a comment only. Must SURVIVE, or the harness is scoring noise.
+--
+void SFlowVizWorkspace::SetDiagnosticsOverlayShown(bool bShown)
+{
+--
+void SFlowVizWorkspace::SetDiagnosticsOverlayShown(bool bShown)
+{
+	// MUTANT: identity control, no behaviour change
