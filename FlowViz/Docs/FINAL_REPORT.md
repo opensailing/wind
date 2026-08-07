@@ -92,7 +92,10 @@ service; boundary patch geometry with per-patch sections (DoD 13); velocity
 glyphs on a slice (DoD 9); RK4 streamlines with disclosed end reasons
 (DoD 10); chart series for line probes (distance/normalized axes) and point
 probes over time, with first-class gaps (DoD 11, 12); pipeline panel with
-field switching; Scientific/Presentation profile toggle; session save/load
+field switching; the line-probe distance chart drawn in the probe panel
+(gaps split the polyline); glyph and streamline viewport components with
+tested transform maths; the orbit camera pawn and its game mode;
+Scientific/Presentation profile toggle; session save/load
 including render settings and the profile flag (DoD 14); annotated screenshot
 capture (DoD 15); diagnostics overlay and eight `FlowViz.*` console commands;
 orbit camera model (frame/orbit/pan/zoom, session round-trip).
@@ -101,11 +104,14 @@ orbit camera model (frame/orbit/pan/zoom, session round-trip).
 
 - **The slice renders as a slab of the volume**, not a textured plane with
   its own sampler; slab opacity/trilinear affect the whole volume render.
-- **Glyphs, streamlines and charts are computed and tested as geometry/series
-  builders**; their in-viewport instanced-mesh / line-batch / chart-widget
-  bindings are the thin consumers still to be attached to the workspace.
-- **The orbit camera is a value model**; the input binding (pawn/viewport)
-  is not yet attached in the packaged app.
+- **Glyph/streamline density and rake controls have no panel yet**: the
+  viewport components (`UCFDVizFlowComponent`, instanced cones + line
+  batches, transform maths tested) and the line-probe chart
+  (`SFlowVizChartStrip`) are attached, but glyph density/scale and the seed
+  rake are code-level settings rather than workspace controls.
+- **The camera pawn's feel is untested by automation**: the orbit model is
+  fully tested; the pawn's axis bindings and the game-mode spawn path
+  compile and are configured, but nothing automated drives mouse input.
 - **Presentation profile is a preset bundle**, not VISUAL_QA §2's film-grade
   bar (multiple scattering, multi-scale density, tone mapping). That bar is
   explicitly open.
