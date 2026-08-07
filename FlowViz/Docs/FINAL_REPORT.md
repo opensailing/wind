@@ -64,7 +64,8 @@ machine.
 
 ## Test inventory (all green on the reference machine)
 
-- **C++ automation**: 150+ tests across `FlowViz.CFDViz.*` (readers),
+- **C++ automation**: 149 tests, all passing on the reference machine
+  (`Tools/run_tests.sh FlowViz`), across `FlowViz.CFDViz.*` (readers),
   `FlowViz.Playback.*`, `FlowViz.Render.*`, `FlowViz.Scene.*`,
   `FlowViz.Flow.*`, `FlowViz.UI.*`, `FlowViz.Capture.*`. GPU-dependent arms
   run under `RHI=1`.
@@ -137,6 +138,10 @@ the Python side. Notices: `Docs/THIRD_PARTY_NOTICES.md`.
 
 ## Packaged build
 
-`Packaged/Mac/` via `RunUAT.sh BuildCookRun` (command in README.md). The
-sample case is staged beside the app so it opens without manual importing
-(DoD 4). See BUILD.md for the packaging caveats observed on this machine.
+`Packaged/Mac/` via `RunUAT.sh BuildCookRun` (command in README.md); the
+first cook's global-shader compile dominates the wall time on this machine.
+The sample case is committed in-repo; DoD 4's "opens the supplied case
+without manual asset importing" is exercised in-editor by the console
+command path (`FlowViz.LoadCase`), and the packaged app's own launch check
+is the remaining verification once the archive lands. See BUILD.md for the
+packaging caveats observed here.
