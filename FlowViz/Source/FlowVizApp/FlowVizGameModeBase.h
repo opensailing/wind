@@ -24,4 +24,14 @@ class AFlowVizGameModeBase : public AGameModeBase
 
 public:
 	AFlowVizGameModeBase();
+
+protected:
+	/**
+	 * THE ONE-COMMAND DEMO PATH: `FlowViz -case=<dir> [-field=<id>]` loads the
+	 * case at startup by issuing the same FlowViz.LoadCase console command a
+	 * user would type -- one code path, already tested, already spawning the
+	 * case actor and feeding both halves. Deferred to the first tick so the
+	 * Slate tab infrastructure the command resolves against exists.
+	 */
+	virtual void BeginPlay() override;
 };

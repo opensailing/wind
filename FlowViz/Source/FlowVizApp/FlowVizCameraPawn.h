@@ -63,6 +63,14 @@ private:
 	bool bOrbiting = false;
 	bool bPanning = false;
 
+	/*
+	 * AUTO-FRAME, ONCE. On the first tick where a case actor with real bounds
+	 * exists, frame it -- so a packaged launch with -case= opens LOOKING AT
+	 * the data instead of at whatever the map's default view was. Once only:
+	 * after that the camera is the user's, and a reload must not yank it.
+	 */
+	bool bAutoFramed = false;
+
 	/** Degrees of orbit per mouse-axis unit, and world units of pan per unit at reference distance. */
 	static constexpr double OrbitDegreesPerUnit = 2.0;
 	static constexpr double PanFractionPerUnit = 0.002;

@@ -2,6 +2,9 @@
 
 #include "FlowVizCameraPawn.h"
 
+#include "EngineUtils.h"
+#include "Scene/FlowVizCaseActor.h"
+
 #include "Camera/CameraComponent.h"
 #include "Components/InputComponent.h"
 
@@ -26,6 +29,23 @@ bool AFlowVizCameraPawn::FrameBox(FVector WorldCenter, FVector WorldExtent)
 void AFlowVizCameraPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+
+	if (!bAutoFramed)
+	{
+		for (TActorIterator<ACFDVizCaseActor> It(GetWorld()); It; ++It)
+		{
+			// Validity by BOUNDS, not by a loaded-state flag: an actor whose
+			// case failed to load has a degenerate box, and framing a point
+			// would pin the camera inside it.
+			const FBox Bounds = It->GetComponentsBoundingBox(/*bNonColliding*/ true);
+			if (Bounds.IsValid && Bounds.GetExtent().GetMax() > 1.0)
+			{
+				FrameBox(Bounds.GetCenter(), Bounds.GetExtent());
+				bAutoFramed = true;
+				break;
+			}
+		}
+	}
 
 	// COPIED EVERY TICK, derived never stored (the model's own rule): the pawn
 	// holds no pose of its own to drift from the model's.
