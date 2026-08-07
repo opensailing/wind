@@ -431,10 +431,9 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		}
 		else
 		{
-			Parameters->SceneDepthTexture = GraphBuilder.CreateTexture(
-				FRDGTextureDesc::Create2D(FIntPoint(1, 1), PF_R32_FLOAT,
-					FClearValueBinding::Black, TexCreate_ShaderResource),
-				TEXT("FlowVizVolumeRayMarch.DummyDepth"));
+			// AddRayMarchPass supplies the dummy depth itself -- one source of
+			// truth for the fallback, covering direct callers (the device
+			// test) as well as this drain.
 			Parameters->bHasSceneDepth = 0;
 			Parameters->DeviceZToViewZ = FVector4f(0, 0, 0, 0);
 			Parameters->DepthToSolver = 1.0f;

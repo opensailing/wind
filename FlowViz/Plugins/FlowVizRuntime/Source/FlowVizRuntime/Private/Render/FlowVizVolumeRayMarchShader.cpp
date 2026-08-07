@@ -275,6 +275,29 @@ bool FlowVizRayMarch::AddRayMarchPass(
 		return false;
 	}
 
+	/*
+	 * THE DEPTH FALLBACK LIVES HERE, NOT IN DrainView (P6 crash fix). Every
+	 * declared RDG texture must be bound; DrainView supplies real depth or a
+	 * dummy, but the DEVICE TEST calls this function directly and its null
+	 * SceneDepthTexture executed as a render-thread SIGSEGV. The pass is the
+	 * one place every caller flows through, so the guarantee belongs here.
+	 */
+	if (Parameters->SceneDepthTexture == nullptr)
+	{
+		// UAV + a clear pass: RDG validation rejects reading a texture nothing
+		// wrote ("read dependency ... but it was never written to"), so the
+		// dummy is cleared -- one GPU write of four bytes, once per pass.
+		FRDGTextureRef DummyDepth = GraphBuilder.CreateTexture(
+			FRDGTextureDesc::Create2D(FIntPoint(1, 1), PF_R32_FLOAT,
+				FClearValueBinding::Black, TexCreate_ShaderResource | TexCreate_UAV),
+			TEXT("FlowVizVolumeRayMarch.DummyDepth"));
+		AddClearUAVPass(GraphBuilder,
+			GraphBuilder.CreateUAV(FRDGTextureUAVDesc(DummyDepth)),
+			FVector4(0.0, 0.0, 0.0, 0.0));
+		Parameters->SceneDepthTexture = DummyDepth;
+		Parameters->bHasSceneDepth = 0;
+	}
+
 	FFlowVizVolumeRayMarchCS::FPermutationDomain PermutationVector;
 	PermutationVector.Set<FFlowVizVolumeRayMarchCS::FFieldIsUint>(bFieldIsUint);
 

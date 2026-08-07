@@ -522,6 +522,13 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 				FlowVizRayMarch::FillDefaults(*Params);
 				FlowVizRayMarch::FillFromVolumeParameters(VolumeParams, *Params);
 
+				// JITTER OFF, EXPLICITLY. This fixture asserts exact values at
+				// exact voxels; P6's jitter-on default would shift sample
+				// positions sub-step and move the maxima the assertions name.
+				// The default's own pin lives in the RayMarchShader test --
+				// here it is the independent variable being HELD, not tested.
+				Params->bEnableJitter = 0;
+
 				// Looking down +X: the axis the field varies along, so the
 				// composite modes see a changing value and are not an identity
 				// map on this fixture.
