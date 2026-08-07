@@ -135,4 +135,19 @@ namespace FlowVizFlow
 		const FVector& RakeEnd,
 		const FFlowVizStreamlineSettings& Settings,
 		TArray<FFlowVizStreamline>& OutStreamlines);
+
+	/**
+	 * The DATASET-AWARE default rake (renderer overhaul P5): a z-mid vertical
+	 * line just inside the inlet, spanning the middle 80% of Y. Dataset-aware
+	 * because a fixed every-N-cells grid seeds ZERO z-layers on a 6-cell-deep
+	 * case (6/8 = 0 -- the reference's own convention, transplanted verbatim,
+	 * would draw nothing on our committed sample).
+	 *
+	 * @param DomainSize Physical extent, solver units. Non-positive is refused.
+	 * @return false for a degenerate domain.
+	 */
+	FLOWVIZRUNTIME_API bool MakeDefaultRake(
+		const FVector& DomainSize,
+		FVector& OutRakeStart,
+		FVector& OutRakeEnd);
 }

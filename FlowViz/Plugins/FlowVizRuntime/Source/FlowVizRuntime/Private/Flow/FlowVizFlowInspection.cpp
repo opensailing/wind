@@ -299,3 +299,25 @@ bool FlowVizFlow::BuildStreamlines(
 	}
 	return true;
 }
+
+bool FlowVizFlow::MakeDefaultRake(
+	const FVector& DomainSize, FVector& OutRakeStart, FVector& OutRakeEnd)
+{
+	if (DomainSize.GetMin() <= 0.0)
+	{
+		return false;
+	}
+
+	/*
+	 * JUST INSIDE THE INLET (5% of X), z-mid, middle 80% of Y: upstream of any
+	 * obstacle a case is likely to hold, on the plane the default cut plane
+	 * shows, clear of the wall boundary layers at both Y ends. One rule, every
+	 * domain shape -- the point is that it cannot produce an empty seeding the
+	 * way a fixed-stride grid can on a shallow grid.
+	 */
+	const double X = DomainSize.X * 0.05;
+	const double ZMid = DomainSize.Z * 0.5;
+	OutRakeStart = FVector(X, DomainSize.Y * 0.1, ZMid);
+	OutRakeEnd = FVector(X, DomainSize.Y * 0.9, ZMid);
+	return true;
+}

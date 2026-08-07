@@ -345,4 +345,50 @@ bool FFlowVizStreamlinesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+/**
+ * The dataset-aware default rake (renderer overhaul P5): the seeding rule
+ * that cannot produce an empty seeding on a shallow grid.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizDefaultRakeTest,
+	"FlowViz.Flow.DefaultRake",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizDefaultRakeTest::RunTest(const FString& Parameters)
+{
+	FVector Start, End;
+
+	// The committed sample's domain: the rake must sit upstream, z-mid,
+	// spanning the middle of Y -- and be NON-DEGENERATE, which is the property
+	// a stride-based rule loses on 6-cell-deep data.
+	if (TestTrue(TEXT("the sample domain yields a rake"),
+			FlowVizFlow::MakeDefaultRake(FVector(12.0, 4.0, 1.0), Start, End)))
+	{
+		TestTrue(TEXT("upstream: x sits inside the first tenth"),
+			Start.X > 0.0 && Start.X < 1.2);
+		TestEqual(TEXT("z-mid, matching the default cut plane"), Start.Z, 0.5);
+		TestEqual(TEXT("a vertical line: both ends share x"), Start.X, End.X);
+		TestTrue(TEXT("NON-DEGENERATE: the rake spans most of Y -- the empty-seeding "
+					  "failure a fixed stride produces here cannot"),
+			End.Y - Start.Y > 2.0);
+		TestTrue(TEXT("clear of the walls at both ends"),
+			Start.Y > 0.0 && End.Y < 4.0);
+	}
+
+	// A tall thin domain: the rule adapts, still non-degenerate.
+	if (TestTrue(TEXT("a tall domain yields a rake"),
+			FlowVizFlow::MakeDefaultRake(FVector(2.0, 40.0, 0.5), Start, End)))
+	{
+		TestTrue(TEXT("still spanning most of Y"), End.Y - Start.Y > 20.0);
+	}
+
+	FVector RefusedStart, RefusedEnd;
+	TestFalse(TEXT("a degenerate domain refuses"),
+		FlowVizFlow::MakeDefaultRake(FVector(12.0, 0.0, 1.0), RefusedStart, RefusedEnd));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

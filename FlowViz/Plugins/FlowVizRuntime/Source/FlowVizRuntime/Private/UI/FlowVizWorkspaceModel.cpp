@@ -13,6 +13,7 @@
 #include "Flow/FlowVizChartSeries.h"
 #include "Flow/FlowVizCutPlane.h"
 #include "Flow/FlowVizFieldMask.h"
+#include "Flow/FlowVizFlowInspection.h"
 #include "Flow/FlowVizIsoSurface.h"
 #include "Flow/FlowVizFieldSampler.h"
 #include "Tasks/Task.h"
@@ -457,6 +458,15 @@ void FFlowVizWorkspaceModel::SetPresentationMode(bool bInPresentation)
 	}
 }
 
+void FFlowVizWorkspaceModel::SetStreamlinesEnabled(bool bEnabled)
+{
+	if (bStreamlinesEnabled != bEnabled)
+	{
+		bStreamlinesEnabled = bEnabled;
+		RequestSampleUpdate();
+	}
+}
+
 void FFlowVizWorkspaceModel::SetIsoSurfaceEnabled(bool bEnabled)
 {
 	if (bIsoSurfaceEnabled != bEnabled)
@@ -520,6 +530,10 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 		bool bHasIsoSurface = false;
 		FFlowVizMeshSection IsoSurface;
 		double IsoValueUsed = 0.0;
+
+		/** Streamlines from the default rake (renderer overhaul P5). */
+		bool bHasStreamlines = false;
+		TArray<FFlowVizStreamline> Streamlines;
 	};
 
 	FCriticalSection Mutex;
@@ -620,6 +634,14 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 		&& SharedCase.IsValid()
 		&& SharedCase->FindField(TEXT("qCriterion")) != nullptr;
 	const double IsoValueOverride = IsoValue;
+
+	// Streamlines (P5): the dataset-aware default rake over the displayed
+	// frame's velocity. On when the case carries U and the toggle is up.
+	const bool bWantStreamlines = bStreamlinesEnabled
+		&& SharedCase.IsValid()
+		&& SharedCase->FindField(TEXT("U")) != nullptr
+		&& Slice.HasDomain();
+	const FVector StreamDomain = Slice.GetDomainSize();
 	FlowVizCutPlane::FCutPlaneRequest CutRequest;
 	if (bWantCutPlane)
 	{
@@ -632,6 +654,7 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
 			bHasLine, LineStart, LineEnd, LineSamples, LineAxis,
 			bWantCutPlane, CutRequest, bWantIsoSurface, IsoValueOverride,
+			bWantStreamlines, StreamDomain,
 			Requests = MoveTemp(Requests)]() mutable
 		{
 			FSampleQueue::FResult Result;
@@ -850,6 +873,29 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 			}
 
 			/*
+			 * STREAMLINES (renderer overhaul P5): the default rake through the
+			 * displayed frame's velocity. RK4 with mask-aware termination is
+			 * BuildStreamlines' contract; the rake rule is the dataset-aware
+			 * one (a fixed-stride grid seeds zero z-layers on 6-cell data).
+			 */
+			if (bWantStreamlines)
+			{
+				FVector RakeStart, RakeEnd;
+				if (FlowVizFlow::MakeDefaultRake(StreamDomain, RakeStart, RakeEnd))
+				{
+					FFlowVizFieldSampler StreamSampler;
+					if (StreamSampler.Build(*CaseRef, TEXT("U"), FrameIndex).IsOk())
+					{
+						FFlowVizStreamlineSettings StreamSettings;
+						StreamSettings.SeedCount = 24;
+						Result.bHasStreamlines = FlowVizFlow::BuildStreamlines(
+							StreamSampler, RakeStart, RakeEnd, StreamSettings,
+							Result.Streamlines);
+					}
+				}
+			}
+
+			/*
 			 * THE CUT PLANE (renderer overhaul P3), same worker, same frame,
 			 * same displayed field -- the plane in the viewport is the data on
 			 * the timeline, never a neighbouring frame's. Built after the
@@ -904,6 +950,12 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 				bApplied = true;
 			}
 		}
+		if (Result.bHasStreamlines)
+		{
+			Streamlines = MoveTemp(Result.Streamlines);
+			bStreamlinesFresh = true;
+		}
+
 		if (Result.bHasIsoSurface)
 		{
 			IsoSurfacePayload.Sections.Reset();

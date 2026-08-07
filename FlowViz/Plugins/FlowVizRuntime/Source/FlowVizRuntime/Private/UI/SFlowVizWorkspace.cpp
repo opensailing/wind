@@ -5,6 +5,7 @@
 #include "FlowVizRuntime.h"
 #include "Playback/FlowVizCasePlayer.h"
 #include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizFlowComponent.h"
 #include "Scene/FlowVizSurfaceMeshComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
@@ -771,6 +772,15 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 					{
 						Actor->GetIsoSurfaceComponent()->SetSurfaceData(
 							Model->ConsumeIsoSurface());
+					}
+					// Streamlines land on the flow component that has waited
+					// for a production feed since #86 (P5).
+					if (Model->HasFreshStreamlines()
+						&& Actor->GetFlowComponent() != nullptr)
+					{
+						Actor->GetFlowComponent()->SetFlowData(
+							TArray<FFlowVizGlyph>(), Model->ConsumeStreamlines(),
+							CFDViz::MetersToUnrealCentimeters);
 					}
 				}
 			}

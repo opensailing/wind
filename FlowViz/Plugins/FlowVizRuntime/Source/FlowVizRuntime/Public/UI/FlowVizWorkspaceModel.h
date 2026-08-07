@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Flow/FlowVizChartSeries.h"
+#include "Flow/FlowVizFlowInspection.h"
 #include "Scene/FlowVizMeshPayload.h"
 #include "Playback/FlowVizCasePlayer.h"
 #include "UI/FlowVizClipViewModel.h"
@@ -379,6 +380,16 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	}
 	double GetLastIsoValueUsed() const { return LastIsoValueUsed; }
 
+	/** The drained streamlines (renderer overhaul P5), same consume contract. */
+	bool HasFreshStreamlines() const { return bStreamlinesFresh; }
+	const TArray<FFlowVizStreamline>& ConsumeStreamlines()
+	{
+		bStreamlinesFresh = false;
+		return Streamlines;
+	}
+	void SetStreamlinesEnabled(bool bEnabled);
+	bool AreStreamlinesEnabled() const { return bStreamlinesEnabled; }
+
 	/** The iso toggle and value (0 = the P90 default). Both re-request on change. */
 	void SetIsoSurfaceEnabled(bool bEnabled);
 	bool IsIsoSurfaceEnabled() const { return bIsoSurfaceEnabled; }
@@ -397,6 +408,10 @@ private:
 	double CutPlaneRangeMin = 0.0;
 	double CutPlaneRangeMax = 0.0;
 	bool bCutPlaneFresh = false;
+
+	TArray<FFlowVizStreamline> Streamlines;
+	bool bStreamlinesFresh = false;
+	bool bStreamlinesEnabled = true;
 
 	FFlowVizMeshPayload IsoSurfacePayload;
 	double LastIsoValueUsed = 0.0;
