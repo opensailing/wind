@@ -8,7 +8,12 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/OutputDevice.h"
 #include "Playback/FlowVizCasePlayer.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Framework/Docking/TabManager.h"
+#include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizDiagnostics.h"
 #include "UI/FlowVizWorkspaceTab.h"
 #include "UI/FlowVizWorkspaceModel.h"
@@ -380,6 +385,68 @@ namespace FlowVizConsoleCommands
 				 */
 				Ar.Logf(TEXT("FlowViz: load failed: %s"), *Result.ToString());
 				return;
+			}
+
+			/*
+			 * THE VIEWPORT HALF (#88). The model's OpenCase feeds the PANELS;
+			 * pixels come from a UCFDVizVolumeComponent, which lives on an
+			 * ACFDVizCaseActor in a world -- and nothing guaranteed one
+			 * existed. Found by a user running the demo: the workspace opened,
+			 * the console said "opened ... 20 frames", and the viewport stayed
+			 * black, because LoadCase had nowhere to put voxels.
+			 *
+			 * So: no bound volume means find-or-spawn a case actor (PIE/Game
+			 * world preferred, the editor world otherwise -- TRANSIENT, so a
+			 * demo spawn never dirties the level asset), and EITHER WAY the
+			 * case is loaded into the volume component too. The workspace's
+			 * player decodes for the panels; the component's binding is what
+			 * the ray marcher samples. Loading one without the other is the
+			 * black-viewport state this comment exists to prevent.
+			 */
+			if (Workspace->GetVolume() == nullptr && GEngine != nullptr)
+			{
+				UWorld* TargetWorld = nullptr;
+				for (const FWorldContext& Context : GEngine->GetWorldContexts())
+				{
+					if (Context.WorldType == EWorldType::PIE
+						|| Context.WorldType == EWorldType::Game)
+					{
+						TargetWorld = Context.World();
+						break;
+					}
+					if (TargetWorld == nullptr && Context.WorldType == EWorldType::Editor)
+					{
+						TargetWorld = Context.World();
+					}
+				}
+				if (TargetWorld != nullptr)
+				{
+					FActorSpawnParameters SpawnParameters;
+					SpawnParameters.ObjectFlags |= RF_Transient;
+					if (ACFDVizCaseActor* Spawned =
+							TargetWorld->SpawnActor<ACFDVizCaseActor>(SpawnParameters))
+					{
+						Workspace->SetVolume(Spawned->GetVolumeComponent());
+						Ar.Logf(TEXT("FlowViz: spawned a transient case actor to display "
+									 "the volume."));
+					}
+				}
+			}
+
+			if (UCFDVizVolumeComponent* Volume = Workspace->GetVolume())
+			{
+				const FCFDVizResult VolumeLoad = Volume->LoadCase(Path, FieldId);
+				if (!VolumeLoad.IsOk())
+				{
+					Ar.Logf(TEXT("FlowViz: the panels are live but the volume could not "
+								 "load the case: %s"),
+						*VolumeLoad.ToString());
+				}
+			}
+			else
+			{
+				Ar.Logf(TEXT("FlowViz: no world to spawn a case actor in; the panels are "
+							 "live but nothing will render until a case actor exists."));
 			}
 
 			// The model changed underneath the panels and no panel announced it, so
