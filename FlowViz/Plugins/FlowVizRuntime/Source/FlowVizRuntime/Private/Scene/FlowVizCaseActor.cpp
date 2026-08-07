@@ -4,8 +4,13 @@
 
 #include "Components/SceneComponent.h"
 #include "FlowVizRuntime.h"
+#include "Async/TaskGraphInterfaces.h"
+#include "Scene/FlowVizBoundaryMesh.h"
 #include "Scene/FlowVizFlowComponent.h"
+#include "Scene/FlowVizMeshPayload.h"
+#include "Scene/FlowVizSurfaceMeshComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
+#include "Tasks/Task.h"
 
 ACFDVizCaseActor::ACFDVizCaseActor()
 {
@@ -28,6 +33,13 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 	// transform, so flow geometry and volume agree about where the case is.
 	FlowComponent = CreateDefaultSubobject<UCFDVizFlowComponent>(TEXT("Flow"));
 	FlowComponent->SetupAttachment(Root);
+
+	// The obstacle's opaque lit surface (renderer overhaul P2). Its OWN
+	// component, not a shared one: P4's per-frame iso rebuilds must never
+	// dirty the obstacle's render state, and separate components is what
+	// guarantees that.
+	ObstacleComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("Obstacle"));
+	ObstacleComponent->SetupAttachment(Root);
 }
 
 FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName InFieldId)
@@ -43,8 +55,85 @@ FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName I
 		// previous one is on screen.
 		CaseDirectory = InCaseDirectory;
 		FieldId = VolumeComponent->GetCaseBinding().FieldId;
+
+		// The obstacle is part of what "loaded" means (renderer overhaul P2):
+		// every reference image anchors on it, so it is not opt-in.
+		LoadBoundaryMeshes();
 	}
 	return Result;
+}
+
+void ACFDVizCaseActor::LoadBoundaryMeshes()
+{
+	check(VolumeComponent != nullptr && ObstacleComponent != nullptr);
+	ObstacleComponent->ClearSurfaceData();
+
+	const FCFDVizCase& Case = VolumeComponent->GetCaseBinding().Case;
+	if (Case.Meshes.Num() == 0)
+	{
+		// A case without meshes is legal; the picture simply has no obstacle.
+		return;
+	}
+
+	/*
+	 * PATHS RESOLVED NOW, GEOMETRY BUILT ON A WORKER. ResolveMeshPath touches
+	 * the manifest (game-thread state); BuildPatches does file I/O and
+	 * welding, which has no business on the game thread mid-load. The worker
+	 * gets copies of everything it reads -- the sampling service's rule.
+	 */
+	struct FMeshRequest
+	{
+		FString MeshPath;
+		FCFDVizMesh Mesh;
+	};
+	TArray<FMeshRequest> Requests;
+	for (const FCFDVizMesh& Mesh : Case.Meshes)
+	{
+		FString MeshPath;
+		if (Case.ResolveMeshPath(Mesh.Id, MeshPath).IsOk())
+		{
+			Requests.Add({ MoveTemp(MeshPath), Mesh });
+		}
+	}
+
+	TWeakObjectPtr<ACFDVizCaseActor> WeakThis(this);
+	UE::Tasks::Launch(TEXT("FlowVizBoundaryBuild"),
+		[WeakThis, Requests = MoveTemp(Requests)]()
+		{
+			// ONE payload across every declared mesh: obstacle and domain
+			// boundaries are sections of one component, addressed by patch id.
+			TSharedRef<FFlowVizMeshPayload> Payload = MakeShared<FFlowVizMeshPayload>();
+			for (const FMeshRequest& Request : Requests)
+			{
+				TArray<FFlowVizBoundaryPatchGeometry> Patches;
+				if (!FlowVizBoundary::BuildPatches(
+						Request.MeshPath, Request.Mesh,
+						CFDViz::MetersToUnrealCentimeters, Patches).IsOk())
+				{
+					continue;
+				}
+				for (FFlowVizBoundaryPatchGeometry& Patch : Patches)
+				{
+					FFlowVizMeshSection& Section = Payload->Sections.AddDefaulted_GetRef();
+					Section.SectionId = Patch.PatchId;
+					Section.Name = MoveTemp(Patch.Name);
+					Section.bDefaultVisible = Patch.bDefaultVisible;
+					Section.Vertices = MoveTemp(Patch.Vertices);
+					Section.Indices = MoveTemp(Patch.Indices);
+					Section.Normals = MoveTemp(Patch.Normals);
+				}
+			}
+
+			// Apply on the game thread; the weak pointer covers an actor torn
+			// down while the build was in flight.
+			AsyncTask(ENamedThreads::GameThread, [WeakThis, Payload]()
+			{
+				if (ACFDVizCaseActor* Actor = WeakThis.Get())
+				{
+					Actor->GetObstacleComponent()->SetSurfaceData(*Payload);
+				}
+			});
+		});
 }
 
 bool ACFDVizCaseActor::LoadCaseFromPath(const FString& InCaseDirectory, FString& OutError)

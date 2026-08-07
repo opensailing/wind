@@ -75,9 +75,9 @@ namespace FlowVizTransferFunctionPanelLocal
 	 */
 	const FLinearColor DisclosurePalettes
 		[SFlowVizTransferFunctionPanel::DisclosureSlotCount][2] = {
-		/* NaN */        { FLinearColor(0.0f, 1.0f, 0.0f, 0.4f),
-						   FLinearColor(1.0f, 1.0f, 0.0f, 1.0f) },
-		/* Masked */     { FLinearColor(0.0f, 0.55f, 0.0f, 0.4f),
+		/* NaN */        { FLinearColor(0.0f, 1.0f, 0.0f, 0.0f),
+						   FLinearColor(0.0f, 1.0f, 0.0f, 1.0f) },
+		/* Masked */     { FLinearColor(0.0f, 0.55f, 0.0f, 0.0f),
 						   FLinearColor(0.3f, 0.3f, 0.3f, 1.0f) },
 		/* UnderRange */ { FLinearColor(0.0f, 1.0f, 1.0f, 1.0f),
 						   FLinearColor(0.0f, 0.25f, 1.0f, 1.0f) },

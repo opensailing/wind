@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 #include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizSurfaceMeshComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -161,6 +162,55 @@ bool FFlowVizSpawnCaseActorTest::RunTest(const FString& Parameters)
 			 "this the proxy's bHasParameters is false and it never calls the dispatcher, "
 			 "leaving an opaque hull box that looks exactly like a rendered volume"),
 		Volume->TryMakeShaderParameters(Params));
+
+	/* -- The obstacle rides the load (renderer overhaul P2) ----------------- */
+	//
+	// LoadCase queues a worker build of the boundary patches; the apply lands
+	// on the game thread via AsyncTask. In this headless test that hop is a
+	// game-thread task we can pump to completion deterministically.
+	{
+		UCFDVizSurfaceMeshComponent* Obstacle = Actor->GetObstacleComponent();
+		if (TestNotNull(TEXT("the actor owns an obstacle component"), Obstacle))
+		{
+			const double Deadline = FPlatformTime::Seconds() + 5.0;
+			while (Obstacle->GetSectionCount() == 0 && FPlatformTime::Seconds() < Deadline)
+			{
+				FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GameThread);
+				FPlatformProcess::Sleep(0.01f);
+			}
+
+			// The sample declares 4 patches across two meshes: cylinderWall,
+			// inlet, outlet, sideWalls. Every one becomes a section.
+			TestEqual(TEXT("every declared boundary patch became a mesh section"),
+				Obstacle->GetSectionCount(), 4);
+
+			// The manifest's defaultVisible is applied, not merely recorded:
+			// sideWalls (patch 3) declares false and must arrive hidden.
+			int32 SideWallsIndex = INDEX_NONE;
+			int32 WallIndex = INDEX_NONE;
+			for (int32 Index = 0; Index < Obstacle->GetSectionCount(); ++Index)
+			{
+				if (Obstacle->GetSectionId(Index) == 3u) { SideWallsIndex = Index; }
+				if (Obstacle->GetSectionId(Index) == 4u) { WallIndex = Index; }
+			}
+			if (TestTrue(TEXT("the sideWalls patch is addressable by id"),
+					SideWallsIndex != INDEX_NONE))
+			{
+				TestFalse(TEXT("sideWalls arrives hidden -- defaultVisible applied"),
+					Obstacle->IsSectionVisible(SideWallsIndex));
+			}
+			if (TestTrue(TEXT("the cylinder wall is addressable by id"),
+					WallIndex != INDEX_NONE))
+			{
+				TestTrue(TEXT("the cylinder wall arrives visible"),
+					Obstacle->IsSectionVisible(WallIndex));
+			}
+
+			// Opaque and shadowed: the compositing rules as component state.
+			TestTrue(TEXT("the obstacle casts shadows -- it is real scene geometry"),
+				Obstacle->CastShadow != 0);
+		}
+	}
 
 	// The degenerate-domain defect this suite already fixed once, asserted here
 	// too: at the seam Python actually uses, not only at the component's.

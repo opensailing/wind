@@ -63,6 +63,12 @@ public:
 		return FlowComponent;
 	}
 
+	/** The obstacle's opaque lit surface (renderer overhaul P2). */
+	class UCFDVizSurfaceMeshComponent* GetObstacleComponent() const
+	{
+		return ObstacleComponent;
+	}
+
 	UCFDVizVolumeComponent* GetVolumeComponent() const
 	{
 		return VolumeComponent;
@@ -86,6 +92,12 @@ public:
 
 	UPROPERTY()
 	TObjectPtr<class UCFDVizFlowComponent> FlowComponent;
+
+	UPROPERTY()
+	TObjectPtr<class UCFDVizSurfaceMeshComponent> ObstacleComponent;
+
+	/** Build every declared mesh's patches on a worker and apply on the game thread. */
+	void LoadBoundaryMeshes();
 
 private:
 	/** The volume representation, attached to the root rather than being it - see the class comment. */

@@ -17,7 +17,8 @@ public class FlowVizRuntime : ModuleRules
 			"RHI",
 			"Renderer",
 			"Projects",
-			"Niagara"
+			"Niagara",
+			"ProceduralMeshComponent"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
