@@ -178,3 +178,84 @@ Per the global TDD instruction: items 0, 3, and 4 have pure-function cores (NaN-
 - **The hull.** Delete any UI implying the domain box is a renderable object; it becomes a wireframe reference frame (and, invisibly, the volume mode's ray entry geometry).
 
 **Bottom line:** our foundations — runtime ranges, scrubbing, live probes, a colormap library with uniformity metadata — are genuinely ahead of FluidX3D. The gap is in what gets drawn and in unstated policy (NaN handling, per-field map defaults, compositing rules, dataset-aware seeding). Ship items 0–3 of section 5 and the same demo data will produce the picture people recognize as CFD: an opaque gray obstacle in a hairline wireframe box, sitting on a sharp z-mid vorticity plane — with the iso-surface pipeline ready for the day the data is deep enough to grow tubes.
+---
+
+## 7. Beyond correct: the film / AAA tier
+
+Sections 1–6 get FlowViz to *credible* — the picture a CFD engineer recognizes. This section is the explicit goal past that: frames you could cut into a nature documentary or a AAA game's wind-tunnel scene. The references top out here — FluidX3D's renderer is a software rasterizer with a headlight; ParaView is an analysis tool. UE5 is the one place in this comparison built for film-quality real-time imagery, and we are already inside it. The gap is ours to take.
+
+What separates "correct CFD viz" from "film CFD viz" is not more data — it is light, material, motion, and shot language:
+
+**7.1 Light and shadow do the physics reading.**
+- The iso-surface and cut plane become **Lumen-lit dynamic meshes**: the Q-tubes should receive soft GI and sky occlusion, and — the big one — **cast shadows onto the obstacle and the floor**. A vortex tube whose shadow slides along the cylinder reads as a physical object; an unlit colored surface reads as a plot. This is free once the geometry is real meshes with `bCastDynamicShadow` (procedural mesh sections already support it) — no custom renderer work.
+- A deliberate **three-point studio rig** as the Presentation profile's world: key light angled across the flow axis (grazes the tubes, brings out surface curvature), cool fill, rim light from behind the wake so tube silhouettes glow at their edges. Scientific profile keeps the flat headlight. The profile system (`FFlowVizWorkspaceModel::SetPresentationMode`) already exists as the switch.
+- **Volumetric shadowing inside the fog mode**: when the volume is on, self-shadowed single scattering (a shadow ray toward the key light per march step, coarse-stepped) turns "glowing milk" into "smoke caught in light" — the single highest-impact upgrade the volume path can receive. Our ray-march shader owns its loop, so this is additive.
+
+**7.2 Materials that read as matter, not as color.**
+- Obstacle: a true PBR material — brushed metal or matte lab-model gray with a clearcoat, normal-mapped micro-detail, so the studio rig has something to catch. Colored-by-pressure remains a mode: pressure drives a colormap into Base Color while roughness/spec stay physical.
+- Iso-surfaces: colormap in Base Color but with **low roughness + slight subsurface/opacity falloff at grazing angles** (Fresnel-driven), which is what makes film smoke/water surfaces feel wet and alive rather than plastic.
+- Streamlines upgrade from `ULineBatchComponent` debug lines (fixed-width, unlit, aliased — fine for scaffolding, never film) to **ribbon/tube geometry**: camera-facing ribbons or swept tubes with radius ∝ local |U| or seeded-constant, lit, shadowed, colormap along length. This is precisely what Niagara Ribbons exist for.
+- Particles/pathlines: **Niagara GPU simulation sampling our velocity field**. We already upload the field as a 3D texture for the ray-marcher; a Niagara data-interface (or a simple custom module sampling the same texture) advects hundreds of thousands of sprites/ribbons in real time — the "million dust motes tracing the wake" shot that no CPU advector reaches. Motion-blurred sprites with depth-of-field are the signature film-CFD look.
+
+**7.3 Temporal and cinematic polish.**
+- **TSR + motion vectors everywhere**: procedural meshes rebuilt per frame must write velocities (previous-frame positions on the mesh sections) so temporal AA and motion blur treat the evolving iso-surface as a moving object, not per-frame noise. This is the difference between "flickering plot" and "flowing surface" in motion.
+- **Frame interpolation as shipped behavior**: our player already blends between stored frames; the film tier makes sub-frame interpolation drive *geometry* too (morph MC vertices between adjacent frames where topology allows, cross-fade where it does not).
+- **Cinematic camera moves**: the orbit camera gains a dolly/flythrough track mode — a spline the user records (or presets: slow orbit, wake fly-through, obstacle close-up push-in) with exponential smoothing, plus cine-camera DoF focused on the obstacle. Pairs with the capture library for one-click "render this orbit as a 4K sequence."
+- **Movie Render Queue integration** for offline-quality export: MRQ gives us temporal supersampling, high-res tiling, and — where the licensee build allows — the **path tracer**, which turns the Presentation still into an actual film frame (real GI on the tubes, soft area shadows, physically correct volume scattering). The annotate/burn-in pipeline runs as an MRQ post pass so exports stay self-describing.
+- **Tone mapping discipline**: manual exposure locked per profile (auto-exposure pumps on dark scientific backgrounds), filmic tonemapper defaults, optional very subtle bloom on the brightest colormap end — enough to make peak vorticity *glow*, never enough to halo the legend.
+
+**7.4 The bar, made testable.** "Looks AAA" is subjective; these are not:
+- Every visible primitive is lit and shadow-casting (no unlit debug geometry in Presentation mode) — assert by material/component audit.
+- Zero temporal shimmer on a static shot at 4K/TSR (screenshot-diff two consecutive frames of a paused sim).
+- The blind side-by-side: capture our cylinder wake next to a FluidX3D wake render and an OpenFOAM/ParaView propeller shot; a harsh reviewer (human or model) judging "which is the film frame" must pick ours at better than chance. This is the acceptance test the project's original brief asked for, now concrete.
+
+---
+
+## 8. UE5 architecture brief
+
+How the above maps onto engine systems — what we build custom, what we lean on the engine for, and where the seams go. The organizing rule: **simulation data is engine-agnostic; everything the viewer draws is a thin, swappable consumer of tested pure builders.** That rule already holds (`BuildPatches`, `BuildSliceGlyphs`, `BuildStreamlines`, the samplers — all pure, all tested); the architecture below extends it rather than replacing it.
+
+```
+                        ┌─────────────────────────────────────────────┐
+                        │            FlowVizRuntime (plugin)          │
+  case on disk ───────► │  CFDViz IO (pure C++, no engine types)      │
+  (.cfdviz)             │  FFlowVizCasePlayer  (decode, cache, clock) │
+                        │  Pure builders: MC/Q, cut-plane, stream-    │
+                        │  lines, glyph xforms, boundary patches      │  ◄── all TDD'd,
+                        └───────────────┬─────────────────────────────┘      headless
+                                        │ typed geometry/field payloads
+            ┌───────────────────────────┼──────────────────────────────────┐
+            ▼                           ▼                                  ▼
+  ┌──────────────────┐      ┌────────────────────────┐        ┌─────────────────────┐
+  │ Volume path       │      │ Surface path           │        │ Flow path            │
+  │ SceneProxy + RDG  │      │ UDynamicMesh/PMC       │        │ Niagara systems      │
+  │ compute ray-march │      │ sections: obstacle,    │        │ GPU particles, ribbon│
+  │ (exists today)    │      │ iso, cut plane, wire   │        │ streamlines, glyphs  │
+  │ depth-aware, self-│      │ box; Lumen-lit, shadow,│        │ sampling the SAME 3D │
+  │ shadowed scatter  │      │ motion vectors         │        │ field textures       │
+  └──────────────────┘      └────────────────────────┘        └─────────────────────┘
+            │                           │                                  │
+            └───────────── one world: ACFDVizCaseActor components ─────────┘
+                                        │
+                     Slate workspace (view models → push, unchanged)
+                     Profiles: Scientific (flat) / Presentation (studio rig)
+                     Capture: FlowVizCaptureLibrary → MRQ for film export
+```
+
+**The three render paths and their engine substrates:**
+
+1. **Volume path (custom, exists).** Stays a scene-proxy compute dispatch through RDG. Gains: scene-depth-aware termination (composite correctly behind opaque surfaces), single-scatter shadow ray, blue-noise jitter that TSR resolves. This is the one path where we own every pixel — right choice for DVR, wrong default for everything else.
+
+2. **Surface path (engine-native, new).** Obstacle patches, marching-cubes iso-surfaces, cut planes, and the wireframe domain box are **mesh components** (`UProceduralMeshComponent` now; `UDynamicMeshComponent` if per-frame rebuild cost demands its faster update path). They opt into everything the engine does well — Lumen GI, virtual shadow maps, TSR motion vectors, path-traced export — for free. Per-frame updates go through section-update calls (positions/normals/colors), never component recreation; vertex color carries the colormap via one shared LUT-sampling material function so viewport, legend, and burned-in captures can never disagree. The pure builders emit `FFlowVizMeshPayload` (positions/indices/normals/colors + previous-frame positions for velocity) on worker threads; the component applies on game thread — the exact worker/apply split the sampling service already uses.
+
+3. **Flow path (Niagara, new).** Streamline ribbons, glyph fields, and the film-tier particle advection become Niagara systems fed by a **field data-interface**: the same 3D textures the volume path uploads, exposed read-only to Niagara GPU sims. CPU-side `BuildStreamlines` remains the tested reference implementation and the headless-test seam; Niagara is the *presentation* of the same math at film scale. Determinism note: captures that must be reproducible pin the Niagara seed and tick it from the player's clock, not wall time.
+
+**Cross-cutting rules (the load-bearing ones):**
+- **Compositing:** opaque + z-write for every surface; the volume alone is translucent and must read scene depth. Mode toggles compose because of this rule and only because of it (section 5, item 5).
+- **One clock:** `FFlowVizCasePlayer` remains the single time authority. Every path — texture uploads, mesh rebuilds, Niagara ticks — consumes its frame selection; nothing keeps a second clock. Blending weight for sub-frame interpolation flows to all three paths from the same selection struct.
+- **One color authority:** `CFDViz::ColorMaps` LUTs feed the material function, the Slate legend, and the capture burn-in. A colormap added in one place appears in all three or the build fails a parity test.
+- **Threading:** decode and geometry building on `UE::Tasks` workers (already the pattern); render-thread work stays in proxies/RDG; game thread only applies payloads and pushes view-model state. No path blocks on the GPU.
+- **Profiles are world-state, not shader flags:** Presentation swaps in the studio light rig, PBR obstacle material, particle density, and exposure lock as an actor/component configuration; Scientific swaps back. The renderer code paths do not branch on profile — the *scene* does.
+- **Testing stays honest:** every new pure builder (MC topology, Q stencils, ribbon geometry, payload velocity generation) lands test-first like its predecessors; engine-side consumers stay thin enough that the existing "thin consumer" doctrine (documented in FINAL_REPORT) keeps applying. The film-tier acceptance gate is the blind side-by-side in 7.4.
+
+**Sequencing note.** The architecture is deliberately incremental from today's code: item 1 of section 5 deletes hull geometry, items 2–3 stand up the Surface path with builders that exist or are specified, section 7's lighting/material work then lands *on top of the same components* without rework, and Niagara replaces debug lines only after the CPU reference implementations are attached and verified. No step strands a previous one.
