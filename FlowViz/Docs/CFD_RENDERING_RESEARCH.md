@@ -1,5 +1,16 @@
 # FlowViz Rendering Overview: Why It Looks Wrong and What the Best-in-Class Do Instead
 
+> **STATUS (2026-08-08): sections 5-8 are EXECUTED.** P1-P9 of the plan built
+> from this document are committed: the hull is dead, the obstacle is an
+> opaque lit mesh, the z-mid cut plane (unlit, vertex-colored through the
+> authority) is the default picture, marching-cubes Q iso-surfaces colored by
+> |U| rebuild per frame, streamlines and CPU tracer particles are in the
+> default picture, the volume is demoted/depth-clamped/self-shadowing, the
+> studio rig and film materials ride the Presentation profile, the Niagara
+> feed is packed+tested, and the annotated sequence export ships. Remaining
+> tails are listed in commit 50626df: capture brightness calibration, the
+> capture harness's volume-era verdict, Niagara asset authoring, MRQ.
+
 Synthesized from deep reads of FluidX3D (real-time LBM with a famously good built-in renderer) and OpenFOAM-13 (industry solver, viewing delegated to ParaView). Reference citations point into `/Users/bcardarella/projects/FluidX3D` and `/Users/bcardarella/projects/OpenFOAM-13`. FlowViz citations point into `/Users/bcardarella/projects/wind/FlowViz/Plugins/FlowVizRuntime/Source/FlowVizRuntime` (abbreviated below as `FVR/`). Claims about ParaView's own UI are general knowledge and marked as such — ParaView's source is not in the corpus; only OpenFOAM's reader plugin and tutorial dicts are.
 
 One constraint shapes every recommendation below: **the current demo dataset is 56x28x6 — quasi-2D, ~9.4k cells.** Six z-cells means central-difference Q has at most 4 valid interior z-samples, so a 3D iso-surface on this data will be a few coarse stacked bands, not FluidX3D's signature tubes (those come from 256³–2000³ grids). The plan therefore distinguishes the honest hero shot for *this* dataset (the z-mid cut plane) from the 3D iso pipeline (built now, targeted at future full-resolution cases).
