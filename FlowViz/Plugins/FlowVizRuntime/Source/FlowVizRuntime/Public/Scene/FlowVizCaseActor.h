@@ -117,6 +117,24 @@ public:
 	/** Build every declared mesh's patches on a worker and apply on the game thread. */
 	void LoadBoundaryMeshes();
 
+public:
+	/**
+	 * Swap the surface materials to the profile's set (renderer overhaul P7):
+	 * Presentation = PBR obstacle + Fresnel colormap; Scientific = the flat
+	 * pair. Materials only -- geometry, sections and visibility untouched.
+	 */
+	void ApplyProfileMaterials(bool bPresentation);
+
+private:
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> SurfaceMaterialScientific;
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> SurfaceMaterialPresentation;
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> ColormapMaterialScientific;
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> ColormapMaterialPresentation;
+
 private:
 	/** The volume representation, attached to the root rather than being it - see the class comment. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "FlowViz",

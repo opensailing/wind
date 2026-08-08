@@ -6,6 +6,7 @@
 #include "Playback/FlowVizCasePlayer.h"
 #include "Scene/FlowVizCaseActor.h"
 #include "Scene/FlowVizFlowComponent.h"
+#include "Scene/FlowVizStudioRig.h"
 #include "Scene/FlowVizSurfaceMeshComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
@@ -611,9 +612,43 @@ void SFlowVizWorkspace::ApplyModeVisibility()
 	}
 }
 
+void SFlowVizWorkspace::ApplyProfileToScene()
+{
+	/*
+	 * PROFILES ARE WORLD STATE (P7). Presentation carries the three-point
+	 * studio rig on the case actor; Scientific strips it back to the map's
+	 * flat light. The model owns the FLAG; the workspace owns the hop to the
+	 * scene, exactly like the mode toggles above.
+	 */
+	UCFDVizVolumeComponent* BoundVolume = GetVolume();
+	if (BoundVolume == nullptr)
+	{
+		return;
+	}
+	if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+	{
+		const bool bWantRig = Model->IsPresentationMode();
+		if (bWantRig != FlowVizStudioRig::IsApplied(*Actor))
+		{
+			if (bWantRig)
+			{
+				FlowVizStudioRig::Apply(*Actor);
+			}
+			else
+			{
+				FlowVizStudioRig::Remove(*Actor);
+			}
+			// Materials ride the same switch: PBR obstacle + Fresnel colormap
+			// in Presentation, the flat pair in Scientific (P7).
+			Actor->ApplyProfileMaterials(bWantRig);
+		}
+	}
+}
+
 bool SFlowVizWorkspace::PushToVolume()
 {
 	ApplyModeVisibility();
+	ApplyProfileToScene();
 
 	// PushClipToVolume refuses a null component itself, so this could pass
 	// Volume.Get() straight through. It is written out because the two null

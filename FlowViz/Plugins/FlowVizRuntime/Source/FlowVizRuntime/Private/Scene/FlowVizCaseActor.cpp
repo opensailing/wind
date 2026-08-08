@@ -68,19 +68,21 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 	 */
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> SurfaceMaterial(
 		TEXT("/FlowVizRuntime/M_FlowVizSurface.M_FlowVizSurface"));
-	if (SurfaceMaterial.Succeeded())
-	{
-		ObstacleComponent->SetMaterial(0, SurfaceMaterial.Object);
-	}
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ColormapMaterial(
 		TEXT("/FlowVizRuntime/M_FlowVizColormapSurface.M_FlowVizColormapSurface"));
-	if (ColormapMaterial.Succeeded())
-	{
-		CutPlaneComponent->SetMaterial(0, ColormapMaterial.Object);
-		// The iso surface shares the colormap material: same LUT, same UV0
-		// scalar contract -- one color authority (P3's rule).
-		IsoSurfaceComponent->SetMaterial(0, ColormapMaterial.Object);
-	}
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ObstaclePBR(
+		TEXT("/FlowVizRuntime/M_FlowVizObstaclePBR.M_FlowVizObstaclePBR"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ColormapPresentation(
+		TEXT("/FlowVizRuntime/M_FlowVizColormapPresentation.M_FlowVizColormapPresentation"));
+	SurfaceMaterialScientific = SurfaceMaterial.Object;
+	SurfaceMaterialPresentation =
+		ObstaclePBR.Succeeded() ? ObstaclePBR.Object : SurfaceMaterial.Object;
+	ColormapMaterialScientific = ColormapMaterial.Object;
+	ColormapMaterialPresentation =
+		ColormapPresentation.Succeeded() ? ColormapPresentation.Object : ColormapMaterial.Object;
+
+	// Scientific is the shipped default profile, so its set is the ctor's.
+	ApplyProfileMaterials(/*bPresentation*/ false);
 }
 
 FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName InFieldId)
@@ -102,6 +104,31 @@ FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName I
 		LoadBoundaryMeshes();
 	}
 	return Result;
+}
+
+void ACFDVizCaseActor::ApplyProfileMaterials(bool bPresentation)
+{
+	UMaterialInterface* Surface =
+		bPresentation ? SurfaceMaterialPresentation : SurfaceMaterialScientific;
+	UMaterialInterface* Colormap =
+		bPresentation ? ColormapMaterialPresentation : ColormapMaterialScientific;
+	if (ObstacleComponent != nullptr && Surface != nullptr)
+	{
+		ObstacleComponent->SetMaterial(0, Surface);
+	}
+	if (Colormap != nullptr)
+	{
+		if (CutPlaneComponent != nullptr)
+		{
+			CutPlaneComponent->SetMaterial(0, Colormap);
+		}
+		if (IsoSurfaceComponent != nullptr)
+		{
+			// The iso surface shares the colormap material: same LUT, same UV0
+			// scalar contract -- one color authority (P3's rule).
+			IsoSurfaceComponent->SetMaterial(0, Colormap);
+		}
+	}
 }
 
 void ACFDVizCaseActor::LoadBoundaryMeshes()

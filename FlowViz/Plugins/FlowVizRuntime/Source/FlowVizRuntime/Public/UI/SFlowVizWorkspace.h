@@ -104,6 +104,9 @@ public:
 	/** Component visibility from the P6 mode toggles. Called by every push. */
 	void ApplyModeVisibility();
 
+	/** The P7 studio rig: applied/removed on the bound actor to match the profile. */
+	void ApplyProfileToScene();
+
 	/* --- Sessions ---------------------------------------------------------- */
 
 	/**

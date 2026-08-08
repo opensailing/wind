@@ -470,6 +470,46 @@ float4 FlowVizShadeSample(FFlowVizSample Sample)
  * (VISUAL_QA rule 1); OutValue.x is written from the unlit sample, so a test
  * can assert bit equality between a lit and an unlit render.
  */
+/**
+ * Single-scatter self-shadowing (renderer overhaul P7; research doc 7.1's
+ * "smoke caught in light"). A COARSE march from the sample toward the light:
+ * accumulated opacity along the shadow ray attenuates the diffuse term, so
+ * dense regions darken their own lee side. Coarse deliberately -- 8 long
+ * steps read as soft shadowing; matching the primary step count would double
+ * the whole march's cost for detail the eye cannot see inside fog.
+ */
+float FlowVizShadowTransmittance(float3 LocalPos)
+{
+	const float3 ToLight = -normalize(LightDirection);
+	// Long steps: cross the domain's diagonal in FLOWVIZ_SHADOW_STEPS hops.
+	const float StepLength = length(PhysicalSize) / 8.0f;
+	float Transmittance = 1.0f;
+	float3 Position = LocalPos;
+	[unroll]
+	for (uint Step = 0u; Step < 8u; ++Step)
+	{
+		Position += ToLight * StepLength;
+		const float3 UVW = Position / PhysicalSize;
+		if (any(UVW < 0.0f) || any(UVW > 1.0f))
+		{
+			break;
+		}
+		const FFlowVizSample Sample = FlowVizSampleVolume(Position);
+		if (Sample.Reason == FLOWVIZ_REASON_VALID)
+		{
+			const float4 Shaded = FlowVizShadeSample(Sample);
+			// The same opacity the primary ray would see, scaled by the long
+			// step so shadow density is resolution-independent.
+			Transmittance *= 1.0f - saturate(Shaded.a * OpacityMultiplier);
+		}
+		if (Transmittance < 0.05f)
+		{
+			break;
+		}
+	}
+	return Transmittance;
+}
+
 float3 FlowVizApplyLighting(float3 BaseColor, float3 LocalPos)
 {
 	if (bEnableLighting == 0)
@@ -484,7 +524,10 @@ float3 FlowVizApplyLighting(float3 BaseColor, float3 LocalPos)
 	}
 	const float3 Normal = -Gradient / GradLength;
 	const float NdotL = saturate(dot(Normal, -normalize(LightDirection)));
-	return BaseColor * (AmbientStrength + DiffuseStrength * NdotL);
+	// Self-shadowing attenuates DIFFUSE only: ambient is the floor that keeps
+	// shadowed fog readable, and the reported value is untouched as ever.
+	const float Shadow = FlowVizShadowTransmittance(LocalPos);
+	return BaseColor * (AmbientStrength + DiffuseStrength * NdotL * Shadow);
 }
 
 /* -------------------------------------------------------------------------- */

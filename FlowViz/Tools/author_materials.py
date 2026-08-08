@@ -81,4 +81,72 @@ mel.connect_material_property(rough2, "", unreal.MaterialProperty.MP_ROUGHNESS)
 mel.recompile_material(surface)
 eal.save_asset(f"{CONTENT_ROOT}/M_FlowVizSurface")
 
-unreal.log("FlowViz materials authored: M_FlowVizColormapSurface, M_FlowVizSurface")
+# --- M_FlowVizObstaclePBR (P7): the film-tier obstacle -----------------------
+# Matte lab-model gray with a clearcoat: enough spec for the studio rig to
+# catch, low enough roughness variation to stay visually neutral so colored
+# flow pops against it (the FluidX3D 0xDFDFDF philosophy through UE's lit path).
+pbr = make_material("M_FlowVizObstaclePBR")
+
+pbr_base = mel.create_material_expression(
+    pbr, unreal.MaterialExpressionConstant3Vector, -600, 0)
+pbr_base.set_editor_property("constant", unreal.LinearColor(0.62, 0.63, 0.66, 1.0))
+mel.connect_material_property(pbr_base, "", unreal.MaterialProperty.MP_BASE_COLOR)
+
+pbr_rough = mel.create_material_expression(
+    pbr, unreal.MaterialExpressionConstant, -600, 200)
+pbr_rough.set_editor_property("r", 0.45)
+mel.connect_material_property(pbr_rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+
+pbr_spec = mel.create_material_expression(
+    pbr, unreal.MaterialExpressionConstant, -600, 300)
+pbr_spec.set_editor_property("r", 0.6)
+mel.connect_material_property(pbr_spec, "", unreal.MaterialProperty.MP_SPECULAR)
+
+mel.recompile_material(pbr)
+eal.save_asset(f"{CONTENT_ROOT}/M_FlowVizObstaclePBR")
+
+# --- M_FlowVizColormapPresentation (P7): the film-tier iso/plane -------------
+# Same LUT-at-UV0 contract as the Scientific colormap surface, plus what makes
+# film surfaces feel wet and alive: low roughness and a Fresnel-driven
+# emissive lift at grazing angles (research doc 7.2).
+pres = make_material("M_FlowVizColormapPresentation")
+
+pres_tex = mel.create_material_expression(
+    pres, unreal.MaterialExpressionTextureSampleParameter2D, -800, 0)
+pres_tex.set_editor_property("parameter_name", "ColorLUT")
+pres_tex.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+pres_tex.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/DefaultTexture"))
+
+pres_uv = mel.create_material_expression(
+    pres, unreal.MaterialExpressionTextureCoordinate, -1000, 0)
+pres_uv.set_editor_property("coordinate_index", 0)
+mel.connect_material_expressions(pres_uv, "", pres_tex, "UVs")
+mel.connect_material_property(pres_tex, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+
+pres_rough = mel.create_material_expression(
+    pres, unreal.MaterialExpressionConstant, -800, 240)
+pres_rough.set_editor_property("r", 0.25)
+mel.connect_material_property(pres_rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+
+# Fresnel * LUT color * small constant -> emissive: the grazing-angle rim lift.
+pres_fresnel = mel.create_material_expression(
+    pres, unreal.MaterialExpressionFresnel, -800, 340)
+pres_fresnel.set_editor_property("exponent", 3.0)
+pres_scale = mel.create_material_expression(
+    pres, unreal.MaterialExpressionMultiply, -560, 340)
+mel.connect_material_expressions(pres_tex, "RGB", pres_scale, "A")
+mel.connect_material_expressions(pres_fresnel, "", pres_scale, "B")
+pres_dim = mel.create_material_expression(
+    pres, unreal.MaterialExpressionMultiply, -380, 340)
+pres_half = mel.create_material_expression(
+    pres, unreal.MaterialExpressionConstant, -560, 460)
+pres_half.set_editor_property("r", 0.35)
+mel.connect_material_expressions(pres_scale, "", pres_dim, "A")
+mel.connect_material_expressions(pres_half, "", pres_dim, "B")
+mel.connect_material_property(pres_dim, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+mel.recompile_material(pres)
+eal.save_asset(f"{CONTENT_ROOT}/M_FlowVizColormapPresentation")
+
+unreal.log("FlowViz materials authored: M_FlowVizColormapSurface, M_FlowVizSurface, "
+           "M_FlowVizObstaclePBR, M_FlowVizColormapPresentation")
