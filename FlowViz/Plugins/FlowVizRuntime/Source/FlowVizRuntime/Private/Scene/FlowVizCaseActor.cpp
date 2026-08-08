@@ -47,6 +47,14 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 	// recreate the obstacle's render state.
 	CutPlaneComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("CutPlane"));
 	CutPlaneComponent->SetupAttachment(Root);
+	/*
+	 * A DATA DISPLAY DOES NOT SHADOW THE WORLD. The first packaged capture
+	 * showed the domain-sized plane casting a domain-sized black rectangle
+	 * across the floor -- physically honest for matter, absurd for a slice of
+	 * data (ParaView planes do not shadow). The obstacle and iso surface keep
+	 * their shadows: they represent THINGS.
+	 */
+	CutPlaneComponent->SetCastShadow(false);
 
 	IsoSurfaceComponent = CreateDefaultSubobject<UCFDVizSurfaceMeshComponent>(TEXT("IsoSurface"));
 	IsoSurfaceComponent->SetupAttachment(Root);

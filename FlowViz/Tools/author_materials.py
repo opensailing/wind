@@ -43,6 +43,12 @@ tex.set_editor_property("parameter_name", "ColorLUT")
 # The LUT is linear color (sRGB off on the texture); LinearColor sampler type
 # matches, and a Color sampler would double-decode.
 tex.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+# A DEFAULT TEXTURE, or the sampler node has nothing to compile against and
+# the whole material fails on Metal ("Failed to compile ... SF_METAL_SM6",
+# default material used) -- observed as a BLACK cut plane in the first
+# packaged capture. Any engine linear texture works; the runtime swaps in
+# the real LUT per colormap.
+tex.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/DefaultTexture"))
 
 uv = mel.create_material_expression(
     colormap, unreal.MaterialExpressionTextureCoordinate, -820, 0)
