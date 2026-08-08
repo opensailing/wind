@@ -468,6 +468,21 @@ void FFlowVizWorkspaceModel::SetObstacleVisible(bool bVisible)
 	bObstacleVisible = bVisible;
 }
 
+void FFlowVizWorkspaceModel::SetParticlesEnabled(bool bEnabled)
+{
+	bParticlesEnabled = bEnabled;
+	if (bEnabled && Particles.Num() == 0)
+	{
+		// 512 tracers: dense enough to read as flow at demo scale, cheap
+		// enough for the CPU path. The Niagara upgrade raises the count.
+		Particles.SetNum(512);
+	}
+	if (!bEnabled)
+	{
+		Particles.Reset();
+	}
+}
+
 void FFlowVizWorkspaceModel::SetStreamlinesEnabled(bool bEnabled)
 {
 	if (bStreamlinesEnabled != bEnabled)
@@ -544,6 +559,15 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 		/** Streamlines from the default rake (renderer overhaul P5). */
 		bool bHasStreamlines = false;
 		TArray<FFlowVizStreamline> Streamlines;
+
+		/*
+		 * The frame's velocity sampler and mask, SHARED (renderer overhaul
+		 * P8): immutable after Build, so the game thread can advect tracers
+		 * from them while later workers build replacements. Sharing what the
+		 * streamline build already decoded costs nothing.
+		 */
+		TSharedPtr<const FFlowVizFieldSampler, ESPMode::ThreadSafe> VelocitySampler;
+		TSharedPtr<const FFlowVizFieldMask, ESPMode::ThreadSafe> VelocityMask;
 	};
 
 	FCriticalSection Mutex;
@@ -893,14 +917,23 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 				FVector RakeStart, RakeEnd;
 				if (FlowVizFlow::MakeDefaultRake(StreamDomain, RakeStart, RakeEnd))
 				{
-					FFlowVizFieldSampler StreamSampler;
-					if (StreamSampler.Build(*CaseRef, TEXT("U"), FrameIndex).IsOk())
+					TSharedPtr<FFlowVizFieldSampler, ESPMode::ThreadSafe> StreamSampler =
+						MakeShared<FFlowVizFieldSampler, ESPMode::ThreadSafe>();
+					if (StreamSampler->Build(*CaseRef, TEXT("U"), FrameIndex).IsOk())
 					{
 						FFlowVizStreamlineSettings StreamSettings;
 						StreamSettings.SeedCount = 24;
 						Result.bHasStreamlines = FlowVizFlow::BuildStreamlines(
-							StreamSampler, RakeStart, RakeEnd, StreamSettings,
+							*StreamSampler, RakeStart, RakeEnd, StreamSettings,
 							Result.Streamlines);
+
+						// Shared onward for the P8 tracer tick: immutable from
+						// here, so cross-thread reads are safe by construction.
+						TSharedPtr<FFlowVizFieldMask, ESPMode::ThreadSafe> StreamMask =
+							MakeShared<FFlowVizFieldMask, ESPMode::ThreadSafe>();
+						StreamMask->Build(*StreamSampler);
+						Result.VelocitySampler = StreamSampler;
+						Result.VelocityMask = StreamMask;
 					}
 				}
 			}
@@ -964,6 +997,11 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 		{
 			Streamlines = MoveTemp(Result.Streamlines);
 			bStreamlinesFresh = true;
+		}
+		if (Result.VelocitySampler.IsValid())
+		{
+			DisplayedVelocitySampler = Result.VelocitySampler;
+			DisplayedVelocityMask = Result.VelocityMask;
 		}
 
 		if (Result.bHasIsoSurface)

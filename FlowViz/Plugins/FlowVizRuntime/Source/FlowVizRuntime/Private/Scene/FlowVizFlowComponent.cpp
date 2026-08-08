@@ -34,6 +34,19 @@ UCFDVizFlowComponent::UCFDVizFlowComponent()
 
 	LineBatch = CreateDefaultSubobject<ULineBatchComponent>(TEXT("Streamlines"));
 	LineBatch->SetupAttachment(this);
+
+	// Tracer sprites (P8's CPU path): the engine sphere at a small uniform
+	// scale. Same headless-constructible reasoning as the cone.
+	ParticleMesh = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("Particles"));
+	ParticleMesh->SetupAttachment(this);
+	ParticleMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ParticleMesh->SetCastShadow(false);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereFinder(
+		TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	if (SphereFinder.Succeeded())
+	{
+		ParticleMesh->SetStaticMesh(SphereFinder.Object);
+	}
 }
 
 void UCFDVizFlowComponent::SetFlowData(
@@ -74,6 +87,33 @@ void UCFDVizFlowComponent::ClearFlowData()
 {
 	GlyphMesh->ClearInstances();
 	LineBatch->Flush();
+	ParticleMesh->ClearInstances();
+}
+
+void UCFDVizFlowComponent::SetParticlePositions(
+	TArrayView<const FVector> SolverPositions, double MetersToUnrealUnits)
+{
+	ParticleMesh->ClearInstances();
+	if (SolverPositions.Num() == 0)
+	{
+		return;
+	}
+	TArray<FTransform> Transforms;
+	Transforms.Reserve(SolverPositions.Num());
+	// 3 uu radius: visible at domain scale, small enough to read as a tracer.
+	const FVector Scale(0.06);
+	for (const FVector& Solver : SolverPositions)
+	{
+		Transforms.Add(FTransform(FQuat::Identity,
+			SolverToUnrealPosition(Solver, MetersToUnrealUnits), Scale));
+	}
+	ParticleMesh->AddInstances(Transforms, /*bShouldReturnIndices*/ false,
+		/*bWorldSpace*/ false);
+}
+
+int32 UCFDVizFlowComponent::GetParticleInstanceCount() const
+{
+	return ParticleMesh->GetInstanceCount();
 }
 
 int32 UCFDVizFlowComponent::GetGlyphInstanceCount() const

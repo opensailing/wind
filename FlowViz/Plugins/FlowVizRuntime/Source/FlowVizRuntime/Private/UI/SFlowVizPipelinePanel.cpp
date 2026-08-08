@@ -105,11 +105,25 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 						.ColorAndOpacity(FSlateColor::UseForeground())
 				]
 			]
-			+ SHorizontalBox::Slot().AutoWidth()
+			+ SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0, 0, 0.5f * U, 0))
 			[
 				SAssignNew(ModeToggleButtons[4], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 4))
+					.ToolTipText(LOCTEXT("ParticlesTip",
+						"Show or hide tracer particles advected through the flow"))
+					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
+				[
+					SNew(STextBlock).Text(LOCTEXT("ParticlesMode", "Particles"))
+						.Font(FlowVizWorkspaceStyle::GetCaptionFont())
+						.ColorAndOpacity(FSlateColor::UseForeground())
+				]
+			]
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				SAssignNew(ModeToggleButtons[5], SButton)
+					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 5))
 					.ToolTipText(LOCTEXT("VolumeTip",
 						"Show or hide the volume render (off by default -- surfaces are "
 						"the picture; the volume is the optional fog)"))
@@ -266,7 +280,8 @@ FReply SFlowVizPipelinePanel::OnModeToggleClicked(int32 ModeIndex)
 	case 1: Model->Slice.SetVisible(!Model->Slice.IsVisible()); break;
 	case 2: Model->SetIsoSurfaceEnabled(!Model->IsIsoSurfaceEnabled()); break;
 	case 3: Model->SetStreamlinesEnabled(!Model->AreStreamlinesEnabled()); break;
-	case 4: Model->SetVolumeVisible(!Model->IsVolumeVisible()); break;
+	case 4: Model->SetParticlesEnabled(!Model->AreParticlesEnabled()); break;
+	case 5: Model->SetVolumeVisible(!Model->IsVolumeVisible()); break;
 	default: return FReply::Handled();
 	}
 	// One announcement channel: the workspace pushes, which applies component

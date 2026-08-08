@@ -173,14 +173,24 @@ bool FFlowVizPipelinePanelTest::RunTest(const FString& Parameters)
 				TogglePanel->GetModeToggleButton(Index).IsValid());
 		}
 
-		// Volume toggle: click flips the model and announces once.
+		// Volume toggle (index 5 since Particles joined at 4): click flips the
+		// model and announces once.
 		const int32 Before = ToggleCounter.Count;
-		TogglePanel->GetModeToggleButton(4)->SimulateClick();
+		TogglePanel->GetModeToggleButton(5)->SimulateClick();
 		TestTrue(TEXT("clicking Volume turns the fog on"), Model.IsVolumeVisible());
 		TestEqual(TEXT("and announces once, so the workspace applies visibility"),
 			ToggleCounter.Count, Before + 1);
-		TogglePanel->GetModeToggleButton(4)->SimulateClick();
+		TogglePanel->GetModeToggleButton(5)->SimulateClick();
 		TestFalse(TEXT("clicking again turns it back off"), Model.IsVolumeVisible());
+
+		// Particles toggle: off by default (the CPU path is opt-in until the
+		// Niagara upgrade), click arms the population.
+		TestFalse(TEXT("particles default off"), Model.AreParticlesEnabled());
+		TogglePanel->GetModeToggleButton(4)->SimulateClick();
+		TestTrue(TEXT("clicking Particles enables them"), Model.AreParticlesEnabled());
+		TestTrue(TEXT("and seeds a population"), Model.GetParticles().Num() > 0);
+		TogglePanel->GetModeToggleButton(4)->SimulateClick();
+		TestFalse(TEXT("clicking again disables"), Model.AreParticlesEnabled());
 
 		// Obstacle toggle drives its flag too.
 		TogglePanel->GetModeToggleButton(0)->SimulateClick();

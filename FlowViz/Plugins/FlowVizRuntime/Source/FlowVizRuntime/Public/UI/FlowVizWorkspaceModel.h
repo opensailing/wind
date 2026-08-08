@@ -5,6 +5,9 @@
 #include "CoreMinimal.h"
 #include "Flow/FlowVizChartSeries.h"
 #include "Flow/FlowVizFlowInspection.h"
+#include "Flow/FlowVizFieldMask.h"
+#include "Flow/FlowVizFieldSampler.h"
+#include "Flow/FlowVizParticles.h"
 #include "Scene/FlowVizMeshPayload.h"
 #include "Playback/FlowVizCasePlayer.h"
 #include "UI/FlowVizClipViewModel.h"
@@ -403,6 +406,21 @@ struct FLOWVIZRUNTIME_API FFlowVizWorkspaceModel
 	void SetStreamlinesEnabled(bool bEnabled);
 	bool AreStreamlinesEnabled() const { return bStreamlinesEnabled; }
 
+	/** The P8 CPU particle population: advanced by the workspace clock, rendered as sprites. */
+	void SetParticlesEnabled(bool bEnabled);
+	bool AreParticlesEnabled() const { return bParticlesEnabled; }
+	TArray<FlowVizParticles::FParticle>& GetParticles() { return Particles; }
+
+	/** The displayed frame's velocity sampler/mask, shared from the sampling worker. Null before the first drain. */
+	TSharedPtr<const FFlowVizFieldSampler, ESPMode::ThreadSafe> GetDisplayedVelocitySampler() const
+	{
+		return DisplayedVelocitySampler;
+	}
+	TSharedPtr<const FFlowVizFieldMask, ESPMode::ThreadSafe> GetDisplayedVelocityMask() const
+	{
+		return DisplayedVelocityMask;
+	}
+
 	/** The iso toggle and value (0 = the P90 default). Both re-request on change. */
 	void SetIsoSurfaceEnabled(bool bEnabled);
 	bool IsIsoSurfaceEnabled() const { return bIsoSurfaceEnabled; }
@@ -428,6 +446,11 @@ private:
 	TArray<FFlowVizStreamline> Streamlines;
 	bool bStreamlinesFresh = false;
 	bool bStreamlinesEnabled = true;
+
+	TArray<FlowVizParticles::FParticle> Particles;
+	bool bParticlesEnabled = false;
+	TSharedPtr<const FFlowVizFieldSampler, ESPMode::ThreadSafe> DisplayedVelocitySampler;
+	TSharedPtr<const FFlowVizFieldMask, ESPMode::ThreadSafe> DisplayedVelocityMask;
 
 	FFlowVizMeshPayload IsoSurfacePayload;
 	double LastIsoValueUsed = 0.0;

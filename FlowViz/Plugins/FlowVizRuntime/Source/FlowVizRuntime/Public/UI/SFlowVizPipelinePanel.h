@@ -78,8 +78,8 @@ public:
 	TSharedPtr<class SEditableTextBox> GetOpenPathBox() const { return OpenPathBox; }
 	TSharedPtr<SButton> GetOpenButton() const { return OpenButton; }
 
-	/** The P6 mode toggles, ordinal: Obstacle, CutPlane, Iso, Streamlines, Volume. */
-	static constexpr int32 ModeToggleCount = 5;
+	/** The mode toggles, ordinal: Obstacle, CutPlane, Iso, Streamlines, Particles, Volume. */
+	static constexpr int32 ModeToggleCount = 6;
 	TSharedPtr<SButton> GetModeToggleButton(int32 Index) const;
 
 private:

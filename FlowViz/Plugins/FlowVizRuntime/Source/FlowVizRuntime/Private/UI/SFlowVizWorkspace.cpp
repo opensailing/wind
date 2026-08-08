@@ -860,6 +860,57 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 			}
 		}
 	}
+	/*
+	 * THE TRACER TICK (renderer overhaul P8, CPU path). Advection runs on the
+	 * workspace clock against the drained frame's shared sampler -- no disk
+	 * I/O here, just the oracle's RK2 over in-memory data -- then dead
+	 * tracers respawn on the default rake and the sprites update. Cheap at
+	 * 512; the Niagara upgrade is the same contract at film scale.
+	 */
+	if (Model->AreParticlesEnabled() && Model->IsCaseOpen())
+	{
+		TSharedPtr<const FFlowVizFieldSampler, ESPMode::ThreadSafe> Sampler =
+			Model->GetDisplayedVelocitySampler();
+		TSharedPtr<const FFlowVizFieldMask, ESPMode::ThreadSafe> Mask =
+			Model->GetDisplayedVelocityMask();
+		if (Sampler.IsValid() && Mask.IsValid())
+		{
+			FVector RakeStart, RakeEnd;
+			if (FlowVizFlow::MakeDefaultRake(
+					Model->Slice.GetDomainSize(), RakeStart, RakeEnd))
+			{
+				FlowVizParticles::RespawnDead(RakeStart, RakeEnd, Model->GetParticles());
+			}
+			FlowVizParticles::FAdvanceSettings Advance;
+			Advance.DeltaSeconds = DeltaSeconds * Model->Player.GetSettings().Speed;
+			FlowVizParticles::AdvanceParticles(
+				*Sampler, nullptr, 0.0, *Mask, Advance, Model->GetParticles());
+
+			if (UCFDVizVolumeComponent* BoundVolume = GetVolume())
+			{
+				if (ACFDVizCaseActor* Actor =
+						Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+				{
+					if (Actor->GetFlowComponent() != nullptr)
+					{
+						TArray<FVector> Positions;
+						Positions.Reserve(Model->GetParticles().Num());
+						for (const FlowVizParticles::FParticle& Particle :
+							Model->GetParticles())
+						{
+							if (Particle.bAlive)
+							{
+								Positions.Add(Particle.Position);
+							}
+						}
+						Actor->GetFlowComponent()->SetParticlePositions(
+							Positions, CFDViz::MetersToUnrealCentimeters);
+					}
+				}
+			}
+		}
+	}
+
 	{
 		const int32 DisplayedFrame = Model->Player.GetDisplay().FrameA;
 		if (DisplayedFrame != LastSampledFrame && Model->IsCaseOpen())

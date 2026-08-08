@@ -54,6 +54,17 @@ public:
 	/** Drop everything drawn. */
 	void ClearFlowData();
 
+	/**
+	 * Replace the tracer sprites (renderer overhaul P8's CPU path). Solver
+	 * positions; each becomes one small instanced sphere. Ages drive nothing
+	 * yet (fade lives in the Niagara upgrade); the CPU path's job is a
+	 * correct, deterministic particle picture.
+	 */
+	void SetParticlePositions(
+		TArrayView<const FVector> SolverPositions, double MetersToUnrealUnits);
+
+	int32 GetParticleInstanceCount() const;
+
 	/** Instances currently drawn -- the test seam for "the glyphs reached the scene". */
 	int32 GetGlyphInstanceCount() const;
 
@@ -94,4 +105,7 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<ULineBatchComponent> LineBatch;
+
+	UPROPERTY()
+	TObjectPtr<UInstancedStaticMeshComponent> ParticleMesh;
 };
