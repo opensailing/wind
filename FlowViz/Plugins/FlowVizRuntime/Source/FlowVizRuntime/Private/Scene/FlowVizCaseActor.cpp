@@ -5,8 +5,10 @@
 #include "Components/SceneComponent.h"
 #include "FlowVizRuntime.h"
 #include "Async/TaskGraphInterfaces.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Render/FlowVizColorMapTexture.h"
 #include "Scene/FlowVizBoundaryMesh.h"
 #include "Scene/FlowVizFlowComponent.h"
 #include "Scene/FlowVizMeshPayload.h"
@@ -82,6 +84,8 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 		ColormapPresentation.Succeeded() ? ColormapPresentation.Object : ColormapMaterial.Object;
 
 	// Scientific is the shipped default profile, so its set is the ctor's.
+	// (The LUT binding happens on BeginPlay/SetSurfaceColorMap -- MIDs cannot
+	// be created in a CDO constructor.)
 	ApplyProfileMaterials(/*bPresentation*/ false);
 }
 
@@ -102,32 +106,54 @@ FCFDVizResult ACFDVizCaseActor::LoadCase(const FString& InCaseDirectory, FName I
 		// The obstacle is part of what "loaded" means (renderer overhaul P2):
 		// every reference image anchors on it, so it is not opt-in.
 		LoadBoundaryMeshes();
+
+		// And the LUT binding is part of what "colored" means (P9): a loaded
+		// case with unbound colormap surfaces renders them grey.
+		SetSurfaceColorMap(CurrentColorMap);
 	}
 	return Result;
 }
 
 void ACFDVizCaseActor::ApplyProfileMaterials(bool bPresentation)
 {
+	bCurrentProfilePresentation = bPresentation;
+
 	UMaterialInterface* Surface =
 		bPresentation ? SurfaceMaterialPresentation : SurfaceMaterialScientific;
-	UMaterialInterface* Colormap =
-		bPresentation ? ColormapMaterialPresentation : ColormapMaterialScientific;
 	if (ObstacleComponent != nullptr && Surface != nullptr)
 	{
 		ObstacleComponent->SetMaterial(0, Surface);
 	}
-	if (Colormap != nullptr)
+	// The colormap surfaces re-bind through the MID so the LUT parameter
+	// survives a profile switch.
+	SetSurfaceColorMap(CurrentColorMap);
+}
+
+void ACFDVizCaseActor::SetSurfaceColorMap(ECFDVizColorMap Map)
+{
+	/*
+	 * COLORS RIDE THE PAYLOADS NOW (P9's vertex-color route): the builders
+	 * colorize through CFDViz::ColorMaps before the mesh is applied, so this
+	 * only records the choice and re-binds the plain profile material. The
+	 * MID/LUT plumbing that lived here died of Metal ambiguities -- see
+	 * FFlowVizMeshSection::Colors.
+	 */
+	CurrentColorMap = Map;
+
+	UMaterialInterface* Colormap = bCurrentProfilePresentation
+		? ColormapMaterialPresentation
+		: ColormapMaterialScientific;
+	if (Colormap == nullptr)
 	{
-		if (CutPlaneComponent != nullptr)
-		{
-			CutPlaneComponent->SetMaterial(0, Colormap);
-		}
-		if (IsoSurfaceComponent != nullptr)
-		{
-			// The iso surface shares the colormap material: same LUT, same UV0
-			// scalar contract -- one color authority (P3's rule).
-			IsoSurfaceComponent->SetMaterial(0, Colormap);
-		}
+		return;
+	}
+	if (CutPlaneComponent != nullptr)
+	{
+		CutPlaneComponent->SetMaterial(0, Colormap);
+	}
+	if (IsoSurfaceComponent != nullptr)
+	{
+		IsoSurfaceComponent->SetMaterial(0, Colormap);
 	}
 }
 

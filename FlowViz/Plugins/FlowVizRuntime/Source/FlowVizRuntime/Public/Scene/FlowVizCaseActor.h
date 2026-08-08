@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "CFDViz/CFDVizColorMaps.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "CFDViz/CFDVizTypes.h"
@@ -125,6 +126,15 @@ public:
 	 */
 	void ApplyProfileMaterials(bool bPresentation);
 
+	/**
+	 * Bind the colormap LUT to the colormap surfaces (renderer overhaul P9's
+	 * missing link, found by a grey capture): creates MIDs over the profile's
+	 * colormap material and sets their ColorLUT parameter to a texture built
+	 * from CFDViz::ColorMaps -- the one color authority reaching the mesh
+	 * path the same way it reaches the ray-marcher.
+	 */
+	void SetSurfaceColorMap(ECFDVizColorMap Map);
+
 private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> SurfaceMaterialScientific;
@@ -134,6 +144,14 @@ private:
 	TObjectPtr<UMaterialInterface> ColormapMaterialScientific;
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> ColormapMaterialPresentation;
+
+	UPROPERTY()
+	TObjectPtr<class UMaterialInstanceDynamic> ColormapMID;
+	UPROPERTY()
+	TObjectPtr<class UTexture2D> ColormapLutTexture;
+
+	ECFDVizColorMap CurrentColorMap = ECFDVizColorMap::Viridis;
+	bool bCurrentProfilePresentation = false;
 
 private:
 	/** The volume representation, attached to the root rather than being it - see the class comment. */

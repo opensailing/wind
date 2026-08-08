@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "CFDViz/CFDVizColorMaps.h"
 #include "CoreMinimal.h"
 #include "Scene/FlowVizMeshPayload.h"
 
@@ -67,4 +68,13 @@ namespace FlowVizCutPlane
 		FFlowVizMeshSection& OutSection,
 		double& OutRangeMin,
 		double& OutRangeMax);
+
+	/**
+	 * Fill Section.Colors from Section.ScalarUVs through the color authority
+	 * (renderer overhaul P9): one CPU sample per vertex, sRGB-encoded the way
+	 * the framebuffer stores color anyway. The whole GPU LUT hop -- texture,
+	 * sampler type, MID -- is deliberately absent; see FFlowVizMeshSection.
+	 */
+	FLOWVIZRUNTIME_API void ColorizeSection(
+		FFlowVizMeshSection& Section, ECFDVizColorMap Map);
 }

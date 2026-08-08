@@ -627,6 +627,10 @@ void SFlowVizWorkspace::ApplyProfileToScene()
 	}
 	if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
 	{
+		// The surface colormap follows the transfer function panel -- the
+		// same choice the volume LUT already follows (one color authority).
+		Actor->SetSurfaceColorMap(Model->TransferFunction.GetColorMap());
+
 		const bool bWantRig = Model->IsPresentationMode();
 		if (bWantRig != FlowVizStudioRig::IsApplied(*Actor))
 		{

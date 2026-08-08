@@ -671,6 +671,7 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 
 	// Streamlines (P5): the dataset-aware default rake over the displayed
 	// frame's velocity. On when the case carries U and the toggle is up.
+	const ECFDVizColorMap ColorMapChoice = TransferFunction.GetColorMap();
 	const bool bWantStreamlines = bStreamlinesEnabled
 		&& SharedCase.IsValid()
 		&& SharedCase->FindField(TEXT("U")) != nullptr
@@ -688,7 +689,7 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
 			bHasLine, LineStart, LineEnd, LineSamples, LineAxis,
 			bWantCutPlane, CutRequest, bWantIsoSurface, IsoValueOverride,
-			bWantStreamlines, StreamDomain,
+			bWantStreamlines, StreamDomain, ColorMapChoice,
 			Requests = MoveTemp(Requests)]() mutable
 		{
 			FSampleQueue::FResult Result;
@@ -853,6 +854,7 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 					{
 						Result.IsoValueUsed = UseIso;
 						Result.bHasIsoSurface = true;
+						// Colors are filled after the |U| scalar pass below.
 
 						/*
 						 * COLOR BY |U|, the genre's convention: per-vertex
@@ -901,6 +903,8 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 								Result.IsoSurface.ScalarUVs.Add(static_cast<float>(
 									FMath::Clamp(Velocity.Size() / MagMax, 0.0, 1.0)));
 							}
+							FlowVizCutPlane::ColorizeSection(
+								Result.IsoSurface, ColorMapChoice);
 						}
 					}
 				}
@@ -954,6 +958,10 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 					Result.bHasCutPlane = FlowVizCutPlane::BuildCutPlaneMesh(
 						PlaneSampler, PlaneMask, CutRequest, Result.CutPlane,
 						Result.CutPlaneRangeMin, Result.CutPlaneRangeMax);
+					if (Result.bHasCutPlane)
+					{
+						FlowVizCutPlane::ColorizeSection(Result.CutPlane, ColorMapChoice);
+					}
 				}
 			}
 

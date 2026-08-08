@@ -261,7 +261,7 @@ bool FFlowVizColorMapTextureParityTest::RunTest(const FString& Parameters)
 		for (int32 Index = 0; Index < Bytes.Num(); ++Index)
 		{
 			const float Position = (Index + 0.5f) / FlowVizColorMapTexture::LutWidth;
-			if (Bytes[Index] != CFDViz::ColorMaps::Sample(Map, Position).QuantizeRound())
+			if (Bytes[Index] != CFDViz::ColorMaps::Sample(Map, Position).ToFColor(/*bSRGB*/ true))
 			{
 				++Mismatches;
 			}

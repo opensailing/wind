@@ -42,7 +42,7 @@ void UCFDVizSurfaceMeshComponent::SetSurfaceData(const FFlowVizMeshPayload& Payl
 
 		CreateMeshSection(
 			SectionIndex, Section.Vertices, Section.Indices, Section.Normals, UV0,
-			/*VertexColors*/ TArray<FColor>(), /*Tangents*/ TArray<FProcMeshTangent>(),
+			Section.Colors, /*Tangents*/ TArray<FProcMeshTangent>(),
 			/*bCreateCollision*/ false);
 
 		// The manifest's stated intent, applied rather than reported: an inlet

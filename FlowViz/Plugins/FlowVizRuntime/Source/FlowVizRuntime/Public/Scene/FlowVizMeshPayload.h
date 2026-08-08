@@ -35,11 +35,21 @@ struct FFlowVizMeshSection
 
 	/**
 	 * Per-vertex normalized scalar for colormap surfaces (P3+): baked into
-	 * UV0.x by the applier, sampled against the LUT texture by the material.
-	 * Empty for uncolored surfaces (the P2 obstacle); when non-empty it must
-	 * match Vertices in length.
+	 * UV0.x by the applier. Empty for uncolored surfaces (the P2 obstacle);
+	 * when non-empty it must match Vertices in length.
 	 */
 	TArray<float> ScalarUVs;
+
+	/**
+	 * Per-vertex COLORS, sampled from CFDViz::ColorMaps on the CPU (renderer
+	 * overhaul P9). The GPU-LUT-texture route died of Metal ambiguities --
+	 * sampler-type compile rejections, byte-order swaps, MID timing -- each
+	 * invisible until a capture. Vertex colors have no failure surface: the
+	 * authority's values ride the mesh, and 8-bit per channel is exactly the
+	 * precision the framebuffer displays. A colormap change re-requests the
+	 * build (payloads already rebuild per frame, so this costs nothing new).
+	 */
+	TArray<FColor> Colors;
 };
 
 struct FFlowVizMeshPayload

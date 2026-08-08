@@ -37,30 +37,18 @@ def make_material(name):
 # --- M_FlowVizColormapSurface -------------------------------------------------
 colormap = make_material("M_FlowVizColormapSurface")
 
-tex = mel.create_material_expression(
-    colormap, unreal.MaterialExpressionTextureSampleParameter2D, -600, 0)
-tex.set_editor_property("parameter_name", "ColorLUT")
-# The LUT is linear color (sRGB off on the texture); LinearColor sampler type
-# matches, and a Color sampler would double-decode.
-tex.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
-# A DEFAULT TEXTURE, or the sampler node has nothing to compile against and
-# the whole material fails on Metal ("Failed to compile ... SF_METAL_SM6",
-# default material used) -- observed as a BLACK cut plane in the first
-# packaged capture. Any engine linear texture works; the runtime swaps in
-# the real LUT per colormap.
-tex.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/DefaultTexture"))
-
-uv = mel.create_material_expression(
-    colormap, unreal.MaterialExpressionTextureCoordinate, -820, 0)
-uv.set_editor_property("coordinate_index", 0)
-mel.connect_material_expressions(uv, "", tex, "UVs")
-
-mel.connect_material_property(tex, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
-
-rough = mel.create_material_expression(
-    colormap, unreal.MaterialExpressionConstant, -600, 220)
-rough.set_editor_property("r", 0.65)
-mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+# VERTEX COLOR -> EMISSIVE, UNLIT. Two rules meet here:
+# 1. The payloads carry authority-sampled colors per vertex (the GPU LUT hop
+#    died of Metal ambiguities, each invisible until a capture).
+# 2. VISUAL_QA rule 1: in the Scientific profile, LIGHTING MUST NOT MODULATE
+#    APPARENT SCALAR VALUE. A lit data plane under the scene's key light and
+#    auto-exposure rendered viridis dark purple as bright magenta -- the
+#    number's color changed with the lighting, the exact lie the rule names.
+#    Unlit emissive is the ParaView convention: the color IS the datum.
+colormap.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+vc = mel.create_material_expression(
+    colormap, unreal.MaterialExpressionVertexColor, -600, 0)
+mel.connect_material_property(vc, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
 mel.recompile_material(colormap)
 eal.save_asset(f"{CONTENT_ROOT}/M_FlowVizColormapSurface")
@@ -112,16 +100,8 @@ eal.save_asset(f"{CONTENT_ROOT}/M_FlowVizObstaclePBR")
 pres = make_material("M_FlowVizColormapPresentation")
 
 pres_tex = mel.create_material_expression(
-    pres, unreal.MaterialExpressionTextureSampleParameter2D, -800, 0)
-pres_tex.set_editor_property("parameter_name", "ColorLUT")
-pres_tex.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
-pres_tex.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/DefaultTexture"))
-
-pres_uv = mel.create_material_expression(
-    pres, unreal.MaterialExpressionTextureCoordinate, -1000, 0)
-pres_uv.set_editor_property("coordinate_index", 0)
-mel.connect_material_expressions(pres_uv, "", pres_tex, "UVs")
-mel.connect_material_property(pres_tex, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+    pres, unreal.MaterialExpressionVertexColor, -800, 0)
+mel.connect_material_property(pres_tex, "", unreal.MaterialProperty.MP_BASE_COLOR)
 
 pres_rough = mel.create_material_expression(
     pres, unreal.MaterialExpressionConstant, -800, 240)

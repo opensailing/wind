@@ -227,6 +227,13 @@ def spawn_volume(world, spec):
         log("VOLUME NOT PLACED: %s" % (error or "spawn_case_actor returned null"))
         return None
 
+    # The surface-path picture (renderer overhaul P9): cut plane + iso built
+    # synchronously -- the workspace's worker does this interactively, and a
+    # headless shot without it shows an obstacle floating in a wireframe.
+    built = unreal.FlowVizCaptureLibrary.build_default_picture(
+        actor, int(spec.get("frame", 0)))
+    log("BuildDefaultPicture: %d surface(s)" % built)
+
     # ------------------------------------------------------------------
     # Render settings, applied only when the shot asks for them.
     #

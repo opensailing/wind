@@ -207,6 +207,23 @@ public:
 	 * @param OutputDirectory Created if missing.
 	 * @return The number of frames successfully written; 0 on total failure.
 	 */
+	/**
+	 * Build the surface-path picture SYNCHRONOUSLY on a spawned actor
+	 * (renderer overhaul P9): z-mid cut plane of the bound field + the Q
+	 * iso-surface colored by |U|, applied to the actor's components. The
+	 * interactive app builds these on the workspace's sampling worker; a
+	 * headless capture has no workspace, and without this the shot shows an
+	 * obstacle floating in an empty wireframe -- the P2 half of the picture
+	 * pretending to be all of it.
+	 *
+	 * @return The number of surfaces built (0-2).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
+		meta = (WorldContext = "WorldContextObject"))
+	static int32 BuildDefaultPicture(
+		class ACFDVizCaseActor* CaseActor,
+		int32 FrameIndex = 0);
+
 	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
 		meta = (WorldContext = "WorldContextObject"))
 	static int32 CaptureAnnotatedSequence(

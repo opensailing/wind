@@ -1,6 +1,11 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
 #include "FlowVizCaptureLibrary.h"
+#include "Scene/FlowVizSurfaceMeshComponent.h"
+#include "Flow/FlowVizIsoSurface.h"
+#include "Flow/FlowVizFieldSampler.h"
+#include "Flow/FlowVizFieldMask.h"
+#include "Flow/FlowVizCutPlane.h"
 
 #include "Capture/FlowVizAnnotate.h"
 
@@ -779,6 +784,99 @@ bool UFlowVizCaptureLibrary::CaptureAnnotatedPNG(
 
 	return CapturePipeline(
 		WorldContextObject, OutputPath, Location, Rotation, Width, Height, FOV, &Request);
+}
+
+int32 UFlowVizCaptureLibrary::BuildDefaultPicture(
+	ACFDVizCaseActor* CaseActor, int32 FrameIndex)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("BuildDefaultPicture"));
+	if (Volume == nullptr || !Volume->GetCaseBinding().bIsValid)
+	{
+		return 0;
+	}
+	const FCFDVizCase& Case = Volume->GetCaseBinding().Case;
+	const FName FieldId = Volume->GetCaseBinding().FieldId;
+	const FVector DomainSize = Volume->GetCaseBinding().Transform.GetPhysicalSize();
+	int32 Built = 0;
+
+	// The same builders the workspace's worker runs, synchronously: capture is
+	// a batch context and blocking is the point.
+	FFlowVizFieldSampler DisplaySampler;
+	if (DisplaySampler.Build(Case, FieldId, FrameIndex).IsOk()
+		&& CaseActor->GetCutPlaneComponent() != nullptr)
+	{
+		FFlowVizFieldMask DisplayMask;
+		DisplayMask.Build(DisplaySampler);
+
+		FlowVizCutPlane::FCutPlaneRequest Request;
+		Request.Origin = DomainSize * 0.5;
+		Request.Normal = FVector::ZAxisVector;
+		Request.DomainSize = DomainSize;
+
+		FFlowVizMeshPayload Payload;
+		double RangeMin = 0.0, RangeMax = 0.0;
+		FFlowVizMeshSection& Section = Payload.Sections.AddDefaulted_GetRef();
+		if (FlowVizCutPlane::BuildCutPlaneMesh(
+				DisplaySampler, DisplayMask, Request, Section, RangeMin, RangeMax))
+		{
+			FlowVizCutPlane::ColorizeSection(Section, ECFDVizColorMap::Viridis);
+			CaseActor->GetCutPlaneComponent()->SetSurfaceData(Payload);
+			++Built;
+		}
+	}
+
+	FFlowVizFieldSampler QSampler;
+	if (Case.FindField(TEXT("qCriterion")) != nullptr
+		&& QSampler.Build(Case, TEXT("qCriterion"), FrameIndex).IsOk()
+		&& CaseActor->GetIsoSurfaceComponent() != nullptr)
+	{
+		FlowVizIsoSurface::FIsoGrid Grid;
+		Grid.Counts = QSampler.GetValueCounts();
+		Grid.Origin = QSampler.GetGrid().Origin;
+		Grid.Spacing = QSampler.GetGrid().Spacing;
+		Grid.Values.Reserve(Grid.Counts.X * Grid.Counts.Y * Grid.Counts.Z);
+		TArray<double> Value;
+		for (int32 Z = 0; Z < Grid.Counts.Z; ++Z)
+		{
+			for (int32 Y = 0; Y < Grid.Counts.Y; ++Y)
+			{
+				for (int32 X = 0; X < Grid.Counts.X; ++X)
+				{
+					QSampler.GetVoxelValue(FIntVector(X, Y, Z), Value);
+					Grid.Values.Add(Value[0]);
+				}
+			}
+		}
+		double IsoValue = 0.0;
+		FFlowVizMeshPayload Payload;
+		FFlowVizMeshSection& Section = Payload.Sections.AddDefaulted_GetRef();
+		if (FlowVizIsoSurface::PercentilePositiveIsoValue(Grid.Values, 90.0, IsoValue)
+			&& FlowVizIsoSurface::ExtractIsoSurface(Grid, IsoValue, Section))
+		{
+			// Color by |U| against the declared bound, same as the worker.
+			FFlowVizFieldSampler USampler;
+			if (USampler.Build(Case, TEXT("U"), FrameIndex).IsOk())
+			{
+				const FMatrix UnrealToSolver = MakeUnrealToSolverTransform();
+				Section.ScalarUVs.Reserve(Section.Vertices.Num());
+				for (const FVector& Vertex : Section.Vertices)
+				{
+					FVector Velocity = FVector::ZeroVector;
+					USampler.SampleVector(
+						UnrealToSolver.TransformPosition(Vertex), Velocity);
+					Section.ScalarUVs.Add(static_cast<float>(
+						FMath::Clamp(Velocity.Size() / 15.0, 0.0, 1.0)));
+				}
+			}
+			FlowVizCutPlane::ColorizeSection(Section, ECFDVizColorMap::Viridis);
+			CaseActor->GetIsoSurfaceComponent()->SetSurfaceData(Payload);
+			++Built;
+		}
+	}
+
+	UE_LOG(LogFlowViz, Display,
+		TEXT("BuildDefaultPicture: %d surface(s) built for frame %d."), Built, FrameIndex);
+	return Built;
 }
 
 int32 UFlowVizCaptureLibrary::CaptureAnnotatedSequence(

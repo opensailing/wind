@@ -189,3 +189,25 @@ bool FlowVizCutPlane::BuildCutPlaneMesh(
 	OutSection.bDefaultVisible = true;
 	return true;
 }
+
+void FlowVizCutPlane::ColorizeSection(FFlowVizMeshSection& Section, ECFDVizColorMap Map)
+{
+	Section.Colors.SetNumUninitialized(Section.ScalarUVs.Num());
+	for (int32 Index = 0; Index < Section.ScalarUVs.Num(); ++Index)
+	{
+		/*
+		 * LINEAR bytes (QuantizeRound -- vertex colors are read without an
+		 * sRGB decode; ToFColor(true) arrived gamma-lifted), with R and B
+		 * SWAPPED: the capture showed viridis's yellow end as CYAN and its
+		 * dark end as magenta -- the exact R<->B signature -- because the PMC
+		 * vertex buffer's BGRA byte order reaches the Metal vertex fetch
+		 * unswizzled. Swapping at the one write site is the whole fix; the
+		 * ColorizeSection test asserts the SWAPPED layout so a future engine
+		 * fix that unswaps will fail loudly here instead of silently
+		 * re-swapping every surface.
+		 */
+		const FColor Linear =
+			CFDViz::ColorMaps::Sample(Map, Section.ScalarUVs[Index]).QuantizeRound();
+		Section.Colors[Index] = FColor(Linear.B, Linear.G, Linear.R, Linear.A);
+	}
+}
