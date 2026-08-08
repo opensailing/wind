@@ -41,7 +41,11 @@ UTexture2D* FlowVizColorMapTexture::CreateLutTexture(ECFDVizColorMap Map)
 	Texture->AddressX = TA_Clamp;
 	Texture->AddressY = TA_Clamp;
 	Texture->CompressionSettings = TC_EditorIcon;   // uncompressed BGRA8
+#if WITH_EDITORONLY_DATA
+	// Editor-only field (the packaged build has no mip GENERATION to disable;
+	// CreateTransient already made a single-mip texture there).
 	Texture->MipGenSettings = TMGS_NoMipmaps;
+#endif
 
 	void* Data = Texture->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
 	FMemory::Memcpy(Data, Bytes.GetData(), Bytes.Num() * sizeof(FColor));
