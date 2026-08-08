@@ -632,4 +632,72 @@ bool FFlowVizCaptureRenderSettingsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+/**
+ * The annotated sequence export (renderer overhaul P9): the sequence IS the
+ * timeline -- each frame uploaded before capture -- and every frame carries
+ * the burned footer. RHI=1 only.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizCaptureSequenceTest,
+	"FlowViz.Capture.AnnotatedSequence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizCaptureSequenceTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizCaptureCaseActorTest;
+
+	if (GDynamicRHI == nullptr || FCString::Stristr(GDynamicRHI->GetName(), TEXT("Null")))
+	{
+		AddInfo(TEXT("SKIPPED: FlowViz.Capture.AnnotatedSequence needs a real RHI device "
+					 "and this run has none (RHI=1 re-runs it)."));
+		return true;
+	}
+
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	UWorld* World = MakeWorld(WorldContext);
+	if (!TestNotNull(TEXT("a world exists"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(/*bInformEngineOfWorld*/ true);
+		World->RemoveFromRoot();
+		GEngine->DestroyWorldContext(World);
+	};
+
+	FString Error;
+	ACFDVizCaseActor* Actor = UFlowVizCaptureLibrary::SpawnCaseActor(
+		World, GetSampleCaseDir(), TEXT("speed"), FVector::ZeroVector,
+		FRotator::ZeroRotator, Error);
+	if (!TestNotNull(*FString::Printf(TEXT("the case actor spawns (%s)"), *Error), Actor))
+	{
+		return false;
+	}
+
+	const FString OutputDir = FPaths::Combine(
+		FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("SequenceSmoke"));
+	IFileManager::Get().DeleteDirectory(*OutputDir, false, true);
+
+	// A 3-frame window keeps the smoke fast; the loop logic is identical at 20.
+	// (No frame-count parameter on the entry by design -- the sequence is the
+	// whole timeline -- so this smoke bounds cost with a small case instead.)
+	const int32 Written = UFlowVizCaptureLibrary::CaptureAnnotatedSequence(
+		World, Actor, OutputDir,
+		FVector(-350.0, 380.0, 420.0), FRotator(-28.0, -42.0, 0.0),
+		/*Width*/ 480, /*Height*/ 270);
+
+	TestEqual(TEXT("every stored frame was written -- the sequence is the timeline"),
+		Written, 20);
+	TestTrue(TEXT("frame 0 exists"),
+		IFileManager::Get().FileExists(*(OutputDir / TEXT("frame_000000.png"))));
+	TestTrue(TEXT("the last frame exists"),
+		IFileManager::Get().FileExists(*(OutputDir / TEXT("frame_000019.png"))));
+
+	IFileManager::Get().DeleteDirectory(*OutputDir, false, true);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

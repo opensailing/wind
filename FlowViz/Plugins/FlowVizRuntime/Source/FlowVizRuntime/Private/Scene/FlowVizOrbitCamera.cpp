@@ -128,3 +128,57 @@ bool FFlowVizOrbitCamera::SetFromLocationAndFocus(
 	PitchDegrees = FMath::Clamp(View.Pitch, -PitchLimit, PitchLimit);
 	return true;
 }
+
+void FFlowVizOrbitCamera::SetViewPreset(EViewPreset Preset)
+{
+	switch (Preset)
+	{
+	case EViewPreset::DownstreamX:
+		// Looking downstream = camera upstream of the focus, facing +X.
+		YawDegrees = 0.0;
+		PitchDegrees = 0.0;
+		break;
+	case EViewPreset::UpstreamX:
+		YawDegrees = 180.0;
+		PitchDegrees = 0.0;
+		break;
+	case EViewPreset::SideY:
+		YawDegrees = 90.0;
+		PitchDegrees = 0.0;
+		break;
+	case EViewPreset::OtherSideY:
+		YawDegrees = -90.0;
+		PitchDegrees = 0.0;
+		break;
+	case EViewPreset::Top:
+		// Just off the pole: the pitch clamp's own limit, so GetRotation's
+		// basis never degenerates.
+		YawDegrees = 0.0;
+		PitchDegrees = -89.0;
+		break;
+	case EViewPreset::ThreeQuarter:
+		YawDegrees = -45.0;
+		PitchDegrees = -30.0;
+		break;
+	}
+}
+
+FFlowVizOrbitCamera::FBookmark FFlowVizOrbitCamera::SaveBookmark() const
+{
+	FBookmark Bookmark;
+	Bookmark.Focus = Focus;
+	Bookmark.Distance = Distance;
+	Bookmark.YawDegrees = YawDegrees;
+	Bookmark.PitchDegrees = PitchDegrees;
+	return Bookmark;
+}
+
+void FFlowVizOrbitCamera::RestoreBookmark(const FBookmark& Bookmark)
+{
+	// Through the same clamps every setter applies: a bookmark hand-edited in
+	// a session file cannot smuggle in a pole pitch or a negative distance.
+	Focus = Bookmark.Focus;
+	Distance = FMath::Clamp(Bookmark.Distance, MinDistance, MaxDistance);
+	YawDegrees = FMath::Fmod(Bookmark.YawDegrees, 360.0);
+	PitchDegrees = FMath::Clamp(Bookmark.PitchDegrees, -89.0, 89.0);
+}

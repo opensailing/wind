@@ -158,4 +158,69 @@ bool FFlowVizOrbitCameraTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+/**
+ * View presets and bookmarks (renderer overhaul P9): the genre's camera
+ * vocabulary as pure pose edits, and the reproducible-shot primitive.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizCameraPresetsTest,
+	"FlowViz.Scene.OrbitCamera.Presets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizCameraPresetsTest::RunTest(const FString& Parameters)
+{
+	FFlowVizOrbitCamera Camera;
+	Camera.FrameBox(FVector(600.0, -200.0, 50.0), FVector(600.0, 200.0, 50.0));
+
+	const FVector FocusBefore = Camera.GetFocus();
+	const double DistanceBefore = Camera.GetDistance();
+
+	/* == Presets change orientation ONLY ==================================== */
+	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::Top);
+	TestEqual(TEXT("Top preset leaves the focus alone"), Camera.GetFocus(), FocusBefore);
+	TestEqual(TEXT("and the distance"), Camera.GetDistance(), DistanceBefore);
+	TestTrue(TEXT("Top looks steeply down, just off the pole so the orbit basis "
+				  "stays defined"),
+		Camera.GetPitch() <= -88.9 && Camera.GetPitch() >= -89.1);
+
+	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::DownstreamX);
+	TestEqual(TEXT("Downstream is level"), Camera.GetPitch(), 0.0);
+	// Looking +X means the camera sits at focus - X*distance: location.X < focus.X.
+	TestTrue(TEXT("the camera sits UPSTREAM of the focus, facing downstream"),
+		Camera.GetLocation().X < Camera.GetFocus().X);
+
+	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::ThreeQuarter);
+	TestEqual(TEXT("ThreeQuarter is FrameBox's default orientation, yaw"),
+		Camera.GetYaw(), -45.0);
+	TestEqual(TEXT("and pitch"), Camera.GetPitch(), -30.0);
+
+	/* == Bookmarks round-trip exactly ======================================= */
+	Camera.Orbit(13.0, -7.0);
+	Camera.Pan(25.0, -10.0);
+	Camera.Zoom(2.0);
+	const FFlowVizOrbitCamera::FBookmark Saved = Camera.SaveBookmark();
+	const FVector LocationAtSave = Camera.GetLocation();
+
+	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::Top);
+	Camera.Zoom(-5.0);
+	Camera.Pan(500.0, 500.0);
+
+	Camera.RestoreBookmark(Saved);
+	TestTrue(TEXT("a restored bookmark reproduces the exact camera location -- the "
+				  "reproducible-shot primitive"),
+		Camera.GetLocation().Equals(LocationAtSave, 1e-9));
+
+	/* == A hostile bookmark is clamped, not obeyed ========================== */
+	FFlowVizOrbitCamera::FBookmark Hostile;
+	Hostile.Distance = -50.0;
+	Hostile.PitchDegrees = 90.0;   // the pole
+	Camera.RestoreBookmark(Hostile);
+	TestTrue(TEXT("a negative distance clamps positive"), Camera.GetDistance() > 0.0);
+	TestTrue(TEXT("a pole pitch clamps off the pole"), Camera.GetPitch() <= 89.0);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

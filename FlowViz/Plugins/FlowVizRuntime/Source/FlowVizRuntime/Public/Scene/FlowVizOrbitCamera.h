@@ -85,6 +85,42 @@ struct FLOWVIZRUNTIME_API FFlowVizOrbitCamera
 	 */
 	bool SetFromLocationAndFocus(const FVector& WorldLocation, const FVector& WorldFocus);
 
+	/* --- View presets (renderer overhaul P9) ------------------------------- */
+
+	/**
+	 * The standard axis-aligned views, the genre's camera vocabulary: +X looks
+	 * DOWNSTREAM (from upstream), -X looks upstream, +/-Y across, Top looks
+	 * straight down (pitch clamped just off the pole so the orbit basis stays
+	 * defined), ThreeQuarter is FrameBox's default orientation. Focus and
+	 * distance are unchanged -- a preset changes WHERE YOU LOOK FROM, not what
+	 * you look at.
+	 */
+	enum class EViewPreset : uint8
+	{
+		DownstreamX,
+		UpstreamX,
+		SideY,
+		OtherSideY,
+		Top,
+		ThreeQuarter,
+	};
+	void SetViewPreset(EViewPreset Preset);
+
+	/**
+	 * Bookmarks: the whole pose (focus, distance, yaw, pitch) as a value.
+	 * Save/restore round-trips exactly -- the reproducible-shot primitive the
+	 * capture library and MRQ share.
+	 */
+	struct FBookmark
+	{
+		FVector Focus = FVector::ZeroVector;
+		double Distance = 100.0;
+		double YawDegrees = 0.0;
+		double PitchDegrees = 0.0;
+	};
+	FBookmark SaveBookmark() const;
+	void RestoreBookmark(const FBookmark& Bookmark);
+
 private:
 	FVector Focus = FVector::ZeroVector;
 	double Distance = 100.0;

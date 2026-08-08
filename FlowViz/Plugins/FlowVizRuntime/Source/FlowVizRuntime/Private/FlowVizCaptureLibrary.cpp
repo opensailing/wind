@@ -781,6 +781,63 @@ bool UFlowVizCaptureLibrary::CaptureAnnotatedPNG(
 		WorldContextObject, OutputPath, Location, Rotation, Width, Height, FOV, &Request);
 }
 
+int32 UFlowVizCaptureLibrary::CaptureAnnotatedSequence(
+	const UObject* WorldContextObject,
+	ACFDVizCaseActor* CaseActor,
+	const FString& OutputDirectory,
+	FVector Location,
+	FRotator Rotation,
+	int32 Width,
+	int32 Height,
+	float FOV)
+{
+	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("CaptureAnnotatedSequence"));
+	if (Volume == nullptr || !Volume->GetCaseBinding().bIsValid)
+	{
+		return 0;
+	}
+	const int32 FrameCount = Volume->GetCaseBinding().Case.Timeline.FrameCount;
+	if (FrameCount <= 0)
+	{
+		return 0;
+	}
+
+	IFileManager::Get().MakeDirectory(*OutputDirectory, /*Tree*/ true);
+
+	int32 Written = 0;
+	for (int32 FrameIndex = 0; FrameIndex < FrameCount; ++FrameIndex)
+	{
+		/*
+		 * UPLOAD THEN CAPTURE, per frame: the sequence is the TIMELINE. A loop
+		 * that only captured would write FrameCount copies of whatever frame
+		 * happened to be resident -- a plausible-looking video of nothing
+		 * moving, which is this library's least favourite failure shape.
+		 */
+		if (!Volume->UploadFrame(FrameIndex).IsOk())
+		{
+			UE_LOG(LogFlowViz, Error,
+				TEXT("CaptureAnnotatedSequence: frame %d failed to upload; the sequence "
+					 "stops here rather than skipping (a gap would desync the numbering "
+					 "from the timeline)."),
+				FrameIndex);
+			break;
+		}
+		const FString FramePath = OutputDirectory
+			/ FString::Printf(TEXT("frame_%06d.png"), FrameIndex);
+		if (!CaptureAnnotatedPNG(WorldContextObject, CaseActor, FramePath,
+				Location, Rotation, Width, Height, FOV))
+		{
+			break;
+		}
+		++Written;
+	}
+
+	UE_LOG(LogFlowViz, Display,
+		TEXT("CaptureAnnotatedSequence: wrote %d of %d frames to '%s'."),
+		Written, FrameCount, *OutputDirectory);
+	return Written;
+}
+
 bool UFlowVizCaptureLibrary::SetVolumeCompositeMode(
 	ACFDVizCaseActor* CaseActor, int32 CompositeMode, float IsoValue)
 {

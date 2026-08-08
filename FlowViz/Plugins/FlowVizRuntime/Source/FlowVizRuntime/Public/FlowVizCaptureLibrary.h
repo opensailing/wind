@@ -191,6 +191,34 @@ public:
 		int32 Height = 720,
 		float FOV = 90.0f);
 
+	/**
+	 * The film-export entry (renderer overhaul P9): every stored frame of the
+	 * bound case rendered through the ANNOTATED pipeline into a numbered PNG
+	 * sequence -- frame_000000.png onward -- ready for ffmpeg or an edit
+	 * timeline. Self-describing by construction: each frame carries the same
+	 * burned footer stills do, so an exported sequence can never lose its
+	 * legend. Uploads each frame before capturing it, so the sequence is the
+	 * TIMELINE, not N copies of the resident frame.
+	 *
+	 * MRQ is deliberately not in this path yet: this is the fallback the plan
+	 * names, complete and testable headless; the MRQ integration (temporal
+	 * supersampling, path tracing) layers on later without changing callers.
+	 *
+	 * @param OutputDirectory Created if missing.
+	 * @return The number of frames successfully written; 0 on total failure.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
+		meta = (WorldContext = "WorldContextObject"))
+	static int32 CaptureAnnotatedSequence(
+		const UObject* WorldContextObject,
+		class ACFDVizCaseActor* CaseActor,
+		const FString& OutputDirectory,
+		FVector Location,
+		FRotator Rotation,
+		int32 Width = 1280,
+		int32 Height = 720,
+		float FOV = 90.0f);
+
 private:
 	/**
 	 * The shared readback-to-PNG pipeline behind both capture entry points.
