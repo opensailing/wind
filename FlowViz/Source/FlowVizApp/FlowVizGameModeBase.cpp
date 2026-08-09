@@ -12,6 +12,9 @@
 
 AFlowVizGameModeBase::AFlowVizGameModeBase()
 {
+	// No tick logic anywhere in this class; the one-shot load is a timer.
+	PrimaryActorTick.bCanEverTick = false;
+
 	DefaultPawnClass = AFlowVizCameraPawn::StaticClass();
 }
 
@@ -35,7 +38,12 @@ void AFlowVizGameModeBase::BeginPlay()
 	FString FieldId;
 	FParse::Value(FCommandLine::Get(), TEXT("field="), FieldId);
 
-	FString Command = FString::Printf(TEXT("FlowViz.LoadCase %s"), *CasePath);
+	// QUOTED: a case path containing a space -- ordinary on macOS -- would
+	// otherwise split at the console tokenizer, and the tail would arrive as a
+	// bogus field id. FParse::Token (which IConsoleManager uses to build the
+	// command's Args) treats a double-quoted run as one token and strips the
+	// quotes, so the command body receives the full path unchanged.
+	FString Command = FString::Printf(TEXT("FlowViz.LoadCase \"%s\""), *CasePath);
 	if (!FieldId.IsEmpty())
 	{
 		Command += TEXT(" ") + FieldId;

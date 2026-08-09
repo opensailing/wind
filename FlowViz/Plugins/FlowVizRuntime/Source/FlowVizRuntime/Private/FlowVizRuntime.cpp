@@ -19,12 +19,28 @@ void FFlowVizRuntimeModule::StartupModule()
 {
 	// Map /Plugin/FlowViz to the plugin's Shaders directory so global shaders and
 	// material expressions can #include from a stable virtual path.
+	//
+	// GUARDED AGAINST DOUBLE-REGISTRATION rather than removed at shutdown. UE
+	// 5.8's RenderCore offers no per-directory removal - the only mutators are
+	// AddShaderSourceDirectoryMapping and ResetAllShaderSourceDirectoryMappings,
+	// and the reset clears the GLOBAL map, killing every other plugin's virtual
+	// shader path on our unload (ShutdownModule used to call it). So the mapping
+	// deliberately outlives the module, and this guard is what makes a reload
+	// safe: AddShaderSourceDirectoryMapping check()s against a duplicate key.
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("FlowVizRuntime"));
 	if (Plugin.IsValid())
 	{
 		const FString ShaderDir = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Shaders"));
-		AddShaderSourceDirectoryMapping(TEXT("/Plugin/FlowViz"), ShaderDir);
-		UE_LOG(LogFlowViz, Log, TEXT("Mapped virtual shader path /Plugin/FlowViz -> %s"), *ShaderDir);
+		if (!AllShaderSourceDirectoryMappings().Contains(TEXT("/Plugin/FlowViz")))
+		{
+			AddShaderSourceDirectoryMapping(TEXT("/Plugin/FlowViz"), ShaderDir);
+			UE_LOG(LogFlowViz, Log, TEXT("Mapped virtual shader path /Plugin/FlowViz -> %s"), *ShaderDir);
+		}
+		else
+		{
+			UE_LOG(LogFlowViz, Log,
+				TEXT("Virtual shader path /Plugin/FlowViz is already mapped (module reload); keeping it."));
+		}
 	}
 	else
 	{
@@ -65,7 +81,11 @@ void FFlowVizRuntimeModule::ShutdownModule()
 	FlowVizConsoleCommands::Unregister();
 	FlowVizWorkspaceTab::Unregister();
 	FlowVizVolumeRayMarchProduction::Unregister();
-	ResetAllShaderSourceDirectoryMappings();
+
+	// The shader directory mapping is deliberately NOT undone here. The only
+	// engine API that could remove it, ResetAllShaderSourceDirectoryMappings,
+	// clears the GLOBAL map - every other plugin's virtual shader path would die
+	// with ours. StartupModule guards against re-adding it on reload instead.
 }
 
 #undef LOCTEXT_NAMESPACE

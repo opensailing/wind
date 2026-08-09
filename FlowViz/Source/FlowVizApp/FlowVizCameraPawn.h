@@ -43,10 +43,21 @@ public:
 	const FFlowVizOrbitCamera& GetOrbitCamera() const { return OrbitCamera; }
 	FFlowVizOrbitCamera& GetOrbitCameraMutable() { return OrbitCamera; }
 
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 private:
+	/**
+	 * One attempt at the auto-frame: find the first case actor with real
+	 * bounds and frame it. Runs on a 0.25 s looping timer started in
+	 * BeginPlay -- NOT in Tick, where the actor iterator and the bounds
+	 * gather used to run every frame forever when no case ever loaded --
+	 * and cancels its own timer on success.
+	 */
+	void TryAutoFrame();
+
 	void OnMouseX(float Value);
 	void OnMouseY(float Value);
 	void OnWheel(float Value);
@@ -64,12 +75,17 @@ private:
 	bool bPanning = false;
 
 	/*
-	 * AUTO-FRAME, ONCE. On the first tick where a case actor with real bounds
-	 * exists, frame it -- so a packaged launch with -case= opens LOOKING AT
-	 * the data instead of at whatever the map's default view was. Once only:
-	 * after that the camera is the user's, and a reload must not yank it.
+	 * AUTO-FRAME, ONCE. On the first timer fire where a case actor with real
+	 * bounds exists, frame it -- so a packaged launch with -case= opens
+	 * LOOKING AT the data instead of at whatever the map's default view was.
+	 * Once only: after that the camera is the user's, and a reload must not
+	 * yank it. The search retries while bounds are degenerate (a case still
+	 * loading) and stops for good on success.
 	 */
 	bool bAutoFramed = false;
+
+	/** The 0.25 s looping timer behind TryAutoFrame. Cancelled on success and in EndPlay. */
+	FTimerHandle AutoFrameTimerHandle;
 
 	/** Degrees of orbit per mouse-axis unit, and world units of pan per unit at reference distance. */
 	static constexpr double OrbitDegreesPerUnit = 2.0;
