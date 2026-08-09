@@ -1050,13 +1050,17 @@ private:
 
 	int32 MaxConcurrentLoads = FlowVizPlayback::DefaultMaxConcurrentLoads;
 
-	/**
-	 * Incremented on every seek and every selection change. A completed decode
-	 * whose request generation is older than this AND whose frame is no longer
-	 * wanted is dropped - that is the "cancel obsolete requests during aggressive
-	 * scrubbing" requirement.
+	/*
+	 * NOTE ON CANCELLATION - there is deliberately NO request-generation
+	 * counter here. Obsolescence is decided by the WANTED LIST alone: a
+	 * completed decode for a frame that BuildRequestList no longer names is
+	 * dropped in DrainCompletedLoads, and an in-flight request outside the
+	 * list is swept by CancelObsoleteRequests. A decode of frame N is the same
+	 * bytes whichever seek asked for it, so stamping requests with a
+	 * generation would add state that can disagree with the list without ever
+	 * changing a decision. (An earlier version carried exactly that: a
+	 * generation plumbed to the task and back, read by nothing.)
 	 */
-	uint64 RequestGeneration = 0;
 
 	int64 LoadsStarted = 0;
 	int64 LoadsCompleted = 0;

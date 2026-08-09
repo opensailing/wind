@@ -928,7 +928,6 @@ struct FFlowVizCasePlayer::FLoadQueue
 	struct FResult
 	{
 		int32 FrameIndex = INDEX_NONE;
-		uint64 Generation = 0;
 		FFlowVizVolumeUpload Upload;
 		FCFDVizResult Status;
 	};
@@ -1036,7 +1035,6 @@ FCFDVizResult FFlowVizCasePlayer::Open(const TSharedRef<const FCFDVizCase>& InCa
 	InFlightFrames.Reset();
 	FailedFrames.Reset();
 	bPlaying = false;
-	RequestGeneration = 0;
 	LoadsStarted = 0;
 	LoadsCompleted = 0;
 	LoadsCancelled = 0;
@@ -1126,14 +1124,7 @@ void FFlowVizCasePlayer::Tick(double DeltaSeconds)
 
 	if (bPlaying && !Timeline.IsEmpty())
 	{
-		const FFlowVizPlayhead Advanced =
-			FlowVizPlayback::Advance(Timeline, Settings, Playhead, DeltaSeconds);
-
-		if (Advanced.DisplayTime != Playhead.DisplayTime)
-		{
-			++RequestGeneration;
-		}
-		Playhead = Advanced;
+		Playhead = FlowVizPlayback::Advance(Timeline, Settings, Playhead, DeltaSeconds);
 
 		if (Playhead.bFinished && Settings.LoopMode == EFlowVizLoopMode::Once)
 		{
@@ -1160,10 +1151,9 @@ void FFlowVizCasePlayer::SeekToTime(double Time)
 	Playhead = FlowVizPlayback::MakePlayheadAtTime(Timeline, Time);
 	Selection = FlowVizPlayback::SelectFrames(Timeline, Playhead.DisplayTime, Settings.bInterpolate);
 
-	// Every seek bumps the generation, which is what lets a decode that finishes
-	// after the playhead has moved on be recognised as obsolete.
-	++RequestGeneration;
-
+	// Obsolete work is dropped by the WANTED LIST, not by any per-seek counter:
+	// the next Tick's DrainCompletedLoads and CancelObsoleteRequests compare
+	// against what this new selection wants.
 	UpdateDisplay();
 }
 
@@ -1220,7 +1210,6 @@ void FFlowVizCasePlayer::StepFrames(int32 FrameDelta)
 
 	Playhead = FlowVizPlayback::StepFrames(Timeline, Playhead, FrameDelta, Settings.LoopMode);
 	Selection = FlowVizPlayback::SelectFrames(Timeline, Playhead.DisplayTime, Settings.bInterpolate);
-	++RequestGeneration;
 	UpdateDisplay();
 }
 
@@ -1301,7 +1290,6 @@ void FFlowVizCasePlayer::SetInterpolationEnabled(bool bEnabled)
 		// Re-select immediately: toggling the switch must change what the
 		// diagnostics panel reports without waiting for a tick.
 		Selection = FlowVizPlayback::SelectFrames(Timeline, Playhead.DisplayTime, Settings.bInterpolate);
-		++RequestGeneration;
 		UpdateDisplay();
 	}
 }
@@ -1700,7 +1688,6 @@ void FFlowVizCasePlayer::RequestFrame(int32 FrameIndex)
 	// and the player may be destroyed outright.
 	TSharedPtr<FLoadQueue, ESPMode::ThreadSafe> Queue = LoadQueue;
 	TSharedPtr<const FCFDVizCase> CaseRef = Case;
-	const uint64 Generation = RequestGeneration;
 
 	UE::Tasks::Launch(TEXT("FlowVizFrameDecode"),
 		[Queue, CaseRef, FieldPath, MaskPath, FrameIndex, SimulationTime, bAsVector]()
@@ -1749,9 +1736,6 @@ void FFlowVizCasePlayer::RequestFrame(int32 FrameIndex)
 
 			Queue->Push(MoveTemp(Result));
 		});
-
-	// Recorded for the obsolescence check in DrainCompletedLoads.
-	(void)Generation;
 }
 
 void FFlowVizCasePlayer::CancelObsoleteRequests(TArrayView<const int32> KeepFrames)
