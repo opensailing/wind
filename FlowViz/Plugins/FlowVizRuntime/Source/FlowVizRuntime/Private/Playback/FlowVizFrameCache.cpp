@@ -259,14 +259,21 @@ bool FFlowVizFrameCache::Touch(int32 FrameIndex)
 
 void FFlowVizFrameCache::SetPinnedFrames(int32 FrameA, int32 FrameB)
 {
+	SetPinnedFrames(FrameA, FrameB, INDEX_NONE, INDEX_NONE);
+}
+
+void FFlowVizFrameCache::SetPinnedFrames(int32 FrameA, int32 FrameB, int32 FrameC, int32 FrameD)
+{
 	// Unconditionally rewrite every flag. Pinning is a statement about the
-	// current display pair, so the previous pair must be released in the same
-	// call - a version that only sets the new pins leaks a pin per seek and
+	// current pairs, so the previous ones must be released in the same call -
+	// a version that only sets the new pins leaks a pin per seek and
 	// eventually pins the whole cache.
 	for (FFlowVizFrameCacheEntry& Entry : Entries)
 	{
 		Entry.bPinned = (Entry.FrameIndex == FrameA && FrameA != INDEX_NONE)
-			|| (Entry.FrameIndex == FrameB && FrameB != INDEX_NONE);
+			|| (Entry.FrameIndex == FrameB && FrameB != INDEX_NONE)
+			|| (Entry.FrameIndex == FrameC && FrameC != INDEX_NONE)
+			|| (Entry.FrameIndex == FrameD && FrameD != INDEX_NONE);
 	}
 }
 

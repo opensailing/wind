@@ -1586,9 +1586,13 @@ void FFlowVizCasePlayer::StartPendingLoads()
 		return;
 	}
 
-	// Pin A and B before anything is admitted, so a preload can never evict a
-	// frame that is on screen.
-	Cache.SetPinnedFrames(Selection.FrameA, Selection.FrameB);
+	// Pin the UNION of the wanted pair and the displayed pair before anything
+	// is admitted. During a stall the two differ, and pinning only the wanted
+	// pair leaves the frame that is ON SCREEN evictable by its own preloads -
+	// the exact case FlowVizFrameCache.h rule 1 exists for. (The pixels were
+	// protected a layer down by the texture set; the cost of the old behavior
+	// was churn - the held frame re-decoded on the next look back.)
+	Cache.SetPinnedFrames(Selection.FrameA, Selection.FrameB, Display.FrameA, Display.FrameB);
 
 	CancelObsoleteRequests(Requests);
 
@@ -1601,6 +1605,14 @@ void FFlowVizCasePlayer::StartPendingLoads()
 			break;
 		}
 		RequestFrame(FrameIndex);
+
+		// RE-PIN AFTER EVERY ADMISSION. Pinning is a flag on ENTRIES, and a
+		// wanted frame that was absent when the pins were written above enters
+		// the cache unpinned when RequestFrame admits it - at which point the
+		// NEXT iteration's preload admission could evict the very frame this
+		// tick exists to load. Re-applying the same pin set lets the entry that
+		// now exists pick up its pin. Cheap: a flag rewrite over tens of entries.
+		Cache.SetPinnedFrames(Selection.FrameA, Selection.FrameB, Display.FrameA, Display.FrameB);
 	}
 }
 

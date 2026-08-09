@@ -173,6 +173,16 @@ public:
 	 */
 	void SetPinnedFrames(int32 FrameA, int32 FrameB);
 
+	/**
+	 * Pin TWO pairs at once - the wanted pair and the displayed pair - and
+	 * unpin everything else. This is the admission-time form of rule 1: during
+	 * a stall the pair the playhead WANTS and the pair ON SCREEN are different
+	 * frames, and an Admit that runs with only the wanted pair pinned can evict
+	 * the frame the shader is sampling. Any of the four may be INDEX_NONE; a
+	 * frame named by both pairs is simply pinned.
+	 */
+	void SetPinnedFrames(int32 FrameA, int32 FrameB, int32 FrameC, int32 FrameD);
+
 	/** Mark a frame's decode finished, making it displayable. @return false when it is not present. */
 	bool MarkComplete(int32 FrameIndex);
 

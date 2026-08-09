@@ -1380,6 +1380,61 @@ bool FFlowVizCasePlayerTest::RunTest(const FString& Parameters)
 			Player.SetMaxConcurrentLoads(RestoreMaxLoads).IsOk());
 	}
 
+	/* == During a stall, admissions must not evict the DISPLAYED pair ======== */
+	{
+		// FlowVizFrameCache.h rule 1: "a pinned frame is never evicted" exists
+		// for the frames THE SHADER IS SAMPLING - the display pair. During a
+		// Display != Selection stall, StartPendingLoads used to pin only the
+		// WANTED pair before admitting, so with a tight budget the preload
+		// admissions evicted the frame that was on screen. The pixels were
+		// protected a layer down (the texture set holds its own copy), so the
+		// cost was churn: the held frame re-decoded on the next look back, and
+		// the cache's own rule contradicted by its only production caller.
+		//
+		// A budget of exactly TWO frames makes the eviction pressure
+		// deterministic: the displayed frame plus the wanted frame fill it, so
+		// the FIRST preload admission must either refuse (displayed pair
+		// pinned - correct) or evict the displayed frame (the bug).
+		int64 FrameCpu = 0;
+		int64 FrameGpu = 0;
+		TestTrue(TEXT("the per-frame cost is known"), Player.TryEstimateFrameBytes(FrameCpu, FrameGpu));
+
+		TestTrue(TEXT("the stall block starts drained"), Player.WaitForPendingLoads(120.0));
+		Player.Tick(0.0);
+		Player.GetCache().Reset();
+		TestTrue(TEXT("a two-frame budget is accepted"),
+			Player.SetMemoryBudgets(2 * FrameCpu, 2 * FrameGpu).IsOk());
+
+		// Put frame 5 on screen.
+		Player.SeekToFrame(5);
+		Player.Tick(0.0);
+		TestTrue(TEXT("frame 5 loads under the tight budget"), Player.WaitForPendingLoads(120.0));
+		Player.Tick(0.0);
+		TestEqual(TEXT("the display shows frame 5"), Player.GetDisplay().FrameA, 5);
+		TestTrue(TEXT("the displayed frame is resident"), Player.GetCache().IsResident(5));
+
+		// Stall: want 17, far from anything resident. The tick admits 17 and
+		// then tries a preload; with two slots and the displayed frame in one,
+		// that admission is where the old code evicted the display.
+		Player.SeekToFrame(17);
+		Player.Tick(0.0);
+
+		TestEqual(TEXT("the selection has moved to 17"), Player.GetSelection().FrameA, 17);
+		TestEqual(TEXT("the display still holds frame 5"), Player.GetDisplay().FrameA, 5);
+		TestTrue(TEXT("the held display is stale"), Player.GetDisplay().bStale);
+		TestTrue(TEXT("rule 1: the DISPLAYED frame survives the stall's admissions"),
+			Player.GetCache().IsResident(Player.GetDisplay().FrameA));
+
+		// The stall resolves normally: the wanted frame still gets its slot.
+		TestTrue(TEXT("the wanted frame's decode finishes"), Player.WaitForPendingLoads(120.0));
+		Player.Tick(0.0);
+		TestEqual(TEXT("the display catches up to 17"), Player.GetDisplay().FrameA, 17);
+
+		TestTrue(TEXT("the budgets are restored"),
+			Player.SetMemoryBudgets(
+				FlowVizCache::DefaultCpuBudgetBytes, FlowVizCache::DefaultGpuBudgetBytes).IsOk());
+	}
+
 	/* == Playing advances the playhead ====================================== */
 	{
 		Player.SeekToFrame(0);
