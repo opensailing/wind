@@ -51,9 +51,56 @@ FCFDVizResult FFlowVizFieldSampler::Build(
 		return Read;
 	}
 
-	ComponentCount = FMath::Max(1, Field->ComponentCount);
-	ValueCounts = Reader.GetHeader().GetValueCounts();
-	Association = Field->Association;
+	/*
+	 * THE CVF HEADER IS AUTHORITATIVE (format section 4.1), and the loop below
+	 * reinterprets the decoded bytes with a data type and component count - so
+	 * those must be the HEADER's, cross-checked against the manifest rather
+	 * than trusted from it. A manifest claiming 1 component against a
+	 * 3-component file reads the interleaved x,y,z stream as scalars; one
+	 * claiming uint8 against float16 reads one byte of every half; one
+	 * claiming the other association shifts every sample half a cell. All
+	 * three stay in bounds, so nothing crashes and the values render as
+	 * plausible flow - the silent failure this refusal exists to prevent.
+	 * Fail closed with the module's error convention instead.
+	 */
+	const FCFDVizVolumeHeader& Header = Reader.GetHeader();
+	if (Header.ComponentCount != Field->ComponentCount)
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(
+				TEXT("field '%s' declares %d components but the CVF header carries %d; ")
+				TEXT("the header is authoritative and the manifest is wrong"),
+				*FieldId.ToString(), Field->ComponentCount, Header.ComponentCount),
+			FramePath);
+	}
+	if (Header.DataType != Field->DataType)
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(
+				TEXT("field '%s' declares data type %s but the CVF header carries %s; ")
+				TEXT("the header is authoritative and the manifest is wrong"),
+				*FieldId.ToString(), DataTypeToString(Field->DataType),
+				DataTypeToString(Header.DataType)),
+			FramePath);
+	}
+	if (Header.Association != Field->Association)
+	{
+		return FCFDVizResult::Fail(
+			ECFDVizError::InvalidManifest,
+			FString::Printf(
+				TEXT("field '%s' declares a %s association but the CVF header carries %s; ")
+				TEXT("the header is authoritative and the manifest is wrong"),
+				*FieldId.ToString(),
+				Field->Association == ECFDVizAssociation::Cell ? TEXT("cell") : TEXT("point"),
+				Header.Association == ECFDVizAssociation::Cell ? TEXT("cell") : TEXT("point")),
+			FramePath);
+	}
+
+	ComponentCount = FMath::Max(1, Header.ComponentCount);
+	ValueCounts = Header.GetValueCounts();
+	Association = Header.Association;
 	Grid = GridDescriptor->Geometry;
 
 	const int64 ValueTotal =
@@ -69,7 +116,9 @@ FCFDVizResult FFlowVizFieldSampler::Build(
 	for (int64 Index = 0; Index < ValueTotal * ComponentCount; ++Index)
 	{
 		double Value = 0.0;
-		if (!CFDViz::TryReadValueAsDouble(Dense, Index, Field->DataType, Value))
+		// The HEADER's data type - equal to the manifest's by the cross-check
+		// above, and the header is the one that describes these bytes.
+		if (!CFDViz::TryReadValueAsDouble(Dense, Index, Header.DataType, Value))
 		{
 			Values.Reset();
 			return FCFDVizResult::Fail(
