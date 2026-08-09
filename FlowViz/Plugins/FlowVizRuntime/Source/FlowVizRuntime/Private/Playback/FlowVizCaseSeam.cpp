@@ -75,12 +75,15 @@ namespace FlowVizPlayback
 		return Out;
 	}
 
-	namespace
+	// NAMED namespace, not anonymous: FlowVizRuntime is a unity build, so the
+	// anonymous namespaces of every .cpp in the blob merge and same-named types
+	// collide in a file that did nothing wrong.
+	namespace FlowVizCaseSeamLocal
 	{
 		/**
-		 * Named nothing in particular and file-local by construction: this type is
-		 * only ever handed out behind the interface. It is defined in the .cpp so
-		 * the player header does not have to include the component header.
+		 * File-local by convention: this type is only ever handed out behind the
+		 * interface. It is defined in the .cpp so the player header does not have
+		 * to include the component header.
 		 */
 		class FCasePlayerFrameSource final : public IFlowVizVolumeFrameSource
 		{
@@ -106,6 +109,6 @@ namespace FlowVizPlayback
 
 	TSharedRef<IFlowVizVolumeFrameSource> MakeFrameSource(const FFlowVizCasePlayer& Player)
 	{
-		return MakeShared<FCasePlayerFrameSource>(Player);
+		return MakeShared<FlowVizCaseSeamLocal::FCasePlayerFrameSource>(Player);
 	}
 }

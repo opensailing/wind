@@ -34,7 +34,10 @@
 #include "TextureResource.h"
 #include "UObject/UObjectIterator.h"
 
-namespace
+// NAMED namespace, not anonymous: FlowVizRuntime is a unity build, so the
+// anonymous namespaces of every .cpp in the blob merge and same-named helpers
+// collide in a file that did nothing wrong.
+namespace FlowVizCaptureLocal
 {
 	UWorld* ResolveWorld(const UObject* WorldContextObject, const TCHAR* Caller)
 	{
@@ -54,7 +57,7 @@ namespace
 
 bool UFlowVizCaptureLibrary::FlushSceneUpdates(const UObject* WorldContextObject)
 {
-	UWorld* World = ResolveWorld(WorldContextObject, TEXT("FlushSceneUpdates"));
+	UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("FlushSceneUpdates"));
 	if (World == nullptr)
 	{
 		return false;
@@ -74,7 +77,7 @@ bool UFlowVizCaptureLibrary::FlushSceneUpdates(const UObject* WorldContextObject
 
 int32 UFlowVizCaptureLibrary::GetSceneProxyCount(const UObject* WorldContextObject)
 {
-	const UWorld* World = ResolveWorld(WorldContextObject, TEXT("GetSceneProxyCount"));
+	const UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("GetSceneProxyCount"));
 	if (World == nullptr)
 	{
 		return INDEX_NONE;
@@ -143,7 +146,7 @@ int32 UFlowVizCaptureLibrary::GetSceneProxyCount(const UObject* WorldContextObje
 
 int32 UFlowVizCaptureLibrary::LogPrimitiveBreakdown(const UObject* WorldContextObject)
 {
-	const UWorld* World = ResolveWorld(WorldContextObject, TEXT("LogPrimitiveBreakdown"));
+	const UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("LogPrimitiveBreakdown"));
 	if (World == nullptr)
 	{
 		return INDEX_NONE;
@@ -207,7 +210,7 @@ ASceneCapture2D* UFlowVizCaptureLibrary::SpawnSceneCapture2D(
 	FRotator Rotation,
 	float FOV)
 {
-	UWorld* World = ResolveWorld(WorldContextObject, TEXT("SpawnSceneCapture2D"));
+	UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("SpawnSceneCapture2D"));
 	if (World == nullptr)
 	{
 		return nullptr;
@@ -258,7 +261,7 @@ ASceneCapture2D* UFlowVizCaptureLibrary::SpawnSceneCapture2D(
 
 int32 UFlowVizCaptureLibrary::ResolveMaterials(const UObject* WorldContextObject)
 {
-	const UWorld* World = ResolveWorld(WorldContextObject, TEXT("ResolveMaterials"));
+	const UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("ResolveMaterials"));
 	if (World == nullptr)
 	{
 		return INDEX_NONE;
@@ -328,7 +331,7 @@ bool UFlowVizCaptureLibrary::CapturePipeline(
 	float FOV,
 	const void* AnnotationRequest)
 {
-	UWorld* World = ResolveWorld(WorldContextObject, TEXT("CaptureToPNG"));
+	UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("CaptureToPNG"));
 	if (World == nullptr)
 	{
 		return false;
@@ -508,7 +511,7 @@ ACFDVizCaseActor* UFlowVizCaptureLibrary::SpawnCaseActor(
 {
 	OutError.Reset();
 
-	UWorld* World = ResolveWorld(WorldContextObject, TEXT("SpawnCaseActor"));
+	UWorld* World = FlowVizCaptureLocal::ResolveWorld(WorldContextObject, TEXT("SpawnCaseActor"));
 	if (World == nullptr)
 	{
 		OutError = TEXT("could not resolve a world from the supplied context object");
@@ -705,7 +708,8 @@ bool UFlowVizCaptureLibrary::IsVolumeRayMarcherEnabled()
 	return FlowVizVolumeRayMarch::GetDispatcher() != nullptr;
 }
 
-namespace
+// Folded into the file's named namespace: see the unity-build note at the top.
+namespace FlowVizCaptureLocal
 {
 	/**
 	 * The volume behind a case actor, or null with a diagnostic naming the caller.
@@ -743,7 +747,7 @@ bool UFlowVizCaptureLibrary::CaptureAnnotatedPNG(
 	int32 Height,
 	float FOV)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("CaptureAnnotatedPNG"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("CaptureAnnotatedPNG"));
 	if (Volume == nullptr)
 	{
 		return false;
@@ -789,7 +793,7 @@ bool UFlowVizCaptureLibrary::CaptureAnnotatedPNG(
 int32 UFlowVizCaptureLibrary::BuildDefaultPicture(
 	ACFDVizCaseActor* CaseActor, int32 FrameIndex)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("BuildDefaultPicture"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("BuildDefaultPicture"));
 	if (Volume == nullptr || !Volume->GetCaseBinding().bIsValid)
 	{
 		return 0;
@@ -889,7 +893,7 @@ int32 UFlowVizCaptureLibrary::CaptureAnnotatedSequence(
 	int32 Height,
 	float FOV)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("CaptureAnnotatedSequence"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("CaptureAnnotatedSequence"));
 	if (Volume == nullptr || !Volume->GetCaseBinding().bIsValid)
 	{
 		return 0;
@@ -939,7 +943,7 @@ int32 UFlowVizCaptureLibrary::CaptureAnnotatedSequence(
 bool UFlowVizCaptureLibrary::SetVolumeCompositeMode(
 	ACFDVizCaseActor* CaseActor, int32 CompositeMode, float IsoValue)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("SetVolumeCompositeMode"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("SetVolumeCompositeMode"));
 	if (Volume == nullptr)
 	{
 		return false;
@@ -996,7 +1000,7 @@ bool UFlowVizCaptureLibrary::SetVolumeCompositeMode(
 
 bool UFlowVizCaptureLibrary::SetVolumeLightingEnabled(ACFDVizCaseActor* CaseActor, bool bEnabled)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("SetVolumeLightingEnabled"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("SetVolumeLightingEnabled"));
 	if (Volume == nullptr)
 	{
 		return false;
@@ -1017,7 +1021,7 @@ bool UFlowVizCaptureLibrary::AddVolumeClipPlane(
 	FVector Normal,
 	double Distance)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("AddVolumeClipPlane"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("AddVolumeClipPlane"));
 	if (Volume == nullptr)
 	{
 		return false;
@@ -1078,7 +1082,7 @@ bool UFlowVizCaptureLibrary::AddVolumeClipPlane(
 
 bool UFlowVizCaptureLibrary::ClearVolumeClipping(ACFDVizCaseActor* CaseActor)
 {
-	UCFDVizVolumeComponent* Volume = ResolveVolume(CaseActor, TEXT("ClearVolumeClipping"));
+	UCFDVizVolumeComponent* Volume = FlowVizCaptureLocal::ResolveVolume(CaseActor, TEXT("ClearVolumeClipping"));
 	if (Volume == nullptr)
 	{
 		return false;

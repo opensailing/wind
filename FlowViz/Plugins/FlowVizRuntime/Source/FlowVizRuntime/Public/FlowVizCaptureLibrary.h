@@ -192,6 +192,28 @@ public:
 		float FOV = 90.0f);
 
 	/**
+	 * Build the surface-path picture SYNCHRONOUSLY on a spawned actor
+	 * (renderer overhaul P9): z-mid cut plane of the bound field + the Q
+	 * iso-surface colored by |U|, applied to the actor's components. The
+	 * interactive app builds these on the workspace's sampling worker; a
+	 * headless capture has no workspace, and without this the shot shows an
+	 * obstacle floating in an empty wireframe -- the P2 half of the picture
+	 * pretending to be all of it.
+	 *
+	 * Takes the case actor directly - no world-context parameter, since the
+	 * actor already knows its world.
+	 *
+	 * @param CaseActor  The placed case whose components receive the surfaces.
+	 *                   Null or unbound is refused (returns 0), not dereferenced.
+	 * @param FrameIndex The stored frame to sample the field at.
+	 * @return The number of surfaces built (0-2).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture")
+	static int32 BuildDefaultPicture(
+		class ACFDVizCaseActor* CaseActor,
+		int32 FrameIndex = 0);
+
+	/**
 	 * The film-export entry (renderer overhaul P9): every stored frame of the
 	 * bound case rendered through the ANNOTATED pipeline into a numbered PNG
 	 * sequence -- frame_000000.png onward -- ready for ffmpeg or an edit
@@ -207,23 +229,6 @@ public:
 	 * @param OutputDirectory Created if missing.
 	 * @return The number of frames successfully written; 0 on total failure.
 	 */
-	/**
-	 * Build the surface-path picture SYNCHRONOUSLY on a spawned actor
-	 * (renderer overhaul P9): z-mid cut plane of the bound field + the Q
-	 * iso-surface colored by |U|, applied to the actor's components. The
-	 * interactive app builds these on the workspace's sampling worker; a
-	 * headless capture has no workspace, and without this the shot shows an
-	 * obstacle floating in an empty wireframe -- the P2 half of the picture
-	 * pretending to be all of it.
-	 *
-	 * @return The number of surfaces built (0-2).
-	 */
-	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
-		meta = (WorldContext = "WorldContextObject"))
-	static int32 BuildDefaultPicture(
-		class ACFDVizCaseActor* CaseActor,
-		int32 FrameIndex = 0);
-
 	UFUNCTION(BlueprintCallable, Category = "FlowViz|Capture",
 		meta = (WorldContext = "WorldContextObject"))
 	static int32 CaptureAnnotatedSequence(
