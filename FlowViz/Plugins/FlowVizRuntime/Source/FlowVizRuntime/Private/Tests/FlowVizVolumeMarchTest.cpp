@@ -201,6 +201,28 @@ namespace FlowVizMarchFixture
 		float RangeMin = 0.0f;
 		float RangeMax = FieldMax;
 		bool  bClampToRange = false;
+
+		/*
+		 * THE SHADOW HOLD. P7 added single-scatter self-shadowing to
+		 * FlowVizApplyLighting: the diffuse term is attenuated by a coarse march
+		 * toward the light, and that attenuation is DIRECTION-DEPENDENT. From the
+		 * centre iso hit, a +Y shadow ray crosses three in-volume steps, a +X ray
+		 * one and a +Z ray none, so the three axis-lit renders the gradient block
+		 * compares stopped measuring NdotL and started measuring
+		 * NdotL * 0.75^steps. Measured: X:Y moved from the analytic 0.25 to
+		 * 0.4444 (= 0.25 * 0.75 / 0.75^3) and Y:Z from 0.0625 to 0.026367
+		 * (= 0.0625 * 0.75^3) -- exactly the per-step shadow factor
+		 * (1 - LutAlpha 0.25 * OpacityMultiplier 1), which is how the cause was
+		 * attributed to shadowing rather than to the gradient.
+		 *
+		 * FlowVizShadowTransmittance multiplies by
+		 * (1 - Shaded.a * OpacityMultiplier) per step, so OpacityMultiplier = 0
+		 * forces the transmittance to exactly 1, while iso-mode compositing --
+		 * which writes Color = (rgb, 1) directly -- never reads the multiplier.
+		 * The gradient block HOLDS the shadow term this way; self-shadowing is
+		 * P7's feature, not the property under test there.
+		 */
+		float OpacityMul = 1.0f;
 	};
 
 	/** A single dispatch's readback, both targets. */
@@ -538,6 +560,10 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 				Params->CompositeMode = static_cast<uint32>(Config.Mode);
 				Params->bEnableLighting = Config.bLighting ? 1u : 0u;
+				// 1.0 for every pass-one config (identical to FillDefaults, so
+				// nothing pre-existing changes). 0 only on the gradient configs,
+				// which hold P7's self-shadow term -- see FMarchConfig::OpacityMul.
+				Params->OpacityMultiplier = Config.OpacityMul;
 				Params->CropBoxMin = FVector3f(Config.CropMinX, 0.0f, 0.0f);
 				Params->CropBoxMax = FVector3f(1.0f, 1.0f, 1.0f);
 
@@ -707,7 +733,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 		TestTrue(TEXT("the centre ray reports REASON_VALID - it sampled data, rather than "
 					  "crossing the box and finding every voxel refused"),
-			(ReasonBits(Max.ValueAt(CentreX, CentreY)) & 1u /* FLOWVIZ_REASON_VALID */) != 0u);
+			HasReason(Max.ValueAt(CentreX, CentreY), EFlowVizInvalidReason::Valid));
 
 		// The corner is outside the domain in both screen axes for this framing.
 		const FLinearColor& Corner = Max.ValueAt(0, 0);
@@ -784,7 +810,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			for (int32 X = 0; X < OutputW; ++X)
 			{
 				const FLinearColor& Pixel = Results[CfgMin].ValueAt(X, Y);
-				if (StepCount(Pixel) > 0 && (ReasonBits(Pixel) & 1u) != 0u)
+				if (StepCount(Pixel) > 0 && HasReason(Pixel, EFlowVizInvalidReason::Valid))
 				{
 					DistinctRows.Add(FMath::RoundToInt(ReportedValue(Pixel)));
 				}
@@ -882,7 +908,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 		if (TestTrue(TEXT("the masked ray still marches and still finds valid data beyond the "
 						  "masked slab"),
-				StepCount(Masked) > 0 && (ReasonBits(Masked) & 1u) != 0u))
+				StepCount(Masked) > 0 && HasReason(Masked, EFlowVizInvalidReason::Valid)))
 		{
 			TestEqual(*FString::Printf(
 					TEXT("masking voxels X<%d raises the minimum by exactly %d - the masked "
@@ -893,12 +919,12 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 			TestTrue(TEXT("...and the ray REPORTS having crossed masked voxels (REASON_MASKED), "
 						  "so the renderer can colour the cause rather than silently dropping it"),
-				(ReasonBits(Masked) & 4u /* FLOWVIZ_REASON_MASKED */) != 0u);
+				HasReason(Masked, EFlowVizInvalidReason::Masked));
 
 			TestFalse(TEXT("...while the unmasked render of the same ray does NOT report masking, "
 						   "which is what proves the bit above came from the status volume and "
 						   "not from something set on every ray"),
-				(ReasonBits(Unmasked) & 4u) != 0u);
+				HasReason(Unmasked, EFlowVizInvalidReason::Masked));
 		}
 	}
 
@@ -1019,6 +1045,15 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			  FVector4f(1.0f, 0.0f, 0.0f, -100.0f) },
 		};
 		SecondPassConfigs.Append(IsoConfigs, UE_ARRAY_COUNT(IsoConfigs));
+
+		// The three axis-lit gradient renders hold P7's self-shadow term at
+		// exactly 1 by zeroing the opacity the shadow march multiplies by --
+		// nothing else in iso mode reads OpacityMultiplier, so this is a hold on
+		// the confound, not a change to the property under test. See
+		// FMarchConfig::OpacityMul for the measured misattribution it prevents.
+		SecondPassConfigs[2].OpacityMul = 0.0f; // IsoLitX
+		SecondPassConfigs[3].OpacityMul = 0.0f; // IsoLitY
+		SecondPassConfigs[4].OpacityMul = 0.0f; // IsoLitZ
 	}
 
 	/*
@@ -1333,7 +1368,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 		if (TestTrue(*FString::Printf(TEXT("CONTROL: the doubly-clipped ray still marches (%d "
 										   "steps)"), StepCount(Both)),
-				StepCount(Both) > 0 && (ReasonBits(Both) & 1u) != 0u))
+				StepCount(Both) > 0 && HasReason(Both, EFlowVizInvalidReason::Valid)))
 		{
 			TestTrue(*FString::Printf(
 					TEXT("a second plane keeping local x <= 1.5 lowers the maximum below the "
@@ -1375,7 +1410,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			if (TestTrue(*FString::Printf(
 						TEXT("CONTROL: the tight-then-loose ray still marches (%d steps) and found "
 							 "valid data"), StepCount(MinPair)),
-					StepCount(MinPair) > 0 && (ReasonBits(MinPair) & 1u) != 0u))
+					StepCount(MinPair) > 0 && HasReason(MinPair, EFlowVizInvalidReason::Valid)))
 			{
 				TestEqual(*FString::Printf(
 						TEXT("two planes both keeping a MINIMUM x, tight (>=1.0) then LOOSE "
@@ -1398,7 +1433,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			if (TestTrue(*FString::Printf(
 						TEXT("CONTROL: the max-side pair still marches (%d steps) and found valid "
 							 "data"), StepCount(MaxPair)),
-					StepCount(MaxPair) > 0 && (ReasonBits(MaxPair) & 1u) != 0u))
+					StepCount(MaxPair) > 0 && HasReason(MaxPair, EFlowVizInvalidReason::Valid)))
 			{
 				// The mirror image, on the other accumulator. Keeping x <= 1.0 caps
 				// the maximum at voxel 8; the looser x <= 1.5 would cap it at 12.
