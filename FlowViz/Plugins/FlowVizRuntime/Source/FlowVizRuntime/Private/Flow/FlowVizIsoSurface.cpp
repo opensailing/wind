@@ -32,7 +32,13 @@ namespace FlowVizIsoSurfaceLocal
 
 	int32 ValueIndex(const FIntVector& Counts, const FIntVector& Voxel)
 	{
-		return (Voxel.Z * Counts.Y + Voxel.Y) * Counts.X + Voxel.X;
+		// int64 intermediates: the int32 form overflows at the second multiply
+		// on a large grid. The RESULT still fits int32 - IsValid() equates the
+		// int64 product with Values.Num(), whose element count is int32 - so
+		// the narrowing cast is in range for every grid the extractor accepts.
+		const int64 Index = (static_cast<int64>(Voxel.Z) * Counts.Y + Voxel.Y)
+			* Counts.X + Voxel.X;
+		return static_cast<int32>(Index);
 	}
 
 	/**

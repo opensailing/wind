@@ -46,7 +46,7 @@ namespace FlowVizParticles
 
 	/**
 	 * Advance every live particle one step: RK2 midpoint through the blended
-	 * field, kill on mask entry, domain exit, stagnation or age-out.
+	 * field, kill on mask entry, domain exit or age-out.
 	 *
 	 * @param SamplerA The displayed frame's velocity sampler.
 	 * @param SamplerB The blend partner, or null for a frozen field.

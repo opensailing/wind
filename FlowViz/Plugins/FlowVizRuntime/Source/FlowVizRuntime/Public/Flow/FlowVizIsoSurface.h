@@ -39,8 +39,15 @@ namespace FlowVizIsoSurface
 
 		bool IsValid() const
 		{
+			// int64 for the product: a large grid overflows int32 at the second
+			// multiply, and a wrapped product can equal Values.Num() by accident.
+			// The comparison against Num() (int32) then also bounds a valid
+			// grid's value count to MAX_int32, which is what lets ValueIndex
+			// return int32 safely.
+			const int64 ValueCount = static_cast<int64>(Counts.X)
+				* static_cast<int64>(Counts.Y) * static_cast<int64>(Counts.Z);
 			return Counts.X >= 2 && Counts.Y >= 2 && Counts.Z >= 2
-				&& Values.Num() == Counts.X * Counts.Y * Counts.Z
+				&& static_cast<int64>(Values.Num()) == ValueCount
 				&& Spacing.GetMin() > 0.0;
 		}
 	};

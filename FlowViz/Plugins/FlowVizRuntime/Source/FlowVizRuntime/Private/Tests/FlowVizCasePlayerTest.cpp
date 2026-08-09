@@ -669,9 +669,6 @@ bool FFlowVizPlaybackFramesTest::RunTest(const FString& Parameters)
 		// DIRECTION MATTERS. Travelling backward the preload must lead the
 		// playhead the other way, or a ping-pong that has just turned around
 		// prefetches the frames it is walking away from.
-		TArray<int32> Backward;
-		FlowVizPlayback::BuildRequestList(Timeline, Mid, false, 1, 1, Backward);
-		const int32 ForwardPreloadPos = Requests.Num();
 		TArray<int32> Fwd;
 		FlowVizPlayback::BuildRequestList(Timeline, Mid, true, 1, 0, Fwd);
 		TArray<int32> Bwd;
@@ -680,7 +677,6 @@ bool FFlowVizPlaybackFramesTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("forward preload does not ask for the frame before A"), Fwd.Contains(1));
 		TestTrue(TEXT("backward preload asks for the frame before A"), Bwd.Contains(1));
 		TestFalse(TEXT("backward preload does not ask for the frame after B"), Bwd.Contains(4));
-		(void)ForwardPreloadPos;
 
 		// An empty timeline requests nothing rather than requesting frame 0.
 		FFlowVizTimeline Empty;
