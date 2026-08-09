@@ -44,6 +44,116 @@ namespace FlowVizPlaybackDetail
 		const double Remainder = FMath::Fmod(Value, Period);
 		return Remainder < 0.0 ? Remainder + Period : Remainder;
 	}
+
+	/**
+	 * Fold an unbounded value into [First, Last] under a loop policy.
+	 *
+	 * The numeric core of FlowVizPlayback::FoldPhase, shared so Sequence mode
+	 * can run the SAME fold in frame-coordinate space. Folding a coordinate
+	 * phase through the time-space fold is wrong on any non-uniform timeline:
+	 * the triangle wave reflects about Last, and the reflection of a uniform
+	 * coordinate step is a uniform coordinate step, not a uniform time step.
+	 *
+	 * The caller guarantees Last > First and a finite Value.
+	 */
+	double FoldValueIntoRange(
+		double Value,
+		double First,
+		double Last,
+		EFlowVizLoopMode LoopMode,
+		bool bSpeedForward,
+		bool& bOutForward,
+		bool& bOutFinished)
+	{
+		bOutForward = bSpeedForward;
+		bOutFinished = false;
+
+		const double Duration = Last - First;
+		const double Offset = Value - First;
+
+		switch (LoopMode)
+		{
+		case EFlowVizLoopMode::Once:
+		{
+			if (Offset >= Duration)
+			{
+				bOutFinished = true;
+				return Last;
+			}
+			if (Offset <= 0.0)
+			{
+				// Finished at the START too. Running backwards under Once must
+				// stop at the first frame; a check on the forward end only leaves
+				// a reversed playhead running into negative time forever.
+				bOutFinished = true;
+				return First;
+			}
+			return Value;
+		}
+
+		case EFlowVizLoopMode::Loop:
+		{
+			return First + PositiveMod(Offset, Duration);
+		}
+
+		case EFlowVizLoopMode::PingPong:
+		{
+			// THE TRIANGLE WAVE. Period is 2*Duration: out and back. Written as a
+			// fold rather than as a turnaround branch, so a step of any size - ten
+			// periods, a negative phase - lands in the right place with the right
+			// direction, and an exact landing on an end is exactly an end rather
+			// than an epsilon past one.
+			const double Period = 2.0 * Duration;
+			const double Cycle = PositiveMod(Offset, Period);
+
+			if (Cycle <= Duration)
+			{
+				// Outbound half. Travel agrees with the phase's own direction.
+				bOutForward = bSpeedForward;
+				return First + Cycle;
+			}
+
+			// Return half: reflected, and travelling against the phase's direction.
+			bOutForward = !bSpeedForward;
+			return First + (Period - Cycle);
+		}
+
+		default:
+			return FMath::Clamp(Value, First, Last);
+		}
+	}
+
+	/**
+	 * The EXTRAPOLATING inverse of FFlowVizTimeline::FrameCoordinateToTime.
+	 *
+	 * TimeToFrameCoordinate clamps - correct for every display-side caller, and
+	 * wrong for recovering Sequence mode's phase coordinate from an unfolded
+	 * PhaseTime that deliberately lies outside the timeline. Outside
+	 * [First, Last] this extends with the first or last interval's own width,
+	 * exactly mirroring FrameCoordinateToTime's extrapolation, so the two are
+	 * a bijection over the whole real line and the phase survives the round
+	 * trip unfolded.
+	 */
+	double TimeToFrameCoordinateUnclamped(const FFlowVizTimeline& Timeline, double Time)
+	{
+		TArrayView<const double> Times = Timeline.GetTimes();
+		if (Times.Num() < 2 || !IsUsableTime(Time))
+		{
+			return 0.0;
+		}
+
+		const int32 LastIndex = Times.Num() - 1;
+		if (Time < Times[0])
+		{
+			return (Time - Times[0]) / (Times[1] - Times[0]);
+		}
+		if (Time > Times[LastIndex])
+		{
+			return static_cast<double>(LastIndex)
+				+ (Time - Times[LastIndex]) / (Times[LastIndex] - Times[LastIndex - 1]);
+		}
+		return Timeline.TimeToFrameCoordinate(Time);
+	}
 }
 
 /* ========================================================================== */
@@ -446,8 +556,8 @@ double FlowVizPlayback::FoldPhase(
 	const double Last = Timeline.GetLastTime();
 	const double Duration = Last - First;
 
-	// A single-frame timeline has zero duration. Every fold below divides by it,
-	// so this is where a NaN playhead would come from.
+	// A single-frame timeline has zero duration. The fold divides by it, so
+	// this is where a NaN playhead would come from.
 	if (Duration <= 0.0)
 	{
 		return First;
@@ -458,58 +568,10 @@ double FlowVizPlayback::FoldPhase(
 		return First;
 	}
 
-	const double Offset = PhaseTime - First;
-
-	switch (LoopMode)
-	{
-	case EFlowVizLoopMode::Once:
-	{
-		if (Offset >= Duration)
-		{
-			bOutFinished = true;
-			return Last;
-		}
-		if (Offset <= 0.0)
-		{
-			// Finished at the START too. Running backwards under Once must stop at
-			// frame 0; a check on the forward end only leaves a reversed playhead
-			// running into negative time forever.
-			bOutFinished = true;
-			return First;
-		}
-		return PhaseTime;
-	}
-
-	case EFlowVizLoopMode::Loop:
-	{
-		return First + FlowVizPlaybackDetail::PositiveMod(Offset, Duration);
-	}
-
-	case EFlowVizLoopMode::PingPong:
-	{
-		// THE TRIANGLE WAVE. Period is 2*Duration: out and back. Written as a
-		// fold rather than as a turnaround branch, so a step of any size - ten
-		// periods, a negative phase - lands in the right place with the right
-		// direction, and an exact landing on an end is exactly an end rather than
-		// an epsilon past one.
-		const double Period = 2.0 * Duration;
-		const double Cycle = FlowVizPlaybackDetail::PositiveMod(Offset, Period);
-
-		if (Cycle <= Duration)
-		{
-			// Outbound half. Travel agrees with the phase's own direction.
-			bOutForward = bSpeedForward;
-			return First + Cycle;
-		}
-
-		// Return half: reflected, and travelling against the phase's direction.
-		bOutForward = !bSpeedForward;
-		return First + (Period - Cycle);
-	}
-
-	default:
-		return Timeline.ClampTime(PhaseTime);
-	}
+	// The fold itself is shared with Sequence mode's frame-coordinate fold; see
+	// FoldValueIntoRange for the triangle-wave discussion.
+	return FlowVizPlaybackDetail::FoldValueIntoRange(
+		PhaseTime, First, Last, LoopMode, bSpeedForward, bOutForward, bOutFinished);
 }
 
 FFlowVizPlayhead FlowVizPlayback::Advance(
@@ -534,21 +596,52 @@ FFlowVizPlayhead FlowVizPlayback::Advance(
 
 	const bool bSpeedForward = Settings.Speed >= 0.0;
 
+	// THE PHASE, NOT THE DISPLAY, IS WHAT ADVANCES - the FFlowVizPlayhead
+	// contract. An earlier version re-derived the phase from the FOLDED display
+	// time every tick, which Once and Loop cannot detect (their folds are
+	// idempotent under that re-seed) and PingPong cannot survive: at an end the
+	// fold and the re-derived phase meet one step apart and the playhead
+	// oscillates inside the last gap forever instead of walking the return leg.
 	switch (Settings.Mode)
 	{
 	case EFlowVizPlaybackMode::Sequence:
 	{
-		// EQUAL WALL TIME PER STORED FRAME. The step is taken in FRAME
-		// COORDINATE space and converted back through the timeline, so a 0.001 s
-		// gap and a 10 s gap each take one frame period. A constant-dt advance
-		// plays the sparse end of an adaptive case in slow motion.
-		const double CurrentCoordinate = Timeline.TimeToFrameCoordinate(Result.DisplayTime);
-		const double FrameStep = Settings.SequenceFrameRate * Settings.Speed * DeltaSeconds;
-		const double TargetCoordinate = CurrentCoordinate + FrameStep;
+		// EQUAL WALL TIME PER STORED FRAME. The step is uniform in FRAME
+		// COORDINATE space, so a 0.001 s gap and a 10 s gap each take one frame
+		// period - and therefore the FOLD is in coordinate space too. Folding
+		// the coordinate overshoot through the TIME fold holds that property
+		// only on a uniform timeline: the time reflection of a one-frame
+		// coordinate step is one last-gap-width of time, which is a different
+		// number of stored frames wherever the gaps differ.
+		if (Timeline.GetFrameCount() < 2)
+		{
+			// A single-frame timeline has nowhere to travel; the coordinate fold
+			// below would divide by its zero period.
+			Result.PhaseTime = Timeline.GetFirstTime();
+			Result.DisplayTime = Result.PhaseTime;
+			return Result;
+		}
 
-		// Extrapolating past the ends is deliberate; FoldPhase needs the overshoot.
+		// The phase COORDINATE is recovered from the unfolded phase time through
+		// the extrapolating inverse of FrameCoordinateToTime - the two form a
+		// bijection over the whole real line, so the overshoot survives the
+		// round trip. TimeToFrameCoordinate itself CLAMPS, which is correct for
+		// its display-side callers and would flatten the phase here.
+		const double PhaseCoordinate =
+			FlowVizPlaybackDetail::TimeToFrameCoordinateUnclamped(Timeline, Result.PhaseTime);
+		const double FrameStep = Settings.SequenceFrameRate * Settings.Speed * DeltaSeconds;
+		const double TargetCoordinate = PhaseCoordinate + FrameStep;
+
+		// The unfolded phase is stored as the TIME image of the unfolded
+		// coordinate, so FFlowVizPlayhead::PhaseTime stays in solver units in
+		// every mode.
 		Result.PhaseTime = Timeline.FrameCoordinateToTime(TargetCoordinate);
-		break;
+
+		const double FoldedCoordinate = FlowVizPlaybackDetail::FoldValueIntoRange(
+			TargetCoordinate, 0.0, static_cast<double>(Timeline.GetLastFrameIndex()),
+			Settings.LoopMode, bSpeedForward, Result.bForward, Result.bFinished);
+		Result.DisplayTime = Timeline.FrameCoordinateToTime(FoldedCoordinate);
+		return Result;
 	}
 
 	case EFlowVizPlaybackMode::RealTime:
@@ -556,9 +649,7 @@ FFlowVizPlayhead FlowVizPlayback::Advance(
 		// PHYSICAL TIME AT Speed. Stored frames are skipped where the data is
 		// denser than the display can show, which is exactly what plan.md's
 		// "respect physical simulation time and skip display frames" asks for.
-		// The phase is advanced from the DISPLAYED time so a fold that wrapped
-		// last tick continues from where it wrapped to.
-		Result.PhaseTime = Result.DisplayTime + Settings.Speed * DeltaSeconds;
+		Result.PhaseTime = Playhead.PhaseTime + Settings.Speed * DeltaSeconds;
 		break;
 	}
 
@@ -578,13 +669,10 @@ FFlowVizPlayhead FlowVizPlayback::Advance(
 
 		if (WholeSteps > 0.0)
 		{
-			// Each step advances one output frame's worth of solver time.
+			// Each step advances one output frame's worth of solver time, on the
+			// unfolded phase (already copied into Result).
 			const double TimeStep = Settings.Speed * StepSeconds;
-			Result.PhaseTime = Result.DisplayTime + WholeSteps * TimeStep;
-		}
-		else
-		{
-			Result.PhaseTime = Result.DisplayTime;
+			Result.PhaseTime = Playhead.PhaseTime + WholeSteps * TimeStep;
 		}
 		break;
 	}

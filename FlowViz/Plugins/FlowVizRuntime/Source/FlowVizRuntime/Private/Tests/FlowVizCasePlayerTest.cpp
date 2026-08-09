@@ -458,6 +458,95 @@ bool FFlowVizPlaybackFramesTest::RunTest(const FString& Parameters)
 			Tiny.DisplayTime, Before.DisplayTime, 1.0e-12);
 	}
 
+	/* == Advance x PingPong: the turnaround is phase state, not a re-fold ==== */
+	{
+		// THE RE-SEED BUG THIS PINS. Advance used to rebuild the phase from the
+		// FOLDED display time every tick. Once and Loop cannot tell (their folds
+		// are idempotent under that re-seed), but PingPong's triangle wave is
+		// not: at an end the fold and the re-derived phase meet one step apart
+		// and the playhead oscillates inside the last gap forever. The header's
+		// own contract (FFlowVizPlayhead: "PHASE, NOT TIME, IS THE STATE...
+		// never folded") is what is asserted here, through every mode.
+		FFlowVizPlaybackSettings Settings;
+		Settings.LoopMode = EFlowVizLoopMode::PingPong;
+		Settings.Speed = 1.0;
+
+		// --- REAL TIME through the turnaround. Duration 10, speed 1, dt 1: the
+		// display must run 0..10, reflect, run back to 0 in exactly 20 ticks,
+		// and set off FORWARD again -- not oscillate between 9 and 10.
+		Settings.Mode = EFlowVizPlaybackMode::RealTime;
+		FFlowVizPlayhead Head = FlowVizPlayback::MakePlayheadAtFrame(Timeline, 0);
+		for (int32 Tick = 0; Tick < 11; ++Tick)
+		{
+			Head = FlowVizPlayback::Advance(Timeline, Settings, Head, 1.0);
+		}
+		TestEqual(TEXT("RealTime PingPong: tick 11 has reflected to t=9"),
+			Head.DisplayTime, 9.0, 1.0e-9);
+		TestFalse(TEXT("RealTime PingPong: the reflected leg travels backward"), Head.bForward);
+		TestEqual(TEXT("RealTime PingPong: the phase is NOT folded (11 after 11 ticks)"),
+			Head.PhaseTime, 11.0, 1.0e-9);
+
+		Head = FlowVizPlayback::Advance(Timeline, Settings, Head, 1.0);
+		TestEqual(TEXT("RealTime PingPong: tick 12 keeps walking back to t=8"),
+			Head.DisplayTime, 8.0, 1.0e-9);
+		TestFalse(TEXT("RealTime PingPong: tick 12 is still backward"), Head.bForward);
+
+		for (int32 Tick = 12; Tick < 20; ++Tick)
+		{
+			Head = FlowVizPlayback::Advance(Timeline, Settings, Head, 1.0);
+		}
+		TestEqual(TEXT("RealTime PingPong: one full period returns to First"),
+			Head.DisplayTime, 0.0, 1.0e-9);
+		TestTrue(TEXT("RealTime PingPong: after a full period travel is forward again"),
+			Head.bForward);
+		Head = FlowVizPlayback::Advance(Timeline, Settings, Head, 1.0);
+		TestEqual(TEXT("RealTime PingPong: the second period sets off forward"),
+			Head.DisplayTime, 1.0, 1.0e-9);
+
+		// --- FIXED FPS, same schedule (1 step/s at speed 1): the banked-step
+		// path must accumulate on the same unfolded phase.
+		Settings.Mode = EFlowVizPlaybackMode::FixedFps;
+		Settings.OutputFrameRate = 1.0;
+		Head = FlowVizPlayback::MakePlayheadAtFrame(Timeline, 0);
+		for (int32 Tick = 0; Tick < 12; ++Tick)
+		{
+			Head = FlowVizPlayback::Advance(Timeline, Settings, Head, 1.0);
+		}
+		TestEqual(TEXT("FixedFps PingPong: tick 12 has walked back to t=8"),
+			Head.DisplayTime, 8.0, 1.0e-9);
+		TestFalse(TEXT("FixedFps PingPong: tick 12 travels backward"), Head.bForward);
+
+		// --- SEQUENCE: equal wall time per STORED FRAME through the
+		// turnaround. One frame period per tick must walk the stored frames
+		// 0,1,2,3,4 and then back down 3,2,1,0 -- one stored frame per tick on
+		// the reflected leg too, whatever the gaps' widths. Hand-computed over
+		// the 1/2/3/4-wide gaps; the period is 2 * 4 = 8 ticks.
+		Settings.Mode = EFlowVizPlaybackMode::Sequence;
+		Settings.SequenceFrameRate = 1.0;
+		Head = FlowVizPlayback::MakePlayheadAtFrame(Timeline, 0);
+		const double ExpectedWalk[] = { 1.0, 3.0, 6.0, 10.0, 6.0, 3.0, 1.0, 0.0, 1.0, 3.0 };
+		for (int32 Tick = 0; Tick < UE_ARRAY_COUNT(ExpectedWalk); ++Tick)
+		{
+			Head = FlowVizPlayback::Advance(Timeline, Settings, Head, 1.0);
+			TestEqual(FString::Printf(
+				TEXT("Sequence PingPong: tick %d lands on t=%g (one stored frame per tick)"),
+					Tick + 1, ExpectedWalk[Tick]),
+				Head.DisplayTime, ExpectedWalk[Tick], 1.0e-9);
+			if (Tick == 4)
+			{
+				TestFalse(TEXT("Sequence PingPong: the reflected leg travels backward"),
+					Head.bForward);
+				TestTrue(TEXT("Sequence PingPong: the phase lies past the timeline while reflected"),
+					Head.PhaseTime > Timeline.GetLastTime());
+			}
+			if (Tick == 7)
+			{
+				TestTrue(TEXT("Sequence PingPong: a full period returns to First, forward"),
+					Head.bForward);
+			}
+		}
+	}
+
 	/* == Stepping by whole frames - the previous/next buttons ================ */
 	{
 		// Stepping starts from the NEAREST frame. From t=4.6 (nearest frame 3),
