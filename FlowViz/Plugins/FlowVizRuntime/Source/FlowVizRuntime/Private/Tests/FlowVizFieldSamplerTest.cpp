@@ -11,6 +11,14 @@
  * NAMED namespace: unity build (#37). The class name also matters here - the
  * blob already holds FFlowVizFieldSamplerTest (FlowVizFlowInspectionTest.cpp),
  * so this file's test class carries the finding's name instead.
+ *
+ * THE DOTTED TEST NAME IS A TREE PATH, and that constrains the name: a test at
+ * "FlowViz.Flow.FieldSampler.HeaderCrossCheck" turns "FlowViz.Flow.FieldSampler"
+ * into an interior node and MASKS the existing test that lives exactly there -
+ * it silently stops enumerating (observed: suite count moved 161 -> 162 with
+ * two tests added). Hence the undotted leaf "FieldSamplerHeaderCrossCheck".
+ * The same collision already exists in the tree at Scene.OrbitCamera vs
+ * Scene.OrbitCamera.Presets (Scene/ is out of this change's scope).
  */
 namespace FlowVizFieldSamplerHeaderTest
 {
@@ -57,7 +65,7 @@ namespace FlowVizFieldSamplerHeaderTest
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizFieldSamplerHeaderCrossCheckTest,
-	"FlowViz.Flow.FieldSampler.HeaderCrossCheck",
+	"FlowViz.Flow.FieldSamplerHeaderCrossCheck",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 		| EAutomationTestFlags::EngineFilter)
 
