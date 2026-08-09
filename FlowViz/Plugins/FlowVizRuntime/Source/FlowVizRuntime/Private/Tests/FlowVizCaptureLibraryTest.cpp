@@ -75,9 +75,15 @@ bool FFlowVizSceneProxyCountTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("a world with no real render scene reports INDEX_NONE, not a false zero"),
 			Baseline, INDEX_NONE);
-		AddInfo(TEXT("No real FScene on this world - expected under -nullrhi, and also "
-			"whenever GIsClient is false or FApp::CanEverRender() is false. The "
-			"differential assertions below need a real scene and did not run."));
+		// The literal "SKIPPED" is load-bearing: Tools/run_tests.sh's skip
+		// listing keys on it, and a message without it leaves this partial run
+		// counted as a full green - the project's own "green totals can hide
+		// skips" hazard.
+		AddInfo(TEXT("SKIPPED (partially): no real FScene on this world - expected under "
+			"-nullrhi, and also whenever GIsClient is false or FApp::CanEverRender() is "
+			"false. The INDEX_NONE no-render-scene contract arm above DID run and passed; "
+			"the differential arms (add/remove geometry moves the count) need a real "
+			"scene and did NOT run. Run with RHI=1 to exercise them."));
 		return true;
 	}
 
