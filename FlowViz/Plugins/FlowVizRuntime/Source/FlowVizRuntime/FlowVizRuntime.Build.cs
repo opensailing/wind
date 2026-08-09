@@ -8,6 +8,9 @@ public class FlowVizRuntime : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Public: what our PUBLIC HEADERS need. The render surface there is
+		// RenderCore/RHI only (shader declarations, upload types); Renderer is
+		// consumed solely by Private/Render/'s dispatcher, so it lives below.
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
@@ -15,21 +18,16 @@ public class FlowVizRuntime : ModuleRules
 			"Engine",
 			"RenderCore",
 			"RHI",
-			"Renderer",
 			"Projects",
-			"Niagara",
 			"ProceduralMeshComponent"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"Renderer",
 			"Slate",
 			"SlateCore",
-			"UMG",
-			"Json",
-			"JsonUtilities",
-			"InputCore",
-			"ApplicationCore"
+			"Json"
 		});
 
 		/*

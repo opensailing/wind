@@ -14,15 +14,7 @@ public class FlowVizApp : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"InputCore",
-			"EnhancedInput",
 			"FlowVizRuntime"
-		});
-
-		PrivateDependencyModuleNames.AddRange(new string[]
-		{
-			"Slate",
-			"SlateCore",
-			"UMG"
 		});
 	}
 }
