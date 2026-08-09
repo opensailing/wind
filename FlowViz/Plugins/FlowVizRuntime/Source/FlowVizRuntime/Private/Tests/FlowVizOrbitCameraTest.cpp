@@ -162,10 +162,16 @@ bool FFlowVizOrbitCameraTest::RunTest(const FString& Parameters)
 /**
  * View presets and bookmarks (renderer overhaul P9): the genre's camera
  * vocabulary as pure pose edits, and the reproducible-shot primitive.
+ *
+ * NOT "FlowViz.Scene.OrbitCamera.Presets". A dotted sibling of an existing
+ * test name turns that exact name into an interior TREE NODE: the test
+ * registered at "FlowViz.Scene.OrbitCamera" silently stops enumerating, never
+ * runs, and the suite total hides the loss. Undotting the leaf keeps both
+ * tests as leaves under FlowViz.Scene.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizCameraPresetsTest,
-	"FlowViz.Scene.OrbitCamera.Presets",
+	"FlowViz.Scene.OrbitCameraPresets",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 		| EAutomationTestFlags::EngineFilter)
 
