@@ -441,4 +441,145 @@ bool FCFDVizPayloadRejectionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/* -------------------------------------------------------------------------- */
+/* The allocation cap versus TArray's int32 indexing                            */
+/* -------------------------------------------------------------------------- */
+
+// NAMED namespace: unity build. The stub must live outside the file's
+// anonymous namespace so a same-named helper elsewhere in the blob cannot
+// collide with it.
+namespace CFDVizPayloadTestLocal
+{
+	/**
+	 * A byte source that CLAIMS an arbitrary size with no backing memory - the
+	 * shape of a hostile or corrupt container header. Read refuses, which is
+	 * fine: a correctly capped decoder must reject the declared size before it
+	 * ever tries to read.
+	 */
+	class FDeclaredSizeByteSource final : public ICFDVizByteSource
+	{
+	public:
+		explicit FDeclaredSizeByteSource(int64 InSize)
+			: Size(InSize)
+			, DisplayPath(TEXT("<declared-size stub>"))
+		{
+		}
+
+		virtual int64 GetSize() const override { return Size; }
+		virtual bool Read(int64, int64, void*) const override { return false; }
+		virtual const FString& GetDisplayPath() const override { return DisplayPath; }
+
+	private:
+		int64 Size;
+		FString DisplayPath;
+	};
+}
+
+/**
+ * WHAT THIS PINS. DecodePayload materialises payloads into TArray<uint8>,
+ * whose element count is int32 - so nothing above MAX_int32 bytes can ever be
+ * allocated, whatever the cap parameter says. The default cap used to be
+ * 4 GiB (1LL << 32): a self-consistent header declaring a size in
+ * (MAX_int32, 2^32] sailed past it and landed in SetNumUninitialized as a
+ * NEGATIVE count - a check() crash on a data-dependent input. The CVF path
+ * was immune (it passes MaxReadableBytes = MAX_int32); the CVA path used the
+ * default. On pristine code this test CRASHES the process; that was the red.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCFDVizPayloadAllocationCapTest,
+	"FlowViz.CFDViz.Payload.AllocationCap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FCFDVizPayloadAllocationCapTest::RunTest(const FString& Parameters)
+{
+	using namespace CFDViz;
+
+	// Just past int32: passes the old 4 GiB cap, breaks the int32 narrowing.
+	const int64 HugeBytes = (1LL << 31) + 64;
+
+	// --- Codec None: the STORED buffer is the one that would be materialised.
+	{
+		const CFDVizPayloadTestLocal::FDeclaredSizeByteSource Source(HugeBytes + 128);
+
+		FPayloadSpec Spec;
+		Spec.Offset = 0;
+		Spec.CompressedBytes = HugeBytes;
+		Spec.UncompressedBytes = HugeBytes;
+		Spec.PayloadCrc32C = 0;
+		Spec.ValueCount = HugeBytes / 4;
+		Spec.ComponentCount = 1;
+		Spec.DataType = ECFDVizDataType::Float32;
+		Spec.Codec = ECFDVizCodec::None;
+		Spec.Context = TEXT("huge uncompressed payload");
+
+		TArray<uint8> Decoded;
+		const FCFDVizResult Result = DecodePayload(Source, Spec, Decoded);
+		TestTrue(TEXT("a declared size just past MAX_int32 fails with AllocationTooLarge"),
+			Result.Error == ECFDVizError::AllocationTooLarge);
+		TestEqual(TEXT("and nothing is returned"), Decoded.Num(), 0);
+
+		// The clamp must hold against the CALLER's cap too: an explicit 4 GiB
+		// budget cannot buy an allocation TArray cannot represent.
+		TArray<uint8> DecodedWithCap;
+		const FCFDVizResult WithCap =
+			DecodePayload(Source, Spec, DecodedWithCap, /*bVerifyCrc=*/true, /*MaxAllocationBytes=*/1LL << 32);
+		TestTrue(TEXT("an explicit 4 GiB cap is still clamped to MAX_int32"),
+			WithCap.Error == ECFDVizError::AllocationTooLarge);
+	}
+
+	// --- Codec Zlib with a small stored span: the DECODED buffer is the one
+	// that would be materialised, which is the other narrowing site.
+	{
+		const CFDVizPayloadTestLocal::FDeclaredSizeByteSource Source(1024);
+
+		FPayloadSpec Spec;
+		Spec.Offset = 0;
+		Spec.CompressedBytes = 32;
+		Spec.UncompressedBytes = HugeBytes;
+		Spec.PayloadCrc32C = 0;
+		Spec.ValueCount = HugeBytes / 4;
+		Spec.ComponentCount = 1;
+		Spec.DataType = ECFDVizDataType::Float32;
+		Spec.Codec = ECFDVizCodec::Zlib;
+		Spec.Context = TEXT("huge decoded payload");
+
+		TArray<uint8> Decoded;
+		const FCFDVizResult Result = DecodePayload(Source, Spec, Decoded);
+		TestTrue(TEXT("a huge DECODED size behind a small stored span is also refused"),
+			Result.Error == ECFDVizError::AllocationTooLarge);
+		TestEqual(TEXT("and nothing is returned"), Decoded.Num(), 0);
+	}
+
+	// --- Control: a decoded size AT the MAX_int32 boundary passes the cap and
+	// fails LATER, at the stub's refusing Read of the small stored span. This
+	// is what proves the two arms above failed on the cap rather than on the
+	// stub's Read - an all-refusing source would make any error look like one.
+	// Zlib with a 32-byte stored span keeps the control allocation-free: the
+	// cap check precedes every allocation, and only the 32 stored bytes would
+	// ever be materialised before the read refuses.
+	{
+		const int64 AtLimit = MAX_int32 - 3; // divisible by 4 for float32
+		const CFDVizPayloadTestLocal::FDeclaredSizeByteSource Source(1024);
+
+		FPayloadSpec Spec;
+		Spec.Offset = 0;
+		Spec.CompressedBytes = 32;
+		Spec.UncompressedBytes = AtLimit;
+		Spec.PayloadCrc32C = 0;
+		Spec.ValueCount = AtLimit / 4;
+		Spec.ComponentCount = 1;
+		Spec.DataType = ECFDVizDataType::Float32;
+		Spec.Codec = ECFDVizCodec::Zlib;
+		Spec.Context = TEXT("at-limit payload");
+
+		TArray<uint8> Decoded;
+		const FCFDVizResult Result = DecodePayload(Source, Spec, Decoded);
+		TestTrue(TEXT("a size within MAX_int32 passes the cap and fails at the stub's read"),
+			Result.Error == ECFDVizError::FileReadFailed);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

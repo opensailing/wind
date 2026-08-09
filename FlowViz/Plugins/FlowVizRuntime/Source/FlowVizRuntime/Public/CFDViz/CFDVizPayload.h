@@ -76,14 +76,20 @@ namespace CFDViz
 	 * @param MaxAllocationBytes Refuse to allocate more than this. A cap is not
 	 *                   redundant with the size check above: a *self-consistent*
 	 *                   header can still declare a petabyte, and the two checks
-	 *                   catch different lies.
+	 *                   catch different lies. The EFFECTIVE cap is always
+	 *                   min(MaxAllocationBytes, MAX_int32): payloads land in
+	 *                   TArray<uint8>, whose element count is int32, so no cap a
+	 *                   caller passes can buy a larger allocation - a size in
+	 *                   (MAX_int32, cap] is rejected with AllocationTooLarge
+	 *                   rather than narrowed into a negative count. The default
+	 *                   is therefore MAX_int32, the largest honest value.
 	 */
 	FLOWVIZRUNTIME_API FCFDVizResult DecodePayload(
 		const ICFDVizByteSource& Source,
 		const FPayloadSpec& Spec,
 		TArray<uint8>& OutBytes,
 		bool bVerifyCrc = true,
-		int64 MaxAllocationBytes = 1LL << 32);
+		int64 MaxAllocationBytes = MAX_int32);
 
 	/**
 	 * CRC-32C over a stored span, without decoding it.

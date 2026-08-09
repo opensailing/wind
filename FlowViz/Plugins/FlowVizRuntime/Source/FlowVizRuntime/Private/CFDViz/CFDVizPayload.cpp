@@ -120,6 +120,15 @@ FCFDVizResult DecodePayload(
 			Path, Spec.Offset);
 	}
 
+	// THE CAP IS CLAMPED TO WHAT TArray CAN HOLD, whatever the caller passed.
+	// Both buffers below are TArray<uint8> - int32 element count - and both
+	// SetNumUninitialized calls narrow to int32. A cap above MAX_int32 (the old
+	// default was 4 GiB) admits a size in (MAX_int32, cap] that then lands as a
+	// NEGATIVE count: a check() crash on data-dependent input. Explicit
+	// rejection here, before the casts, is the fix; the casts below are then
+	// provably in range.
+	MaxAllocationBytes = FMath::Min<int64>(MaxAllocationBytes, MAX_int32);
+
 	// A separate limit from the equality above, catching a different lie: a
 	// header can be entirely self-consistent and still declare a petabyte.
 	if (Spec.UncompressedBytes > MaxAllocationBytes)
