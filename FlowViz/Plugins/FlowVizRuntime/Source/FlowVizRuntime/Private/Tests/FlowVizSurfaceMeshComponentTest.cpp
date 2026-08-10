@@ -66,6 +66,8 @@ bool FFlowVizSurfaceMeshComponentTest::RunTest(const FString& Parameters)
 
 	TestEqual(TEXT("CONTROL: a fresh component has no sections"),
 		Component->GetSectionCount(), 0);
+	TestFalse(TEXT("the inherited procedural-mesh default leaves surfaces unticked"),
+		Component->PrimaryComponentTick.bCanEverTick);
 
 	/* == Applying ============================================================ */
 

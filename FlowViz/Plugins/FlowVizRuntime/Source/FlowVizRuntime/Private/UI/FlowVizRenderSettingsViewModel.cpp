@@ -2,7 +2,10 @@
 
 #include "UI/FlowVizRenderSettingsViewModel.h"
 
-namespace
+/*
+ * NAMED namespace: unity build (#37).
+ */
+namespace FlowVizRenderSettingsViewModelLocal
 {
 	/**
 	 * Is this a member of EFlowVizCompositeMode?
@@ -40,7 +43,7 @@ void FFlowVizRenderSettingsViewModel::SetCompositeMode(EFlowVizCompositeMode InM
 
 bool FFlowVizRenderSettingsViewModel::SetCompositeModeByValue(uint32 InValue)
 {
-	if (!IsKnownCompositeMode(InValue))
+	if (!FlowVizRenderSettingsViewModelLocal::IsKnownCompositeMode(InValue))
 	{
 		return false;
 	}
