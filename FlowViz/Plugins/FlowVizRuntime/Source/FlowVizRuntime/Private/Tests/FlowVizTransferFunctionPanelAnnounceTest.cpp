@@ -66,7 +66,8 @@ namespace FlowVizTransferFunctionPanelAnnounceTest
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFlowVizTransferFunctionPanelAnnounceTest,
 	"FlowViz.UI.TransferFunctionPanel.Announce",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
 
 bool FFlowVizTransferFunctionPanelAnnounceTest::RunTest(const FString& Parameters)
 {

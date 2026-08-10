@@ -311,6 +311,9 @@ bool FFlowVizWorkspaceVolumeSeamTest::RunTest(const FString& Parameters)
 		UCFDVizVolumeComponent* Unloaded = NewObject<UCFDVizVolumeComponent>();
 		if (TestNotNull(TEXT("CONTROL: a bare component was built"), Unloaded))
 		{
+			Unloaded->AddToRoot();
+			ON_SCOPE_EXIT { Unloaded->RemoveFromRoot(); };
+
 			/*
 			 * Only meaningful while a bare component really has no domain. If that
 			 * ever changes this arm silently stops testing refusal, so it is
