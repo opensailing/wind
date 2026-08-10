@@ -471,6 +471,7 @@ void SFlowVizWorkspace::SetVolume(UCFDVizVolumeComponent* InVolume)
 	}
 
 	Volume = InVolume;
+	CaseActor = InVolume != nullptr ? Cast<ACFDVizCaseActor>(InVolume->GetOwner()) : nullptr;
 
 	// THE PANEL'S DISCLOSURE FOLLOWS THE BINDING. Left unsaid, the clip panel
 	// would keep telling users their controls do nothing after they started
@@ -589,7 +590,7 @@ void SFlowVizWorkspace::ApplyModeVisibility()
 		return;
 	}
 	BoundVolume->SetVisibility(Model->IsVolumeVisible());
-	if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+	if (ACFDVizCaseActor* Actor = CaseActor.Get())
 	{
 		if (Actor->GetObstacleComponent() != nullptr)
 		{
@@ -619,12 +620,11 @@ void SFlowVizWorkspace::ApplyProfileToScene()
 	 * flat light. The model owns the FLAG; the workspace owns the hop to the
 	 * scene, exactly like the mode toggles above.
 	 */
-	UCFDVizVolumeComponent* BoundVolume = GetVolume();
-	if (BoundVolume == nullptr)
+	if (GetVolume() == nullptr)
 	{
 		return;
 	}
-	if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+	if (ACFDVizCaseActor* Actor = CaseActor.Get())
 	{
 		// The surface colormap follows the transfer function panel -- the
 		// same choice the volume LUT already follows (one color authority).
@@ -842,31 +842,28 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 		// built meshes -> the case actor's dedicated components.
 		if (Model->HasFreshCutPlane() || Model->HasFreshIsoSurface())
 		{
-			if (UCFDVizVolumeComponent* BoundVolume = GetVolume())
+			if (ACFDVizCaseActor* Actor = CaseActor.Get())
 			{
-				if (ACFDVizCaseActor* Actor = Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+				if (Model->HasFreshCutPlane()
+					&& Actor->GetCutPlaneComponent() != nullptr)
 				{
-					if (Model->HasFreshCutPlane()
-						&& Actor->GetCutPlaneComponent() != nullptr)
-					{
-						Actor->GetCutPlaneComponent()->SetSurfaceData(
-							Model->ConsumeCutPlane());
-					}
-					if (Model->HasFreshIsoSurface()
-						&& Actor->GetIsoSurfaceComponent() != nullptr)
-					{
-						Actor->GetIsoSurfaceComponent()->SetSurfaceData(
-							Model->ConsumeIsoSurface());
-					}
-					// Streamlines land on the flow component that has waited
-					// for a production feed since #86 (P5).
-					if (Model->HasFreshStreamlines()
-						&& Actor->GetFlowComponent() != nullptr)
-					{
-						Actor->GetFlowComponent()->SetFlowData(
-							TArray<FFlowVizGlyph>(), Model->ConsumeStreamlines(),
-							CFDViz::MetersToUnrealCentimeters);
-					}
+					Actor->GetCutPlaneComponent()->SetSurfaceData(
+						Model->ConsumeCutPlane());
+				}
+				if (Model->HasFreshIsoSurface()
+					&& Actor->GetIsoSurfaceComponent() != nullptr)
+				{
+					Actor->GetIsoSurfaceComponent()->SetSurfaceData(
+						Model->ConsumeIsoSurface());
+				}
+				// Streamlines land on the flow component that has waited
+				// for a production feed since #86 (P5).
+				if (Model->HasFreshStreamlines()
+					&& Actor->GetFlowComponent() != nullptr)
+				{
+					Actor->GetFlowComponent()->SetFlowData(
+						TArray<FFlowVizGlyph>(), Model->ConsumeStreamlines(),
+						CFDViz::MetersToUnrealCentimeters);
 				}
 			}
 		}
@@ -897,26 +894,22 @@ bool SFlowVizWorkspace::TickClock(float DeltaSeconds)
 			FlowVizParticles::AdvanceParticles(
 				*Sampler, nullptr, 0.0, *Mask, Advance, Model->GetParticles());
 
-			if (UCFDVizVolumeComponent* BoundVolume = GetVolume())
+			if (ACFDVizCaseActor* Actor = CaseActor.Get())
 			{
-				if (ACFDVizCaseActor* Actor =
-						Cast<ACFDVizCaseActor>(BoundVolume->GetOwner()))
+				if (Actor->GetFlowComponent() != nullptr)
 				{
-					if (Actor->GetFlowComponent() != nullptr)
+					ParticlePositionScratch.Reset();
+					ParticlePositionScratch.Reserve(Model->GetParticles().Num());
+					for (const FlowVizParticles::FParticle& Particle :
+						Model->GetParticles())
 					{
-						TArray<FVector> Positions;
-						Positions.Reserve(Model->GetParticles().Num());
-						for (const FlowVizParticles::FParticle& Particle :
-							Model->GetParticles())
+						if (Particle.bAlive)
 						{
-							if (Particle.bAlive)
-							{
-								Positions.Add(Particle.Position);
-							}
+							ParticlePositionScratch.Add(Particle.Position);
 						}
-						Actor->GetFlowComponent()->SetParticlePositions(
-							Positions, CFDViz::MetersToUnrealCentimeters);
 					}
+					Actor->GetFlowComponent()->SetParticlePositions(
+						ParticlePositionScratch, CFDViz::MetersToUnrealCentimeters);
 				}
 			}
 		}
