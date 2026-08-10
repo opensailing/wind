@@ -247,19 +247,27 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	Request.bFieldIsUint =
 		FFlowVizVolumeRayMarchCS::IsUintFieldFormat(Context.SlotA->ScalarLayout.DataType);
 
-	// DISCLOSED, NOT DROPPED. A frame whose second half is not resident is
-	// rendered from frame A alone, which is a defensible fallback and a silent
-	// lie if nobody says so. There is no per-pixel channel for it - OutValue is
-	// fully allocated - so it is logged, at Warning, once per dispatch.
-	if (Request.bInterpolationDegraded)
-	{
-		UE_LOG(LogFlowViz, Warning,
-			TEXT("Volume ray-march: interpolation degraded - the second display frame is not resident, ")
-			TEXT("so this view is rendered from frame A alone and is NOT the interpolated frame that was requested."));
-	}
-
 	{
 		FScopeLock Lock(&RequestLock);
+
+		// DISCLOSED, NOT SPAMMED. A frame whose second half is not resident is
+		// rendered from frame A alone, which is a defensible fallback and a silent
+		// lie if nobody says so. Warn once on the healthy -> degraded transition,
+		// then retire the latch on recovery so a later episode remains visible.
+		if (Request.bInterpolationDegraded && !bInterpolationDegradedWarningLatched)
+		{
+			++InterpolationDegradedEpisodeCount;
+			UE_LOG(LogFlowViz, Warning,
+				TEXT("Volume ray-march: interpolation degraded - the second display frame is not resident, ")
+				TEXT("so this view is rendered from frame A alone and is NOT the interpolated frame that was requested."));
+		}
+		else if (!Request.bInterpolationDegraded && bInterpolationDegradedWarningLatched)
+		{
+			UE_LOG(LogFlowViz, Display,
+				TEXT("Volume ray-march: interpolation recovered - both requested display frames are resident."));
+		}
+		bInterpolationDegradedWarningLatched = Request.bInterpolationDegraded;
+
 		PendingRequests.Add(MoveTemp(Request));
 	}
 }
@@ -514,6 +522,7 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::ReleaseResources() const
 	{
 		FScopeLock Lock(&RequestLock);
 		PendingRequests.Empty();
+		bInterpolationDegradedWarningLatched = false;
 	}
 	TransferFunction.ReleaseResources();
 }

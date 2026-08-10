@@ -153,12 +153,14 @@ namespace FlowVizTransferFunctionSeamFixture
 		 */
 		bool Dispatch(
 			const FFlowVizTransferFunctionViewModel& TransferFunction,
-			FFlowVizVolumeRayMarchParameters& OutBuilt)
+			FFlowVizVolumeRayMarchParameters& OutBuilt,
+			bool bInterpolationDegraded = false)
 		{
 			FFlowVizVolumeRayMarchContext Context;
 			Context.View = View.Get();
 			Context.LocalToWorld = FMatrix::Identity;
 			Context.SlotA = &Slot;
+			Context.bInterpolationDegraded = bInterpolationDegraded;
 			Context.TransferFunction = TransferFunction;
 
 			const int32 Before = Dispatcher.NumPendingRequests();
@@ -625,6 +627,35 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("and the request was consumed, not left pending for a view that "
 						   "is never drained again"),
 				Harness.Dispatcher.NumPendingRequests(), 0);
+		}
+	}
+
+	// --- CHANNEL 4: DEGRADED INTERPOLATION LOGS ARE EPISODES, NOT FRAMES ------
+	{
+		FFlowVizVolumeRayMarchParameters Ignored;
+		const FFlowVizTransferFunctionViewModel DefaultTransferFunction;
+		TestEqual(TEXT("CONTROL: no degraded warning episode was observed yet"),
+			Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(0));
+
+		if (TestTrue(TEXT("a first degraded request is queued"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, true)))
+		{
+			TestEqual(TEXT("the first degraded request starts one warning episode"),
+				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(1));
+		}
+		if (TestTrue(TEXT("a repeated degraded request is queued"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, true)))
+		{
+			TestEqual(TEXT("repeating the same degraded state does not warn every frame"),
+				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(1));
+		}
+		if (TestTrue(TEXT("a healthy request retires the warning latch"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, false))
+			&& TestTrue(TEXT("a later degraded request is queued"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, true)))
+		{
+			TestEqual(TEXT("degrading again after recovery starts a second episode"),
+				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(2));
 		}
 	}
 

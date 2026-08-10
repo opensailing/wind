@@ -234,6 +234,13 @@ namespace FlowVizVolumeRayMarchProduction
 		 */
 		bool PeekRequestParameters(int32 Index, FFlowVizVolumeRayMarchParameters& OutParameters) const;
 
+		/** Number of degraded-interpolation warning episodes observed. Diagnostics and tests. */
+		uint64 GetInterpolationDegradedEpisodeCount() const
+		{
+			FScopeLock Lock(&RequestLock);
+			return InterpolationDegradedEpisodeCount;
+		}
+
 		/**
 		 * The colour map the resident LUT was built from. Diagnostics and tests.
 		 *
@@ -271,6 +278,8 @@ namespace FlowVizVolumeRayMarchProduction
 	private:
 		mutable FCriticalSection RequestLock;
 		mutable TArray<FRequest> PendingRequests;
+		mutable bool bInterpolationDegradedWarningLatched = false;
+		mutable uint64 InterpolationDegradedEpisodeCount = 0;
 
 		/**
 		 * The colour table every production volume is rendered through.
