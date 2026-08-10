@@ -30,10 +30,11 @@ static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8,
 /* Local helpers                                                                */
 /* -------------------------------------------------------------------------- */
 
-namespace
+/* NAMED namespace: unity build helpers must remain qualified. */
+namespace FlowVizVolumeTextureLocal
 {
 	/** A failure whose message names the offending quantity and its value (engineering rule 12). */
-	FCFDVizResult FailWith(ECFDVizError Error, FString Message)
+	FCFDVizResult MakeFailure(ECFDVizError Error, FString Message)
 	{
 		return FCFDVizResult::Fail(Error, MoveTemp(Message));
 	}
@@ -45,7 +46,7 @@ namespace
 	 * bounds check into a rubber stamp, and the sizes originate in a file this
 	 * process did not write.
 	 */
-	int64 SafeMultiply(int64 A, int64 B)
+	int64 MultiplyChecked(int64 A, int64 B)
 	{
 		if (A < 0 || B < 0)
 		{
@@ -73,7 +74,7 @@ FCFDVizResult FlowVizVolumeFormat::ChooseTextureFormat(
 
 	if (SourceComponentCount < 1 || SourceComponentCount > FlowVizVolume::MaxTextureComponents)
 	{
-		return FailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("component count %d is outside 1..%d"),
 			SourceComponentCount, FlowVizVolume::MaxTextureComponents));
 	}
@@ -111,7 +112,7 @@ FCFDVizResult FlowVizVolumeFormat::ChooseTextureFormat(
 		// float64 lands here. It is not a CVF storage type (section 3.3) and no
 		// 3D texture format carries it; narrowing to float32 would be exactly
 		// the silent quantisation rule 5 forbids.
-		return FailWith(ECFDVizError::UnsupportedDataType, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::UnsupportedDataType, FString::Printf(
 			TEXT("data type %s has no 3D texture format"), DataTypeToString(DataType)));
 	}
 
@@ -151,7 +152,7 @@ FCFDVizResult FFlowVizVolumeLayout::Make(
 	// oversized axis must be rejected before any product is formed.
 	if (InExtent.X < 1 || InExtent.Y < 1 || InExtent.Z < 1)
 	{
-		return FailWith(ECFDVizError::InvalidHeader, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, FString::Printf(
 			TEXT("volume extent (%d, %d, %d) has a non-positive axis"),
 			InExtent.X, InExtent.Y, InExtent.Z));
 	}
@@ -159,7 +160,7 @@ FCFDVizResult FFlowVizVolumeLayout::Make(
 		|| InExtent.Y > FlowVizVolume::MaxTextureDimension
 		|| InExtent.Z > FlowVizVolume::MaxTextureDimension)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("volume extent (%d, %d, %d) exceeds the %d-voxel per-axis limit"),
 			InExtent.X, InExtent.Y, InExtent.Z, FlowVizVolume::MaxTextureDimension));
 	}
@@ -184,13 +185,13 @@ FCFDVizResult FFlowVizVolumeLayout::Make(
 	const int64 TextureBytes = Layout.GetTextureVolumeBytes();
 	if (TextureBytes == INDEX_NONE)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("volume extent (%d, %d, %d) x %d channels overflows an int64 byte count"),
 			InExtent.X, InExtent.Y, InExtent.Z, Layout.TextureComponentCount));
 	}
 	if (TextureBytes > MaxBytes)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("volume would need %lld bytes, over the %lld-byte limit"),
 			TextureBytes, MaxBytes));
 	}
@@ -231,7 +232,7 @@ int64 FFlowVizVolumeLayout::GetVoxelCount() const
 	}
 	// X*Y as two int32s in an int64 cannot overflow; the third factor can.
 	const int64 CountXY = static_cast<int64>(Extent.X) * static_cast<int64>(Extent.Y);
-	return SafeMultiply(CountXY, static_cast<int64>(Extent.Z));
+	return FlowVizVolumeTextureLocal::MultiplyChecked(CountXY, static_cast<int64>(Extent.Z));
 }
 
 int64 FFlowVizVolumeLayout::GetSourceRowPitch() const
@@ -240,7 +241,7 @@ int64 FFlowVizVolumeLayout::GetSourceRowPitch() const
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(static_cast<int64>(Extent.X), GetSourceVoxelBytes());
+	return FlowVizVolumeTextureLocal::MultiplyChecked(static_cast<int64>(Extent.X), GetSourceVoxelBytes());
 }
 
 int64 FFlowVizVolumeLayout::GetSourceSlicePitch() const
@@ -250,7 +251,7 @@ int64 FFlowVizVolumeLayout::GetSourceSlicePitch() const
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(RowPitch, static_cast<int64>(Extent.Y));
+	return FlowVizVolumeTextureLocal::MultiplyChecked(RowPitch, static_cast<int64>(Extent.Y));
 }
 
 int64 FFlowVizVolumeLayout::GetSourceVolumeBytes() const
@@ -260,7 +261,7 @@ int64 FFlowVizVolumeLayout::GetSourceVolumeBytes() const
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(SlicePitch, static_cast<int64>(Extent.Z));
+	return FlowVizVolumeTextureLocal::MultiplyChecked(SlicePitch, static_cast<int64>(Extent.Z));
 }
 
 int64 FFlowVizVolumeLayout::GetTextureRowPitch() const
@@ -269,7 +270,7 @@ int64 FFlowVizVolumeLayout::GetTextureRowPitch() const
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(static_cast<int64>(Extent.X), GetTextureVoxelBytes());
+	return FlowVizVolumeTextureLocal::MultiplyChecked(static_cast<int64>(Extent.X), GetTextureVoxelBytes());
 }
 
 int64 FFlowVizVolumeLayout::GetTextureSlicePitch() const
@@ -279,7 +280,7 @@ int64 FFlowVizVolumeLayout::GetTextureSlicePitch() const
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(RowPitch, static_cast<int64>(Extent.Y));
+	return FlowVizVolumeTextureLocal::MultiplyChecked(RowPitch, static_cast<int64>(Extent.Y));
 }
 
 int64 FFlowVizVolumeLayout::GetTextureVolumeBytes() const
@@ -289,7 +290,7 @@ int64 FFlowVizVolumeLayout::GetTextureVolumeBytes() const
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(SlicePitch, static_cast<int64>(Extent.Z));
+	return FlowVizVolumeTextureLocal::MultiplyChecked(SlicePitch, static_cast<int64>(Extent.Z));
 }
 
 int64 FFlowVizVolumeLayout::GetVoxelIndex(int32 I, int32 J, int32 K) const
@@ -311,7 +312,7 @@ int64 FFlowVizVolumeLayout::GetSourceVoxelOffset(int32 I, int32 J, int32 K) cons
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(Index, GetSourceVoxelBytes());
+	return FlowVizVolumeTextureLocal::MultiplyChecked(Index, GetSourceVoxelBytes());
 }
 
 int64 FFlowVizVolumeLayout::GetTextureVoxelOffset(int32 I, int32 J, int32 K) const
@@ -321,7 +322,7 @@ int64 FFlowVizVolumeLayout::GetTextureVoxelOffset(int32 I, int32 J, int32 K) con
 	{
 		return INDEX_NONE;
 	}
-	return SafeMultiply(Index, GetTextureVoxelBytes());
+	return FlowVizVolumeTextureLocal::MultiplyChecked(Index, GetTextureVoxelBytes());
 }
 
 FString FFlowVizVolumeLayout::ToString() const
@@ -362,11 +363,11 @@ FCFDVizResult FlowVizVolumeBrick::MakePlacement(
 
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("brick placement needs a valid volume layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("brick placement needs a valid volume layout"));
 	}
 	if (BrickSize.X < 1 || BrickSize.Y < 1 || BrickSize.Z < 1)
 	{
-		return FailWith(ECFDVizError::InvalidHeader, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, FString::Printf(
 			TEXT("brick size (%d, %d, %d) has a non-positive axis"),
 			BrickSize.X, BrickSize.Y, BrickSize.Z));
 	}
@@ -375,7 +376,7 @@ FCFDVizResult FlowVizVolumeBrick::MakePlacement(
 	if (BrickCoordinate.X < 0 || BrickCoordinate.Y < 0 || BrickCoordinate.Z < 0
 		|| BrickCoordinate.X >= Counts.X || BrickCoordinate.Y >= Counts.Y || BrickCoordinate.Z >= Counts.Z)
 	{
-		return FailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("brick coordinate (%d, %d, %d) is outside the %dx%dx%d tiling"),
 			BrickCoordinate.X, BrickCoordinate.Y, BrickCoordinate.Z,
 			Counts.X, Counts.Y, Counts.Z));
@@ -397,13 +398,13 @@ FCFDVizResult FlowVizVolumeBrick::MakePlacement(
 
 	// The brick's OWN strides, over its own valid size - not the volume's.
 	const int64 VoxelBytes = Layout.GetSourceVoxelBytes();
-	Placement.SourceRowPitch = SafeMultiply(static_cast<int64>(Placement.ValidSize.X), VoxelBytes);
-	Placement.SourceSlicePitch = SafeMultiply(Placement.SourceRowPitch, static_cast<int64>(Placement.ValidSize.Y));
-	Placement.SourceBytes = SafeMultiply(Placement.SourceSlicePitch, static_cast<int64>(Placement.ValidSize.Z));
+	Placement.SourceRowPitch = FlowVizVolumeTextureLocal::MultiplyChecked(static_cast<int64>(Placement.ValidSize.X), VoxelBytes);
+	Placement.SourceSlicePitch = FlowVizVolumeTextureLocal::MultiplyChecked(Placement.SourceRowPitch, static_cast<int64>(Placement.ValidSize.Y));
+	Placement.SourceBytes = FlowVizVolumeTextureLocal::MultiplyChecked(Placement.SourceSlicePitch, static_cast<int64>(Placement.ValidSize.Z));
 
 	if (Placement.SourceBytes == INDEX_NONE)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("brick (%d, %d, %d) byte count overflows"),
 			BrickCoordinate.X, BrickCoordinate.Y, BrickCoordinate.Z));
 	}
@@ -420,7 +421,7 @@ FCFDVizResult FlowVizVolumeBrick::CopyBrickIntoDense(
 {
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("brick copy needs a valid volume layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("brick copy needs a valid volume layout"));
 	}
 
 	// Both size checks run before the first write, so a rejected copy leaves the
@@ -428,7 +429,7 @@ FCFDVizResult FlowVizVolumeBrick::CopyBrickIntoDense(
 	// leave a volume that looks complete.
 	if (static_cast<int64>(BrickBytes.Num()) != Placement.SourceBytes)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("brick payload is %d bytes, expected %lld"),
 			BrickBytes.Num(), Placement.SourceBytes));
 	}
@@ -436,7 +437,7 @@ FCFDVizResult FlowVizVolumeBrick::CopyBrickIntoDense(
 	const int64 DenseBytesNeeded = Layout.GetSourceVolumeBytes();
 	if (DenseBytesNeeded == INDEX_NONE || static_cast<int64>(DenseBytes.Num()) < DenseBytesNeeded)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("dense buffer is %d bytes, needs at least %lld"),
 			DenseBytes.Num(), DenseBytesNeeded));
 	}
@@ -483,23 +484,23 @@ FCFDVizResult FlowVizVolumeConvert::ExpandComponents(
 
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("component widening needs a valid volume layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("component widening needs a valid volume layout"));
 	}
 
 	const int64 SourceNeeded = Layout.GetSourceVolumeBytes();
 	const int64 TextureNeeded = Layout.GetTextureVolumeBytes();
 	if (SourceNeeded == INDEX_NONE || TextureNeeded == INDEX_NONE)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, TEXT("volume byte count overflows"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, TEXT("volume byte count overflows"));
 	}
 	if (static_cast<int64>(SourceBytes.Num()) != SourceNeeded)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("source volume is %d bytes, expected %lld"), SourceBytes.Num(), SourceNeeded));
 	}
 	if (TextureNeeded > FlowVizVolume::MaxUploadBytes)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("widened volume would need %lld bytes"), TextureNeeded));
 	}
 
@@ -610,14 +611,14 @@ FCFDVizResult FlowVizVolumeStatus::Build(
 
 	if (!FieldLayout.IsValid() || !StatusLayout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("status build needs two valid layouts"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("status build needs two valid layouts"));
 	}
 	// A status volume built for the cell count while the field used the value
 	// count differs by one voxel per axis; the resulting misalignment marks the
 	// wrong cells invalid, which reads as noise in the data.
 	if (!FieldLayout.HasSameExtent(StatusLayout))
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("status extent (%d, %d, %d) does not match the field's (%d, %d, %d)"),
 			StatusLayout.Extent.X, StatusLayout.Extent.Y, StatusLayout.Extent.Z,
 			FieldLayout.Extent.X, FieldLayout.Extent.Y, FieldLayout.Extent.Z));
@@ -627,11 +628,11 @@ FCFDVizResult FlowVizVolumeStatus::Build(
 	const int64 FieldNeeded = FieldLayout.GetSourceVolumeBytes();
 	if (VoxelCount == INDEX_NONE || FieldNeeded == INDEX_NONE || VoxelCount > MAX_int32)
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, TEXT("status volume byte count overflows"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, TEXT("status volume byte count overflows"));
 	}
 	if (static_cast<int64>(Source.FieldBytes.Num()) != FieldNeeded)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("field volume is %d bytes, expected %lld (source stride)"),
 			Source.FieldBytes.Num(), FieldNeeded));
 	}
@@ -642,7 +643,7 @@ FCFDVizResult FlowVizVolumeStatus::Build(
 	const bool bHasMask = Source.MaskBytes.Num() > 0;
 	if (bHasMask && static_cast<int64>(Source.MaskBytes.Num()) != VoxelCount)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("mask volume is %d bytes, expected %lld (one uint8 per voxel)"),
 			Source.MaskBytes.Num(), VoxelCount));
 	}
@@ -817,11 +818,11 @@ FCFDVizResult FFlowVizVolumeTransform::MakeShaderParameters(
 {
 	if (!IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("shader parameters need a valid grid"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("shader parameters need a valid grid"));
 	}
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("shader parameters need a valid volume layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("shader parameters need a valid volume layout"));
 	}
 
 	// A texture sized from the cell count for a point-associated field is the
@@ -829,7 +830,7 @@ FCFDVizResult FFlowVizVolumeTransform::MakeShaderParameters(
 	const FIntVector Counts = GetValueCounts();
 	if (Layout.Extent != Counts)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("texture extent (%d, %d, %d) does not match the %s-associated value counts (%d, %d, %d)"),
 			Layout.Extent.X, Layout.Extent.Y, Layout.Extent.Z,
 			AssociationToString(Association),
@@ -950,7 +951,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildFieldBytes(
 
 	if (!Reader.IsOpen())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("the volume reader is not open"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("the volume reader is not open"));
 	}
 
 	const FCFDVizVolumeHeader& Header = Reader.GetHeader();
@@ -982,7 +983,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildFieldBytes(
 	const int64 SourceNeeded = Layout.GetSourceVolumeBytes();
 	if (static_cast<int64>(SourceBytes.Num()) != SourceNeeded)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("the reader produced %d bytes, the layout expects %lld"),
 			SourceBytes.Num(), SourceNeeded));
 	}
@@ -1008,7 +1009,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildUpload(
 {
 	if (!FieldReader.IsOpen())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("the field reader is not open"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("the field reader is not open"));
 	}
 
 	FFlowVizVolumeLayout FieldLayout;
@@ -1035,7 +1036,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildUpload(
 	{
 		if (!MaskReader->IsOpen())
 		{
-			return FailWith(ECFDVizError::InvalidHeader, TEXT("the mask reader is not open"));
+			return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("the mask reader is not open"));
 		}
 
 		// A mask whose extent disagrees with the field's is REJECTED. Ignoring it
@@ -1044,7 +1045,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildUpload(
 		const FIntVector MaskExtent = MaskReader->GetHeader().GetValueCounts();
 		if (MaskExtent != FieldLayout.Extent)
 		{
-			return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+			return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 				TEXT("mask extent (%d, %d, %d) does not match the field's (%d, %d, %d)"),
 				MaskExtent.X, MaskExtent.Y, MaskExtent.Z,
 				FieldLayout.Extent.X, FieldLayout.Extent.Y, FieldLayout.Extent.Z));
@@ -1052,7 +1053,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildUpload(
 		if (MaskReader->GetHeader().ComponentCount != 1
 			|| MaskReader->GetHeader().DataType != ECFDVizDataType::UInt8)
 		{
-			return FailWith(ECFDVizError::UnsupportedDataType, FString::Printf(
+			return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::UnsupportedDataType, FString::Printf(
 				TEXT("the mask field must be a single uint8 component, got %d x %s"),
 				MaskReader->GetHeader().ComponentCount,
 				DataTypeToString(MaskReader->GetHeader().DataType)));
@@ -1121,7 +1122,7 @@ FCFDVizResult FFlowVizVolumeUpload::Validate() const
 {
 	if (FrameIndex < 0)
 	{
-		return FailWith(ECFDVizError::IndexOutOfRange, TEXT("upload payload has no frame index"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, TEXT("upload payload has no frame index"));
 	}
 
 	const bool bHasScalar = ScalarLayout.IsValid();
@@ -1130,7 +1131,7 @@ FCFDVizResult FFlowVizVolumeUpload::Validate() const
 
 	if (!bHasScalar && !bHasVector)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, TEXT("upload payload carries no field"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, TEXT("upload payload carries no field"));
 	}
 
 	// Each present buffer's length must equal its layout's TEXTURE byte count
@@ -1158,7 +1159,7 @@ FCFDVizResult FFlowVizVolumeUpload::Validate() const
 			// half of a pair; it must not pass as "absent".
 			if (Buffer.Bytes->Num() != 0)
 			{
-				return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+				return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 					TEXT("the %s buffer holds %d bytes but its layout is not valid"),
 					Buffer.Name, Buffer.Bytes->Num()));
 			}
@@ -1168,7 +1169,7 @@ FCFDVizResult FFlowVizVolumeUpload::Validate() const
 		const int64 Needed = Buffer.Layout->GetTextureVolumeBytes();
 		if (Needed == INDEX_NONE || static_cast<int64>(Buffer.Bytes->Num()) != Needed)
 		{
-			return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+			return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 				TEXT("the %s buffer is %d bytes, its layout needs %lld"),
 				Buffer.Name, Buffer.Bytes->Num(), Needed));
 		}
@@ -1182,7 +1183,7 @@ FCFDVizResult FFlowVizVolumeUpload::Validate() const
 		}
 		else if (!Reference->HasSameExtent(*Buffer.Layout))
 		{
-			return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+			return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 				TEXT("the %s layout's extent (%d, %d, %d) differs from (%d, %d, %d)"),
 				Buffer.Name,
 				Buffer.Layout->Extent.X, Buffer.Layout->Extent.Y, Buffer.Layout->Extent.Z,
@@ -1314,7 +1315,7 @@ FCFDVizResult FlowVizVolumeRHI::CheckDeviceSupport(const FFlowVizVolumeLayout& L
 {
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("device support needs a valid volume layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("device support needs a valid volume layout"));
 	}
 
 	// No device to fail against, so there is nothing to report. GUsingNullRHI is
@@ -1332,14 +1333,14 @@ FCFDVizResult FlowVizVolumeRHI::CheckDeviceSupport(const FFlowVizVolumeLayout& L
 	if (MaxDimension > 0
 		&& (Layout.Extent.X > MaxDimension || Layout.Extent.Y > MaxDimension || Layout.Extent.Z > MaxDimension))
 	{
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("volume extent (%d, %d, %d) exceeds this device's %d-voxel 3D texture limit"),
 			Layout.Extent.X, Layout.Extent.Y, Layout.Extent.Z, MaxDimension));
 	}
 
 	if (!UE::PixelFormat::HasCapabilities(Layout.PixelFormat, EPixelFormatCapabilities::Texture3D))
 	{
-		return FailWith(ECFDVizError::UnsupportedDataType, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::UnsupportedDataType, FString::Printf(
 			TEXT("this device cannot create %s as a 3D texture"),
 			GetPixelFormatString(Layout.PixelFormat)));
 	}
@@ -1370,7 +1371,7 @@ FTextureRHIRef FlowVizVolumeRHI::CreateVolumeTexture(
 	FTextureRHIRef Texture = RHICmdList.CreateTexture(Desc);
 	if (!Texture.IsValid())
 	{
-		OutResult = FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		OutResult = FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("the RHI refused a %s 3D texture"), *Layout.ToString()));
 	}
 	return Texture;
@@ -1384,11 +1385,11 @@ FCFDVizResult FlowVizVolumeRHI::UpdateVolumeTexture(
 {
 	if (Texture == nullptr)
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("volume update needs a texture"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("volume update needs a texture"));
 	}
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("volume update needs a valid layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("volume update needs a valid layout"));
 	}
 
 	// Checked here rather than inside the RHI call: UpdateTexture3D has no idea
@@ -1396,7 +1397,7 @@ FCFDVizResult FlowVizVolumeRHI::UpdateVolumeTexture(
 	const int64 Needed = Layout.GetTextureVolumeBytes();
 	if (Needed == INDEX_NONE || static_cast<int64>(TextureBytes.Num()) != Needed)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("upload buffer is %d bytes, the texture needs %lld"),
 			TextureBytes.Num(), Needed));
 	}
@@ -1428,31 +1429,31 @@ FCFDVizResult FlowVizVolumeRHI::UpdateVolumeTextureRegion(
 {
 	if (Texture == nullptr)
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("region update needs a texture"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("region update needs a texture"));
 	}
 	if (!Layout.IsValid())
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("region update needs a valid layout"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("region update needs a valid layout"));
 	}
 	if (Placement.ValidSize.X < 1 || Placement.ValidSize.Y < 1 || Placement.ValidSize.Z < 1)
 	{
-		return FailWith(ECFDVizError::IndexOutOfRange, TEXT("region update needs a non-degenerate placement"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, TEXT("region update needs a non-degenerate placement"));
 	}
 	if (Placement.DestOffset.X + Placement.ValidSize.X > Layout.Extent.X
 		|| Placement.DestOffset.Y + Placement.ValidSize.Y > Layout.Extent.Y
 		|| Placement.DestOffset.Z + Placement.ValidSize.Z > Layout.Extent.Z)
 	{
-		return FailWith(ECFDVizError::IndexOutOfRange, TEXT("region update reaches outside the texture"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, TEXT("region update reaches outside the texture"));
 	}
 
 	// The region's own strides, in TEXTURE stride and tightly packed - not the
 	// whole volume's. Using the volume's would read the wrong rows.
-	const int64 RegionRowPitch = SafeMultiply(static_cast<int64>(Placement.ValidSize.X), Layout.GetTextureVoxelBytes());
-	const int64 RegionSlicePitch = SafeMultiply(RegionRowPitch, static_cast<int64>(Placement.ValidSize.Y));
-	const int64 RegionBytesNeeded = SafeMultiply(RegionSlicePitch, static_cast<int64>(Placement.ValidSize.Z));
+	const int64 RegionRowPitch = FlowVizVolumeTextureLocal::MultiplyChecked(static_cast<int64>(Placement.ValidSize.X), Layout.GetTextureVoxelBytes());
+	const int64 RegionSlicePitch = FlowVizVolumeTextureLocal::MultiplyChecked(RegionRowPitch, static_cast<int64>(Placement.ValidSize.Y));
+	const int64 RegionBytesNeeded = FlowVizVolumeTextureLocal::MultiplyChecked(RegionSlicePitch, static_cast<int64>(Placement.ValidSize.Z));
 	if (RegionBytesNeeded == INDEX_NONE || static_cast<int64>(RegionBytes.Num()) != RegionBytesNeeded)
 	{
-		return FailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("region buffer is %d bytes, expected %lld"),
 			RegionBytes.Num(), RegionBytesNeeded));
 	}
@@ -1494,7 +1495,7 @@ FCFDVizResult FFlowVizVolumeTextureSet::Initialize(int32 NumBuffers)
 {
 	if (NumBuffers < FlowVizVolume::MinBufferCount || NumBuffers > FlowVizVolume::MaxBufferCount)
 	{
-		return FailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("buffer count %d is outside %d..%d"),
 			NumBuffers, FlowVizVolume::MinBufferCount, FlowVizVolume::MaxBufferCount));
 	}
@@ -1592,7 +1593,7 @@ FCFDVizResult FFlowVizVolumeTextureSet::EnqueueUpload(FFlowVizVolumeUpload&& Upl
 
 	if (Slots.Num() == 0)
 	{
-		return FailWith(ECFDVizError::InvalidHeader, TEXT("the texture set has not been initialised"));
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("the texture set has not been initialised"));
 	}
 
 	const int32 SlotIndex =
@@ -1600,7 +1601,7 @@ FCFDVizResult FFlowVizVolumeTextureSet::EnqueueUpload(FFlowVizVolumeUpload&& Upl
 	if (SlotIndex == INDEX_NONE)
 	{
 		// "Retry after the display frames advance", not an error to surface.
-		return FailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("every one of the %d buffers is pinned or busy"), Slots.Num()));
 	}
 
