@@ -37,10 +37,32 @@ namespace FlowVizIsoSurface
 		FVector Spacing = FVector::OneVector;
 		TArray<double> Values;
 
+		/** The dense value count, when it fits the TArray's int32 size type. */
+		bool TryGetValueCount(int32& OutValueCount) const
+		{
+			OutValueCount = 0;
+			if (Counts.X < 2 || Counts.Y < 2 || Counts.Z < 2)
+			{
+				return false;
+			}
+
+			// int32 * int32 fits int64; compare before the third multiply so even
+			// hostile dimensions cannot overflow while merely being validated.
+			const int64 XY = static_cast<int64>(Counts.X) * Counts.Y;
+			if (XY > MAX_int32 / Counts.Z)
+			{
+				return false;
+			}
+
+			OutValueCount = static_cast<int32>(XY * Counts.Z);
+			return true;
+		}
+
 		bool IsValid() const
 		{
-			return Counts.X >= 2 && Counts.Y >= 2 && Counts.Z >= 2
-				&& Values.Num() == Counts.X * Counts.Y * Counts.Z
+			int32 ExpectedValueCount = 0;
+			return TryGetValueCount(ExpectedValueCount)
+				&& Values.Num() == ExpectedValueCount
 				&& Spacing.GetMin() > 0.0;
 		}
 	};

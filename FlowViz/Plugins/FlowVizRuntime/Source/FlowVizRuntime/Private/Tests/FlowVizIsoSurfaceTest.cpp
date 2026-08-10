@@ -203,6 +203,11 @@ bool FFlowVizIsoSurfaceTest::RunTest(const FString& Parameters)
 		FIsoGrid Invalid;
 		TestFalse(TEXT("an invalid grid refuses"),
 			FlowVizIsoSurface::ExtractIsoSurface(Invalid, 0.5, Section));
+
+		FIsoGrid OverflowingCounts;
+		OverflowingCounts.Counts = FIntVector(65536, 65536, 2);
+		TestFalse(TEXT("overflowing dimensions cannot wrap to the empty array's size"),
+			OverflowingCounts.IsValid());
 	}
 
 	/* == The percentile default ============================================= */

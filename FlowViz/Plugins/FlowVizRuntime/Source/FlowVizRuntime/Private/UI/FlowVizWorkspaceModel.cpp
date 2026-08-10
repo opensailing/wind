@@ -902,8 +902,17 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 					IsoGrid.Counts = QSampler.GetValueCounts();
 					IsoGrid.Origin = QSampler.GetGrid().Origin;
 					IsoGrid.Spacing = QSampler.GetGrid().Spacing;
-					IsoGrid.Values.Reserve(
-						IsoGrid.Counts.X * IsoGrid.Counts.Y * IsoGrid.Counts.Z);
+					int32 IsoValueCount = 0;
+					if (IsoGrid.TryGetValueCount(IsoValueCount))
+					{
+						IsoGrid.Values.Reserve(IsoValueCount);
+					}
+					else
+					{
+						// A dense TArray cannot represent this grid. Zeroing the local
+						// counts makes the loops and extractor below refuse it cleanly.
+						IsoGrid.Counts = FIntVector::ZeroValue;
+					}
 					TArray<double> VoxelValue;
 					for (int32 GZ = 0; GZ < IsoGrid.Counts.Z; ++GZ)
 					{
