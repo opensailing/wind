@@ -723,6 +723,14 @@ FCFDVizResult SFlowVizWorkspace::LoadState(const FFlowVizSessionState& State)
 {
 	const FCFDVizResult Applied = Model->LoadState(State);
 
+	// These panels own explicit row widgets rather than rebuilding every paint.
+	// A session rewrites their underlying collections without firing panel edit
+	// handlers, so refresh all three even when the case is missing and LoadState
+	// reports a failure after applying the rest of the session.
+	ClipPanel->RefreshFromModel();
+	ProbePanel->RefreshFromModel();
+	PipelinePanel->RefreshFields();
+
 	// UNCONDITIONAL, and the header says why at length: a missing case is
 	// REPORTED and still applies every panel, so a guard on IsOk() would leave
 	// the render stale in exactly the relink flow.
