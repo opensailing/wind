@@ -1,6 +1,7 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
 #include "CFDViz/CFDVizManifest.h"
+#include "Framework/Docking/TabManager.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformFileManager.h"
@@ -14,7 +15,9 @@
 #include "UI/FlowVizConsoleCommands.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceRegistry.h"
+#include "UI/FlowVizWorkspaceTab.h"
 #include "UI/SFlowVizWorkspace.h"
+#include "Widgets/Docking/SDockTab.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -296,8 +299,8 @@ bool FFlowVizConsoleWiringTest::RunTest(const FString& Parameters)
 	 */
 	if (FlowVizWorkspaceRegistry::GetActiveWorkspace().IsValid())
 	{
-		AddWarning(TEXT("the no-workspace arm did not run: another test's workspace is still "
-						"alive, so there was a target to resolve"));
+		AddInfo(TEXT("SKIPPED (the no-workspace arm only): another test's workspace is still "
+					 "alive, so there was already a target to resolve."));
 	}
 	else
 	{
@@ -315,6 +318,22 @@ bool FFlowVizConsoleWiringTest::RunTest(const FString& Parameters)
 					 "opened. It printed: '%s'"),
 				*Output),
 			Output.Contains(TEXT("no workspace")));
+
+		TSharedPtr<SDockTab> OpenedTab =
+			FGlobalTabmanager::Get()->FindExistingLiveTab(FlowVizWorkspaceTab::TabId);
+		if (TestTrue(TEXT("CONTROL: the command self-served through the registered workspace tab, "
+						   "so this test can close exactly what it opened"),
+				OpenedTab.IsValid()))
+		{
+			OpenedTab->RequestCloseTab();
+			OpenedTab.Reset();
+		}
+
+		TestFalse(
+			TEXT("the self-served command closes the workspace it opened for this arm, so a "
+				 "test of the no-workspace path does not leave a target that makes later tests "
+				 "silently skip their own no-workspace paths"),
+			FlowVizWorkspaceRegistry::GetActiveWorkspace().IsValid());
 	}
 
 	return true;
