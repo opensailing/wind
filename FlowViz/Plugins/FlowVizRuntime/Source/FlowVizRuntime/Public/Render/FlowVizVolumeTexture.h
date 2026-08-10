@@ -1077,19 +1077,13 @@ public:
 	FCFDVizResult Initialize(int32 NumBuffers);
 
 	/** Slots configured, or 0 before Initialize. */
-	int32 GetBufferCount() const
-	{
-		return Slots.Num();
-	}
+	int32 GetBufferCount() const;
 
-	/** Read-only slot bookkeeping, for diagnostics and tests. */
-	TArrayView<const FFlowVizVolumeSlotState> GetSlotStates() const
-	{
-		return SlotStates;
-	}
+	/** A stable bookkeeping snapshot for diagnostics and tests. */
+	TArray<FFlowVizVolumeSlotState> GetSlotStates() const;
 
-	/** Textures of one slot. Null when the index is out of range. */
-	const FFlowVizVolumeSlotTextures* GetSlotTextures(int32 SlotIndex) const;
+	/** Copy one slot's textures into OutTextures. False when the index is out of range. */
+	bool GetSlotTextures(int32 SlotIndex, FFlowVizVolumeSlotTextures& OutTextures) const;
 
 	/**
 	 * Pin the frames being displayed. Pass INDEX_NONE for a slot that is not in
@@ -1098,8 +1092,8 @@ public:
 	 */
 	void SetDisplayFrames(int32 FrameA, int32 FrameB);
 
-	int32 GetDisplayFrameA() const { return DisplayFrameA; }
-	int32 GetDisplayFrameB() const { return DisplayFrameB; }
+	int32 GetDisplayFrameA() const;
+	int32 GetDisplayFrameB() const;
 
 	/**
 	 * Layout of the field texture this set has accepted uploads for, or an
@@ -1127,7 +1121,7 @@ public:
 	 * voxels correctly and still marched nothing, because the layout the shader
 	 * parameters are built from was only ever filled by the capture path.
 	 */
-	const FFlowVizVolumeLayout& GetUploadedFieldLayout() const { return UploadedFieldLayout; }
+	FFlowVizVolumeLayout GetUploadedFieldLayout() const;
 
 	/** Slot holding this frame and ready to sample, or INDEX_NONE. */
 	int32 FindSlotForFrame(int32 FrameIndex) const;
@@ -1179,6 +1173,9 @@ private:
 	/** Render-thread body of EnqueueUpload. */
 	void UploadOnRenderThread(FRHICommandListBase& RHICmdList, int32 SlotIndex, FFlowVizVolumeUpload&& Upload);
 
+	/** Guards the slot arrays and every piece of bookkeeping derived from them. */
+	mutable FCriticalSection SlotLock;
+
 	TArray<FFlowVizVolumeSlotTextures> Slots;
 	TArray<FFlowVizVolumeSlotState> SlotStates;
 
@@ -1190,6 +1187,9 @@ private:
 
 	/** Stamped into FFlowVizVolumeSlotState::LastUseSerial. Monotonic; wrapping a uint64 is not a concern this side of the heat death. */
 	uint64 UseSerial = 0;
+
+	/** Prevents uploads or reinitialization from overtaking the queued release command. */
+	bool bReleaseInFlight = false;
 };
 
 /* -------------------------------------------------------------------------- */

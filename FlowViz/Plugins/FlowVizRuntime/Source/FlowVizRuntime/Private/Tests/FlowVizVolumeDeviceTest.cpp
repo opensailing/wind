@@ -270,6 +270,8 @@ bool FFlowVizVolumeDeviceTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("the set initialises"),
 			Set.Initialize(FlowVizVolume::RecommendedBufferCount).IsOk());
 		TestTrue(TEXT("the upload is accepted"), Set.EnqueueUpload(MoveTemp(Upload)).IsOk());
+		TestFalse(TEXT("slot storage cannot be reinitialised while a render-thread upload owns it"),
+			Set.Initialize(FlowVizVolume::RecommendedBufferCount).IsOk());
 
 		// The upload happens on the render thread, so nothing above is true yet.
 		FlushRenderingCommands();
@@ -277,18 +279,18 @@ bool FFlowVizVolumeDeviceTest::RunTest(const FString& Parameters)
 		const int32 Slot = Set.FindSlotForFrame(7);
 		if (TestTrue(TEXT("frame 7 is resident after the flush"), Slot != INDEX_NONE))
 		{
-			const FFlowVizVolumeSlotTextures* Textures = Set.GetSlotTextures(Slot);
-			if (TestNotEqual(TEXT("the slot has textures"),
-				Textures, (const FFlowVizVolumeSlotTextures*)nullptr))
+			FFlowVizVolumeSlotTextures Textures;
+			if (TestTrue(TEXT("the slot has textures"),
+				Set.GetSlotTextures(Slot, Textures)))
 			{
 				TestTrue(TEXT("the vector texture was created on the device"),
-					Textures->VectorTexture.IsValid());
+					Textures.VectorTexture.IsValid());
 				TestTrue(TEXT("the status texture was created on the device"),
-					Textures->StatusTexture.IsValid());
+					Textures.StatusTexture.IsValid());
 				TestFalse(TEXT("and no scalar texture, since the payload had none"),
-					Textures->ScalarTexture.IsValid());
+					Textures.ScalarTexture.IsValid());
 				TestEqual(TEXT("the slot remembers the simulation time"),
-					Textures->SimulationTime, 0.25);
+					Textures.SimulationTime, 0.25);
 			}
 		}
 

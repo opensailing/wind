@@ -1000,8 +1000,9 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("slot bookkeeping is unchanged by a peek"),
 			Set.GetSlotStates()[Peeked].FrameIndex, INDEX_NONE);
 
-		TestEqual(TEXT("an out-of-range slot has no textures"), Set.GetSlotTextures(3), (const FFlowVizVolumeSlotTextures*)nullptr);
-		TestNotEqual(TEXT("an in-range slot does"), Set.GetSlotTextures(0), (const FFlowVizVolumeSlotTextures*)nullptr);
+		FFlowVizVolumeSlotTextures TextureSnapshot;
+		TestFalse(TEXT("an out-of-range slot has no textures"), Set.GetSlotTextures(3, TextureSnapshot));
+		TestTrue(TEXT("an in-range slot does"), Set.GetSlotTextures(0, TextureSnapshot));
 	}
 
 	/* == The real file: reader -> upload ==================================== */

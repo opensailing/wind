@@ -589,9 +589,12 @@ public:
 			{
 				SlotAIndex = TextureSet->FindMostRecentResidentSlot();
 			}
-			const FFlowVizVolumeSlotTextures* SlotATextures = (TextureSet != nullptr)
-				? TextureSet->GetSlotTextures(SlotAIndex)
-				: nullptr;
+			FFlowVizVolumeSlotTextures SlotATextureSnapshot;
+			const FFlowVizVolumeSlotTextures* SlotATextures =
+				(TextureSet != nullptr
+					&& TextureSet->GetSlotTextures(SlotAIndex, SlotATextureSnapshot))
+					? &SlotATextureSnapshot
+					: nullptr;
 
 			// CLASSIFY AND PUBLISH IN ONE CALL, never as two statements.
 			//
@@ -652,10 +655,15 @@ public:
 				// carried the settings and the whole 90-test suite stayed green
 				// with the context assignment deleted. See
 				// FlowVizVolumeRayMarch::MakeDispatchContext.
+				FFlowVizVolumeSlotTextures SlotBTextureSnapshot;
+				const FFlowVizVolumeSlotTextures* SlotBTextures =
+					TextureSet->GetSlotTextures(SlotB, SlotBTextureSnapshot)
+						? &SlotBTextureSnapshot
+						: nullptr;
 				const FFlowVizVolumeRayMarchContext Context =
 					FlowVizVolumeRayMarch::MakeDispatchContext(
 						View, LocalToWorld, DynamicData,
-						SlotATextures, TextureSet->GetSlotTextures(SlotB));
+						SlotATextures, SlotBTextures);
 
 				Dispatcher->DispatchVolumeRayMarch(Context);
 				bRayMarchDispatched = true;
@@ -1077,7 +1085,7 @@ bool UCFDVizVolumeComponent::TryMakeShaderParameters(FFlowVizVolumeShaderParamet
 	 * textures", which is what the parameters actually describe and is true for
 	 * either uploader.
 	 */
-	const FFlowVizVolumeLayout& Layout = TextureSet->GetUploadedFieldLayout();
+	const FFlowVizVolumeLayout Layout = TextureSet->GetUploadedFieldLayout();
 	if (!Layout.IsValid())
 	{
 		return false;

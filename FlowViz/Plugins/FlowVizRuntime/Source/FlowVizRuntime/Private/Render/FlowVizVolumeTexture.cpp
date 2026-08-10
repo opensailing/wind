@@ -3,6 +3,7 @@
 #include "Render/FlowVizVolumeTexture.h"
 
 #include "CFDViz/CFDVizVolumeReader.h"
+#include "Misc/ScopeLock.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "RHIResources.h"
@@ -1487,6 +1488,7 @@ FFlowVizVolumeTextureSet::~FFlowVizVolumeTextureSet()
 	// The owner is required to have flushed rendering commands; this is the last
 	// line of defence, dropping the references on whatever thread runs the
 	// destructor rather than leaking them.
+	FScopeLock Lock(&SlotLock);
 	Slots.Empty();
 	SlotStates.Empty();
 }
@@ -1500,31 +1502,103 @@ FCFDVizResult FFlowVizVolumeTextureSet::Initialize(int32 NumBuffers)
 			NumBuffers, FlowVizVolume::MinBufferCount, FlowVizVolume::MaxBufferCount));
 	}
 
+	FScopeLock Lock(&SlotLock);
+	if (bReleaseInFlight)
+	{
+		return FlowVizVolumeTextureLocal::MakeFailure(
+			ECFDVizError::AllocationTooLarge,
+			TEXT("the texture set cannot be reinitialised while its resources are being released"));
+	}
+	for (const FFlowVizVolumeSlotState& State : SlotStates)
+	{
+		if (State.bUploadInFlight)
+		{
+			return FlowVizVolumeTextureLocal::MakeFailure(
+				ECFDVizError::AllocationTooLarge,
+				TEXT("the texture set cannot be reinitialised while an upload owns a slot"));
+		}
+	}
+	for (const FFlowVizVolumeSlotTextures& Slot : Slots)
+	{
+		if (Slot.ScalarTexture.IsValid()
+			|| Slot.VectorTexture.IsValid()
+			|| Slot.StatusTexture.IsValid())
+		{
+			return FlowVizVolumeTextureLocal::MakeFailure(
+				ECFDVizError::InvalidHeader,
+				TEXT("release the texture set's RHI resources before reinitialising it"));
+		}
+	}
+
 	// No RHI work here, so this is safe from any thread and is what a test
-	// without a device exercises.
+	// without a device exercises. SlotLock keeps a queued upload from retaining an
+	// index into arrays that are about to be reallocated.
 	Slots.Empty();
 	Slots.SetNum(NumBuffers);
 	SlotStates.Empty();
 	SlotStates.SetNum(NumBuffers);
 	DisplayFrameA = INDEX_NONE;
 	DisplayFrameB = INDEX_NONE;
+	UploadedFieldLayout = FFlowVizVolumeLayout();
 	UseSerial = 0;
 	return FCFDVizResult::Ok();
 }
 
-const FFlowVizVolumeSlotTextures* FFlowVizVolumeTextureSet::GetSlotTextures(int32 SlotIndex) const
+int32 FFlowVizVolumeTextureSet::GetBufferCount() const
 {
-	return Slots.IsValidIndex(SlotIndex) ? &Slots[SlotIndex] : nullptr;
+	FScopeLock Lock(&SlotLock);
+	return Slots.Num();
+}
+
+TArray<FFlowVizVolumeSlotState> FFlowVizVolumeTextureSet::GetSlotStates() const
+{
+	FScopeLock Lock(&SlotLock);
+	return SlotStates;
+}
+
+bool FFlowVizVolumeTextureSet::GetSlotTextures(
+	int32 SlotIndex,
+	FFlowVizVolumeSlotTextures& OutTextures) const
+{
+	FScopeLock Lock(&SlotLock);
+	if (!Slots.IsValidIndex(SlotIndex))
+	{
+		OutTextures = FFlowVizVolumeSlotTextures();
+		return false;
+	}
+
+	OutTextures = Slots[SlotIndex];
+	return true;
 }
 
 void FFlowVizVolumeTextureSet::SetDisplayFrames(int32 FrameA, int32 FrameB)
 {
+	FScopeLock Lock(&SlotLock);
 	DisplayFrameA = FrameA;
 	DisplayFrameB = FrameB;
 }
 
+int32 FFlowVizVolumeTextureSet::GetDisplayFrameA() const
+{
+	FScopeLock Lock(&SlotLock);
+	return DisplayFrameA;
+}
+
+int32 FFlowVizVolumeTextureSet::GetDisplayFrameB() const
+{
+	FScopeLock Lock(&SlotLock);
+	return DisplayFrameB;
+}
+
+FFlowVizVolumeLayout FFlowVizVolumeTextureSet::GetUploadedFieldLayout() const
+{
+	FScopeLock Lock(&SlotLock);
+	return UploadedFieldLayout;
+}
+
 int32 FFlowVizVolumeTextureSet::FindSlotForFrame(int32 FrameIndex) const
 {
+	FScopeLock Lock(&SlotLock);
 	const int32 Slot = FlowVizVolumeRing::FindSlotForFrame(SlotStates, FrameIndex);
 	// A slot can be bookkeeping-resident and still hold no content if its first
 	// upload has not completed; such a slot must not be sampled.
@@ -1537,6 +1611,7 @@ int32 FFlowVizVolumeTextureSet::FindSlotForFrame(int32 FrameIndex) const
 
 int32 FFlowVizVolumeTextureSet::FindMostRecentResidentSlot() const
 {
+	FScopeLock Lock(&SlotLock);
 	const int32 Slot = FlowVizVolumeRing::FindMostRecentSlot(SlotStates);
 	// The same content guard as FindSlotForFrame: bookkeeping-resident with no
 	// completed upload must not be sampled.
@@ -1549,11 +1624,13 @@ int32 FFlowVizVolumeTextureSet::FindMostRecentResidentSlot() const
 
 int32 FFlowVizVolumeTextureSet::PeekUploadSlot(int32 FrameIndex) const
 {
+	FScopeLock Lock(&SlotLock);
 	return FlowVizVolumeRing::ChooseUploadSlot(SlotStates, FrameIndex, DisplayFrameA, DisplayFrameB);
 }
 
 void FFlowVizVolumeTextureSet::InvalidateResidency()
 {
+	FScopeLock Lock(&SlotLock);
 	for (FFlowVizVolumeSlotState& State : SlotStates)
 	{
 		/*
@@ -1563,10 +1640,9 @@ void FFlowVizVolumeTextureSet::InvalidateResidency()
 		 * commands would write one texture in an order neither controls.
 		 *
 		 * FrameIndex is cleared eitherway, so the stale frame is never found by
-		 * FindSlotForFrame in the meantime. The in-flight upload's own tail
-		 * re-stamps its frame when it lands -- from the OLD case -- which is why
-		 * the caller must also clear the display pins, as this function does
-		 * below: an unpinned stale slot is the first thing evicted.
+		 * FindSlotForFrame in the meantime. The in-flight upload deliberately does
+		 * not re-stamp its frame when it lands, so the old case remains unreachable
+		 * and the now-unpinned slot is the first thing the new case can evict.
 		 */
 		State.FrameIndex = INDEX_NONE;
 	}
@@ -1591,6 +1667,13 @@ FCFDVizResult FFlowVizVolumeTextureSet::EnqueueUpload(FFlowVizVolumeUpload&& Upl
 		return ValidateResult;
 	}
 
+	FScopeLock Lock(&SlotLock);
+	if (bReleaseInFlight)
+	{
+		return FlowVizVolumeTextureLocal::MakeFailure(
+			ECFDVizError::AllocationTooLarge,
+			TEXT("the texture set is releasing its resources"));
+	}
 	if (Slots.Num() == 0)
 	{
 		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("the texture set has not been initialised"));
@@ -1619,8 +1702,9 @@ FCFDVizResult FFlowVizVolumeTextureSet::EnqueueUpload(FFlowVizVolumeUpload&& Upl
 	 */
 	UploadedFieldLayout = Upload.VectorLayout.IsValid() ? Upload.VectorLayout : Upload.ScalarLayout;
 
-	// Reserved BEFORE the command is queued, so a second EnqueueUpload cannot
-	// pick the same slot while this one is in flight.
+	// Reservation and command insertion are one locked operation. ReleaseResources
+	// takes the same lock, so its command cannot overtake an upload whose slot is
+	// already marked busy.
 	SlotStates[SlotIndex].bUploadInFlight = true;
 	SlotStates[SlotIndex].FrameIndex = Upload.FrameIndex;
 	SlotStates[SlotIndex].LastUseSerial = ++UseSerial;
@@ -1641,6 +1725,8 @@ void FFlowVizVolumeTextureSet::UploadOnRenderThread(
 	int32 SlotIndex,
 	FFlowVizVolumeUpload&& Upload)
 {
+	check(IsInRenderingThread());
+	FScopeLock Lock(&SlotLock);
 	if (!Slots.IsValidIndex(SlotIndex))
 	{
 		return;
@@ -1719,15 +1805,22 @@ void FFlowVizVolumeTextureSet::UploadOnRenderThread(
 
 void FFlowVizVolumeTextureSet::ReleaseResources()
 {
-	if (Slots.Num() == 0)
+	FScopeLock Lock(&SlotLock);
+	if (Slots.Num() == 0 || bReleaseInFlight)
 	{
 		return;
 	}
 
+	// Set before enqueueing and under the same lock EnqueueUpload takes. Every
+	// upload that already owns a slot is therefore ahead of this command, and no
+	// later upload can appear behind a release the caller expects to be final.
+	bReleaseInFlight = true;
 	FFlowVizVolumeTextureSet* Self = this;
 	ENQUEUE_RENDER_COMMAND(FlowVizVolumeRelease)(
 		[Self](FRHICommandListImmediate&)
 		{
+			check(IsInRenderingThread());
+			FScopeLock RenderLock(&Self->SlotLock);
 			for (FFlowVizVolumeSlotTextures& Slot : Self->Slots)
 			{
 				Slot.ScalarTexture.SafeRelease();
@@ -1736,11 +1829,17 @@ void FFlowVizVolumeTextureSet::ReleaseResources()
 				Slot.ScalarLayout = FFlowVizVolumeLayout();
 				Slot.VectorLayout = FFlowVizVolumeLayout();
 				Slot.StatusLayout = FFlowVizVolumeLayout();
+				Slot.SimulationTime = 0.0;
 				Slot.bHasContent = false;
 			}
 			for (FFlowVizVolumeSlotState& State : Self->SlotStates)
 			{
 				State = FFlowVizVolumeSlotState();
 			}
+			Self->DisplayFrameA = INDEX_NONE;
+			Self->DisplayFrameB = INDEX_NONE;
+			Self->UploadedFieldLayout = FFlowVizVolumeLayout();
+			Self->UseSerial = 0;
+			Self->bReleaseInFlight = false;
 		});
 }
