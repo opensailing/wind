@@ -21,6 +21,10 @@
  * focus by construction, so GetRotation is derived, never stored -- a stored
  * rotation is a second copy of state that drifts.
  *
+ * THREADING. This value owns no UObject state and calls no engine service, but
+ * it is mutable and has no internal synchronization. One instance belongs to
+ * one thread at a time; transferring a copied bookmark between threads is safe.
+ *
  * THE POLE CLAMP. Pitch is clamped short of +/-90 by PitchLimit: at the pole
  * the view direction and the up vector are parallel, the yaw basis vanishes,
  * and the next orbit delta spins the camera around its own axis -- which

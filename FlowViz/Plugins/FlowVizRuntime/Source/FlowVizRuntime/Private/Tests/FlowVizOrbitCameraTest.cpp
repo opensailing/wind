@@ -187,9 +187,8 @@ bool FFlowVizCameraPresetsTest::RunTest(const FString& Parameters)
 	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::Top);
 	TestEqual(TEXT("Top preset leaves the focus alone"), Camera.GetFocus(), FocusBefore);
 	TestEqual(TEXT("and the distance"), Camera.GetDistance(), DistanceBefore);
-	TestTrue(TEXT("Top looks steeply down, just off the pole so the orbit basis "
-				  "stays defined"),
-		Camera.GetPitch() <= -88.9 && Camera.GetPitch() >= -89.1);
+	TestEqual(TEXT("Top uses the camera's pole limit, so the orbit basis stays defined"),
+		Camera.GetPitch(), -FFlowVizOrbitCamera::PitchLimit);
 
 	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::DownstreamX);
 	TestEqual(TEXT("Downstream is level"), Camera.GetPitch(), 0.0);
@@ -224,7 +223,8 @@ bool FFlowVizCameraPresetsTest::RunTest(const FString& Parameters)
 	Hostile.PitchDegrees = 90.0;   // the pole
 	Camera.RestoreBookmark(Hostile);
 	TestTrue(TEXT("a negative distance clamps positive"), Camera.GetDistance() > 0.0);
-	TestTrue(TEXT("a pole pitch clamps off the pole"), Camera.GetPitch() <= 89.0);
+	TestEqual(TEXT("a pole pitch clamps to the camera's pole limit"),
+		Camera.GetPitch(), FFlowVizOrbitCamera::PitchLimit);
 
 	return true;
 }
