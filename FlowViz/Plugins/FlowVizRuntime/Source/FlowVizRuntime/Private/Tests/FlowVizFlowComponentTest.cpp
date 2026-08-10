@@ -1,6 +1,7 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
 #include "Misc/AutomationTest.h"
+#include "Components/LineBatchComponent.h"
 #include "Scene/FlowVizFlowComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -128,6 +129,14 @@ bool FFlowVizFlowComponentTest::RunTest(const FString& Parameters)
 
 		TestEqual(TEXT("CONTROL: a fresh component draws nothing"),
 			Component->GetGlyphInstanceCount(), 0);
+
+		ULineBatchComponent* LineBatch = Cast<ULineBatchComponent>(
+			Component->GetDefaultSubobjectByName(TEXT("Streamlines")));
+		if (TestNotNull(TEXT("CONTROL: the component owns its streamline batch"), LineBatch))
+		{
+			TestFalse(TEXT("immortal streamlines do not pay for a lifetime tick every frame"),
+				LineBatch->PrimaryComponentTick.bCanEverTick);
+		}
 
 		Component->SetFlowData(
 			MakeGlyphs(), TArray<FFlowVizStreamline>(), CFDViz::MetersToUnrealCentimeters);
