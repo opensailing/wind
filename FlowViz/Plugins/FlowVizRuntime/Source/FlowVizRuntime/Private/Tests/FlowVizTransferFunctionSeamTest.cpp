@@ -253,6 +253,48 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 {
 	using namespace FlowVizTransferFunctionSeamFixture;
 
+	/* == Shared queue order ================================================== */
+	{
+		// FRequest treats View as identity only. Distinct non-null sentinels make
+		// this a pure queue test without constructing a scene or dereferencing them.
+		const FSceneView* const ViewA = reinterpret_cast<const FSceneView*>(0x1);
+		const FSceneView* const ViewB = reinterpret_cast<const FSceneView*>(0x2);
+		auto MakeTaggedRequest = [](const FSceneView* View, float Tag)
+		{
+			FlowVizVolumeRayMarchProduction::FRequest Request;
+			Request.View = View;
+			Request.Parameters.ValueRangeMin = Tag;
+			return Request;
+		};
+
+		TArray<FlowVizVolumeRayMarchProduction::FRequest> Pending;
+		Pending.Add(MakeTaggedRequest(ViewB, 10.0f));
+		Pending.Add(MakeTaggedRequest(ViewA, 20.0f));
+		Pending.Add(MakeTaggedRequest(ViewB, 30.0f));
+		Pending.Add(MakeTaggedRequest(ViewA, 40.0f));
+		Pending.Add(MakeTaggedRequest(ViewB, 50.0f));
+
+		TArray<FlowVizVolumeRayMarchProduction::FRequest> Drained;
+		FlowVizVolumeRayMarchProduction::TakeRequestsForView(Pending, ViewA, Drained);
+
+		if (TestEqual(TEXT("both requests for the drained view are taken"), Drained.Num(), 2))
+		{
+			TestEqual(TEXT("drained requests keep forward record order (first)"),
+				Drained[0].Parameters.ValueRangeMin, 20.0f);
+			TestEqual(TEXT("drained requests keep forward record order (second)"),
+				Drained[1].Parameters.ValueRangeMin, 40.0f);
+		}
+		if (TestEqual(TEXT("requests for the other view remain queued"), Pending.Num(), 3))
+		{
+			TestEqual(TEXT("remaining request order keeps the first entry"),
+				Pending[0].Parameters.ValueRangeMin, 10.0f);
+			TestEqual(TEXT("remaining request order keeps the middle entry"),
+				Pending[1].Parameters.ValueRangeMin, 30.0f);
+			TestEqual(TEXT("remaining request order keeps the last entry"),
+				Pending[2].Parameters.ValueRangeMin, 50.0f);
+		}
+	}
+
 	FSeamHarness Harness;
 	Harness.CreateResources();
 	if (!TestTrue(TEXT("the fixture has a view and a field texture"), Harness.IsReady()))

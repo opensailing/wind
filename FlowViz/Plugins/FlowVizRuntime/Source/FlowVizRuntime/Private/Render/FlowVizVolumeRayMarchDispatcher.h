@@ -162,6 +162,15 @@ namespace FlowVizVolumeRayMarchProduction
 	};
 
 	/**
+	 * Move one view's requests out of a shared queue without reordering either
+	 * the drained requests or the requests left for other views.
+	 */
+	void TakeRequestsForView(
+		TArray<FRequest>& PendingRequests,
+		const FSceneView* View,
+		TArray<FRequest>& OutRequests);
+
+	/**
 	 * The production dispatcher.
 	 *
 	 * DispatchVolumeRayMarch is const because the interface is - it is called
@@ -269,7 +278,7 @@ namespace FlowVizVolumeRayMarchProduction
 		 * BUILT FROM THE DRAINED REQUEST, not from a constant: each request
 		 * carries the transfer function its component's panel configured, and
 		 * Update() rebuilds only when the resident one differs. See DrainView
-		 * for why the last request drained wins.
+		 * for why the last request recorded for a view wins.
 		 *
 		 * SHADER_USE_PARAMETER_STRUCT binds every declared resource, so without
 		 * a LUT here the dispatch is invalid rather than merely unstyled --

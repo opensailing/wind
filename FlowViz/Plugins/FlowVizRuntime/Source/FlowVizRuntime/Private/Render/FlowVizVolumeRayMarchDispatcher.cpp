@@ -264,6 +264,31 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	}
 }
 
+void FlowVizVolumeRayMarchProduction::TakeRequestsForView(
+	TArray<FRequest>& PendingRequests,
+	const FSceneView* View,
+	TArray<FRequest>& OutRequests)
+{
+	OutRequests.Reserve(OutRequests.Num() + PendingRequests.Num());
+
+	int32 WriteIndex = 0;
+	for (int32 ReadIndex = 0; ReadIndex < PendingRequests.Num(); ++ReadIndex)
+	{
+		if (PendingRequests[ReadIndex].View == View)
+		{
+			OutRequests.Add(MoveTemp(PendingRequests[ReadIndex]));
+			continue;
+		}
+
+		if (WriteIndex != ReadIndex)
+		{
+			PendingRequests[WriteIndex] = MoveTemp(PendingRequests[ReadIndex]);
+		}
+		++WriteIndex;
+	}
+	PendingRequests.SetNum(WriteIndex, EAllowShrinking::No);
+}
+
 void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	FRDGBuilder& GraphBuilder,
 	const FSceneView& View,
@@ -272,14 +297,7 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	TArray<FRequest> Requests;
 	{
 		FScopeLock Lock(&RequestLock);
-		for (int32 Index = PendingRequests.Num() - 1; Index >= 0; --Index)
-		{
-			if (PendingRequests[Index].View == &View)
-			{
-				Requests.Add(MoveTemp(PendingRequests[Index]));
-				PendingRequests.RemoveAtSwap(Index, EAllowShrinking::No);
-			}
-		}
+		TakeRequestsForView(PendingRequests, &View, Requests);
 	}
 
 	if (Requests.Num() == 0)
@@ -305,16 +323,16 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	// three inputs BuildLut reads besides the map itself.
 	//
 	// ONE LUT, MANY REQUESTS. The resource is per-dispatcher and the queue can
-	// hold requests from several volumes, so the last one drained wins. That is
-	// the pre-existing shape -- there was only ever one table -- and it is
-	// honest for the single-volume case the product has today (plan.md 10.3).
-	// A second volume with a different map would be mis-coloured, which is why
-	// the choice is carried per-request: the day a component owns its own
-	// resource, the value is already in the right place.
+	// hold requests from several volumes, so the last request recorded for this
+	// view wins. Requests remain in forward record order; selecting Last() makes
+	// that tie-break explicit instead of depending on a reverse-removal side
+	// effect. The single-volume case is exact. A second volume with a different
+	// map would still need a per-component resource to avoid sharing one table,
+	// but the choice is already carried on each request for that future split.
 	//
 	// Update() is a no-op when the resident function already Equals this one, so
 	// an idle viewport rebuilds nothing.
-	const FRequest& LutRequest = Requests[0];
+	const FRequest& LutRequest = Requests.Last();
 	TransferFunction.Update(LutRequest.TransferFunction);
 
 	FRHITexture* const LutTexture = TransferFunction.GetLutTexture();
