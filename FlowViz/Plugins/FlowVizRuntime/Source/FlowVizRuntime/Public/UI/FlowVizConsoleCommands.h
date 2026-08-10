@@ -74,6 +74,16 @@ namespace FlowVizConsoleCommands
 	/* --- The pure parts, exposed so they can be asserted directly ----------- */
 
 	/**
+	 * Build the console line used by UI and startup paths to open a case.
+	 *
+	 * The path is quoted because case directories routinely inherit spaces from a
+	 * user's project or home directory. Leaving it bare makes the console manager
+	 * split one path into several arguments and reports a misleading load failure.
+	 */
+	FLOWVIZRUNTIME_API FString MakeLoadCaseCommand(
+		const FString& CasePath, const FString& FieldId = FString());
+
+	/**
 	 * Parse a cache-budget argument into bytes.
 	 *
 	 * SEPARATE FROM THE COMMAND because the interesting behaviour is the

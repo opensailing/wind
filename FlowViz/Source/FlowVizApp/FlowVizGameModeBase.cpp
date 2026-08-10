@@ -5,6 +5,7 @@
 #include "FlowVizCameraPawn.h"
 
 #include "Engine/Engine.h"
+#include "UI/FlowVizConsoleCommands.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
@@ -35,11 +36,7 @@ void AFlowVizGameModeBase::BeginPlay()
 	FString FieldId;
 	FParse::Value(FCommandLine::Get(), TEXT("field="), FieldId);
 
-	FString Command = FString::Printf(TEXT("FlowViz.LoadCase %s"), *CasePath);
-	if (!FieldId.IsEmpty())
-	{
-		Command += TEXT(" ") + FieldId;
-	}
+	const FString Command = FlowVizConsoleCommands::MakeLoadCaseCommand(CasePath, FieldId);
 
 	GetWorldTimerManager().SetTimerForNextTick(
 		FTimerDelegate::CreateWeakLambda(this, [this, Command]()

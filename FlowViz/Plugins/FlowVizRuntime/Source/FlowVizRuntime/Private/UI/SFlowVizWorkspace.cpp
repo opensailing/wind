@@ -9,6 +9,7 @@
 #include "Scene/FlowVizStudioRig.h"
 #include "Scene/FlowVizSurfaceMeshComponent.h"
 #include "Scene/FlowVizVolumeComponent.h"
+#include "UI/FlowVizConsoleCommands.h"
 #include "UI/FlowVizSession.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceRegistry.h"
@@ -332,9 +333,7 @@ void SFlowVizWorkspace::Construct(const FArguments& InArgs)
 												if (GEngine != nullptr)
 												{
 													GEngine->Exec(nullptr,
-														*FString::Printf(
-															TEXT("FlowViz.LoadCase %s"),
-															*CasePath));
+														*FlowVizConsoleCommands::MakeLoadCaseCommand(CasePath));
 												}
 											})))
 						]

@@ -56,7 +56,7 @@ known UBT wrapper behaviour, documented in Docs/BUILD.md).
 ```
 
 In the editor: Window → FlowViz to open the workspace tab, then
-`FlowViz.LoadCase Samples/MockCylinderWake.cfdviz U` in the console. The
+`FlowViz.LoadCase "Samples/MockCylinderWake.cfdviz" U` in the console. The
 console commands (`FlowViz.LoadCase`, `FlowViz.ReloadCase`,
 `FlowViz.ShowDiagnostics`, `FlowViz.Benchmark`, …) are documented in
 [Docs/UI_CONTROLS.md](Docs/UI_CONTROLS.md) §2.
@@ -92,7 +92,7 @@ app opens the case with no manual importing):
 
 ```bash
 cp -R Samples Packaged/Mac/FlowViz.app/Contents/UE/FlowViz/Samples
-Packaged/Mac/FlowViz.app/Contents/MacOS/FlowViz     -ExecCmds="FlowViz.LoadCase $PWD/Packaged/Mac/FlowViz.app/Contents/UE/FlowViz/Samples/MockCylinderWake.cfdviz U, FlowViz.DumpCase, Quit"     -unattended -nullrhi -nosplash
+Packaged/Mac/FlowViz.app/Contents/MacOS/FlowViz     -ExecCmds="FlowViz.LoadCase \"$PWD/Packaged/Mac/FlowViz.app/Contents/UE/FlowViz/Samples/MockCylinderWake.cfdviz\" U, FlowViz.DumpCase, Quit"     -unattended -nullrhi -nosplash
 ```
 
 Note the COMMAS between ExecCmds commands: semicolons are not separators
