@@ -46,4 +46,9 @@ namespace FlowVizWorkspaceTab
 
 	/** Undo Register. Safe when Register never ran. */
 	FLOWVIZRUNTIME_API void Unregister();
+
+#if WITH_DEV_AUTOMATION_TESTS
+	/** Test seam for the post-engine-init delegate's lifecycle. */
+	FLOWVIZRUNTIME_API bool IsDeferredRegistrationPendingForTesting();
+#endif
 }
