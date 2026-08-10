@@ -271,7 +271,12 @@ uint FlowVizLoadStatus(float3 UVW)
 /** Status bits -> the reason a sample was refused. */
 uint FlowVizStatusToReason(uint Status)
 {
-	if ((Status & RequiredStatusMask) == RequiredStatusMask && RequiredStatusMask != 0u)
+	// InvalidStatusMask is policy, not diagnostics: an invalid bit vetoes Valid
+	// even if malformed input co-sets the required bit.
+	const bool bHasInvalidStatus = (Status & InvalidStatusMask) != 0u;
+	if (!bHasInvalidStatus
+		&& (Status & RequiredStatusMask) == RequiredStatusMask
+		&& RequiredStatusMask != 0u)
 	{
 		return FLOWVIZ_REASON_VALID;
 	}
@@ -711,18 +716,37 @@ void FlowVizVolumeRayMarchCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	{
 		const uint2 DepthPixel = Pixel + uint2(ViewRectMin);
 		const float DeviceZ = SceneDepthTexture.Load(int3(DepthPixel, 0)).r;
-		// The engine convention: ViewZ = 1/(DeviceZ*a + b) for perspective
-		// (stored in .z/.w), linear for ortho (.x/.y).
-		float ViewZ;
-		if (DeviceZToViewZ.w != 0.0f)
-		{
-			ViewZ = 1.0f / (DeviceZ * DeviceZToViewZ.z + DeviceZToViewZ.w);
-		}
-		else
-		{
-			ViewZ = DeviceZ * DeviceZToViewZ.x + DeviceZToViewZ.y;
-		}
-		const float CosTheta = max(dot(Dir, RayCameraForward), 1e-4f);
+		/*
+		 * THE ENGINE'S EXACT FORMULA (ConvertFromDeviceZ, Common.ush), branchless
+		 * on purpose -- both packings need both terms. Perspective packs
+		 * (0, 0, 1/B, A/B - eps): the linear part vanishes and the reciprocal is
+		 * 1/(DeviceZ*z - w), MINUS w. Ortho packs (1/A, -B/A + 1, 0, 1): the
+		 * reciprocal contributes exactly -1, cancelling the +1 in .y. The
+		 * previous branch on `w != 0` selected the perspective formula for every
+		 * ortho view (w is 1 there, yielding the constant 1), and its + w sign
+		 * flip sent the reversed-Z background (DeviceZ = 0) to -1e13 -- a
+		 * negative OpaqueT that clamped TMax below TMin and vanished the volume
+		 * wherever nothing opaque was behind it. FlowVizRayMarch::
+		 * ConvertDeviceZToViewZ is this line's C++ twin; FlowViz.Render.DepthMath
+		 * pins both packings against real FSceneView transforms, so an edit here
+		 * must be mirrored there.
+		 */
+		const float ViewZ = DeviceZ * DeviceZToViewZ.x + DeviceZToViewZ.y
+			+ 1.0f / (DeviceZ * DeviceZToViewZ.z - DeviceZToViewZ.w);
+		/*
+		 * NORMALIZED forward (F3). RayCameraForward is deliberately unnormalised
+		 * -- the local basis carries the placement's scale, 0.01 under the
+		 * standard metres-to-centimetres placement -- so a raw dot() would scale
+		 * CosTheta by that factor and cancel DepthToSolver exactly, leaving
+		 * OpaqueT in Unreal centimetres against a T in solver metres: obstacles
+		 * clamp 100x too far and the volume composites over every opaque
+		 * surface. Normalizing recovers the pure angle. CAVEAT: under a
+		 * NON-UNIFORM placement scale, view depth along the local forward is not
+		 * a single scale factor and DepthToSolver would need the full transform;
+		 * CFDViz placements are conformal (uniform scale + mirror), where this
+		 * is exact.
+		 */
+		const float CosTheta = max(dot(Dir, normalize(RayCameraForward)), 1e-4f);
 		const float OpaqueT = (ViewZ * DepthToSolver) / CosTheta;
 		TMax = min(TMax, OpaqueT);
 		bHit = TMax > TMin;

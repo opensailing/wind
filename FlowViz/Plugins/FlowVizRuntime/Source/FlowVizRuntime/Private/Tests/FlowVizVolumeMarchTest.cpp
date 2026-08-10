@@ -201,6 +201,65 @@ namespace FlowVizMarchFixture
 		float RangeMin = 0.0f;
 		float RangeMax = FieldMax;
 		bool  bClampToRange = false;
+
+		/*
+		 * THE SCENE-DEPTH ARM (P6 clamp; findings F2/F3/F6). When bound, the
+		 * shader clamps each ray's TMax at the opaque surface read from
+		 * SceneDepthTexture -- and until this fixture existed, NO test had ever
+		 * run that path on a GPU: every RHI test called AddRayMarchPass with a
+		 * null depth (the pass's own 1x1 dummy, bHasSceneDepth=0), so the
+		 * DeviceZ conversion, the CosTheta division and the texel addressing all
+		 * compiled, dispatched, and had never executed against data.
+		 *
+		 * The fixture's depth texture is 64x64 -- LARGER than the 32x32 dispatch,
+		 * as a screen-percentage-scaled scene texture is -- holding PlaneDeviceZ
+		 * in the quadrant x>=32 && y>=32 and NearDeviceZ elsewhere. DepthRectMin
+		 * points the dispatch into that quadrant, so a shader that ignored
+		 * ViewRectMin reads NearDeviceZ (clamps every ray to nothing, zero
+		 * steps) while correct addressing reads the plane and clamps at a known
+		 * voxel. DeviceZToViewZ is packed ORTHO-SHAPED, (1, 1, 0, 1): under the
+		 * engine's branchless formula ViewZ = z*1 + 1 + 1/(0 - 1) = z exactly,
+		 * while the old `w != 0 selects perspective` branch returns the
+		 * constant 1 -- so this arm also fails against the F2 bug on the GPU.
+		 */
+		bool bBindDepth = false;
+		FVector2f DepthRectMin = FVector2f(0.0f, 0.0f);
+
+		/*
+		 * F3's GPU arm. SetLookAtCamera writes a UNIT forward; production's
+		 * SetViewCamera deliberately does not (the local basis carries the
+		 * placement scale, 0.01 under the standard metres-to-centimetres
+		 * placement). Scaling ONLY the forward leaves the marched geometry
+		 * untouched -- the shader normalises the ray direction -- but a CosTheta
+		 * computed with the RAW forward scales by this factor and moves the
+		 * opaque clamp by 1/scale. 100 here mirrors the real placement's cancel:
+		 * with the normalize() fix the depth arm reports the same voxel as
+		 * ForwardScale=1; without it OpaqueT shrinks 100x below TMin and the
+		 * ray dies with zero steps.
+		 */
+		float ForwardScale = 1.0f;
+
+		/*
+		 * THE SHADOW HOLD. P7 added single-scatter self-shadowing to
+		 * FlowVizApplyLighting: the diffuse term is attenuated by a coarse march
+		 * toward the light, and that attenuation is DIRECTION-DEPENDENT. From the
+		 * centre iso hit, a +Y shadow ray crosses three in-volume steps, a +X ray
+		 * one and a +Z ray none, so the three axis-lit renders the gradient block
+		 * compares stopped measuring NdotL and started measuring
+		 * NdotL * 0.75^steps. Measured: X:Y moved from the analytic 0.25 to
+		 * 0.4444 (= 0.25 * 0.75 / 0.75^3) and Y:Z from 0.0625 to 0.026367
+		 * (= 0.0625 * 0.75^3) -- exactly the per-step shadow factor
+		 * (1 - LutAlpha 0.25 * OpacityMultiplier 1), which is how the cause was
+		 * attributed to shadowing rather than to the gradient.
+		 *
+		 * FlowVizShadowTransmittance multiplies by
+		 * (1 - Shaded.a * OpacityMultiplier) per step, so OpacityMultiplier = 0
+		 * forces the transmittance to exactly 1, while iso-mode compositing --
+		 * which writes Color = (rgb, 1) directly -- never reads the multiplier.
+		 * The gradient block HOLDS the shadow term this way; self-shadowing is
+		 * P7's feature, not the property under test there.
+		 */
+		float OpacityMul = 1.0f;
 	};
 
 	/** A single dispatch's readback, both targets. */
@@ -499,6 +558,46 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 					LutWidth * sizeof(FFloat16Color), reinterpret_cast<const uint8*>(Lut.GetData()));
 			}
 
+			// The scene-depth fixture is larger than the dispatch, as a scaled
+			// renderer scene texture can be. Only its far quadrant contains the
+			// opaque plane; the rest clamps before the volume. ViewRectMin is what
+			// makes the two regions distinguishable to the shader.
+			FTextureRHIRef SceneDepthTexture;
+			{
+				constexpr int32 DepthSize = 64;
+				constexpr int32 DepthRectOffset = 32;
+				const FRHITextureCreateDesc DepthDesc =
+					FRHITextureCreateDesc::Create2D(TEXT("FlowVizMarchSceneDepth"))
+						.SetExtent(DepthSize, DepthSize)
+						.SetFormat(PF_R32_FLOAT)
+						.SetFlags(ETextureCreateFlags::ShaderResource);
+				SceneDepthTexture = RHICmdList.CreateTexture(DepthDesc);
+				if (!SceneDepthTexture.IsValid())
+				{
+					SetupError = TEXT("scene depth texture creation failed");
+					return;
+				}
+
+				const float PlaneDeviceZ = VolumeParams.PhysicalSize.Size() * 0.5f;
+				TArray<float> Depth;
+				Depth.SetNumUninitialized(DepthSize * DepthSize);
+				for (int32 Y = 0; Y < DepthSize; ++Y)
+				{
+					for (int32 X = 0; X < DepthSize; ++X)
+					{
+						Depth[Y * DepthSize + X] =
+							(X >= DepthRectOffset && Y >= DepthRectOffset)
+								? PlaneDeviceZ
+								: 0.0f;
+					}
+				}
+				const FUpdateTextureRegion2D DepthRegion(0, 0, 0, 0, DepthSize, DepthSize);
+				RHICmdList.UpdateTexture2D(
+					SceneDepthTexture, 0, DepthRegion,
+					DepthSize * sizeof(float),
+					reinterpret_cast<const uint8*>(Depth.GetData()));
+			}
+
 			for (int32 ConfigIndex = 0; ConfigIndex < PassConfigs.Num(); ++ConfigIndex)
 			{
 				const FMarchConfig& Config = PassConfigs[ConfigIndex];
@@ -535,9 +634,24 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 				FlowVizRayMarch::SetLookAtCamera(*Params, FVector3f(1.0f, 0.0f, 0.0f),
 					FIntPoint(OutputW, OutputH), /*bOrthographic=*/true,
 					/*DistanceScale=*/1.0f, /*HorizontalFovDegrees=*/60.0f);
+				Params->RayCameraForward *= Config.ForwardScale;
+
+				if (Config.bBindDepth)
+				{
+					Params->SceneDepthTexture = RegisterExternalTexture(
+						GraphBuilder, SceneDepthTexture.GetReference(), TEXT("FlowVizMarchSceneDepth"));
+					Params->bHasSceneDepth = 1;
+					Params->DeviceZToViewZ = FVector4f(1.0f, 1.0f, 0.0f, 1.0f);
+					Params->DepthToSolver = 1.0f;
+					Params->ViewRectMin = Config.DepthRectMin;
+				}
 
 				Params->CompositeMode = static_cast<uint32>(Config.Mode);
 				Params->bEnableLighting = Config.bLighting ? 1u : 0u;
+				// 1.0 for every pass-one config (identical to FillDefaults, so
+				// nothing pre-existing changes). 0 only on the gradient configs,
+				// which hold P7's self-shadow term -- see FMarchConfig::OpacityMul.
+				Params->OpacityMultiplier = Config.OpacityMul;
 				Params->CropBoxMin = FVector3f(Config.CropMinX, 0.0f, 0.0f);
 				Params->CropBoxMax = FVector3f(1.0f, 1.0f, 1.0f);
 
@@ -707,7 +821,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 		TestTrue(TEXT("the centre ray reports REASON_VALID - it sampled data, rather than "
 					  "crossing the box and finding every voxel refused"),
-			(ReasonBits(Max.ValueAt(CentreX, CentreY)) & 1u /* FLOWVIZ_REASON_VALID */) != 0u);
+			HasReason(Max.ValueAt(CentreX, CentreY), EFlowVizInvalidReason::Valid));
 
 		// The corner is outside the domain in both screen axes for this framing.
 		const FLinearColor& Corner = Max.ValueAt(0, 0);
@@ -784,7 +898,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			for (int32 X = 0; X < OutputW; ++X)
 			{
 				const FLinearColor& Pixel = Results[CfgMin].ValueAt(X, Y);
-				if (StepCount(Pixel) > 0 && (ReasonBits(Pixel) & 1u) != 0u)
+				if (StepCount(Pixel) > 0 && HasReason(Pixel, EFlowVizInvalidReason::Valid))
 				{
 					DistinctRows.Add(FMath::RoundToInt(ReportedValue(Pixel)));
 				}
@@ -882,7 +996,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 		if (TestTrue(TEXT("the masked ray still marches and still finds valid data beyond the "
 						  "masked slab"),
-				StepCount(Masked) > 0 && (ReasonBits(Masked) & 1u) != 0u))
+				StepCount(Masked) > 0 && HasReason(Masked, EFlowVizInvalidReason::Valid)))
 		{
 			TestEqual(*FString::Printf(
 					TEXT("masking voxels X<%d raises the minimum by exactly %d - the masked "
@@ -893,12 +1007,12 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 			TestTrue(TEXT("...and the ray REPORTS having crossed masked voxels (REASON_MASKED), "
 						  "so the renderer can colour the cause rather than silently dropping it"),
-				(ReasonBits(Masked) & 4u /* FLOWVIZ_REASON_MASKED */) != 0u);
+				HasReason(Masked, EFlowVizInvalidReason::Masked));
 
 			TestFalse(TEXT("...while the unmasked render of the same ray does NOT report masking, "
 						   "which is what proves the bit above came from the status volume and "
 						   "not from something set on every ray"),
-				(ReasonBits(Unmasked) & 4u) != 0u);
+				HasReason(Unmasked, EFlowVizInvalidReason::Masked));
 		}
 	}
 
@@ -1019,6 +1133,15 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			  FVector4f(1.0f, 0.0f, 0.0f, -100.0f) },
 		};
 		SecondPassConfigs.Append(IsoConfigs, UE_ARRAY_COUNT(IsoConfigs));
+
+		// The three axis-lit gradient renders hold P7's self-shadow term at
+		// exactly 1 by zeroing the opacity the shadow march multiplies by --
+		// nothing else in iso mode reads OpacityMultiplier, so this is a hold on
+		// the confound, not a change to the property under test. See
+		// FMarchConfig::OpacityMul for the measured misattribution it prevents.
+		SecondPassConfigs[2].OpacityMul = 0.0f; // IsoLitX
+		SecondPassConfigs[3].OpacityMul = 0.0f; // IsoLitY
+		SecondPassConfigs[4].OpacityMul = 0.0f; // IsoLitZ
 	}
 
 	/*
@@ -1069,9 +1192,30 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 		SecondPassConfigs.Append(ClampConfigs, UE_ARRAY_COUNT(ClampConfigs));
 	}
 
+	/*
+	 * Two depth-clamped renders differ only in the length of RayCameraForward.
+	 * Both address the 32,32 quadrant of the 64x64 depth texture. The first proves
+	 * the scene-depth branch actually clamps a still-visible ray; the second proves
+	 * the raw basis scale cannot change that clamp.
+	 */
+	{
+		FMarchConfig DepthConfigs[2];
+		DepthConfigs[0].Name = TEXT("DepthOffsetUnitForward");
+		DepthConfigs[1].Name = TEXT("DepthOffsetScaledForward");
+		for (FMarchConfig& DepthConfig : DepthConfigs)
+		{
+			DepthConfig.Mode = EFlowVizCompositeMode::Maximum;
+			DepthConfig.bBindDepth = true;
+			DepthConfig.DepthRectMin = FVector2f(32.0f, 32.0f);
+		}
+		DepthConfigs[1].ForwardScale = 100.0f;
+		SecondPassConfigs.Append(DepthConfigs, UE_ARRAY_COUNT(DepthConfigs));
+	}
+
 	enum { IsoHit = 0, IsoMiss = 1, IsoLitX = 2, IsoLitY = 3, IsoLitZ = 4,
 		   ClipMin = 5, ClipBoth = 6, ClipMinPair = 7, ClipMaxPair = 8, ClipAll = 9,
-		   ClampUnderOff = 10, ClampUnderOn = 11, ClampOverOff = 12, ClampOverOn = 13 };
+		   ClampUnderOff = 10, ClampUnderOn = 11, ClampOverOff = 12, ClampOverOn = 13,
+		   DepthUnitForward = 14, DepthScaledForward = 15 };
 
 	SecondPassResults.SetNum(SecondPassConfigs.Num());
 	RunPass(SecondPassConfigs, SecondPassResults);
@@ -1333,7 +1477,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 
 		if (TestTrue(*FString::Printf(TEXT("CONTROL: the doubly-clipped ray still marches (%d "
 										   "steps)"), StepCount(Both)),
-				StepCount(Both) > 0 && (ReasonBits(Both) & 1u) != 0u))
+				StepCount(Both) > 0 && HasReason(Both, EFlowVizInvalidReason::Valid)))
 		{
 			TestTrue(*FString::Printf(
 					TEXT("a second plane keeping local x <= 1.5 lowers the maximum below the "
@@ -1375,7 +1519,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			if (TestTrue(*FString::Printf(
 						TEXT("CONTROL: the tight-then-loose ray still marches (%d steps) and found "
 							 "valid data"), StepCount(MinPair)),
-					StepCount(MinPair) > 0 && (ReasonBits(MinPair) & 1u) != 0u))
+					StepCount(MinPair) > 0 && HasReason(MinPair, EFlowVizInvalidReason::Valid)))
 			{
 				TestEqual(*FString::Printf(
 						TEXT("two planes both keeping a MINIMUM x, tight (>=1.0) then LOOSE "
@@ -1398,7 +1542,7 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 			if (TestTrue(*FString::Printf(
 						TEXT("CONTROL: the max-side pair still marches (%d steps) and found valid "
 							 "data"), StepCount(MaxPair)),
-					StepCount(MaxPair) > 0 && (ReasonBits(MaxPair) & 1u) != 0u))
+					StepCount(MaxPair) > 0 && HasReason(MaxPair, EFlowVizInvalidReason::Valid)))
 			{
 				// The mirror image, on the other accumulator. Keeping x <= 1.0 caps
 				// the maximum at voxel 8; the looser x <= 1.5 would cap it at 12.
@@ -1678,6 +1822,77 @@ bool FFlowVizVolumeMarchTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("...and the ray took the same number of steps either way, so clamping "
 					   "changed the shading and not the traversal"),
 			StepCount(UnderOnValue), StepCount(UnderOffValue));
+	}
+
+	/* == Scene depth addresses the scaled rect and clamps in ray units ========= */
+	/*
+	 * WHAT THIS BLOCK CATCHES THAT NOTHING ELSE DOES: the P6 depth path
+	 * compiling but sampling the wrong scene texel, converting ortho DeviceZ
+	 * through the perspective branch, or dividing by a scale-bearing forward
+	 * vector.
+	 *
+	 * The 64x64 depth texture has useful depth only in its far quadrant. The
+	 * 32x32 dispatch reaches that quadrant solely through ViewRectMin=(32,32),
+	 * mirroring a scaled renderer view inside a larger scene texture. The plane
+	 * is halfway through the volume, so the correct result is neither zero steps
+	 * nor a full crossing. Finally, scaling only RayCameraForward by 100 cannot
+	 * change the ray geometry; equal results prove the depth conversion uses its
+	 * direction rather than its inherited local-space length.
+	 */
+	{
+		const FLinearColor& Full = Results[CfgMax].ValueAt(CentreX, CentreY);
+		const FLinearColor& Unit =
+			SecondPassResults[DepthUnitForward].ValueAt(CentreX, CentreY);
+		const FLinearColor& Scaled =
+			SecondPassResults[DepthScaledForward].ValueAt(CentreX, CentreY);
+
+		const int32 FullSteps = StepCount(Full);
+		const int32 UnitSteps = StepCount(Unit);
+		const int32 ScaledSteps = StepCount(Scaled);
+
+		if (TestTrue(*FString::Printf(
+					TEXT("CONTROL: offset scene depth leaves a visible PARTIAL ray (%d steps, "
+						 "reason bits %u). Zero means ViewRectMin was ignored, ortho DeviceZ used "
+						 "the perspective formula, or the plane landed before volume entry"),
+					UnitSteps, ReasonBits(Unit)),
+			UnitSteps > 0 && HasReason(Unit, EFlowVizInvalidReason::Valid)))
+		{
+			constexpr int32 ExpectedHalfTraversalSteps = 17;
+			TestTrue(*FString::Printf(
+					TEXT("the depth plane halfway through X bounds traversal to %d steps "
+						 "(expected %d +/-1), rather than the full ray's %d"),
+					UnitSteps, ExpectedHalfTraversalSteps, FullSteps),
+				FMath::Abs(UnitSteps - ExpectedHalfTraversalSteps) <= 1);
+
+			TestTrue(*FString::Printf(
+					TEXT("scene depth SHORTENS the ray (%d steps vs %d without depth). "
+						 "Equality means the depth texture was bound but never affected traversal"),
+					UnitSteps, FullSteps),
+				UnitSteps < FullSteps);
+
+			TestTrue(*FString::Printf(
+					TEXT("the halfway plane lowers Maximum from %.3f to %.3f, so the shorter "
+						 "step count also changed which data was composited"),
+					ReportedValue(Full), ReportedValue(Unit)),
+				ReportedValue(Unit) < ReportedValue(Full));
+		}
+
+		if (TestTrue(*FString::Printf(
+					TEXT("CONTROL: the 100x-forward depth arm still marches (%d steps, reason "
+						 "bits %u). Zero means CosTheta used the raw scale-bearing forward"),
+					ScaledSteps, ReasonBits(Scaled)),
+			ScaledSteps > 0 && HasReason(Scaled, EFlowVizInvalidReason::Valid)))
+		{
+			TestEqual(TEXT("normalizing RayCameraForward makes a 100x basis scale leave "
+						 "the opaque clamp's step count unchanged"),
+				ScaledSteps, UnitSteps);
+
+			TestTrue(*FString::Printf(
+					TEXT("...and leaves the reported scalar BIT-IDENTICAL (%.9g vs %.9g), "
+						 "proving the scale changed neither geometry nor the sampled endpoint"),
+					ReportedValue(Scaled), ReportedValue(Unit)),
+				ReportedValue(Scaled) == ReportedValue(Unit));
+		}
 	}
 
 	return true;

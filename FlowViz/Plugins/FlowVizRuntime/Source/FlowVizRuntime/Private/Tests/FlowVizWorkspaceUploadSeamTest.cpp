@@ -130,7 +130,7 @@ namespace FlowVizWorkspaceUploadSeamTest
 	 */
 	int32 FindSlotBookedForFrame(const FFlowVizVolumeTextureSet& Set, int32 FrameIndex)
 	{
-		const TArrayView<const FFlowVizVolumeSlotState> States = Set.GetSlotStates();
+		const TArray<FFlowVizVolumeSlotState> States = Set.GetSlotStates();
 		for (int32 Index = 0; Index < States.Num(); ++Index)
 		{
 			if (States[Index].FrameIndex == FrameIndex)

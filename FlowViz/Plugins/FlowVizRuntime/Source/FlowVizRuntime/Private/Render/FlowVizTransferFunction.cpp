@@ -33,18 +33,18 @@ static_assert(ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8,
 /* Local helpers                                                                */
 /* -------------------------------------------------------------------------- */
 
-namespace
+/* NAMED namespace: unity build helpers must remain qualified. */
+namespace FlowVizTransferFunctionLocal
 {
 	/**
 	 * A failure whose message names the offending quantity and its value
 	 * (engineering rule 12).
 	 *
-	 * Named TransferFunctionFailWith rather than FailWith because this module is a
-	 * unity build: a bare FailWith in an anonymous namespace collides with the
-	 * identically named helper in FlowVizVolumeTexture.cpp the moment the two land
-	 * in the same chunk. See Docs/BUILD.md.
+	 * Kept behind a per-file named namespace because this module is a unity build:
+	 * anonymous namespaces from separate source files become one namespace when
+	 * UBT concatenates them. Callers remain qualified; see Docs/BUILD.md.
 	 */
-	FCFDVizResult TransferFunctionFailWith(ECFDVizError Error, FString Message)
+	FCFDVizResult MakeFailure(ECFDVizError Error, FString Message)
 	{
 		return FCFDVizResult::Fail(Error, MoveTemp(Message));
 	}
@@ -58,7 +58,7 @@ namespace
 	 * matplotlib and ParaView reference figure. See the sampling-convention note
 	 * at the top of FlowVizTransferFunction.h.
 	 */
-	float PixelCentre(int32 Index, int32 Size)
+	float LutCoordinate(int32 Index, int32 Size)
 	{
 		return (static_cast<float>(Index) + 0.5f) / static_cast<float>(Size);
 	}
@@ -184,19 +184,19 @@ FCFDVizResult FFlowVizOpacityCurve::Validate() const
 {
 	if (Points.Num() > FlowVizTransferFunction::MaxOpacityPoints)
 	{
-		return TransferFunctionFailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("the opacity curve has %d control points, the limit is %d"),
 			Points.Num(), FlowVizTransferFunction::MaxOpacityPoints));
 	}
 
 	if (!FMath::IsFinite(OpacityMultiplier))
 	{
-		return TransferFunctionFailWith(ECFDVizError::InvalidHeader,
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::InvalidHeader,
 			TEXT("the opacity multiplier is not finite"));
 	}
 	if (OpacityMultiplier < 0.0f || OpacityMultiplier > 1.0f)
 	{
-		return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("the opacity multiplier is %f, outside 0..1"), OpacityMultiplier));
 	}
 
@@ -206,19 +206,19 @@ FCFDVizResult FFlowVizOpacityCurve::Validate() const
 
 		if (!FMath::IsFinite(Point.Position) || !FMath::IsFinite(Point.Opacity))
 		{
-			return TransferFunctionFailWith(ECFDVizError::InvalidHeader, FString::Printf(
+			return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::InvalidHeader, FString::Printf(
 				TEXT("opacity point %d is not finite (position %f, opacity %f)"),
 				Index, Point.Position, Point.Opacity));
 		}
 		if (Point.Position < 0.0f || Point.Position > 1.0f)
 		{
-			return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+			return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 				TEXT("opacity point %d sits at %f, outside the normalized domain 0..1"),
 				Index, Point.Position));
 		}
 		if (Point.Opacity < 0.0f || Point.Opacity > 1.0f)
 		{
-			return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+			return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 				TEXT("opacity point %d has opacity %f, outside 0..1"),
 				Index, Point.Opacity));
 		}
@@ -403,32 +403,32 @@ FCFDVizResult FFlowVizTransferFunction::Validate() const
 {
 	if (LutSize < FlowVizTransferFunction::MinLutSize || LutSize > FlowVizTransferFunction::MaxLutSize)
 	{
-		return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("LUT size %d is outside %d..%d"),
 			LutSize, FlowVizTransferFunction::MinLutSize, FlowVizTransferFunction::MaxLutSize));
 	}
 
 	if (ColorMap < ECFDVizColorMap::Viridis || ColorMap >= ECFDVizColorMap::Count)
 	{
-		return TransferFunctionFailWith(ECFDVizError::UnsupportedDataType, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::UnsupportedDataType, FString::Printf(
 			TEXT("colormap %d is outside the enum"), static_cast<int32>(ColorMap)));
 	}
 
 	if (ColorBands < 0)
 	{
-		return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("band count %d is negative"), ColorBands));
 	}
 
 	if (!FMath::IsFinite(ValueRangeMin) || !FMath::IsFinite(ValueRangeMax))
 	{
-		return TransferFunctionFailWith(ECFDVizError::InvalidHeader, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::InvalidHeader, FString::Printf(
 			TEXT("the value domain [%f, %f] is not finite"), ValueRangeMin, ValueRangeMax));
 	}
 
 	if (!(ValueRangeMax > ValueRangeMin))
 	{
-		return TransferFunctionFailWith(ECFDVizError::InvalidHeader, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::InvalidHeader, FString::Printf(
 			TEXT("the value domain [%f, %f] is empty or inverted"), ValueRangeMin, ValueRangeMax));
 	}
 
@@ -482,7 +482,7 @@ FCFDVizResult FlowVizTransferFunction::BuildLut(
 	if (OutLut.Num() != TransferFunction.LutSize)
 	{
 		OutLut.Empty();
-		return TransferFunctionFailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("the colour table returned %d entries, %d were requested"),
 			OutLut.Num(), TransferFunction.LutSize));
 	}
@@ -494,7 +494,7 @@ FCFDVizResult FlowVizTransferFunction::BuildLut(
 		// control point at t and a colour stop at t then land on the same entry.
 		// Evaluating alpha on any other grid would slide the ramp against the
 		// colours by a fraction of a texel.
-		const float Position = PixelCentre(Index, OutLut.Num());
+		const float Position = FlowVizTransferFunctionLocal::LutCoordinate(Index, OutLut.Num());
 
 		// ALPHA IS NOT PREMULTIPLIED. The ray-marcher composites front-to-back
 		// with its own step-size correction and needs the un-premultiplied
@@ -569,7 +569,7 @@ FCFDVizResult FlowVizTransferFunction::PackLutBytes(
 	if (Needed == INDEX_NONE)
 	{
 		OutBytes.Empty();
-		return TransferFunctionFailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("a LUT of %d entries is outside %d..%d"),
 			Lut.Num(), MinLutSize, MaxLutSize));
 	}
@@ -652,7 +652,7 @@ FCFDVizResult FlowVizTransferFunctionRHI::CheckDeviceSupport(int32 LutSize)
 {
 	if (LutSize < FlowVizTransferFunction::MinLutSize || LutSize > FlowVizTransferFunction::MaxLutSize)
 	{
-		return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("LUT size %d is outside %d..%d"),
 			LutSize, FlowVizTransferFunction::MinLutSize, FlowVizTransferFunction::MaxLutSize));
 	}
@@ -671,7 +671,7 @@ FCFDVizResult FlowVizTransferFunctionRHI::CheckDeviceSupport(int32 LutSize)
 	const int32 MaxDimension = GMaxTextureDimensions;
 	if (MaxDimension > 0 && LutSize > MaxDimension)
 	{
-		return TransferFunctionFailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("a %d-entry LUT exceeds this device's %d-texel 2D texture limit"),
 			LutSize, MaxDimension));
 	}
@@ -679,7 +679,7 @@ FCFDVizResult FlowVizTransferFunctionRHI::CheckDeviceSupport(int32 LutSize)
 	if (!UE::PixelFormat::HasCapabilities(
 			FlowVizTransferFunction::LutPixelFormat, EPixelFormatCapabilities::Texture2D))
 	{
-		return TransferFunctionFailWith(ECFDVizError::UnsupportedDataType, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::UnsupportedDataType, FString::Printf(
 			TEXT("this device cannot create %s as a 2D texture"),
 			GetPixelFormatString(FlowVizTransferFunction::LutPixelFormat)));
 	}
@@ -691,7 +691,7 @@ FCFDVizResult FlowVizTransferFunctionRHI::CheckDeviceSupport(int32 LutSize)
 	if (!UE::PixelFormat::HasCapabilities(
 			FlowVizTransferFunction::LutPixelFormat, EPixelFormatCapabilities::TextureSample))
 	{
-		return TransferFunctionFailWith(ECFDVizError::UnsupportedDataType, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::UnsupportedDataType, FString::Printf(
 			TEXT("this device cannot sample %s in a shader"),
 			GetPixelFormatString(FlowVizTransferFunction::LutPixelFormat)));
 	}
@@ -726,7 +726,7 @@ FTextureRHIRef FlowVizTransferFunctionRHI::CreateLutTexture(
 	FTextureRHIRef Texture = RHICmdList.CreateTexture(Desc);
 	if (!Texture.IsValid())
 	{
-		OutResult = TransferFunctionFailWith(ECFDVizError::AllocationTooLarge, FString::Printf(
+		OutResult = FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::AllocationTooLarge, FString::Printf(
 			TEXT("the RHI refused a %d x 1 %s LUT texture"),
 			LutSize, GetPixelFormatString(FlowVizTransferFunction::LutPixelFormat)));
 	}
@@ -741,14 +741,14 @@ FCFDVizResult FlowVizTransferFunctionRHI::UpdateLutTexture(
 {
 	if (Texture == nullptr)
 	{
-		return TransferFunctionFailWith(ECFDVizError::InvalidHeader,
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::InvalidHeader,
 			TEXT("a LUT update needs a texture"));
 	}
 
 	const int64 Needed = FlowVizTransferFunction::GetPackedBytes(LutSize);
 	if (Needed == INDEX_NONE)
 	{
-		return TransferFunctionFailWith(ECFDVizError::IndexOutOfRange, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::IndexOutOfRange, FString::Printf(
 			TEXT("LUT size %d is outside %d..%d"),
 			LutSize, FlowVizTransferFunction::MinLutSize, FlowVizTransferFunction::MaxLutSize));
 	}
@@ -757,7 +757,7 @@ FCFDVizResult FlowVizTransferFunctionRHI::UpdateLutTexture(
 	// how long the source buffer is and will happily walk off the end of it.
 	if (static_cast<int64>(LutBytes.Num()) != Needed)
 	{
-		return TransferFunctionFailWith(ECFDVizError::SizeMismatch, FString::Printf(
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::SizeMismatch, FString::Printf(
 			TEXT("the LUT upload buffer is %d bytes, a %d-entry LUT needs %lld"),
 			LutBytes.Num(), LutSize, Needed));
 	}
@@ -929,7 +929,7 @@ FCFDVizResult FFlowVizTransferFunctionResource::MakeShaderParameters(
 	{
 		// Refused rather than emitting a zeroed block, which would render a
 		// plausible wrong image instead of nothing.
-		return TransferFunctionFailWith(ECFDVizError::InvalidHeader,
+		return FlowVizTransferFunctionLocal::MakeFailure(ECFDVizError::InvalidHeader,
 			TEXT("the transfer-function resource has no content yet"));
 	}
 	return FlowVizTransferFunction::MakeShaderParameters(TransferFunction, OutParams);

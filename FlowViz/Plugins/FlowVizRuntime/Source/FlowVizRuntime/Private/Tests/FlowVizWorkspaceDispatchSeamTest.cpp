@@ -262,8 +262,13 @@ bool FFlowVizWorkspaceDispatchSeamTest::RunTest(const FString& Parameters)
 	{
 		const FFlowVizVolumeProxyDynamicData BeforeData = Volume->MakeProxyDynamicData();
 		const int32 BeforeSlotIndex = TextureSet.FindSlotForFrame(BeforeData.FrameSelection.FrameA);
+		FFlowVizVolumeSlotTextures BeforeTextureSnapshot;
+		const FFlowVizVolumeSlotTextures* BeforeTextures =
+			TextureSet.GetSlotTextures(BeforeSlotIndex, BeforeTextureSnapshot)
+				? &BeforeTextureSnapshot
+				: nullptr;
 		const FFlowVizDispatchStatus Before = FlowVizVolumeRayMarch::ClassifyDispatch(
-			Dispatcher, BeforeData, &TextureSet, TextureSet.GetSlotTextures(BeforeSlotIndex));
+			Dispatcher, BeforeData, &TextureSet, BeforeTextures);
 
 		if (!TestFalse(
 				FString::Printf(TEXT("IDENTITY CONTROL: before playback feeds it, the very same gate "
@@ -312,7 +317,7 @@ bool FFlowVizWorkspaceDispatchSeamTest::RunTest(const FString& Parameters)
 	 * file needs a device.
 	 *
 	 * Asserted separately rather than folded into the headline: GetSlotTextures
-	 * returns null for INDEX_NONE, so an unasserted miss here would reach
+	 * returns false for INDEX_NONE, so an unasserted miss here would reach
 	 * ClassifyDispatch as a null slot and be reported as FrameNotResident --
 	 * a correct diagnosis of the wrong thing, blaming the gate for a failed
 	 * upload.
@@ -328,7 +333,10 @@ bool FFlowVizWorkspaceDispatchSeamTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FFlowVizVolumeSlotTextures* const SlotTextures = TextureSet.GetSlotTextures(SlotIndex);
+	FFlowVizVolumeSlotTextures SlotTextureSnapshot;
+	const bool bHasSlotTextures = TextureSet.GetSlotTextures(SlotIndex, SlotTextureSnapshot);
+	const FFlowVizVolumeSlotTextures* const SlotTextures =
+		bHasSlotTextures ? &SlotTextureSnapshot : nullptr;
 	if (!TestNotNull(TEXT("CONTROL: the resident slot's textures are readable, so the gate below is "
 						  "handed a real slot rather than a null one"),
 			SlotTextures))
@@ -389,8 +397,13 @@ bool FFlowVizWorkspaceDispatchSeamTest::RunTest(const FString& Parameters)
 						 ScrubbedData.FrameSelection.FrameA, ScrubbedSlot),
 				ScrubbedSlot != INDEX_NONE))
 		{
+			FFlowVizVolumeSlotTextures ScrubbedTextureSnapshot;
+			const FFlowVizVolumeSlotTextures* ScrubbedTextures =
+				TextureSet.GetSlotTextures(ScrubbedSlot, ScrubbedTextureSnapshot)
+					? &ScrubbedTextureSnapshot
+					: nullptr;
 			const FFlowVizDispatchStatus ScrubbedStatus = FlowVizVolumeRayMarch::ClassifyDispatch(
-				Dispatcher, ScrubbedData, &TextureSet, TextureSet.GetSlotTextures(ScrubbedSlot));
+				Dispatcher, ScrubbedData, &TextureSet, ScrubbedTextures);
 
 			TestEqual(
 				FString::Printf(TEXT("and it still marches after a scrub, so playback keeps the "

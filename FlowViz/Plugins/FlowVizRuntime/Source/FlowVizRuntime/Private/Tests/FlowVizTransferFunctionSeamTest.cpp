@@ -3,7 +3,10 @@
 #include "../Render/FlowVizVolumeRayMarchDispatcher.h"
 
 #include "CFDViz/CFDVizColorMaps.h"
+#include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "RenderGraphBuilder.h"
 #include "Render/FlowVizVolumeRayMarchShader.h"
 #include "Scene/FlowVizVolumeComponent.h"
@@ -153,12 +156,14 @@ namespace FlowVizTransferFunctionSeamFixture
 		 */
 		bool Dispatch(
 			const FFlowVizTransferFunctionViewModel& TransferFunction,
-			FFlowVizVolumeRayMarchParameters& OutBuilt)
+			FFlowVizVolumeRayMarchParameters& OutBuilt,
+			bool bInterpolationDegraded = false)
 		{
 			FFlowVizVolumeRayMarchContext Context;
 			Context.View = View.Get();
 			Context.LocalToWorld = FMatrix::Identity;
 			Context.SlotA = &Slot;
+			Context.bInterpolationDegraded = bInterpolationDegraded;
 			Context.TransferFunction = TransferFunction;
 
 			const int32 Before = Dispatcher.NumPendingRequests();
@@ -252,6 +257,48 @@ namespace FlowVizTransferFunctionSeamFixture
 bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 {
 	using namespace FlowVizTransferFunctionSeamFixture;
+
+	/* == Shared queue order ================================================== */
+	{
+		// FRequest treats View as identity only. Distinct non-null sentinels make
+		// this a pure queue test without constructing a scene or dereferencing them.
+		const FSceneView* const ViewA = reinterpret_cast<const FSceneView*>(0x1);
+		const FSceneView* const ViewB = reinterpret_cast<const FSceneView*>(0x2);
+		auto MakeTaggedRequest = [](const FSceneView* View, float Tag)
+		{
+			FlowVizVolumeRayMarchProduction::FRequest Request;
+			Request.View = View;
+			Request.Parameters.ValueRangeMin = Tag;
+			return Request;
+		};
+
+		TArray<FlowVizVolumeRayMarchProduction::FRequest> Pending;
+		Pending.Add(MakeTaggedRequest(ViewB, 10.0f));
+		Pending.Add(MakeTaggedRequest(ViewA, 20.0f));
+		Pending.Add(MakeTaggedRequest(ViewB, 30.0f));
+		Pending.Add(MakeTaggedRequest(ViewA, 40.0f));
+		Pending.Add(MakeTaggedRequest(ViewB, 50.0f));
+
+		TArray<FlowVizVolumeRayMarchProduction::FRequest> Drained;
+		FlowVizVolumeRayMarchProduction::TakeRequestsForView(Pending, ViewA, Drained);
+
+		if (TestEqual(TEXT("both requests for the drained view are taken"), Drained.Num(), 2))
+		{
+			TestEqual(TEXT("drained requests keep forward record order (first)"),
+				Drained[0].Parameters.ValueRangeMin, 20.0f);
+			TestEqual(TEXT("drained requests keep forward record order (second)"),
+				Drained[1].Parameters.ValueRangeMin, 40.0f);
+		}
+		if (TestEqual(TEXT("requests for the other view remain queued"), Pending.Num(), 3))
+		{
+			TestEqual(TEXT("remaining request order keeps the first entry"),
+				Pending[0].Parameters.ValueRangeMin, 10.0f);
+			TestEqual(TEXT("remaining request order keeps the middle entry"),
+				Pending[1].Parameters.ValueRangeMin, 30.0f);
+			TestEqual(TEXT("remaining request order keeps the last entry"),
+				Pending[2].Parameters.ValueRangeMin, 50.0f);
+		}
+	}
 
 	FSeamHarness Harness;
 	Harness.CreateResources();
@@ -583,6 +630,123 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("and the request was consumed, not left pending for a view that "
 						   "is never drained again"),
 				Harness.Dispatcher.NumPendingRequests(), 0);
+		}
+	}
+
+	// --- CHANNEL 4: DEGRADED INTERPOLATION LOGS ARE EPISODES, NOT FRAMES ------
+	{
+		FFlowVizVolumeRayMarchParameters Ignored;
+		const FFlowVizTransferFunctionViewModel DefaultTransferFunction;
+		TestEqual(TEXT("CONTROL: no degraded warning episode was observed yet"),
+			Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(0));
+
+		if (TestTrue(TEXT("a first degraded request is queued"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, true)))
+		{
+			TestEqual(TEXT("the first degraded request starts one warning episode"),
+				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(1));
+		}
+		if (TestTrue(TEXT("a repeated degraded request is queued"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, true)))
+		{
+			TestEqual(TEXT("repeating the same degraded state does not warn every frame"),
+				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(1));
+		}
+		if (TestTrue(TEXT("a healthy request retires the warning latch"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, false))
+			&& TestTrue(TEXT("a later degraded request is queued"),
+				Harness.Dispatch(DefaultTransferFunction, Ignored, true)))
+		{
+			TestEqual(TEXT("degrading again after recovery starts a second episode"),
+				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(2));
+		}
+	}
+
+	// --- CHANNEL 5: THE VIEW HOOK TARGETS THE RIGHT SCENE TEXTURE -----------
+	/*
+	 * This boundary cannot be driven by the seam harness above: constructing the
+	 * renderer-owned FPostProcessingInputs and FViewInfo needs a live scene. Read
+	 * only the four production function bodies whose wiring is under test. The
+	 * controls on every boundary keep an empty match set from passing the checks.
+	 */
+	{
+		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("FlowVizRuntime"));
+		if (TestTrue(TEXT("the FlowVizRuntime plugin is discoverable for the render-hook contract"),
+				Plugin.IsValid()))
+		{
+			const FString DispatcherPath = FPaths::Combine(
+				Plugin->GetBaseDir(),
+				TEXT("Source/FlowVizRuntime/Private/Render/FlowVizVolumeRayMarchDispatcher.cpp"));
+			FString Source;
+			if (TestTrue(TEXT("the production dispatcher source is readable"),
+					FFileHelper::LoadFileToString(Source, *DispatcherPath)))
+			{
+				const int32 DispatchStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch("));
+				const int32 DrainStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView("));
+				const int32 DropStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FDispatcher::DropRequestsOutsideFamily("));
+				const int32 PostStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FViewExtension::PostRenderView_RenderThread("));
+				const int32 PrePostStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderThread("));
+				const int32 LocalNamespaceStart = Source.Find(
+					TEXT("namespace FlowVizVolumeRayMarchDispatcherLocal"),
+					ESearchCase::CaseSensitive, ESearchDir::FromStart, PrePostStart + 1);
+
+				if (TestTrue(TEXT("CONTROL: the dispatch body has a bounded source range"),
+						DispatchStart != INDEX_NONE && DrainStart > DispatchStart))
+				{
+					const FString DispatchBody = Source.Mid(DispatchStart, DrainStart - DispatchStart);
+					TestTrue(TEXT("screen-percentage views use FViewInfo::ViewRect for dispatch and depth addressing"),
+						DispatchBody.Contains(
+							TEXT("UE::FXRenderingUtils::GetRawViewRectUnsafe(*Context.View)"),
+							ESearchCase::CaseSensitive));
+					TestTrue(TEXT("bare FSceneView seam fixtures retain the unscaled fallback"),
+						DispatchBody.Contains(TEXT("Context.View->UnscaledViewRect"), ESearchCase::CaseSensitive));
+				}
+
+				if (TestTrue(TEXT("CONTROL: the drain body has a bounded source range"),
+						DrainStart != INDEX_NONE && DropStart > DrainStart))
+				{
+					const FString DrainBody = Source.Mid(DrainStart, DropStart - DrainStart);
+					TestTrue(TEXT("an explicit pre-post-process target is used before the view-family fallback"),
+						DrainBody.Contains(
+							TEXT("FRDGTextureRef SceneOutput = CompositeTargetTexture"),
+							ESearchCase::CaseSensitive));
+					TestFalse(TEXT("the full-resolution march targets are not cleared before a pass that writes every pixel"),
+						DrainBody.Contains(TEXT("AddClearUAVPass"), ESearchCase::CaseSensitive));
+					TestTrue(TEXT("CONTROL: the drain still creates and dispatches the ray-march outputs"),
+						DrainBody.Contains(TEXT("AddRayMarchPass"), ESearchCase::CaseSensitive)
+							&& DrainBody.Contains(TEXT("FlowVizVolumeRayMarch.Color"), ESearchCase::CaseSensitive));
+				}
+
+				if (TestTrue(TEXT("CONTROL: the post-render fallback body has a bounded source range"),
+						PostStart != INDEX_NONE && PrePostStart > PostStart))
+				{
+					const FString PostBody = Source.Mid(PostStart, PrePostStart - PostStart);
+					TestTrue(TEXT("the depthless post-render hook keeps the implicit view-family output fallback"),
+						PostBody.Contains(TEXT("DrainView(GraphBuilder, InView);"), ESearchCase::CaseSensitive));
+				}
+
+				if (TestTrue(TEXT("CONTROL: the pre-post-process body has a bounded source range"),
+						PrePostStart != INDEX_NONE && LocalNamespaceStart > PrePostStart))
+				{
+					const FString PrePostBody = Source.Mid(
+						PrePostStart, LocalNamespaceStart - PrePostStart);
+					TestTrue(TEXT("the pre-post-process hook takes the live scene-color texture from SceneTextures"),
+						PrePostBody.Contains(
+							TEXT("SceneColor = Contents->SceneColorTexture"),
+							ESearchCase::CaseSensitive));
+					TestTrue(TEXT("a missing scene-color input leaves the request for the post-render fallback"),
+						PrePostBody.Contains(TEXT("if (SceneColor != nullptr)"), ESearchCase::CaseSensitive));
+					TestTrue(TEXT("the depth-aware drain composites into scene color before post processing"),
+						PrePostBody.Contains(
+							TEXT("DrainView(GraphBuilder, InView, SceneColor, SceneDepth)"),
+							ESearchCase::CaseSensitive));
+				}
+			}
 		}
 	}
 

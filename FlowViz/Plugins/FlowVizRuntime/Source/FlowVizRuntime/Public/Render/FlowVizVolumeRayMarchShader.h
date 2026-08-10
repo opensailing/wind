@@ -433,6 +433,40 @@ namespace FlowVizRayMarch
 	{
 		return static_cast<EFlowVizInvalidReason>(static_cast<uint32>(Encoded + 0.5f));
 	}
+
+	/**
+	 * DeviceZ -> view-space depth, from the view's InvDeviceZToWorldZTransform.
+	 *
+	 * THE ENGINE'S EXACT FORMULA (ConvertFromDeviceZ, Common.ush:1376), and the
+	 * C++ TWIN of the scene-depth conversion in FlowVizVolumeRayMarch.usf (the
+	 * P6 clamp). It is BRANCHLESS ON PURPOSE, and any "simplification" into a
+	 * perspective/ortho branch selected by T.w is the bug this replaced:
+	 *
+	 *   - perspective packs T = (0, 0, 1/B, A/B - fudge): the linear terms
+	 *     vanish and the reciprocal term is 1/(DeviceZ*T.z - T.w) -- note
+	 *     MINUS T.w. Writing + T.w flips the sign, and for a background pixel
+	 *     (DeviceZ = 0 under reversed Z) the fudge-factor-sized T.w turns a
+	 *     huge POSITIVE far depth into a huge NEGATIVE one, which clamps
+	 *     TMax below TMin and vanishes the volume wherever nothing opaque
+	 *     is behind it.
+	 *   - ortho packs T = (1/A, -B/A + 1, 0, 1): the +1 folded into T.y and
+	 *     the 1/(0 - 1) = -1 of the reciprocal term cancel, leaving the linear
+	 *     mapping. Because T.w is 1 here, a branch on "T.w != 0 means
+	 *     perspective" selects the wrong formula for EVERY ortho view and
+	 *     returns a constant.
+	 *
+	 * The .usf cannot call this function and this function cannot call the
+	 * .usf, so the two are kept in sync BY TEST: FlowViz.Render.DepthMath
+	 * drives this twin with the InvDeviceZToWorldZTransform vectors real
+	 * FSceneViews produce -- perspective and orthographic -- and checks known
+	 * depths round-trip through the projection. Any edit to the shader's
+	 * conversion must be mirrored here, where the maths is testable headless.
+	 */
+	inline float ConvertDeviceZToViewZ(const FVector4f& InvDeviceZToWorldZ, float DeviceZ)
+	{
+		const FVector4f& T = InvDeviceZToWorldZ;
+		return DeviceZ * T.X + T.Y + 1.0f / (DeviceZ * T.Z - T.W);
+	}
 }
 
 /* -------------------------------------------------------------------------- */

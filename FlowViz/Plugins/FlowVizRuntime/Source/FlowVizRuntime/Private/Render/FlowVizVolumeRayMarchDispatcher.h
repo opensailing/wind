@@ -162,6 +162,15 @@ namespace FlowVizVolumeRayMarchProduction
 	};
 
 	/**
+	 * Move one view's requests out of a shared queue without reordering either
+	 * the drained requests or the requests left for other views.
+	 */
+	void TakeRequestsForView(
+		TArray<FRequest>& PendingRequests,
+		const FSceneView* View,
+		TArray<FRequest>& OutRequests);
+
+	/**
 	 * The production dispatcher.
 	 *
 	 * DispatchVolumeRayMarch is const because the interface is - it is called
@@ -179,8 +188,14 @@ namespace FlowVizVolumeRayMarchProduction
 		//~ End IFlowVizVolumeRayMarchDispatcher
 
 		/** Marches and composites every request recorded for this view, and removes them. */
-		/** @param SceneDepthTexture Opaque scene depth for ray clamping, or null (depthless fallback). */
+		/**
+		 * @param CompositeTargetTexture Scene color for the pre-post-process path, or
+		 *        null to resolve the view-family output for the post-render fallback.
+		 * @param SceneDepthTexture Opaque scene depth for ray clamping, or null
+		 *        for the depthless fallback.
+		 */
 		void DrainView(FRDGBuilder& GraphBuilder, const FSceneView& View,
+			FRDGTextureRef CompositeTargetTexture = nullptr,
 			FRDGTextureRef SceneDepthTexture = nullptr) const;
 
 		/**
@@ -225,6 +240,13 @@ namespace FlowVizVolumeRayMarchProduction
 		 */
 		bool PeekRequestParameters(int32 Index, FFlowVizVolumeRayMarchParameters& OutParameters) const;
 
+		/** Number of degraded-interpolation warning episodes observed. Diagnostics and tests. */
+		uint64 GetInterpolationDegradedEpisodeCount() const
+		{
+			FScopeLock Lock(&RequestLock);
+			return InterpolationDegradedEpisodeCount;
+		}
+
 		/**
 		 * The colour map the resident LUT was built from. Diagnostics and tests.
 		 *
@@ -262,6 +284,8 @@ namespace FlowVizVolumeRayMarchProduction
 	private:
 		mutable FCriticalSection RequestLock;
 		mutable TArray<FRequest> PendingRequests;
+		mutable bool bInterpolationDegradedWarningLatched = false;
+		mutable uint64 InterpolationDegradedEpisodeCount = 0;
 
 		/**
 		 * The colour table every production volume is rendered through.
@@ -269,7 +293,7 @@ namespace FlowVizVolumeRayMarchProduction
 		 * BUILT FROM THE DRAINED REQUEST, not from a constant: each request
 		 * carries the transfer function its component's panel configured, and
 		 * Update() rebuilds only when the resident one differs. See DrainView
-		 * for why the last request drained wins.
+		 * for why the last request recorded for a view wins.
 		 *
 		 * SHADER_USE_PARAMETER_STRUCT binds every declared resource, so without
 		 * a LUT here the dispatch is invalid rather than merely unstyled --

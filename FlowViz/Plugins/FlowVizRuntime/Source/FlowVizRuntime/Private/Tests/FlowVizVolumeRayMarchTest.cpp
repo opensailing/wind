@@ -14,6 +14,7 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "RenderingThread.h"
+#include "SceneView.h"
 #include "ShaderParameterMetadata.h"
 
 /**
@@ -51,6 +52,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizVolumeRayMarchShaderDeviceTest,
 	"FlowViz.Render.RayMarchShaderDevice",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizDepthMathTest,
+	"FlowViz.Render.DepthMath",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 		| EAutomationTestFlags::EngineFilter)
 
@@ -652,7 +659,31 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 	 */
 	{
 		FFlowVizVolumeRayMarchParameters P;
+
+		// POISON THE P6 SCENE-DEPTH FIELDS FIRST. BEGIN_SHADER_PARAMETER_STRUCT
+		// zero-initialises only resource members; the four value fields below are
+		// stack garbage until someone writes them, and FillDefaults is the
+		// defaults contract every direct caller relies on. Starting from a
+		// non-zero state is what makes "FillDefaults zeroes them" distinguishable
+		// from "they happened to be zero" -- this codebase has been burned by
+		// exactly this class (an identity control once demanded 2.5e31 because
+		// FillDefaults never wrote the field it was reading).
+		P.bHasSceneDepth = 7u;
+		P.DepthToSolver = 123.0f;
+		P.DeviceZToViewZ = FVector4f(1.0f, 2.0f, 3.0f, 4.0f);
+		P.ViewRectMin = FVector2f(9.0f, 9.0f);
+
 		FlowVizRayMarch::FillDefaults(P);
+
+		TestEqual(TEXT("FillDefaults writes bHasSceneDepth=0, so a direct caller cannot "
+					   "upload stack garbage as a claim that depth is bound"),
+			P.bHasSceneDepth, 0u);
+		TestEqual(TEXT("...and DepthToSolver=1, the identity scale"),
+			P.DepthToSolver, 1.0f);
+		TestEqual(TEXT("...and DeviceZToViewZ is zeroed"),
+			P.DeviceZToViewZ, FVector4f(0.0f, 0.0f, 0.0f, 0.0f));
+		TestEqual(TEXT("...and ViewRectMin is zeroed"),
+			P.ViewRectMin, FVector2f(0.0f, 0.0f));
 
 		TestEqual(TEXT("VISUAL_QA rule 1: lighting is OFF by default, so brightness cannot "
 					   "stand in for value"),
@@ -868,6 +899,149 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 		// satisfied by having run zero times.
 		TestTrue(TEXT("the format/permutation loop actually examined some formats"),
 			CoveredCases >= 6);
+	}
+
+	return true;
+}
+
+/**
+ * The DeviceZ -> ViewZ conversion, against the transform vectors real
+ * FSceneViews produce (finding F2).
+ *
+ * WHY A C++ TWIN AND NOT A SHADER TEST. The conversion under test is four
+ * multiplies and an add in the .usf's scene-depth clamp; exercising it on the
+ * GPU needs a depth texture, a marched volume and a readback, and the property
+ * being checked -- pure arithmetic against the engine's packing -- gains
+ * nothing from any of that. FlowVizRayMarch::ConvertDeviceZToViewZ is the
+ * declared twin of the shader's formula (see its comment for the sync
+ * contract), and this test drives it with InvDeviceZToWorldZTransform vectors
+ * taken from REAL FSceneViews -- not hand-packed literals, which would only
+ * restate this file's understanding of the packing.
+ *
+ * THE ENGINE'S FORMULA IS BRANCHLESS (Common.ush ConvertFromDeviceZ):
+ *
+ *   ViewZ = DeviceZ*T.x + T.y + 1/(DeviceZ*T.z - T.w)
+ *
+ * and both packings need both terms: perspective packs (0, 0, 1/B, A/B-eps)
+ * so the linear part vanishes; ortho packs (1/A, -B/A+1, 0, 1) so the
+ * reciprocal part contributes exactly -1, cancelling the +1 in T.y. A branch
+ * that treats "T.w != 0" as "perspective" therefore selects the wrong formula
+ * for EVERY ortho view (T.w is 1 there), and a sign flip on T.w turns the
+ * reversed-Z background (DeviceZ = 0) from a huge positive far depth into a
+ * huge negative one -- which, downstream, clamps TMax below TMin and vanishes
+ * the volume wherever nothing opaque is behind it.
+ */
+bool FFlowVizDepthMathTest::RunTest(const FString& Parameters)
+{
+	// DeviceZ for a view-space depth, THROUGH the projection matrix itself --
+	// the same projection the view was constructed from -- rather than through
+	// a re-derived closed form that could share a mistake with the code under
+	// test. This is ConvertToDeviceZ's definition: project, divide by w.
+	const auto DeviceZOf = [](const FMatrix& Projection, double ViewZ) -> float
+	{
+		const FVector4 Clip = Projection.TransformFVector4(FVector4(0.0, 0.0, ViewZ, 1.0));
+		return static_cast<float>(Clip.Z / Clip.W);
+	};
+
+	/* == Perspective ========================================================= */
+	{
+		// A reversed-Z infinite-far perspective projection, the shape every
+		// game view on this engine uses. Near plane 10 Unreal units.
+		constexpr double NearPlane = 10.0;
+		const FMatrix Projection = FReversedZPerspectiveMatrix(
+			FMath::DegreesToRadians(45.0f), 1280.0f, 720.0f, static_cast<float>(NearPlane));
+
+		FSceneViewInitOptions ViewInit;
+		ViewInit.SetViewRectangle(FIntRect(0, 0, 64, 64));
+		ViewInit.ViewOrigin = FVector::ZeroVector;
+		ViewInit.ViewRotationMatrix = FMatrix::Identity;
+		ViewInit.ProjectionMatrix = Projection;
+		const FSceneView View(ViewInit);
+
+		const FVector4f T = View.InvDeviceZToWorldZTransform;
+
+		// CONTROL: the packing really is the perspective one. If the engine
+		// changed CreateInvDeviceZToWorldZTransform, every assertion below
+		// would be about a different quantity than it names.
+		TestEqual(TEXT("CONTROL: a perspective view packs T.x = 0"), T.X, 0.0f);
+		TestEqual(TEXT("CONTROL: ...and T.y = 0"), T.Y, 0.0f);
+		TestTrue(TEXT("CONTROL: ...and a non-zero reciprocal scale T.z"), T.Z != 0.0f);
+
+		// Known view depths round-trip through the projection and back.
+		for (const double Depth : { 15.0, 100.0, 1000.0, 50000.0 })
+		{
+			const float DeviceZ = DeviceZOf(Projection, Depth);
+			const float ViewZ = FlowVizRayMarch::ConvertDeviceZToViewZ(T, DeviceZ);
+			TestTrue(*FString::Printf(
+					TEXT("perspective: view depth %.0f survives the DeviceZ round trip ")
+					TEXT("(DeviceZ %.6g -> ViewZ %.6g, within 0.1%%)"),
+					Depth, DeviceZ, ViewZ),
+				FMath::Abs(ViewZ - Depth) < Depth * 1e-3);
+		}
+
+		// THE BACKGROUND PIXEL, the case the sign flip breaks. Reversed Z puts
+		// the far plane at DeviceZ = 0; the engine's fudge factor makes T.w
+		// slightly negative so 1/(0 - T.w) is a huge POSITIVE depth. The
+		// flipped sign produces the same magnitude NEGATIVE -- and a negative
+		// opaque depth clamps every ray to an empty interval, which on screen
+		// is the volume vanishing over the sky.
+		const float BackgroundViewZ = FlowVizRayMarch::ConvertDeviceZToViewZ(T, 0.0f);
+		TestTrue(*FString::Printf(
+				TEXT("perspective: the reversed-Z background (DeviceZ 0) converts to a huge ")
+				TEXT("POSITIVE view depth (%.6g). Negative here means the formula's T.w sign is ")
+				TEXT("flipped, and every pixel with nothing opaque behind it clamps the volume ")
+				TEXT("to an empty ray interval"),
+				BackgroundViewZ),
+			BackgroundViewZ > 1.0e6f);
+	}
+
+	/* == Orthographic ======================================================== */
+	{
+		// A reversed-Z ortho projection spanning 1000 units of depth.
+		const FMatrix Projection = FReversedZOrthoMatrix(
+			512.0f, 512.0f, /*ZScale*/ 1.0f / 1000.0f, /*ZOffset*/ 0.0f);
+
+		FSceneViewInitOptions ViewInit;
+		ViewInit.SetViewRectangle(FIntRect(0, 0, 64, 64));
+		ViewInit.ViewOrigin = FVector::ZeroVector;
+		ViewInit.ViewRotationMatrix = FMatrix::Identity;
+		ViewInit.ProjectionMatrix = Projection;
+		const FSceneView View(ViewInit);
+
+		const FVector4f T = View.InvDeviceZToWorldZTransform;
+
+		// CONTROL: the ortho packing carries T.w == 1 -- the exact value that
+		// makes "T.w != 0 selects the perspective branch" wrong for every
+		// orthographic view, returning the constant 1/(0*T.z + 1) = 1.
+		TestEqual(TEXT("CONTROL: an ortho view packs T.w = 1, so any branch keyed on ")
+					   TEXT("'T.w != 0 means perspective' picks the wrong formula here"),
+			T.W, 1.0f);
+		TestEqual(TEXT("CONTROL: ...and T.z = 0"), T.Z, 0.0f);
+		TestTrue(TEXT("CONTROL: ...and a non-zero linear scale T.x"), T.X != 0.0f);
+
+		float PreviousViewZ = -1.0f;
+		for (const double Depth : { 50.0, 400.0, 900.0 })
+		{
+			const float DeviceZ = DeviceZOf(Projection, Depth);
+			const float ViewZ = FlowVizRayMarch::ConvertDeviceZToViewZ(T, DeviceZ);
+			TestTrue(*FString::Printf(
+					TEXT("ortho: view depth %.0f survives the DeviceZ round trip ")
+					TEXT("(DeviceZ %.6g -> ViewZ %.6g, within 0.1%%). A constant 1.0 here is ")
+					TEXT("the perspective branch running on ortho packing"),
+					Depth, DeviceZ, ViewZ),
+				FMath::Abs(ViewZ - Depth) < Depth * 1e-3 + 0.05);
+
+			// Distinct depths must convert to distinct answers. The branch bug
+			// maps EVERY ortho pixel to 1.0, which the round-trip tolerance
+			// already fails -- this states the flat-field symptom by name.
+			TestTrue(*FString::Printf(
+					TEXT("ortho: depth %.0f converts to a DIFFERENT ViewZ than the previous ")
+					TEXT("depth did (%.6g vs %.6g) -- a constant answer means the conversion ")
+					TEXT("discarded DeviceZ entirely"),
+					Depth, ViewZ, PreviousViewZ),
+				!FMath::IsNearlyEqual(ViewZ, PreviousViewZ, 1e-3f));
+			PreviousViewZ = ViewZ;
+		}
 	}
 
 	return true;

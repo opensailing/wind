@@ -146,6 +146,19 @@ void FlowVizRayMarch::FillDefaults(FFlowVizVolumeRayMarchParameters& OutParamete
 	OutParameters.bHasStatusTexture = 0;
 	OutParameters.bHasVectorTexture = 0;
 
+	// The P6 scene-depth block. BEGIN_SHADER_PARAMETER_STRUCT zero-initialises
+	// only resource members, so without these four writes a direct caller of
+	// AddRayMarchPass uploads stack garbage in the value fields. Harmless while
+	// bHasSceneDepth guards every read -- but bHasSceneDepth ITSELF was one of
+	// the garbage fields, and this codebase has been burned by exactly this
+	// class (an identity control once demanded 2.5e31 because FillDefaults
+	// never wrote the field it was reading). DrainView overwrites all four when
+	// real depth is bound.
+	OutParameters.bHasSceneDepth = 0;
+	OutParameters.DepthToSolver = 1.0f;
+	OutParameters.DeviceZToViewZ = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+	OutParameters.ViewRectMin = FVector2f(0.0f, 0.0f);
+
 	// Clamped in one place so a caller cannot ask the GPU for an unbounded loop.
 	OutParameters.MaxSteps = FMath::Clamp(OutParameters.MaxSteps, 1u, MaxStepsLimit);
 }

@@ -7,12 +7,12 @@
 #include "SceneTexturesConfig.h"
 
 #include "CommonRenderResources.h"
+#include "FXRenderingUtils.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/ScopeLock.h"
 #include "PixelFormat.h"
 #include "RHIStaticStates.h"
 #include "RenderGraphBuilder.h"
-#include "RenderGraphUtils.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
 #include "ScreenPass.h"
@@ -148,7 +148,15 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 		return;
 	}
 
-	const FIntRect ViewRect = Context.View->UnscaledViewRect;
+	// Scene depth and pre-post-process scene color are allocated at the scaled
+	// renderer resolution. UnscaledViewRect is the presentation rect; under TSR or
+	// screen percentage its origin and extent address different texels. Real
+	// renderer views are FViewInfo and expose the live ViewRect through the engine's
+	// public FX seam. Bare FSceneView fixtures keep the unscaled fallback because
+	// GetRawViewRectUnsafe deliberately checks bIsViewInfo.
+	const FIntRect ViewRect = Context.View->bIsViewInfo
+		? UE::FXRenderingUtils::GetRawViewRectUnsafe(*Context.View)
+		: Context.View->UnscaledViewRect;
 	if (ViewRect.Width() <= 0 || ViewRect.Height() <= 0)
 	{
 		return;
@@ -247,39 +255,66 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	Request.bFieldIsUint =
 		FFlowVizVolumeRayMarchCS::IsUintFieldFormat(Context.SlotA->ScalarLayout.DataType);
 
-	// DISCLOSED, NOT DROPPED. A frame whose second half is not resident is
-	// rendered from frame A alone, which is a defensible fallback and a silent
-	// lie if nobody says so. There is no per-pixel channel for it - OutValue is
-	// fully allocated - so it is logged, at Warning, once per dispatch.
-	if (Request.bInterpolationDegraded)
-	{
-		UE_LOG(LogFlowViz, Warning,
-			TEXT("Volume ray-march: interpolation degraded - the second display frame is not resident, ")
-			TEXT("so this view is rendered from frame A alone and is NOT the interpolated frame that was requested."));
-	}
-
 	{
 		FScopeLock Lock(&RequestLock);
+
+		// DISCLOSED, NOT SPAMMED. A frame whose second half is not resident is
+		// rendered from frame A alone, which is a defensible fallback and a silent
+		// lie if nobody says so. Warn once on the healthy -> degraded transition,
+		// then retire the latch on recovery so a later episode remains visible.
+		if (Request.bInterpolationDegraded && !bInterpolationDegradedWarningLatched)
+		{
+			++InterpolationDegradedEpisodeCount;
+			UE_LOG(LogFlowViz, Warning,
+				TEXT("Volume ray-march: interpolation degraded - the second display frame is not resident, ")
+				TEXT("so this view is rendered from frame A alone and is NOT the interpolated frame that was requested."));
+		}
+		else if (!Request.bInterpolationDegraded && bInterpolationDegradedWarningLatched)
+		{
+			UE_LOG(LogFlowViz, Display,
+				TEXT("Volume ray-march: interpolation recovered - both requested display frames are resident."));
+		}
+		bInterpolationDegradedWarningLatched = Request.bInterpolationDegraded;
+
 		PendingRequests.Add(MoveTemp(Request));
 	}
+}
+
+void FlowVizVolumeRayMarchProduction::TakeRequestsForView(
+	TArray<FRequest>& PendingRequests,
+	const FSceneView* View,
+	TArray<FRequest>& OutRequests)
+{
+	OutRequests.Reserve(OutRequests.Num() + PendingRequests.Num());
+
+	int32 WriteIndex = 0;
+	for (int32 ReadIndex = 0; ReadIndex < PendingRequests.Num(); ++ReadIndex)
+	{
+		if (PendingRequests[ReadIndex].View == View)
+		{
+			OutRequests.Add(MoveTemp(PendingRequests[ReadIndex]));
+			continue;
+		}
+
+		if (WriteIndex != ReadIndex)
+		{
+			PendingRequests[WriteIndex] = MoveTemp(PendingRequests[ReadIndex]);
+		}
+		++WriteIndex;
+	}
+	PendingRequests.SetNum(WriteIndex, EAllowShrinking::No);
 }
 
 void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	FRDGBuilder& GraphBuilder,
 	const FSceneView& View,
+	FRDGTextureRef CompositeTargetTexture,
 	FRDGTextureRef SceneDepthTexture) const
 {
 	TArray<FRequest> Requests;
 	{
 		FScopeLock Lock(&RequestLock);
-		for (int32 Index = PendingRequests.Num() - 1; Index >= 0; --Index)
-		{
-			if (PendingRequests[Index].View == &View)
-			{
-				Requests.Add(MoveTemp(PendingRequests[Index]));
-				PendingRequests.RemoveAtSwap(Index, EAllowShrinking::No);
-			}
-		}
+		TakeRequestsForView(PendingRequests, &View, Requests);
 	}
 
 	if (Requests.Num() == 0)
@@ -305,16 +340,16 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	// three inputs BuildLut reads besides the map itself.
 	//
 	// ONE LUT, MANY REQUESTS. The resource is per-dispatcher and the queue can
-	// hold requests from several volumes, so the last one drained wins. That is
-	// the pre-existing shape -- there was only ever one table -- and it is
-	// honest for the single-volume case the product has today (plan.md 10.3).
-	// A second volume with a different map would be mis-coloured, which is why
-	// the choice is carried per-request: the day a component owns its own
-	// resource, the value is already in the right place.
+	// hold requests from several volumes, so the last request recorded for this
+	// view wins. Requests remain in forward record order; selecting Last() makes
+	// that tie-break explicit instead of depending on a reverse-removal side
+	// effect. The single-volume case is exact. A second volume with a different
+	// map would still need a per-component resource to avoid sharing one table,
+	// but the choice is already carried on each request for that future split.
 	//
 	// Update() is a no-op when the resident function already Equals this one, so
 	// an idle viewport rebuilds nothing.
-	const FRequest& LutRequest = Requests[0];
+	const FRequest& LutRequest = Requests.Last();
 	TransferFunction.Update(LutRequest.TransferFunction);
 
 	FRHITexture* const LutTexture = TransferFunction.GetLutTexture();
@@ -330,42 +365,35 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		return;
 	}
 
-	// A VIEW NEED NOT HAVE A FAMILY, AND THIS USED TO ASSUME IT DID.
-	// FSceneView::Family is copied straight from InitOptions.ViewFamily and has
-	// no default, so a view built from bare init options carries null. Every
-	// view the shipped extension hands us belongs to the family currently
-	// rendering, which is why the raw dereference below survived review -- but
-	// it is a property of the caller, not of the type, and the compiler enforces
-	// nothing.
-	//
-	// Observed 2026-08-06, as a SIGSEGV at address 0x30 on the render thread,
-	// from a unit fixture that could not construct a family (one needs a scene,
-	// which needs a world). The cost was not the failing test: the crash took
-	// the editor down mid-session and 55 further tests never ran, which the
-	// runner reported as a clean green.
-	//
-	// AFTER THE QUEUE IS DRAINED AND THE LUT IS BUILT, deliberately. Returning
-	// earlier would leave the requests pending for a view that is never drained
-	// again -- the queue would grow for the life of the process -- and would
-	// also make this function a no-op for the seam tests, which read the LUT
-	// this call builds. What is skipped here is the composite, which is the only
-	// part that needs the family.
-	if (View.Family == nullptr)
-	{
-		UE_LOG(LogFlowViz, Warning,
-			TEXT("Volume ray-march drained %d request(s) for a view with no view family, ")
-			TEXT("so the marched result was built but not composited into a scene texture."),
-			Requests.Num());
-		return;
-	}
-
-	FRDGTextureRef SceneOutput = TryCreateViewFamilyTexture(GraphBuilder, *View.Family);
+	FRDGTextureRef SceneOutput = CompositeTargetTexture;
 	if (SceneOutput == nullptr)
 	{
-		UE_LOG(LogFlowViz, Warning,
-			TEXT("Volume ray-march produced %d result(s) with no view-family texture to composite into."),
-			Requests.Num());
-		return;
+		// A VIEW NEED NOT HAVE A FAMILY, AND THIS USED TO ASSUME IT DID.
+		// FSceneView::Family is copied straight from InitOptions.ViewFamily and has
+		// no default, so a view built from bare init options carries null. The
+		// pre-post-process path supplies scene color explicitly and never reaches
+		// this fallback; only the depthless post-render path resolves family output.
+		//
+		// AFTER THE QUEUE IS DRAINED AND THE LUT IS BUILT, deliberately. Returning
+		// earlier would leave the requests pending and would make the seam tests'
+		// LUT observation a no-op.
+		if (View.Family == nullptr)
+		{
+			UE_LOG(LogFlowViz, Warning,
+				TEXT("Volume ray-march drained %d request(s) for a view with no view family, ")
+				TEXT("so the marched result was built but not composited into a scene texture."),
+				Requests.Num());
+			return;
+		}
+
+		SceneOutput = TryCreateViewFamilyTexture(GraphBuilder, *View.Family);
+		if (SceneOutput == nullptr)
+		{
+			UE_LOG(LogFlowViz, Warning,
+				TEXT("Volume ray-march produced %d result(s) with no view-family texture to composite into."),
+				Requests.Num());
+			return;
+		}
 	}
 
 	const ERHIFeatureLevel::Type FeatureLevel = View.GetFeatureLevel();
@@ -395,12 +423,10 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		FRDGTextureRef OutColor = GraphBuilder.CreateTexture(Desc, TEXT("FlowVizVolumeRayMarch.Color"));
 		FRDGTextureRef OutValue = GraphBuilder.CreateTexture(Desc, TEXT("FlowVizVolumeRayMarch.Value"));
 
-		// The marcher writes every pixel it is dispatched over, but a refused
-		// dispatch leaves the texture holding whatever the transient allocator
-		// last had there. Clearing first makes "nothing was marched" read as
-		// transparent rather than as another pass's leftovers.
-		AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(FRDGTextureUAVDesc(OutColor)), FVector4(0.0, 0.0, 0.0, 0.0));
-		AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(FRDGTextureUAVDesc(OutValue)), FVector4(0.0, 0.0, 0.0, 0.0));
+		// No full-resolution clear. The compute shader writes every in-bounds pixel
+		// on every path, and these textures are consumed only after AddRayMarchPass
+		// accepts the dispatch. If it refuses, the loop continues without adding a
+		// read dependency, so RDG culls the unused transient textures.
 
 		FFlowVizVolumeRayMarchParameters* Parameters =
 			GraphBuilder.AllocParameters<FFlowVizVolumeRayMarchParameters>();
@@ -496,6 +522,7 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::ReleaseResources() const
 	{
 		FScopeLock Lock(&RequestLock);
 		PendingRequests.Empty();
+		bInterpolationDegradedWarningLatched = false;
 	}
 	TransferFunction.ReleaseResources();
 }
@@ -565,6 +592,7 @@ void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderT
 	 * opaque surface set. Runs before tonemapping, so the volume also finally
 	 * goes through the same post chain as everything else.
 	 */
+	FRDGTextureRef SceneColor = nullptr;
 	FRDGTextureRef SceneDepth = nullptr;
 	if (Inputs.SceneTextures != nullptr)
 	{
@@ -572,10 +600,14 @@ void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderT
 			Inputs.SceneTextures->GetContents();
 		if (Contents != nullptr)
 		{
+			SceneColor = Contents->SceneColorTexture;
 			SceneDepth = Contents->SceneDepthTexture;
 		}
 	}
-	GetProductionDispatcher().DrainView(GraphBuilder, InView, SceneDepth);
+	if (SceneColor != nullptr)
+	{
+		GetProductionDispatcher().DrainView(GraphBuilder, InView, SceneColor, SceneDepth);
+	}
 }
 
 namespace FlowVizVolumeRayMarchDispatcherLocal
