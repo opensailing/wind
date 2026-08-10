@@ -203,6 +203,25 @@ bool FFlowVizReasonCodeTest::RunTest(const FString& Parameters)
 
 	const TMap<FString, FShaderDefine> Defines = ParseDefines(Source);
 
+	/* == The configurable invalid mask is rendering policy, not readback only === */
+	{
+		const int32 FunctionStart = Source.Find(TEXT("uint FlowVizStatusToReason(uint Status)"));
+		const int32 NextFunction = Source.Find(
+			TEXT("uint FlowVizStrictCornerReason"), ESearchCase::CaseSensitive,
+			ESearchDir::FromStart, FunctionStart + 1);
+		if (TestTrue(TEXT("the shader's status-classification function is found"),
+				FunctionStart != INDEX_NONE && NextFunction > FunctionStart))
+		{
+			const FString Classification =
+				Source.Mid(FunctionStart, NextFunction - FunctionStart);
+			TestTrue(TEXT("InvalidStatusMask actively vetoes invalid status bits before "
+						  "RequiredStatusMask can accept them"),
+				Classification.Contains(
+					TEXT("(Status & InvalidStatusMask) != 0u"),
+					ESearchCase::CaseSensitive));
+		}
+	}
+
 	// --- THE CONTROL, FIRST ---
 	// An empty or near-empty parse would make every "expected == found" loop below
 	// iterate over nothing and report success. The file has well over a dozen

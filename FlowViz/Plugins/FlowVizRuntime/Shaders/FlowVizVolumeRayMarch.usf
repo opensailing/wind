@@ -271,7 +271,12 @@ uint FlowVizLoadStatus(float3 UVW)
 /** Status bits -> the reason a sample was refused. */
 uint FlowVizStatusToReason(uint Status)
 {
-	if ((Status & RequiredStatusMask) == RequiredStatusMask && RequiredStatusMask != 0u)
+	// InvalidStatusMask is policy, not diagnostics: an invalid bit vetoes Valid
+	// even if malformed input co-sets the required bit.
+	const bool bHasInvalidStatus = (Status & InvalidStatusMask) != 0u;
+	if (!bHasInvalidStatus
+		&& (Status & RequiredStatusMask) == RequiredStatusMask
+		&& RequiredStatusMask != 0u)
 	{
 		return FLOWVIZ_REASON_VALID;
 	}
