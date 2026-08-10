@@ -3,14 +3,22 @@
 #include "FlowVizCaptureLibrary.h"
 
 #include "CFDViz/CFDVizManifest.h"
+#include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "HAL/FileManager.h"
+#include "HAL/PlatformFileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 #include "Scene/FlowVizCaseActor.h"
+#include "Scene/FlowVizMeshPayload.h"
 #include "Scene/FlowVizSurfaceMeshComponent.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -53,6 +61,38 @@ namespace FlowVizCaptureCaseActorTest
 		OutContext.SetCurrentWorld(World);
 		World->InitializeActorsForPlay(FURL());
 		return World;
+	}
+
+	/** Copy the committed case and remove its mesh declarations. */
+	bool MakeNoMeshCase(const FString& SourceDir, const FString& DestinationDir)
+	{
+		IFileManager& Files = IFileManager::Get();
+		Files.DeleteDirectory(*DestinationDir, /*RequireExists*/ false, /*Tree*/ true);
+		if (!FPlatformFileManager::Get().GetPlatformFile().CopyDirectoryTree(
+				*DestinationDir, *SourceDir, /*bOverwriteAllExisting*/ true))
+		{
+			return false;
+		}
+
+		const FString ManifestPath = FPaths::Combine(DestinationDir, TEXT("manifest.json"));
+		FString ManifestText;
+		if (!FFileHelper::LoadFileToString(ManifestText, *ManifestPath))
+		{
+			return false;
+		}
+
+		TSharedPtr<FJsonObject> Root;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ManifestText);
+		if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+		{
+			return false;
+		}
+		Root->RemoveField(TEXT("meshes"));
+
+		FString WithoutMeshes;
+		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&WithoutMeshes);
+		return FJsonSerializer::Serialize(Root.ToSharedRef(), Writer)
+			&& FFileHelper::SaveStringToFile(WithoutMeshes, *ManifestPath);
 	}
 }
 
@@ -292,6 +332,78 @@ bool FFlowVizSpawnCaseActorTest::RunTest(const FString& Parameters)
 			World, CaseDir, FName(TEXT("speed")), Location, Rotation, FrameError,
 			/*FrameIndex*/ 100000));
 	TestFalse(TEXT("a failed upload explains why"), FrameError.IsEmpty());
+
+	return true;
+}
+
+/** A boundary payload from an older load must never land on the current case. */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizBoundaryBuildSupersessionTest,
+	"FlowViz.Capture.BoundaryBuildSupersession",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizBoundaryBuildSupersessionTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizCaptureCaseActorTest;
+
+	const FString SourceCase = GetSampleCaseDir();
+	const FString NoMeshCase = FPaths::Combine(
+		FPaths::ProjectSavedDir(), TEXT("FlowVizCaptureCaseActorTest"), TEXT("NoMeshes.cfdviz"));
+	ON_SCOPE_EXIT
+	{
+		IFileManager::Get().DeleteDirectory(*NoMeshCase, /*RequireExists*/ false, /*Tree*/ true);
+	};
+	if (!TestTrue(TEXT("CONTROL: the no-mesh case was built"),
+			MakeNoMeshCase(SourceCase, NoMeshCase)))
+	{
+		return false;
+	}
+
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+	UWorld* World = MakeWorld(WorldContext);
+	if (!TestNotNull(TEXT("test world was created"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(/*bInformEngineOfWorld*/ true);
+		World->RemoveFromRoot();
+		GEngine->DestroyWorldContext(World);
+	};
+
+	ACFDVizCaseActor* Actor = World->SpawnActor<ACFDVizCaseActor>();
+	if (!TestNotNull(TEXT("case actor spawned"), Actor))
+	{
+		return false;
+	}
+	if (!TestTrue(TEXT("CONTROL: the first no-mesh load succeeds"),
+			Actor->LoadCase(NoMeshCase, FName(TEXT("speed"))).IsOk()))
+	{
+		return false;
+	}
+	const uint64 FirstGeneration = Actor->BoundaryBuildGeneration;
+	if (!TestTrue(TEXT("CONTROL: the second load succeeds and supersedes the first"),
+			Actor->LoadCase(NoMeshCase, FName(TEXT("speed"))).IsOk()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("CONTROL: every load advances the boundary generation"),
+		Actor->BoundaryBuildGeneration > FirstGeneration);
+
+	FFlowVizMeshPayload StalePayload;
+	FFlowVizMeshSection& Section = StalePayload.Sections.AddDefaulted_GetRef();
+	Section.SectionId = 0xBADC0DEu;
+	Section.Vertices = {
+		FVector(0.0, 0.0, 0.0), FVector(100.0, 0.0, 0.0), FVector(0.0, 100.0, 0.0)
+	};
+	Section.Indices = { 0, 1, 2 };
+	Section.Normals = { FVector::UpVector, FVector::UpVector, FVector::UpVector };
+
+	Actor->ApplyBoundaryPayload(FirstGeneration, StalePayload);
+	TestEqual(TEXT("a payload from the superseded load is rejected at the actor boundary"),
+		Actor->GetObstacleComponent()->GetSectionCount(), 0);
 
 	return true;
 }

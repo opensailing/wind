@@ -10,6 +10,7 @@
 #include "FlowVizCaseActor.generated.h"
 
 class UCFDVizVolumeComponent;
+struct FFlowVizMeshPayload;
 
 /**
  * One CFDViz case in a level (plan.md section 5.E).
@@ -28,6 +29,10 @@ class UCFDVizVolumeComponent;
  * ADR 004 section 2 is explicit that a second conversion site is how a value
  * gets converted twice, and a double mirror is the identity and therefore
  * invisible.
+ *
+ * THREADING. Public mutation is game-thread only. Boundary files are decoded on
+ * workers from copied requests; their payloads return through a generation gate
+ * on the game thread, so an older case can never overwrite a newer one.
  */
 UCLASS(ClassGroup = (FlowViz), meta = (DisplayName = "CFDViz Case"))
 class FLOWVIZRUNTIME_API ACFDVizCaseActor : public AActor
@@ -94,11 +99,11 @@ public:
 	 * the class default object during module load, where file I/O would happen
 	 * once per editor start against a path that may not exist yet.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FlowViz")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "FlowViz")
 	FString CaseDirectory;
 
 	/** Field to display. Leave as None for the first non-mask field. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FlowViz")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "FlowViz")
 	FName FieldId;
 
 	virtual void BeginPlay() override;
@@ -127,11 +132,10 @@ public:
 	void ApplyProfileMaterials(bool bPresentation);
 
 	/**
-	 * Bind the colormap LUT to the colormap surfaces (renderer overhaul P9's
-	 * missing link, found by a grey capture): creates MIDs over the profile's
-	 * colormap material and sets their ColorLUT parameter to a texture built
-	 * from CFDViz::ColorMaps -- the one color authority reaching the mesh
-	 * path the same way it reaches the ray-marcher.
+	 * Record the colormap used by newly built surface payloads and rebind the
+	 * active profile's plain vertex-colour material. Surface colours are authored
+	 * into FFlowVizMeshSection::Colors before upload; no MID or LUT texture is
+	 * created on this path.
 	 */
 	void SetSurfaceColorMap(ECFDVizColorMap Map);
 
@@ -145,13 +149,16 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> ColormapMaterialPresentation;
 
-	UPROPERTY()
-	TObjectPtr<class UMaterialInstanceDynamic> ColormapMID;
-	UPROPERTY()
-	TObjectPtr<class UTexture2D> ColormapLutTexture;
-
 	ECFDVizColorMap CurrentColorMap = ECFDVizColorMap::Viridis;
 	bool bCurrentProfilePresentation = false;
+
+	/** Monotonic game-thread token for boundary build supersession. */
+	uint64 BoundaryBuildGeneration = 0;
+
+	/** Apply only when the worker still describes the actor's current case. */
+	void ApplyBoundaryPayload(uint64 BuildGeneration, const FFlowVizMeshPayload& Payload);
+
+	friend class FFlowVizBoundaryBuildSupersessionTest;
 
 private:
 	/** The volume representation, attached to the root rather than being it - see the class comment. */
