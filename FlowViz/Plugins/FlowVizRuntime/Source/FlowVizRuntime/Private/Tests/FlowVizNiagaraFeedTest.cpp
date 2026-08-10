@@ -42,6 +42,14 @@ bool FFlowVizNiagaraFeedTest::RunTest(const FString& Parameters)
 {
 	using namespace FlowVizNiagaraFeedTest;
 
+	using FRootedUploadSignature = bool (*)(
+		const FFlowVizFieldSampler&,
+		const FFlowVizFieldMask&,
+		UObject*,
+		TStrongObjectPtr<UTextureRenderTargetVolume>&);
+	FRootedUploadSignature RootedUpload = &FlowVizNiagaraFeed::UploadToRenderTarget;
+	TestTrue(TEXT("the upload API requires a rooted target owner"), RootedUpload != nullptr);
+
 	FCFDVizCase Case;
 	if (!TestTrue(TEXT("the sample case loads"),
 			FCFDVizCase::LoadFromFile(GetSampleManifest(), Case).IsOk()))
@@ -113,6 +121,18 @@ bool FFlowVizNiagaraFeedTest::RunTest(const FString& Parameters)
 
 	/* == Refusals =========================================================== */
 	{
+		int32 OverflowedCount = 0;
+		TestFalse(TEXT("a voxel product larger than int32 refuses before allocation"),
+			FlowVizNiagaraFeed::GetPackedVoxelCount(
+				FIntVector(1291, 1291, 1291), OverflowedCount));
+		TestEqual(TEXT("a refused voxel count is reset"), OverflowedCount, 0);
+
+		int32 OversizedAxisCount = 7;
+		TestFalse(TEXT("a grid outside the volume texture axis limit refuses"),
+			FlowVizNiagaraFeed::GetPackedVoxelCount(
+				FIntVector(2049, 1, 1), OversizedAxisCount));
+		TestEqual(TEXT("an axis-limit refusal also resets the count"), OversizedAxisCount, 0);
+
 		FFlowVizFieldSampler Scalar;
 		if (TestTrue(TEXT("a scalar sampler builds"),
 				Scalar.Build(Case, TEXT("pressure"), 0).IsOk()))

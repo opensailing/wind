@@ -7,6 +7,7 @@
 #include "Flow/FlowVizFieldSampler.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Render/FlowVizVolumeTexture.h"
 #include "TextureResource.h"
 
 /*
@@ -14,10 +15,33 @@
  */
 namespace FlowVizNiagaraFeedLocal
 {
-	int32 VoxelIndex(const FIntVector& Counts, int32 X, int32 Y, int32 Z)
+	int64 VoxelIndex(const FIntVector& Counts, int32 X, int32 Y, int32 Z)
 	{
-		return (Z * Counts.Y + Y) * Counts.X + X;
+		return (static_cast<int64>(Z) * Counts.Y + Y) * Counts.X + X;
 	}
+}
+
+bool FlowVizNiagaraFeed::GetPackedVoxelCount(
+	const FIntVector& Counts,
+	int32& OutVoxelCount)
+{
+	OutVoxelCount = 0;
+	if (Counts.X <= 0 || Counts.Y <= 0 || Counts.Z <= 0
+		|| Counts.X > FlowVizVolume::MaxTextureDimension
+		|| Counts.Y > FlowVizVolume::MaxTextureDimension
+		|| Counts.Z > FlowVizVolume::MaxTextureDimension)
+	{
+		return false;
+	}
+
+	const int64 VoxelCount = static_cast<int64>(Counts.X) * Counts.Y * Counts.Z;
+	if (VoxelCount > MAX_int32)
+	{
+		return false;
+	}
+
+	OutVoxelCount = static_cast<int32>(VoxelCount);
+	return true;
 }
 
 bool FlowVizNiagaraFeed::PackVelocityMask(
@@ -37,7 +61,13 @@ bool FlowVizNiagaraFeed::PackVelocityMask(
 	}
 
 	OutCounts = Sampler.GetValueCounts();
-	OutTexels.SetNumUninitialized(OutCounts.X * OutCounts.Y * OutCounts.Z);
+	int32 VoxelCount = 0;
+	if (!GetPackedVoxelCount(OutCounts, VoxelCount))
+	{
+		OutCounts = FIntVector::ZeroValue;
+		return false;
+	}
+	OutTexels.SetNumUninitialized(VoxelCount);
 
 	TArray<double> Value;
 	for (int32 Z = 0; Z < OutCounts.Z; ++Z)
@@ -47,7 +77,9 @@ bool FlowVizNiagaraFeed::PackVelocityMask(
 			for (int32 X = 0; X < OutCounts.X; ++X)
 			{
 				const FIntVector Voxel(X, Y, Z);
-				FFloat16Color& Texel = OutTexels[VoxelIndex(OutCounts, X, Y, Z)];
+				const int64 Index = VoxelIndex(OutCounts, X, Y, Z);
+				check(Index >= 0 && Index < OutTexels.Num());
+				FFloat16Color& Texel = OutTexels[static_cast<int32>(Index)];
 				if (Mask.IsVoxelMasked(Voxel) || !Sampler.GetVoxelValue(Voxel, Value))
 				{
 					/*
@@ -78,7 +110,7 @@ bool FlowVizNiagaraFeed::UploadToRenderTarget(
 	const FFlowVizFieldSampler& Sampler,
 	const FFlowVizFieldMask& Mask,
 	UObject* Outer,
-	UTextureRenderTargetVolume*& InOutTarget)
+	TStrongObjectPtr<UTextureRenderTargetVolume>& InOutTarget)
 {
 	TArray<FFloat16Color> Texels;
 	FIntVector Counts;
@@ -87,22 +119,37 @@ bool FlowVizNiagaraFeed::UploadToRenderTarget(
 		return false;
 	}
 
-	if (InOutTarget == nullptr
-		|| InOutTarget->SizeX != Counts.X
-		|| InOutTarget->SizeY != Counts.Y
-		|| InOutTarget->SizeZ != Counts.Z)
+	const uint64 RowPitch64 = static_cast<uint64>(Counts.X) * sizeof(FFloat16Color);
+	const uint64 SlicePitch64 = RowPitch64 * static_cast<uint64>(Counts.Y);
+	if (RowPitch64 > MAX_uint32 || SlicePitch64 > MAX_uint32)
 	{
-		InOutTarget = NewObject<UTextureRenderTargetVolume>(
-			Outer != nullptr ? Outer : GetTransientPackage());
-		InOutTarget->bCanCreateUAV = false;
-		InOutTarget->OverrideFormat = PF_FloatRGBA;
-		InOutTarget->ClearColor = FLinearColor(0, 0, 0, 0);
-		InOutTarget->Init(Counts.X, Counts.Y, Counts.Z, PF_FloatRGBA);
-		InOutTarget->UpdateResourceImmediate(true);
+		return false;
+	}
+	const uint32 RowPitch = static_cast<uint32>(RowPitch64);
+	const uint32 SlicePitch = static_cast<uint32>(SlicePitch64);
+
+	UTextureRenderTargetVolume* Target = InOutTarget.Get();
+	if (Target == nullptr
+		|| Target->SizeX != Counts.X
+		|| Target->SizeY != Counts.Y
+		|| Target->SizeZ != Counts.Z)
+	{
+		InOutTarget.Reset(NewObject<UTextureRenderTargetVolume>(
+			Outer != nullptr ? Outer : GetTransientPackage()));
+		Target = InOutTarget.Get();
+		if (Target == nullptr)
+		{
+			return false;
+		}
+		Target->bCanCreateUAV = false;
+		Target->OverrideFormat = PF_FloatRGBA;
+		Target->ClearColor = FLinearColor(0, 0, 0, 0);
+		Target->Init(Counts.X, Counts.Y, Counts.Z, PF_FloatRGBA);
+		Target->UpdateResourceImmediate(true);
 	}
 
 	FTextureRenderTargetResource* Resource =
-		InOutTarget->GameThread_GetRenderTargetResource();
+		Target->GameThread_GetRenderTargetResource();
 	if (Resource == nullptr)
 	{
 		return false;
@@ -111,7 +158,8 @@ bool FlowVizNiagaraFeed::UploadToRenderTarget(
 	// One UpdateTexture3D on the render thread; the texel buffer rides the
 	// lambda by move so nothing is shared.
 	ENQUEUE_RENDER_COMMAND(FlowVizNiagaraFeedUpload)(
-		[Resource, Counts, Texels = MoveTemp(Texels)](FRHICommandListImmediate& RHICmdList)
+		[Resource, Counts, RowPitch, SlicePitch,
+			Texels = MoveTemp(Texels)](FRHICommandListImmediate& RHICmdList)
 		{
 			FRHITexture* Texture = Resource->GetRenderTargetTexture();
 			if (Texture == nullptr)
@@ -120,8 +168,6 @@ bool FlowVizNiagaraFeed::UploadToRenderTarget(
 			}
 			const FUpdateTextureRegion3D Region(
 				0, 0, 0, 0, 0, 0, Counts.X, Counts.Y, Counts.Z);
-			const uint32 RowPitch = Counts.X * sizeof(FFloat16Color);
-			const uint32 SlicePitch = RowPitch * Counts.Y;
 			RHICmdList.UpdateTexture3D(
 				Texture, 0, Region, RowPitch, SlicePitch,
 				reinterpret_cast<const uint8*>(Texels.GetData()));
