@@ -122,8 +122,17 @@ namespace FlowVizWorkspaceTab
 
 	namespace
 	{
-		/** Set once we have subscribed to post-engine-init, so we subscribe once. */
-		bool bDeferredRegistrationPending = false;
+		/** The callback is removed after success and on module shutdown. */
+		FDelegateHandle DeferredRegistrationHandle;
+
+		void ClearDeferredRegistration()
+		{
+			if (DeferredRegistrationHandle.IsValid())
+			{
+				FCoreDelegates::GetOnPostEngineInit().Remove(DeferredRegistrationHandle);
+				DeferredRegistrationHandle.Reset();
+			}
+		}
 	}
 
 	void Register()
@@ -152,13 +161,17 @@ namespace FlowVizWorkspaceTab
 		 */
 		if (!FSlateApplication::IsInitialized())
 		{
-			if (!bDeferredRegistrationPending)
+			if (!DeferredRegistrationHandle.IsValid())
 			{
-				bDeferredRegistrationPending = true;
-				FCoreDelegates::GetOnPostEngineInit().AddStatic(&Register);
+				DeferredRegistrationHandle =
+					FCoreDelegates::GetOnPostEngineInit().AddStatic(&Register);
 			}
 			return;
 		}
+
+		// The deferred callback has served its only purpose. Keeping it bound would
+		// leave a global delegate pointing into this module until shutdown/reload.
+		ClearDeferredRegistration();
 
 		const TSharedRef<FGlobalTabmanager> TabManager = FGlobalTabmanager::Get();
 
@@ -180,6 +193,8 @@ namespace FlowVizWorkspaceTab
 
 	void Unregister()
 	{
+		ClearDeferredRegistration();
+
 		if (!FSlateApplication::IsInitialized())
 		{
 			return;
@@ -187,6 +202,13 @@ namespace FlowVizWorkspaceTab
 
 		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TabId);
 	}
+
+#if WITH_DEV_AUTOMATION_TESTS
+	bool IsDeferredRegistrationPendingForTesting()
+	{
+		return DeferredRegistrationHandle.IsValid();
+	}
+#endif
 }
 
 #undef LOCTEXT_NAMESPACE

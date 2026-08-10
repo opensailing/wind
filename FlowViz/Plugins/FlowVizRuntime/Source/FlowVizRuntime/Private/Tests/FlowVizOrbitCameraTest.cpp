@@ -162,10 +162,16 @@ bool FFlowVizOrbitCameraTest::RunTest(const FString& Parameters)
 /**
  * View presets and bookmarks (renderer overhaul P9): the genre's camera
  * vocabulary as pure pose edits, and the reproducible-shot primitive.
+ *
+ * NOT "FlowViz.Scene.OrbitCamera.Presets". A dotted sibling of an existing
+ * test name turns that exact name into an interior TREE NODE: the test
+ * registered at "FlowViz.Scene.OrbitCamera" silently stops enumerating, never
+ * runs, and the suite total hides the loss. Undotting the leaf keeps both
+ * tests as leaves under FlowViz.Scene.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizCameraPresetsTest,
-	"FlowViz.Scene.OrbitCamera.Presets",
+	"FlowViz.Scene.OrbitCameraPresets",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 		| EAutomationTestFlags::EngineFilter)
 
@@ -181,9 +187,8 @@ bool FFlowVizCameraPresetsTest::RunTest(const FString& Parameters)
 	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::Top);
 	TestEqual(TEXT("Top preset leaves the focus alone"), Camera.GetFocus(), FocusBefore);
 	TestEqual(TEXT("and the distance"), Camera.GetDistance(), DistanceBefore);
-	TestTrue(TEXT("Top looks steeply down, just off the pole so the orbit basis "
-				  "stays defined"),
-		Camera.GetPitch() <= -88.9 && Camera.GetPitch() >= -89.1);
+	TestEqual(TEXT("Top uses the camera's pole limit, so the orbit basis stays defined"),
+		Camera.GetPitch(), -FFlowVizOrbitCamera::PitchLimit);
 
 	Camera.SetViewPreset(FFlowVizOrbitCamera::EViewPreset::DownstreamX);
 	TestEqual(TEXT("Downstream is level"), Camera.GetPitch(), 0.0);
@@ -218,7 +223,8 @@ bool FFlowVizCameraPresetsTest::RunTest(const FString& Parameters)
 	Hostile.PitchDegrees = 90.0;   // the pole
 	Camera.RestoreBookmark(Hostile);
 	TestTrue(TEXT("a negative distance clamps positive"), Camera.GetDistance() > 0.0);
-	TestTrue(TEXT("a pole pitch clamps off the pole"), Camera.GetPitch() <= 89.0);
+	TestEqual(TEXT("a pole pitch clamps to the camera's pole limit"),
+		Camera.GetPitch(), FFlowVizOrbitCamera::PitchLimit);
 
 	return true;
 }

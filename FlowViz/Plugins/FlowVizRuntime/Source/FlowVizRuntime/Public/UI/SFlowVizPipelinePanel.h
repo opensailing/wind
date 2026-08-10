@@ -85,6 +85,8 @@ public:
 private:
 	FReply OnFieldClicked(FName FieldId);
 	FReply OnModeToggleClicked(int32 ModeIndex);
+	bool IsModeToggleActive(int32 ModeIndex) const;
+	void RefreshModeToggleStyles();
 	FReply OnOpenClicked();
 	FReply OnBrowseClicked();
 	FText GetCaseLabel() const;

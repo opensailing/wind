@@ -1,13 +1,41 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
 #include "Misc/AutomationTest.h"
+#include "Misc/ScopeExit.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Scene/FlowVizCaseActor.h"
 #include "Scene/FlowVizStudioRig.h"
 #include "UI/FlowVizWorkspaceModel.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+
+/*
+ * NAMED namespace: unity build. An anonymous one here would merge with every
+ * sibling test's rather than being file-local (#37).
+ */
+namespace FlowVizProfileTest
+{
+	UWorld* MakeWorld()
+	{
+		const FName WorldName = MakeUniqueObjectName(
+			nullptr, UWorld::StaticClass(), NAME_None, EUniqueObjectNameOptions::GloballyUnique);
+
+		UWorld* World = UWorld::CreateWorld(
+			EWorldType::Game, /*bInformEngineOfWorld*/ false, WorldName, GetTransientPackage());
+		if (World == nullptr)
+		{
+			return nullptr;
+		}
+
+		World->AddToRoot();
+		FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
+		WorldContext.SetCurrentWorld(World);
+		World->InitializeActorsForPlay(FURL());
+		return World;
+	}
+}
 
 /**
  * The Scientific/Presentation profile toggle (#83 / Milestone F).
@@ -70,6 +98,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FFlowVizStudioRigTest::RunTest(const FString& Parameters)
 {
+	using namespace FlowVizProfileTest;
+
 	/* == The grammar, pinned pure =========================================== */
 	TArray<FlowVizStudioRig::FLightDescription> Lights;
 	FlowVizStudioRig::Describe(FVector(1200.0, 400.0, 100.0), Lights);
@@ -102,17 +132,17 @@ bool FFlowVizStudioRigTest::RunTest(const FString& Parameters)
 	}
 
 	/* == Apply / remove on a real actor ===================================== */
-	UWorld* World = UWorld::CreateWorld(
-		EWorldType::Game, false,
-		MakeUniqueObjectName(nullptr, UWorld::StaticClass(), NAME_None,
-			EUniqueObjectNameOptions::GloballyUnique),
-		GetTransientPackage());
+	UWorld* World = MakeWorld();
 	if (!TestNotNull(TEXT("a world exists"), World))
 	{
 		return false;
 	}
-	World->AddToRoot();
-	World->InitializeActorsForPlay(FURL());
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(/*bInformEngineOfWorld*/ true);
+		World->RemoveFromRoot();
+		GEngine->DestroyWorldContext(World);
+	};
 
 	ACFDVizCaseActor* Actor = World->SpawnActor<ACFDVizCaseActor>();
 	if (TestNotNull(TEXT("an actor spawns"), Actor))
@@ -148,8 +178,6 @@ bool FFlowVizStudioRigTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Remove strips it"), FlowVizStudioRig::IsApplied(*Actor));
 	}
 
-	World->RemoveFromRoot();
-	World->DestroyWorld(false);
 	return true;
 }
 

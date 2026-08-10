@@ -154,7 +154,7 @@ void FFlowVizOrbitCamera::SetViewPreset(EViewPreset Preset)
 		// Just off the pole: the pitch clamp's own limit, so GetRotation's
 		// basis never degenerates.
 		YawDegrees = 0.0;
-		PitchDegrees = -89.0;
+		PitchDegrees = -PitchLimit;
 		break;
 	case EViewPreset::ThreeQuarter:
 		YawDegrees = -45.0;
@@ -180,5 +180,5 @@ void FFlowVizOrbitCamera::RestoreBookmark(const FBookmark& Bookmark)
 	Focus = Bookmark.Focus;
 	Distance = FMath::Clamp(Bookmark.Distance, MinDistance, MaxDistance);
 	YawDegrees = FMath::Fmod(Bookmark.YawDegrees, 360.0);
-	PitchDegrees = FMath::Clamp(Bookmark.PitchDegrees, -89.0, 89.0);
+	PitchDegrees = FMath::Clamp(Bookmark.PitchDegrees, -PitchLimit, PitchLimit);
 }

@@ -5,6 +5,7 @@
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
 #include "Misc/StringOutputDevice.h"
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizConsoleCommands.h"
@@ -400,6 +401,13 @@ bool FFlowVizDiagnosticsOverlayWiringTest::RunTest(const FString& Parameters)
 	 * 2048 steps with a volume, 0.000 / 0 without one.
 	 */
 	UCFDVizVolumeComponent* Volume = NewObject<UCFDVizVolumeComponent>();
+	if (!TestNotNull(TEXT("CONTROL: a bare volume component was built"), Volume))
+	{
+		Workspace->GetModel().CloseCase();
+		return false;
+	}
+	Volume->AddToRoot();
+	ON_SCOPE_EXIT { Volume->RemoveFromRoot(); };
 
 	const FString BeforeVolume = [&Overlay]()
 	{

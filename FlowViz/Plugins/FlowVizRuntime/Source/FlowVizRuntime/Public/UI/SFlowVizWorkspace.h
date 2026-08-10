@@ -10,6 +10,7 @@
 
 struct FFlowVizSessionState;
 struct FFlowVizWorkspaceModel;
+class ACFDVizCaseActor;
 class UCFDVizVolumeComponent;
 class SFlowVizClipPanel;
 class SFlowVizDiagnosticsOverlay;
@@ -303,6 +304,15 @@ private:
 	 * use-after-free into a null check.
 	 */
 	TWeakObjectPtr<UCFDVizVolumeComponent> Volume;
+
+	/**
+	 * The bound volume's owner, resolved once in SetVolume rather than Cast() on
+	 * every workspace tick. Weak for the same world-teardown reason as Volume.
+	 */
+	TWeakObjectPtr<ACFDVizCaseActor> CaseActor;
+
+	/** Reused by the per-frame particle publication path to avoid allocator churn. */
+	TArray<FVector> ParticlePositionScratch;
 
 	/** Subscriber for the clip panel's edits. Pushes, and reports nothing. */
 	void HandleClipChanged();

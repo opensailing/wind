@@ -4,6 +4,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "UI/FlowVizWorkspaceModel.h"
+#include "UI/FlowVizWorkspaceStyle.h"
 #include "UI/SFlowVizPipelinePanel.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -167,10 +168,28 @@ bool FFlowVizPipelinePanelTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("the VOLUME defaults OFF -- the fog is opt-in now"),
 			Model.IsVolumeVisible());
 
+		const bool ExpectedActive[SFlowVizPipelinePanel::ModeToggleCount] = {
+			Model.IsObstacleVisible(),
+			Model.Slice.IsVisible(),
+			Model.IsIsoSurfaceEnabled(),
+			Model.AreStreamlinesEnabled(),
+			Model.AreParticlesEnabled(),
+			Model.IsVolumeVisible()
+		};
 		for (int32 Index = 0; Index < SFlowVizPipelinePanel::ModeToggleCount; ++Index)
 		{
-			TestTrue(FString::Printf(TEXT("toggle %d exists"), Index),
-				TogglePanel->GetModeToggleButton(Index).IsValid());
+			const TSharedPtr<SButton> Toggle = TogglePanel->GetModeToggleButton(Index);
+			TestTrue(FString::Printf(TEXT("toggle %d exists"), Index), Toggle.IsValid());
+			if (Toggle.IsValid())
+			{
+				TestTrue(FString::Printf(TEXT("bound toggle %d is enabled"), Index),
+					Toggle->IsEnabled());
+				const FSlateBrush* ExpectedBrush = ExpectedActive[Index]
+					? &FlowVizWorkspaceStyle::GetSelectedToolButtonStyle().Normal
+					: &FlowVizWorkspaceStyle::GetToolButtonStyle().Normal;
+				TestTrue(FString::Printf(TEXT("toggle %d visibly reflects its model state"), Index),
+					Toggle->GetBorderImage() == ExpectedBrush);
+			}
 		}
 
 		// Volume toggle (index 5 since Particles joined at 4): click flips the
@@ -178,10 +197,16 @@ bool FFlowVizPipelinePanelTest::RunTest(const FString& Parameters)
 		const int32 Before = ToggleCounter.Count;
 		TogglePanel->GetModeToggleButton(5)->SimulateClick();
 		TestTrue(TEXT("clicking Volume turns the fog on"), Model.IsVolumeVisible());
+		TestTrue(TEXT("the active Volume toggle visibly selects"),
+			TogglePanel->GetModeToggleButton(5)->GetBorderImage()
+				== &FlowVizWorkspaceStyle::GetSelectedToolButtonStyle().Normal);
 		TestEqual(TEXT("and announces once, so the workspace applies visibility"),
 			ToggleCounter.Count, Before + 1);
 		TogglePanel->GetModeToggleButton(5)->SimulateClick();
 		TestFalse(TEXT("clicking again turns it back off"), Model.IsVolumeVisible());
+		TestTrue(TEXT("the inactive Volume toggle visibly deselects"),
+			TogglePanel->GetModeToggleButton(5)->GetBorderImage()
+				== &FlowVizWorkspaceStyle::GetToolButtonStyle().Normal);
 
 		// Particles toggle: off by default (the CPU path is opt-in until the
 		// Niagara upgrade), click arms the population.
@@ -204,6 +229,16 @@ bool FFlowVizPipelinePanelTest::RunTest(const FString& Parameters)
 		const TSharedRef<SFlowVizPipelinePanel> Unbound = SNew(SFlowVizPipelinePanel);
 		Unbound->RefreshFields();
 		TestEqual(TEXT("an unbound panel has no rows"), Unbound->GetFieldRowCount(), 0);
+		for (int32 Index = 0; Index < SFlowVizPipelinePanel::ModeToggleCount; ++Index)
+		{
+			const TSharedPtr<SButton> Toggle = Unbound->GetModeToggleButton(Index);
+			if (TestTrue(FString::Printf(TEXT("unbound toggle %d still exists"), Index),
+					Toggle.IsValid()))
+			{
+				TestFalse(FString::Printf(TEXT("unbound toggle %d is visibly disabled"), Index),
+					Toggle->IsEnabled());
+			}
+		}
 	}
 
 	return true;

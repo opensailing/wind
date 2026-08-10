@@ -62,6 +62,10 @@ bool FFlowVizWorkspaceWiringTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
+	TestFalse(TEXT("successful post-engine-init registration retires its callback rather "
+				   "than retaining a module function in the global delegate"),
+		FlowVizWorkspaceTab::IsDeferredRegistrationPendingForTesting());
+
 	// A REGISTRATION IS NOT A WORKING TAB. Invoke it the way a menu click does.
 	const TSharedPtr<SDockTab> Tab = TabManager->TryInvokeTab(FTabId(FlowVizWorkspaceTab::TabId));
 

@@ -34,6 +34,15 @@ UCFDVizFlowComponent::UCFDVizFlowComponent()
 
 	LineBatch = CreateDefaultSubobject<ULineBatchComponent>(TEXT("Streamlines"));
 	LineBatch->SetupAttachment(this);
+	/*
+	 * ULineBatchComponent enables tick to age finite-lifetime primitives. Every
+	 * streamline below is deliberately lifetime 0, which the engine treats as
+	 * immortal, and replacement is explicit through Flush in ClearFlowData.
+	 * There is therefore no lifetime work for a tick to perform. If this path
+	 * ever draws a positive lifetime, ticking must be restored with it.
+	 */
+	LineBatch->PrimaryComponentTick.bCanEverTick = false;
+	LineBatch->PrimaryComponentTick.bStartWithTickEnabled = false;
 
 	// Tracer sprites (P8's CPU path): the engine sphere at a small uniform
 	// scale. Same headless-constructible reasoning as the cone.
@@ -75,8 +84,8 @@ void UCFDVizFlowComponent::SetFlowData(
 	{
 		for (int32 Index = 0; Index + 1 < Batch.Points.Num(); ++Index)
 		{
-			// Lifetime 0 with bPersistent: drawn until the next ClearFlowData,
-			// which is exactly the rebuild cadence.
+			// Lifetime 0 is immortal under ULineBatchComponent's lifetime check:
+			// drawn until the next ClearFlowData, exactly the rebuild cadence.
 			LineBatch->DrawLine(Batch.Points[Index], Batch.Points[Index + 1],
 				Batch.Colors[Index], SDPG_World, /*Thickness*/ 1.5f, /*LifeTime*/ 0.0f);
 		}

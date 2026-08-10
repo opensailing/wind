@@ -115,6 +115,9 @@ public:
 	/** How many probe rows are currently built. Derived from the view model, never cached. */
 	int32 GetProbeRowCount() const { return ProbeRows.Num(); }
 
+	/** Rebuild explicit rows after an external model rewrite such as session load. */
+	void RefreshFromModel() { RebuildProbeRows(); }
+
 private:
 	/** One built row of probe controls. Rebuilt wholesale when the probe count changes. */
 	struct FProbeRow

@@ -32,6 +32,16 @@ namespace FlowVizConsoleCommands
 	const TCHAR* const DumpCaseName = TEXT("FlowViz.DumpCase");
 	const TCHAR* const BenchmarkName = TEXT("FlowViz.Benchmark");
 
+	FString MakeLoadCaseCommand(const FString& CasePath, const FString& FieldId)
+	{
+		FString Command = FString::Printf(TEXT("%s \"%s\""), LoadCaseName, *CasePath);
+		if (!FieldId.IsEmpty())
+		{
+			Command += TEXT(" ") + FieldId;
+		}
+		return Command;
+	}
+
 	TArray<const TCHAR*> GetCommandNames()
 	{
 		return {

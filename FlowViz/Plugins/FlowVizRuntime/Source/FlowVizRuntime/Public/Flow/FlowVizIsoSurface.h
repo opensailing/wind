@@ -37,17 +37,32 @@ namespace FlowVizIsoSurface
 		FVector Spacing = FVector::OneVector;
 		TArray<double> Values;
 
+		/** The dense value count, when it fits the TArray's int32 size type. */
+		bool TryGetValueCount(int32& OutValueCount) const
+		{
+			OutValueCount = 0;
+			if (Counts.X < 2 || Counts.Y < 2 || Counts.Z < 2)
+			{
+				return false;
+			}
+
+			// int32 * int32 fits int64; compare before the third multiply so even
+			// hostile dimensions cannot overflow while merely being validated.
+			const int64 XY = static_cast<int64>(Counts.X) * Counts.Y;
+			if (XY > MAX_int32 / Counts.Z)
+			{
+				return false;
+			}
+
+			OutValueCount = static_cast<int32>(XY * Counts.Z);
+			return true;
+		}
+
 		bool IsValid() const
 		{
-			// int64 for the product: a large grid overflows int32 at the second
-			// multiply, and a wrapped product can equal Values.Num() by accident.
-			// The comparison against Num() (int32) then also bounds a valid
-			// grid's value count to MAX_int32, which is what lets ValueIndex
-			// return int32 safely.
-			const int64 ValueCount = static_cast<int64>(Counts.X)
-				* static_cast<int64>(Counts.Y) * static_cast<int64>(Counts.Z);
-			return Counts.X >= 2 && Counts.Y >= 2 && Counts.Z >= 2
-				&& static_cast<int64>(Values.Num()) == ValueCount
+			int32 ExpectedValueCount = 0;
+			return TryGetValueCount(ExpectedValueCount)
+				&& Values.Num() == ExpectedValueCount
 				&& Spacing.GetMin() > 0.0;
 		}
 	};

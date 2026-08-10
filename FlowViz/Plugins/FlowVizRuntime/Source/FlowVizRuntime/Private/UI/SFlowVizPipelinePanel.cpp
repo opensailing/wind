@@ -57,6 +57,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ModeToggleButtons[0], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.IsEnabled(Model != nullptr)
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 0))
 					.ToolTipText(LOCTEXT("ObstacleTip", "Show or hide the obstacle surface"))
 					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
@@ -70,6 +71,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ModeToggleButtons[1], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.IsEnabled(Model != nullptr)
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 1))
 					.ToolTipText(LOCTEXT("CutPlaneTip", "Show or hide the cut plane"))
 					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
@@ -83,6 +85,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ModeToggleButtons[2], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.IsEnabled(Model != nullptr)
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 2))
 					.ToolTipText(LOCTEXT("IsoTip", "Show or hide the Q iso-surface"))
 					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
@@ -96,6 +99,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ModeToggleButtons[3], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.IsEnabled(Model != nullptr)
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 3))
 					.ToolTipText(LOCTEXT("StreamTip", "Show or hide streamlines"))
 					.ContentPadding(FMargin(1.0f * U, 0.5f * U))
@@ -109,6 +113,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ModeToggleButtons[4], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.IsEnabled(Model != nullptr)
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 4))
 					.ToolTipText(LOCTEXT("ParticlesTip",
 						"Show or hide tracer particles advected through the flow"))
@@ -123,6 +128,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ModeToggleButtons[5], SButton)
 					.ButtonStyle(&FlowVizWorkspaceStyle::GetToolButtonStyle())
+					.IsEnabled(Model != nullptr)
 					.OnClicked(FOnClicked::CreateSP(this, &SFlowVizPipelinePanel::OnModeToggleClicked, 5))
 					.ToolTipText(LOCTEXT("VolumeTip",
 						"Show or hide the volume render (off by default -- surfaces are "
@@ -213,6 +219,7 @@ void SFlowVizPipelinePanel::Construct(const FArguments& InArgs)
 		]
 	];
 
+	RefreshModeToggleStyles();
 	RefreshFields();
 }
 
@@ -268,6 +275,37 @@ TSharedPtr<SButton> SFlowVizPipelinePanel::GetModeToggleButton(int32 Index) cons
 	return (Index >= 0 && Index < ModeToggleCount) ? ModeToggleButtons[Index] : nullptr;
 }
 
+bool SFlowVizPipelinePanel::IsModeToggleActive(int32 ModeIndex) const
+{
+	if (Model == nullptr)
+	{
+		return false;
+	}
+	switch (ModeIndex)
+	{
+	case 0: return Model->IsObstacleVisible();
+	case 1: return Model->Slice.IsVisible();
+	case 2: return Model->IsIsoSurfaceEnabled();
+	case 3: return Model->AreStreamlinesEnabled();
+	case 4: return Model->AreParticlesEnabled();
+	case 5: return Model->IsVolumeVisible();
+	default: return false;
+	}
+}
+
+void SFlowVizPipelinePanel::RefreshModeToggleStyles()
+{
+	for (int32 Index = 0; Index < ModeToggleCount; ++Index)
+	{
+		if (ModeToggleButtons[Index].IsValid())
+		{
+			ModeToggleButtons[Index]->SetButtonStyle(IsModeToggleActive(Index)
+				? &FlowVizWorkspaceStyle::GetSelectedToolButtonStyle()
+				: &FlowVizWorkspaceStyle::GetToolButtonStyle());
+		}
+	}
+}
+
 FReply SFlowVizPipelinePanel::OnModeToggleClicked(int32 ModeIndex)
 {
 	if (Model == nullptr)
@@ -284,6 +322,7 @@ FReply SFlowVizPipelinePanel::OnModeToggleClicked(int32 ModeIndex)
 	case 5: Model->SetVolumeVisible(!Model->IsVolumeVisible()); break;
 	default: return FReply::Handled();
 	}
+	RefreshModeToggleStyles();
 	// One announcement channel: the workspace pushes, which applies component
 	// visibility and (for the slice) recomposes the clip.
 	OnFieldChanged.ExecuteIfBound();

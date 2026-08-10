@@ -206,7 +206,8 @@ namespace FlowVizDiagnosticsTest
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizDiagnosticsCollectTest,
 	"FlowViz.UI.Diagnostics.Collect",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
 
 bool FFlowVizDiagnosticsCollectTest::RunTest(const FString& Parameters)
 {
@@ -422,7 +423,8 @@ bool FFlowVizDiagnosticsCollectTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizDiagnosticsCountersTest,
 	"FlowViz.UI.Diagnostics.Counters",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
 
 bool FFlowVizDiagnosticsCountersTest::RunTest(const FString& Parameters)
 {
@@ -707,7 +709,8 @@ bool FFlowVizDiagnosticsCountersTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizDiagnosticsFailureTest,
 	"FlowViz.UI.Diagnostics.Failures",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
 
 bool FFlowVizDiagnosticsFailureTest::RunTest(const FString& Parameters)
 {
@@ -833,7 +836,8 @@ bool FFlowVizDiagnosticsFailureTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FFlowVizDiagnosticsVolumeTest,
 	"FlowViz.UI.Diagnostics.Volume",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
 
 bool FFlowVizDiagnosticsVolumeTest::RunTest(const FString& Parameters)
 {

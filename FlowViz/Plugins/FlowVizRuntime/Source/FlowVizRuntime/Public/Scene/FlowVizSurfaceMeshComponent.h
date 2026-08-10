@@ -28,6 +28,11 @@
  * PAYLOADS ARRIVE BUILT. Workers build FFlowVizMeshPayload (pure builders,
  * tested headless); this class applies on the game thread. SetSurfaceData
  * is explicit, never per-tick -- the same contract as UCFDVizFlowComponent.
+ *
+ * TICKING. UProceduralMeshComponent already defaults bCanEverTick to false, and
+ * this subclass does not override that state. Setting the same flag again here
+ * would not change behavior; the regression test pins the inherited default so
+ * an engine change cannot silently turn three surface components into tickers.
  */
 UCLASS(ClassGroup = (FlowViz), meta = (BlueprintSpawnableComponent))
 class FLOWVIZRUNTIME_API UCFDVizSurfaceMeshComponent : public UProceduralMeshComponent

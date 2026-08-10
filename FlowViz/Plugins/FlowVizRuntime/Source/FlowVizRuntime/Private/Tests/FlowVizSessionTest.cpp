@@ -155,7 +155,7 @@ namespace FlowVizSessionTest
 		State.RenderSettings.SetEarlyTerminationAlpha(0.875f);
 		State.RenderSettings.SetJitterEnabled(true);
 		State.RenderSettings.SetJitterAmount(0.5f);
-		State.RenderSettings.SetJitterSeed(42u);
+		State.RenderSettings.SetJitterSeed(MAX_uint32);
 		State.RenderSettings.SetFieldFilteringEnabled(false);
 		State.RenderSettings.SetStrictStatusFilter(true);
 		State.RenderSettings.SetNoDataColor(FLinearColor(1.0f, 0.0f, 1.0f, 1.0f));
@@ -311,7 +311,8 @@ bool FFlowVizSessionRoundTripTest::RunTest(const FString& Parameters)
 			RS.GetEarlyTerminationAlpha(), 0.875f);
 		TestTrue(TEXT("jitter ON survives"), RS.IsJitterEnabled());
 		TestEqual(TEXT("the jitter amount survives"), RS.GetJitterAmount(), 0.5f);
-		TestEqual(TEXT("the jitter seed survives"), RS.GetJitterSeed(), 42u);
+		TestEqual(TEXT("the jitter seed survives above INT32_MAX"),
+			RS.GetJitterSeed(), MAX_uint32);
 		TestFalse(TEXT("field filtering OFF survives - the default is on"),
 			RS.IsFieldFilteringEnabled());
 		TestTrue(TEXT("the strict status filter survives"), RS.IsStrictStatusFilter());

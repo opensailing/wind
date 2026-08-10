@@ -433,6 +433,40 @@ private:
 
 	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> SampleQueue;
 
+	/**
+	 * Invalidate every queued/in-flight request and forget any deferred reissue.
+	 * Defined after FSampleQueue's complete type so early case/session methods do
+	 * not reach through its forward declaration.
+	 */
+	void SupersedeSampleRequests();
+
+	/**
+	 * Which "world" a sample request was issued against. Captured into every
+	 * request, stamped into its result, compared at the drain: a mismatch means
+	 * the model moved on while the worker ran -- a different field, a different
+	 * case, a restored session -- and the result is DISCARDED rather than
+	 * applied to state it does not describe. Without this, SetField mid-flight
+	 * attaches the old field's readings and range to the new binding, and
+	 * LoadSession is worse: saved probe GUIDs make old-case readings attach to
+	 * new-case probes. Bumped by CloseCase (which OpenCase and every load path
+	 * route through), SetField and LoadState. Monotonic, never reset.
+	 */
+	uint64 SampleGeneration = 0;
+
+	/** Component selection associated with the current sampling generation. */
+	EFlowVizComponentChoice SampleComponent = EFlowVizComponentChoice::Magnitude;
+
+	/**
+	 * A resample was refused while one was in flight and must be re-issued
+	 * when the flight lands. The refusal itself is right (the newest data
+	 * wins; queueing stale requests would apply readings for frames the
+	 * display has left) -- but DROPPING it silently strands the display: the
+	 * workspace advances its frame gate before calling, so the refused state
+	 * was never asked for again and the probes, ranges and cut plane described
+	 * the old frame forever. DrainSampleResults re-issues.
+	 */
+	bool bResamplePending = false;
+
 	FFlowVizChartSeries LineSeries;
 
 	FFlowVizMeshPayload CutPlanePayload;

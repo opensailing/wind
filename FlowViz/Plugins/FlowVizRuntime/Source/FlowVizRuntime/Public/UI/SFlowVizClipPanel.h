@@ -148,6 +148,9 @@ public:
 	/** How many plane rows are currently built. Derived from the view model, never cached. */
 	int32 GetPlaneRowCount() const { return PlaneRows.Num(); }
 
+	/** Rebuild explicit rows after an external model rewrite such as session load. */
+	void RefreshFromModel() { RebuildPlaneRows(); }
+
 private:
 	/** One built row of plane controls. Rebuilt wholesale when the plane count changes. */
 	struct FPlaneRow

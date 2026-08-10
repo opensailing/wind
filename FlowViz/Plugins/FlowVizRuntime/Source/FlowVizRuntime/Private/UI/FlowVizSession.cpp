@@ -231,6 +231,20 @@ namespace FlowVizSessionLocal
 		}
 	}
 
+	/** Read a JSON integer across the full uint32 range without an int32 funnel. */
+	bool ReadUInt32(const TSharedPtr<FJsonObject>& Object, const TCHAR* Key, uint32& OutValue)
+	{
+		double Value = 0.0;
+		if (!Object.IsValid() || !Object->TryGetNumberField(Key, Value)
+			|| !FMath::IsFinite(Value) || Value < 0.0
+			|| Value > static_cast<double>(MAX_uint32) || FMath::FloorToDouble(Value) != Value)
+		{
+			return false;
+		}
+		OutValue = static_cast<uint32>(Value);
+		return true;
+	}
+
 	void ReadBool(const TSharedPtr<FJsonObject>& Object, const TCHAR* Key, bool& OutValue)
 	{
 		bool Value = false;
@@ -802,11 +816,11 @@ FCFDVizResult FlowVizSession::LoadFromString(
 			FlowVizSessionLocal::ReadFloat(*Render, TEXT("referenceStepVoxels"), FloatValue);
 			RS.SetReferenceStepVoxels(FloatValue);
 
-			int32 IntValue = static_cast<int32>(RS.GetMaxSteps());
-			FlowVizSessionLocal::ReadInt(*Render, TEXT("maxSteps"), IntValue);
-			if (IntValue > 0)
+			uint32 UIntValue = RS.GetMaxSteps();
+			if (FlowVizSessionLocal::ReadUInt32(*Render, TEXT("maxSteps"), UIntValue)
+				&& UIntValue > 0)
 			{
-				RS.SetMaxSteps(static_cast<uint32>(IntValue));
+				RS.SetMaxSteps(UIntValue);
 			}
 
 			FloatValue = RS.GetEarlyTerminationAlpha();
@@ -821,11 +835,10 @@ FCFDVizResult FlowVizSession::LoadFromString(
 			FlowVizSessionLocal::ReadFloat(*Render, TEXT("jitterAmount"), FloatValue);
 			RS.SetJitterAmount(FloatValue);
 
-			IntValue = static_cast<int32>(RS.GetJitterSeed());
-			FlowVizSessionLocal::ReadInt(*Render, TEXT("jitterSeed"), IntValue);
-			if (IntValue >= 0)
+			UIntValue = RS.GetJitterSeed();
+			if (FlowVizSessionLocal::ReadUInt32(*Render, TEXT("jitterSeed"), UIntValue))
 			{
-				RS.SetJitterSeed(static_cast<uint32>(IntValue));
+				RS.SetJitterSeed(UIntValue);
 			}
 
 			BoolValue = RS.IsFieldFilteringEnabled();

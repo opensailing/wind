@@ -11,6 +11,9 @@
 #include "Scene/FlowVizVolumeComponent.h"
 #include "UI/FlowVizSession.h"
 #include "UI/FlowVizWorkspaceModel.h"
+#include "UI/SFlowVizClipPanel.h"
+#include "UI/SFlowVizPipelinePanel.h"
+#include "UI/SFlowVizProbePanel.h"
 #include "UI/SFlowVizWorkspace.h"
 #include "UObject/UObjectGlobals.h"
 
@@ -126,13 +129,20 @@ namespace FlowVizWorkspaceSessionSeamTest
 		{
 			return false;
 		}
+		if (!Test.TestTrue(TEXT("CONTROL: the fixture's probe was accepted"),
+				Model.Probes.AddProbeAtSolverPosition(
+					FVector(1.25, 0.75, 0.25), TEXT("session probe")).IsValid()))
+		{
+			return false;
+		}
 
 		// READ BACK, not assumed from the results above. A setter that returned Ok
 		// and stored nothing would pass all three checks.
 		return Test.TestEqual(TEXT("CONTROL: the fixture really holds the chosen map"),
 				   static_cast<int32>(Model.TransferFunction.GetColorMap()),
 				   static_cast<int32>(SavedMap))
-			&& Test.TestEqual(TEXT("CONTROL: and the chosen plane"), Model.Clip.GetPlaneCount(), 1);
+			&& Test.TestEqual(TEXT("CONTROL: and the chosen plane"), Model.Clip.GetPlaneCount(), 1)
+			&& Test.TestEqual(TEXT("CONTROL: and the chosen probe"), Model.Probes.GetProbes().Num(), 1);
 	}
 
 	/**
@@ -319,6 +329,17 @@ bool FFlowVizWorkspaceSessionSeamTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("the session's colour map reached the view model"),
 		static_cast<int32>(Workspace->GetModel().TransferFunction.GetColorMap()),
 		static_cast<int32>(SavedMap));
+
+	/* --- Explicit-refresh panels: the session changed their row populations. -- */
+	TestEqual(TEXT("the clip panel rebuilt rows for the restored planes"),
+		Workspace->GetClipPanel()->GetPlaneRowCount(),
+		Workspace->GetModel().Clip.GetPlaneCount());
+	TestEqual(TEXT("the probe panel rebuilt rows for the restored probes"),
+		Workspace->GetProbePanel()->GetProbeRowCount(),
+		Workspace->GetModel().Probes.GetProbes().Num());
+	TestEqual(TEXT("the pipeline panel rebuilt fields for the restored case"),
+		Workspace->GetPipelinePanel()->GetFieldRowCount(),
+		Workspace->GetModel().GetVolumeFieldIds().Num());
 
 	/* --- The volume: the link this test exists for -------------------------- */
 

@@ -5,10 +5,8 @@
 #include "Components/SceneComponent.h"
 #include "FlowVizRuntime.h"
 #include "Async/TaskGraphInterfaces.h"
-#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
-#include "Render/FlowVizColorMapTexture.h"
 #include "Scene/FlowVizBoundaryMesh.h"
 #include "Scene/FlowVizFlowComponent.h"
 #include "Scene/FlowVizMeshPayload.h"
@@ -84,8 +82,6 @@ ACFDVizCaseActor::ACFDVizCaseActor()
 		ColormapPresentation.Succeeded() ? ColormapPresentation.Object : ColormapMaterial.Object;
 
 	// Scientific is the shipped default profile, so its set is the ctor's.
-	// (The LUT binding happens on BeginPlay/SetSurfaceColorMap -- MIDs cannot
-	// be created in a CDO constructor.)
 	ApplyProfileMaterials(/*bPresentation*/ false);
 }
 
@@ -160,6 +156,10 @@ void ACFDVizCaseActor::SetSurfaceColorMap(ECFDVizColorMap Map)
 void ACFDVizCaseActor::LoadBoundaryMeshes()
 {
 	check(VolumeComponent != nullptr && ObstacleComponent != nullptr);
+
+	// Advance even for a legal no-mesh case: that load still supersedes any
+	// worker from the previous case, whose late payload must not repopulate us.
+	const uint64 BuildGeneration = ++BoundaryBuildGeneration;
 	ObstacleComponent->ClearSurfaceData();
 
 	const FCFDVizCase& Case = VolumeComponent->GetCaseBinding().Case;
@@ -192,11 +192,12 @@ void ACFDVizCaseActor::LoadBoundaryMeshes()
 
 	TWeakObjectPtr<ACFDVizCaseActor> WeakThis(this);
 	UE::Tasks::Launch(TEXT("FlowVizBoundaryBuild"),
-		[WeakThis, Requests = MoveTemp(Requests)]()
+		[WeakThis, BuildGeneration, Requests = MoveTemp(Requests)]()
 		{
 			// ONE payload across every declared mesh: obstacle and domain
 			// boundaries are sections of one component, addressed by patch id.
-			TSharedRef<FFlowVizMeshPayload> Payload = MakeShared<FFlowVizMeshPayload>();
+			TSharedRef<FFlowVizMeshPayload, ESPMode::ThreadSafe> Payload =
+				MakeShared<FFlowVizMeshPayload, ESPMode::ThreadSafe>();
 			for (const FMeshRequest& Request : Requests)
 			{
 				TArray<FFlowVizBoundaryPatchGeometry> Patches;
@@ -220,14 +221,23 @@ void ACFDVizCaseActor::LoadBoundaryMeshes()
 
 			// Apply on the game thread; the weak pointer covers an actor torn
 			// down while the build was in flight.
-			AsyncTask(ENamedThreads::GameThread, [WeakThis, Payload]()
+			AsyncTask(ENamedThreads::GameThread, [WeakThis, BuildGeneration, Payload]()
 			{
 				if (ACFDVizCaseActor* Actor = WeakThis.Get())
 				{
-					Actor->GetObstacleComponent()->SetSurfaceData(*Payload);
+					Actor->ApplyBoundaryPayload(BuildGeneration, *Payload);
 				}
 			});
 		});
+}
+
+void ACFDVizCaseActor::ApplyBoundaryPayload(
+	uint64 BuildGeneration, const FFlowVizMeshPayload& Payload)
+{
+	if (BuildGeneration == BoundaryBuildGeneration && ObstacleComponent != nullptr)
+	{
+		ObstacleComponent->SetSurfaceData(Payload);
+	}
 }
 
 bool ACFDVizCaseActor::LoadCaseFromPath(const FString& InCaseDirectory, FString& OutError)

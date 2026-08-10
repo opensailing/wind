@@ -88,6 +88,16 @@ void FFlowVizWorkspaceModel::CloseCase()
 	Probes.RemoveAllProbes();
 	Clip.RemoveAllPlanes();
 
+	/*
+	 * THE SAMPLING WORLD ENDS WITH THE CASE. Every request captured the old
+	 * generation, so results still in flight are discarded at the drain; the
+	 * ones already QUEUED are cleared here outright -- a drain between this
+	 * close and the next open must apply nothing, not hand the next case the
+	 * closed one's readings. The deferred-resample flag dies with them: it
+	 * described a display state that no longer exists.
+	 */
+	SupersedeSampleRequests();
+
 	// Released AFTER Player.Close(), which waits on outstanding decodes - those
 	// workers read the case, so dropping the last reference first would free it
 	// underneath them.
@@ -322,6 +332,12 @@ FCFDVizResult FFlowVizWorkspaceModel::SetField(FName FieldId)
 		return OpenResult;
 	}
 
+	// A sample built for the PREVIOUS field is now a lie about this one:
+	// results in flight (and any already queued but not yet drained) carry the
+	// old generation and are discarded at the drain rather than attaching the
+	// old field's readings and range to the new binding.
+	SupersedeSampleRequests();
+
 	// THE COLOURING MUST FOLLOW THE FIELD. Leaving the previous field's range in
 	// place would colour pressure against a velocity domain: every pixel would be
 	// clamped to an end of the map, which looks like saturated data rather than
@@ -372,6 +388,16 @@ FCFDVizResult FFlowVizWorkspaceModel::LoadSession(const FString& FilePath)
 
 FCFDVizResult FFlowVizWorkspaceModel::LoadState(const FFlowVizSessionState& State)
 {
+	/*
+	 * SUPERSEDE EVERY IN-FLIGHT SAMPLE FIRST, unconditionally -- not only on
+	 * the OpenCase path below (which routes through CloseCase and bumps
+	 * again). A restore REWRITES probes and planes under saved GUIDs, so a
+	 * result sampled before the load can find probes with MATCHING ids that
+	 * are nonetheless different objects in a different scene. Discarding by
+	 * generation is the only comparison that cannot be fooled by an id.
+	 */
+	SupersedeSampleRequests();
+
 	FCFDVizResult FirstFailure = FCFDVizResult::Ok();
 	auto Record = [&FirstFailure](const FCFDVizResult& Result)
 	{
@@ -536,10 +562,27 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 
 	struct FResult
 	{
+		/**
+		 * The model generation this result was sampled AGAINST (see the
+		 * header's SampleGeneration). The drain discards a mismatch: the
+		 * readings, range and meshes describe a field/case binding the model
+		 * no longer has, and applying them would be plausible-looking wrong
+		 * data -- pressure readings on a velocity binding, an old case's
+		 * meshes on a new case's actor.
+		 */
+		uint64 Generation = 0;
+
 		TArray<FProbeResult> Probes;
 		bool bHasFrameRange = false;
 		float FrameMin = 0.0f;
 		float FrameMax = 0.0f;
+
+		/**
+		 * The component selection the range was measured under. Compared at
+		 * the drain: a component switched mid-flight (X to Magnitude, say)
+		 * would otherwise land the old component's range on the new display.
+		 */
+		EFlowVizComponentChoice RangeComponent = EFlowVizComponentChoice::Magnitude;
 
 		/** The line probe's distance series (#85), when a line was set. */
 		bool bHasLineSeries = false;
@@ -601,11 +644,32 @@ struct FFlowVizWorkspaceModel::FSampleQueue
 	}
 };
 
+void FFlowVizWorkspaceModel::SupersedeSampleRequests()
+{
+	++SampleGeneration;
+	bResamplePending = false;
+	if (SampleQueue.IsValid())
+	{
+		FScopeLock Lock(&SampleQueue->Mutex);
+		SampleQueue->Results.Reset();
+	}
+}
+
 void FFlowVizWorkspaceModel::RequestSampleUpdate()
 {
 	if (!Player.IsOpen() || !SharedCase.IsValid())
 	{
 		return;
+	}
+
+	const EFlowVizComponentChoice CurrentComponent = TransferFunction.GetComponent();
+	if (SampleComponent != CurrentComponent)
+	{
+		// The range and every scalar-coloured mesh are component-specific. A
+		// request made after the UI switches X/Y/Z/Magnitude starts a new sampling
+		// generation; any older flight may finish, but cannot land on this choice.
+		SampleComponent = CurrentComponent;
+		SupersedeSampleRequests();
 	}
 
 	if (!SampleQueue.IsValid())
@@ -619,15 +683,21 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 		{
 			// One in flight is enough: the newest display state wins, and a
 			// queue of stale requests would apply readings for frames the
-			// display has already left.
+			// display has already left. But the refusal is RECORDED, not
+			// dropped: the caller advanced its own gate before asking, so
+			// nothing would ever re-ask for this display state.
+			// DrainSampleResults re-issues when the flight lands.
+			bResamplePending = true;
 			return;
 		}
 		++SampleQueue->PendingCount;
 	}
+	bResamplePending = false;
 
 	// EVERYTHING COPIED OR SHARED. The probe list, the frame, the field and the
 	// component selection are all captured by value; the case rides a shared ref.
 	TSharedPtr<FSampleQueue, ESPMode::ThreadSafe> Queue = SampleQueue;
+	const uint64 RequestGeneration = SampleGeneration;
 	TSharedPtr<const FCFDVizCase> CaseRef = SharedCase;
 	const FName SampleFieldId = Player.GetFieldId();
 	// The DISPLAYED frame, not the playhead's target: readings must describe
@@ -686,13 +756,15 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 	}
 
 	UE::Tasks::Launch(TEXT("FlowVizWorkspaceSample"),
-		[Queue, CaseRef, SampleFieldId, FrameIndex, RangeComponent,
+		[Queue, CaseRef, SampleFieldId, FrameIndex, RequestGeneration, RangeComponent,
 			bHasLine, LineStart, LineEnd, LineSamples, LineAxis,
 			bWantCutPlane, CutRequest, bWantIsoSurface, IsoValueOverride,
 			bWantStreamlines, StreamDomain, ColorMapChoice,
 			Requests = MoveTemp(Requests)]() mutable
 		{
 			FSampleQueue::FResult Result;
+			Result.Generation = RequestGeneration;
+			Result.RangeComponent = RangeComponent;
 
 			// DISK I/O AND ZLIB, ON A WORKER -- the whole reason this is a task
 			// (engineering rule 1).
@@ -830,8 +902,17 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 					IsoGrid.Counts = QSampler.GetValueCounts();
 					IsoGrid.Origin = QSampler.GetGrid().Origin;
 					IsoGrid.Spacing = QSampler.GetGrid().Spacing;
-					IsoGrid.Values.Reserve(
-						IsoGrid.Counts.X * IsoGrid.Counts.Y * IsoGrid.Counts.Z);
+					int32 IsoValueCount = 0;
+					if (IsoGrid.TryGetValueCount(IsoValueCount))
+					{
+						IsoGrid.Values.Reserve(IsoValueCount);
+					}
+					else
+					{
+						// A dense TArray cannot represent this grid. Zeroing the local
+						// counts makes the loops and extractor below refuse it cleanly.
+						IsoGrid.Counts = FIntVector::ZeroValue;
+					}
 					TArray<double> VoxelValue;
 					for (int32 GZ = 0; GZ < IsoGrid.Counts.Z; ++GZ)
 					{
@@ -971,17 +1052,40 @@ void FFlowVizWorkspaceModel::RequestSampleUpdate()
 
 bool FFlowVizWorkspaceModel::DrainSampleResults()
 {
-	if (!SampleQueue.IsValid() || !SampleQueue->HasResults())
+	const EFlowVizComponentChoice CurrentComponent = TransferFunction.GetComponent();
+	if (SampleComponent != CurrentComponent)
+	{
+		// Session/test code can change the public transfer-function model without
+		// first asking for a sample. Detect that boundary here as well as in the
+		// request path, supersede the old component's result, and request the new one.
+		SampleComponent = CurrentComponent;
+		SupersedeSampleRequests();
+		RequestSampleUpdate();
+	}
+
+	if (!SampleQueue.IsValid())
 	{
 		return false;
 	}
 
 	TArray<FSampleQueue::FResult> Results;
-	SampleQueue->Drain(Results);
+	if (SampleQueue->HasResults())
+	{
+		SampleQueue->Drain(Results);
+	}
 
 	bool bApplied = false;
 	for (FSampleQueue::FResult& Result : Results)
 	{
+		// A result is valid only for the exact model/component world it sampled.
+		// Reject before touching any fresh flag: even plausible-looking old geometry
+		// is wrong data once the case, field, session, or component has changed.
+		if (Result.Generation != SampleGeneration
+			|| Result.RangeComponent != TransferFunction.GetComponent())
+		{
+			continue;
+		}
+
 		for (FSampleQueue::FProbeResult& Probe : Result.Probes)
 		{
 			// A probe deleted while the sample ran returns false here; that is
@@ -1005,11 +1109,13 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 		{
 			Streamlines = MoveTemp(Result.Streamlines);
 			bStreamlinesFresh = true;
+			bApplied = true;
 		}
 		if (Result.VelocitySampler.IsValid())
 		{
 			DisplayedVelocitySampler = Result.VelocitySampler;
 			DisplayedVelocityMask = Result.VelocityMask;
+			bApplied = true;
 		}
 
 		if (Result.bHasIsoSurface)
@@ -1018,6 +1124,7 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 			IsoSurfacePayload.Sections.Add(MoveTemp(Result.IsoSurface));
 			LastIsoValueUsed = Result.IsoValueUsed;
 			bIsoSurfaceFresh = true;
+			bApplied = true;
 		}
 
 		if (Result.bHasCutPlane)
@@ -1030,6 +1137,7 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 			CutPlaneRangeMin = Result.CutPlaneRangeMin;
 			CutPlaneRangeMax = Result.CutPlaneRangeMax;
 			bCutPlaneFresh = true;
+			bApplied = true;
 		}
 
 		if (Result.bHasLineSeries)
@@ -1038,6 +1146,12 @@ bool FFlowVizWorkspaceModel::DrainSampleResults()
 			bApplied = true;
 		}
 	}
+
+	if (bResamplePending && SampleQueue->GetPendingCount() == 0)
+	{
+		RequestSampleUpdate();
+	}
+
 	return bApplied;
 }
 

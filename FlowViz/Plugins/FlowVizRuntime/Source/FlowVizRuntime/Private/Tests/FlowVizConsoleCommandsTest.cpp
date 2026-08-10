@@ -1,12 +1,14 @@
 // Copyright FlowViz contributors. All Rights Reserved.
 
 #include "CFDViz/CFDVizManifest.h"
+#include "Framework/Docking/TabManager.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformFileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 #include "Misc/StringOutputDevice.h"
@@ -14,7 +16,9 @@
 #include "UI/FlowVizConsoleCommands.h"
 #include "UI/FlowVizWorkspaceModel.h"
 #include "UI/FlowVizWorkspaceRegistry.h"
+#include "UI/FlowVizWorkspaceTab.h"
 #include "UI/SFlowVizWorkspace.h"
+#include "Widgets/Docking/SDockTab.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -208,6 +212,52 @@ namespace FlowVizConsoleCommandsTest
 	}
 }
 
+/**
+ * Paths with spaces remain one console argument.
+ *
+ * Both -case= startup and the workspace's Open button route through a textual
+ * console line. Direct IConsoleCommand tests supply an argument array and cannot
+ * see a missing pair of quotes, so this pins the exact tokenizer that receives
+ * those production strings.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FFlowVizLoadCaseCommandTest,
+	"FlowViz.UI.Console.LoadCaseCommand",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+		| EAutomationTestFlags::EngineFilter)
+
+bool FFlowVizLoadCaseCommandTest::RunTest(const FString& Parameters)
+{
+	using namespace FlowVizConsoleCommandsTest;
+
+	const FString CasePath(TEXT("/Users/Example/Flow Cases/Cylinder Wake.cfdviz"));
+	const FString Command =
+		FlowVizConsoleCommands::MakeLoadCaseCommand(CasePath, SampleField.ToString());
+	const TCHAR* Cursor = *Command;
+
+	FString ParsedCommand;
+	FString ParsedPath;
+	FString ParsedField;
+	FString Extra;
+	TestTrue(TEXT("CONTROL: the command name token exists"),
+		FParse::Token(Cursor, ParsedCommand, /*bUseEscape*/ false));
+	TestTrue(TEXT("CONTROL: the case path token exists"),
+		FParse::Token(Cursor, ParsedPath, /*bUseEscape*/ false));
+	TestTrue(TEXT("CONTROL: the optional field token exists"),
+		FParse::Token(Cursor, ParsedField, /*bUseEscape*/ false));
+
+	TestEqual(TEXT("the generated line names the registered load command"),
+		ParsedCommand, FString(FlowVizConsoleCommands::LoadCaseName));
+	TestEqual(TEXT("a path containing spaces reaches the command as one exact argument"),
+		ParsedPath, CasePath);
+	TestEqual(TEXT("the field stays a separate third argument"),
+		ParsedField, SampleField.ToString());
+	TestFalse(TEXT("and no path fragment leaks into a fourth argument"),
+		FParse::Token(Cursor, Extra, /*bUseEscape*/ false));
+
+	return true;
+}
+
 /* ========================================================================== */
 /* Wiring: what did module startup leave behind?                               */
 /* ========================================================================== */
@@ -296,8 +346,8 @@ bool FFlowVizConsoleWiringTest::RunTest(const FString& Parameters)
 	 */
 	if (FlowVizWorkspaceRegistry::GetActiveWorkspace().IsValid())
 	{
-		AddWarning(TEXT("the no-workspace arm did not run: another test's workspace is still "
-						"alive, so there was a target to resolve"));
+		AddInfo(TEXT("SKIPPED (the no-workspace arm only): another test's workspace is still "
+					 "alive, so there was already a target to resolve."));
 	}
 	else
 	{
@@ -315,6 +365,22 @@ bool FFlowVizConsoleWiringTest::RunTest(const FString& Parameters)
 					 "opened. It printed: '%s'"),
 				*Output),
 			Output.Contains(TEXT("no workspace")));
+
+		TSharedPtr<SDockTab> OpenedTab =
+			FGlobalTabmanager::Get()->FindExistingLiveTab(FlowVizWorkspaceTab::TabId);
+		if (TestTrue(TEXT("CONTROL: the command self-served through the registered workspace tab, "
+						   "so this test can close exactly what it opened"),
+				OpenedTab.IsValid()))
+		{
+			OpenedTab->RequestCloseTab();
+			OpenedTab.Reset();
+		}
+
+		TestFalse(
+			TEXT("the self-served command closes the workspace it opened for this arm, so a "
+				 "test of the no-workspace path does not leave a target that makes later tests "
+				 "silently skip their own no-workspace paths"),
+			FlowVizWorkspaceRegistry::GetActiveWorkspace().IsValid());
 	}
 
 	return true;
