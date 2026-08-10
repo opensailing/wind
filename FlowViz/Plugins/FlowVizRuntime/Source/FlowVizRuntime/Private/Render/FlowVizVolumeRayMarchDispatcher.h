@@ -188,8 +188,14 @@ namespace FlowVizVolumeRayMarchProduction
 		//~ End IFlowVizVolumeRayMarchDispatcher
 
 		/** Marches and composites every request recorded for this view, and removes them. */
-		/** @param SceneDepthTexture Opaque scene depth for ray clamping, or null (depthless fallback). */
+		/**
+		 * @param CompositeTargetTexture Scene color for the pre-post-process path, or
+		 *        null to resolve the view-family output for the post-render fallback.
+		 * @param SceneDepthTexture Opaque scene depth for ray clamping, or null
+		 *        for the depthless fallback.
+		 */
 		void DrainView(FRDGBuilder& GraphBuilder, const FSceneView& View,
+			FRDGTextureRef CompositeTargetTexture = nullptr,
 			FRDGTextureRef SceneDepthTexture = nullptr) const;
 
 		/**

@@ -3,7 +3,10 @@
 #include "../Render/FlowVizVolumeRayMarchDispatcher.h"
 
 #include "CFDViz/CFDVizColorMaps.h"
+#include "Interfaces/IPluginManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "RenderGraphBuilder.h"
 #include "Render/FlowVizVolumeRayMarchShader.h"
 #include "Scene/FlowVizVolumeComponent.h"
@@ -656,6 +659,94 @@ bool FFlowVizTransferFunctionSeamTest::RunTest(const FString& Parameters)
 		{
 			TestEqual(TEXT("degrading again after recovery starts a second episode"),
 				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(2));
+		}
+	}
+
+	// --- CHANNEL 5: THE VIEW HOOK TARGETS THE RIGHT SCENE TEXTURE -----------
+	/*
+	 * This boundary cannot be driven by the seam harness above: constructing the
+	 * renderer-owned FPostProcessingInputs and FViewInfo needs a live scene. Read
+	 * only the four production function bodies whose wiring is under test. The
+	 * controls on every boundary keep an empty match set from passing the checks.
+	 */
+	{
+		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("FlowVizRuntime"));
+		if (TestTrue(TEXT("the FlowVizRuntime plugin is discoverable for the render-hook contract"),
+				Plugin.IsValid()))
+		{
+			const FString DispatcherPath = FPaths::Combine(
+				Plugin->GetBaseDir(),
+				TEXT("Source/FlowVizRuntime/Private/Render/FlowVizVolumeRayMarchDispatcher.cpp"));
+			FString Source;
+			if (TestTrue(TEXT("the production dispatcher source is readable"),
+					FFileHelper::LoadFileToString(Source, *DispatcherPath)))
+			{
+				const int32 DispatchStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch("));
+				const int32 DrainStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView("));
+				const int32 DropStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FDispatcher::DropRequestsOutsideFamily("));
+				const int32 PostStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FViewExtension::PostRenderView_RenderThread("));
+				const int32 PrePostStart = Source.Find(
+					TEXT("void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderThread("));
+				const int32 LocalNamespaceStart = Source.Find(
+					TEXT("namespace FlowVizVolumeRayMarchDispatcherLocal"),
+					ESearchCase::CaseSensitive, ESearchDir::FromStart, PrePostStart + 1);
+
+				if (TestTrue(TEXT("CONTROL: the dispatch body has a bounded source range"),
+						DispatchStart != INDEX_NONE && DrainStart > DispatchStart))
+				{
+					const FString DispatchBody = Source.Mid(DispatchStart, DrainStart - DispatchStart);
+					TestTrue(TEXT("screen-percentage views use FViewInfo::ViewRect for dispatch and depth addressing"),
+						DispatchBody.Contains(
+							TEXT("UE::FXRenderingUtils::GetRawViewRectUnsafe(*Context.View)"),
+							ESearchCase::CaseSensitive));
+					TestTrue(TEXT("bare FSceneView seam fixtures retain the unscaled fallback"),
+						DispatchBody.Contains(TEXT("Context.View->UnscaledViewRect"), ESearchCase::CaseSensitive));
+				}
+
+				if (TestTrue(TEXT("CONTROL: the drain body has a bounded source range"),
+						DrainStart != INDEX_NONE && DropStart > DrainStart))
+				{
+					const FString DrainBody = Source.Mid(DrainStart, DropStart - DrainStart);
+					TestTrue(TEXT("an explicit pre-post-process target is used before the view-family fallback"),
+						DrainBody.Contains(
+							TEXT("FRDGTextureRef SceneOutput = CompositeTargetTexture"),
+							ESearchCase::CaseSensitive));
+					TestFalse(TEXT("the full-resolution march targets are not cleared before a pass that writes every pixel"),
+						DrainBody.Contains(TEXT("AddClearUAVPass"), ESearchCase::CaseSensitive));
+					TestTrue(TEXT("CONTROL: the drain still creates and dispatches the ray-march outputs"),
+						DrainBody.Contains(TEXT("AddRayMarchPass"), ESearchCase::CaseSensitive)
+							&& DrainBody.Contains(TEXT("FlowVizVolumeRayMarch.Color"), ESearchCase::CaseSensitive));
+				}
+
+				if (TestTrue(TEXT("CONTROL: the post-render fallback body has a bounded source range"),
+						PostStart != INDEX_NONE && PrePostStart > PostStart))
+				{
+					const FString PostBody = Source.Mid(PostStart, PrePostStart - PostStart);
+					TestTrue(TEXT("the depthless post-render hook keeps the implicit view-family output fallback"),
+						PostBody.Contains(TEXT("DrainView(GraphBuilder, InView);"), ESearchCase::CaseSensitive));
+				}
+
+				if (TestTrue(TEXT("CONTROL: the pre-post-process body has a bounded source range"),
+						PrePostStart != INDEX_NONE && LocalNamespaceStart > PrePostStart))
+				{
+					const FString PrePostBody = Source.Mid(
+						PrePostStart, LocalNamespaceStart - PrePostStart);
+					TestTrue(TEXT("the pre-post-process hook takes the live scene-color texture from SceneTextures"),
+						PrePostBody.Contains(
+							TEXT("SceneColor = Contents->SceneColorTexture"),
+							ESearchCase::CaseSensitive));
+					TestTrue(TEXT("a missing scene-color input leaves the request for the post-render fallback"),
+						PrePostBody.Contains(TEXT("if (SceneColor != nullptr)"), ESearchCase::CaseSensitive));
+					TestTrue(TEXT("the depth-aware drain composites into scene color before post processing"),
+						PrePostBody.Contains(
+							TEXT("DrainView(GraphBuilder, InView, SceneColor, SceneDepth)"),
+							ESearchCase::CaseSensitive));
+				}
+			}
 		}
 	}
 

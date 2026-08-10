@@ -7,12 +7,12 @@
 #include "SceneTexturesConfig.h"
 
 #include "CommonRenderResources.h"
+#include "FXRenderingUtils.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/ScopeLock.h"
 #include "PixelFormat.h"
 #include "RHIStaticStates.h"
 #include "RenderGraphBuilder.h"
-#include "RenderGraphUtils.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
 #include "ScreenPass.h"
@@ -148,7 +148,15 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 		return;
 	}
 
-	const FIntRect ViewRect = Context.View->UnscaledViewRect;
+	// Scene depth and pre-post-process scene color are allocated at the scaled
+	// renderer resolution. UnscaledViewRect is the presentation rect; under TSR or
+	// screen percentage its origin and extent address different texels. Real
+	// renderer views are FViewInfo and expose the live ViewRect through the engine's
+	// public FX seam. Bare FSceneView fixtures keep the unscaled fallback because
+	// GetRawViewRectUnsafe deliberately checks bIsViewInfo.
+	const FIntRect ViewRect = Context.View->bIsViewInfo
+		? UE::FXRenderingUtils::GetRawViewRectUnsafe(*Context.View)
+		: Context.View->UnscaledViewRect;
 	if (ViewRect.Width() <= 0 || ViewRect.Height() <= 0)
 	{
 		return;
@@ -300,6 +308,7 @@ void FlowVizVolumeRayMarchProduction::TakeRequestsForView(
 void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 	FRDGBuilder& GraphBuilder,
 	const FSceneView& View,
+	FRDGTextureRef CompositeTargetTexture,
 	FRDGTextureRef SceneDepthTexture) const
 {
 	TArray<FRequest> Requests;
@@ -356,42 +365,35 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		return;
 	}
 
-	// A VIEW NEED NOT HAVE A FAMILY, AND THIS USED TO ASSUME IT DID.
-	// FSceneView::Family is copied straight from InitOptions.ViewFamily and has
-	// no default, so a view built from bare init options carries null. Every
-	// view the shipped extension hands us belongs to the family currently
-	// rendering, which is why the raw dereference below survived review -- but
-	// it is a property of the caller, not of the type, and the compiler enforces
-	// nothing.
-	//
-	// Observed 2026-08-06, as a SIGSEGV at address 0x30 on the render thread,
-	// from a unit fixture that could not construct a family (one needs a scene,
-	// which needs a world). The cost was not the failing test: the crash took
-	// the editor down mid-session and 55 further tests never ran, which the
-	// runner reported as a clean green.
-	//
-	// AFTER THE QUEUE IS DRAINED AND THE LUT IS BUILT, deliberately. Returning
-	// earlier would leave the requests pending for a view that is never drained
-	// again -- the queue would grow for the life of the process -- and would
-	// also make this function a no-op for the seam tests, which read the LUT
-	// this call builds. What is skipped here is the composite, which is the only
-	// part that needs the family.
-	if (View.Family == nullptr)
-	{
-		UE_LOG(LogFlowViz, Warning,
-			TEXT("Volume ray-march drained %d request(s) for a view with no view family, ")
-			TEXT("so the marched result was built but not composited into a scene texture."),
-			Requests.Num());
-		return;
-	}
-
-	FRDGTextureRef SceneOutput = TryCreateViewFamilyTexture(GraphBuilder, *View.Family);
+	FRDGTextureRef SceneOutput = CompositeTargetTexture;
 	if (SceneOutput == nullptr)
 	{
-		UE_LOG(LogFlowViz, Warning,
-			TEXT("Volume ray-march produced %d result(s) with no view-family texture to composite into."),
-			Requests.Num());
-		return;
+		// A VIEW NEED NOT HAVE A FAMILY, AND THIS USED TO ASSUME IT DID.
+		// FSceneView::Family is copied straight from InitOptions.ViewFamily and has
+		// no default, so a view built from bare init options carries null. The
+		// pre-post-process path supplies scene color explicitly and never reaches
+		// this fallback; only the depthless post-render path resolves family output.
+		//
+		// AFTER THE QUEUE IS DRAINED AND THE LUT IS BUILT, deliberately. Returning
+		// earlier would leave the requests pending and would make the seam tests'
+		// LUT observation a no-op.
+		if (View.Family == nullptr)
+		{
+			UE_LOG(LogFlowViz, Warning,
+				TEXT("Volume ray-march drained %d request(s) for a view with no view family, ")
+				TEXT("so the marched result was built but not composited into a scene texture."),
+				Requests.Num());
+			return;
+		}
+
+		SceneOutput = TryCreateViewFamilyTexture(GraphBuilder, *View.Family);
+		if (SceneOutput == nullptr)
+		{
+			UE_LOG(LogFlowViz, Warning,
+				TEXT("Volume ray-march produced %d result(s) with no view-family texture to composite into."),
+				Requests.Num());
+			return;
+		}
 	}
 
 	const ERHIFeatureLevel::Type FeatureLevel = View.GetFeatureLevel();
@@ -421,12 +423,10 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DrainView(
 		FRDGTextureRef OutColor = GraphBuilder.CreateTexture(Desc, TEXT("FlowVizVolumeRayMarch.Color"));
 		FRDGTextureRef OutValue = GraphBuilder.CreateTexture(Desc, TEXT("FlowVizVolumeRayMarch.Value"));
 
-		// The marcher writes every pixel it is dispatched over, but a refused
-		// dispatch leaves the texture holding whatever the transient allocator
-		// last had there. Clearing first makes "nothing was marched" read as
-		// transparent rather than as another pass's leftovers.
-		AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(FRDGTextureUAVDesc(OutColor)), FVector4(0.0, 0.0, 0.0, 0.0));
-		AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(FRDGTextureUAVDesc(OutValue)), FVector4(0.0, 0.0, 0.0, 0.0));
+		// No full-resolution clear. The compute shader writes every in-bounds pixel
+		// on every path, and these textures are consumed only after AddRayMarchPass
+		// accepts the dispatch. If it refuses, the loop continues without adding a
+		// read dependency, so RDG culls the unused transient textures.
 
 		FFlowVizVolumeRayMarchParameters* Parameters =
 			GraphBuilder.AllocParameters<FFlowVizVolumeRayMarchParameters>();
@@ -592,6 +592,7 @@ void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderT
 	 * opaque surface set. Runs before tonemapping, so the volume also finally
 	 * goes through the same post chain as everything else.
 	 */
+	FRDGTextureRef SceneColor = nullptr;
 	FRDGTextureRef SceneDepth = nullptr;
 	if (Inputs.SceneTextures != nullptr)
 	{
@@ -599,10 +600,14 @@ void FlowVizVolumeRayMarchProduction::FViewExtension::PrePostProcessPass_RenderT
 			Inputs.SceneTextures->GetContents();
 		if (Contents != nullptr)
 		{
+			SceneColor = Contents->SceneColorTexture;
 			SceneDepth = Contents->SceneDepthTexture;
 		}
 	}
-	GetProductionDispatcher().DrainView(GraphBuilder, InView, SceneDepth);
+	if (SceneColor != nullptr)
+	{
+		GetProductionDispatcher().DrainView(GraphBuilder, InView, SceneColor, SceneDepth);
+	}
 }
 
 namespace FlowVizVolumeRayMarchDispatcherLocal
