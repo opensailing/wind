@@ -29,6 +29,8 @@ Subcommands:
     a ``.npy`` file.
 ``benchmark-read``
     Time a full decode of the case and report throughput.
+``qualify-representative``
+    Prove an external-solver demo is genuinely 3D, temporal, and provenance-pinned.
 
 Two rules govern the exit status, and both come from spec 10's "MUST NOT report
 success":
@@ -83,6 +85,10 @@ from .mock import (
     generate_mock_case,
     high_resolution_parameters,
     low_resolution_parameters,
+)
+from .representative import (
+    RepresentativeCaseRequirements,
+    qualify_representative_case,
 )
 
 __all__ = ["main", "build_parser"]
@@ -144,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_import_openfoam(subparsers)
     _add_extract(subparsers)
     _add_benchmark_read(subparsers)
+    _add_qualify_representative(subparsers)
     return parser
 
 
@@ -632,11 +639,83 @@ def _add_benchmark_read(subparsers: argparse._SubParsersAction) -> None:
     )
 
 
+def _add_qualify_representative(
+    subparsers: argparse._SubParsersAction,
+) -> None:
+    qualify = subparsers.add_parser(
+        "qualify-representative",
+        help="qualify a genuine 3D temporal external-solver demo case",
+        description=(
+            "Validate the complete case, pin solver provenance, measure active "
+            "3D extent, spanwise content, adjacent-frame changes, and temporal "
+            "sampling, then report a deterministic tree SHA-256."
+        ),
+    )
+    qualify.add_argument("case", type=Path, help="the .cfdviz case root")
+    qualify.add_argument("--solver", required=True, help="required solver name")
+    qualify.add_argument(
+        "--revision", required=True, help="required exact solver source revision"
+    )
+    qualify.add_argument(
+        "--minimum-active-dimensions",
+        type=int,
+        nargs=3,
+        default=(128, 64, 64),
+        metavar=("X", "Y", "Z"),
+    )
+    qualify.add_argument("--minimum-frames", type=int, default=20)
+    qualify.add_argument(
+        "--minimum-spanwise-velocity-ratio", type=float, default=0.005
+    )
+    qualify.add_argument(
+        "--minimum-spanwise-gradient-ratio", type=float, default=0.005
+    )
+    qualify.add_argument(
+        "--minimum-temporal-change-ratio", type=float, default=1e-5
+    )
+    qualify.add_argument(
+        "--maximum-feature-displacement-cells", type=float, default=2.0
+    )
+    qualify.add_argument(
+        "--json", action="store_true", dest="as_json",
+        help="emit the qualification evidence as JSON",
+    )
+
+
 def _validate(arguments: argparse.Namespace) -> int:
     """Run ``validate``."""
     report = validate_case(arguments.case)
     if arguments.as_json:
         print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(report.render())
+    return EXIT_OK if report.ok else EXIT_INVALID
+
+
+def _qualify_representative(arguments: argparse.Namespace) -> int:
+    """Run the external-solver representative-data acceptance gate."""
+    try:
+        requirements = RepresentativeCaseRequirements(
+            solver_name=arguments.solver,
+            solver_revision=arguments.revision,
+            minimum_active_dimensions=tuple(arguments.minimum_active_dimensions),
+            minimum_frames=arguments.minimum_frames,
+            minimum_spanwise_velocity_ratio=(
+                arguments.minimum_spanwise_velocity_ratio
+            ),
+            minimum_spanwise_gradient_ratio=(
+                arguments.minimum_spanwise_gradient_ratio
+            ),
+            minimum_temporal_change_ratio=arguments.minimum_temporal_change_ratio,
+            maximum_feature_displacement_cells=(
+                arguments.maximum_feature_displacement_cells
+            ),
+        )
+    except ValueError as exc:
+        raise ConversionError(str(exc)) from exc
+    report = qualify_representative_case(arguments.case, requirements)
+    if arguments.as_json:
+        print(json.dumps(report.to_dict(), indent=2, allow_nan=False))
     else:
         print(report.render())
     return EXIT_OK if report.ok else EXIT_INVALID
@@ -1486,6 +1565,7 @@ _COMMANDS = {
     "import-openfoam": _import_openfoam,
     "extract": _extract,
     "benchmark-read": _benchmark_read,
+    "qualify-representative": _qualify_representative,
 }
 
 

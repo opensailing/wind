@@ -1021,6 +1021,10 @@ def _manifest(
         "generatorCommand": "python -m cfdviz import-fluidx3d",
         "generatorVersion": _tool_version(),
         "exportCommand": "write_device_to_vtk",
+        "sourceArtifacts": {
+            "flagsSequence": bool(parameters.flag_files),
+            "fieldSequences": [source.field_id for source in sources],
+        },
         "notes": notes,
     }
     if parameters.source_case is not None:

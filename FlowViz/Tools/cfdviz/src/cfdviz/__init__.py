@@ -97,6 +97,11 @@ from .openfoam import (
     read_sampled_set,
     scatter_sampled_set,
 )
+from .representative import (
+    RepresentativeCaseReport,
+    RepresentativeCaseRequirements,
+    qualify_representative_case,
+)
 from .vtk_legacy import VTKError, VTKLegacyHeader, read_structured_points
 
 #: Version of this package. Kept in step with ``pyproject.toml``; a test asserts
@@ -154,6 +159,10 @@ __all__ = [
     "OpenFOAMSampledSet",
     "OpenFOAMScatteredFrame",
     "OpenFOAMError",
+    # Representative external-solver qualification
+    "RepresentativeCaseRequirements",
+    "RepresentativeCaseReport",
+    "qualify_representative_case",
     # Meshes and mesh arrays (spec 5 and 6)
     "read_cvm",
     "write_cvm",
