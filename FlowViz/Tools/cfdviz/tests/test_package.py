@@ -44,7 +44,7 @@ def test_package_description_names_the_active_manifest_revision():
 @pytest.mark.parametrize(
     "name",
     ["crc32c", "codecs", "colormaps", "cvf", "cvm", "cva", "manifest", "case",
-     "convert", "fluidx3d", "vtk_legacy", "__main__"],
+     "convert", "fluidx3d", "openfoam", "vtk_legacy", "__main__"],
 )
 def test_every_module_imports(name):
     importlib.import_module(f"cfdviz.{name}")
@@ -65,6 +65,7 @@ def test_top_level_re_exports_the_public_api():
         "read_cva", "write_cva",
         "crc32c", "validate_manifest", "validate_case",
         "read_structured_points", "fluidx3d_field", "import_fluidx3d_case",
+        "openfoam_field", "import_openfoam_case",
     ):
         assert hasattr(cfdviz, name), name
         assert name in cfdviz.__all__, name

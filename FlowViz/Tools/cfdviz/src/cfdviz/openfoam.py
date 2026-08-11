@@ -4,30 +4,51 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 import io
 import math
+import re
+import uuid
 from dataclasses import dataclass
-from numbers import Integral, Real
 from decimal import Decimal, InvalidOperation
+from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, Final, Iterable, Sequence
 
 import numpy as np
 
-from .convert import ConversionError, require_safe_identifier
+from .case import validate_case, write_known_values
+from .codecs import codec_id_from_name
+from .convert import (
+    ConversionError,
+    QualityAccumulator,
+    StatisticsAccumulator,
+    dump_json,
+    require_safe_identifier,
+    staged_output,
+)
+from .cvf import CVFError, write_cvf
+from .manifest import FORMAT_VERSION
 
 __all__ = [
     "OpenFOAMError",
     "OpenFOAMFieldSpec",
     "OpenFOAMFrameSource",
+    "OpenFOAMImportParameters",
     "OpenFOAMLattice",
     "OpenFOAMSampledSet",
     "OpenFOAMScatteredFrame",
     "discover_sampled_set_frames",
+    "import_openfoam_case",
     "openfoam_field",
     "read_sampled_set",
     "scatter_sampled_set",
 ]
+
+_CASE_NAMESPACE: Final = uuid.UUID("6b37c23a-3d94-5fcc-85db-79c0f9414942")
+_GRID_ID: Final = "main"
+_MASK_ID: Final = "validMask"
+_AXIS_PATTERN: Final = re.compile(r"^[+-][XYZ]$")
 
 
 class OpenFOAMError(ConversionError):
@@ -66,8 +87,11 @@ class OpenFOAMFieldSpec:
             raise OpenFOAMError(f"field {self.source_name!r} unit must be non-empty")
         if not isinstance(self.semantic, str) or not self.semantic:
             raise OpenFOAMError(f"field {self.source_name!r} semantic must be non-empty")
-        expected_kind = None if self.component_count == 1 else self.vector_kind
-        if expected_kind not in (None, "true", "pseudo"):
+        if self.component_count == 1 and self.vector_kind is not None:
+            raise OpenFOAMError(
+                f"scalar field {self.source_name!r} must not declare vector_kind"
+            )
+        if self.component_count == 3 and self.vector_kind not in ("true", "pseudo"):
             raise OpenFOAMError(
                 f"field {self.source_name!r} vector_kind must be 'true' or 'pseudo'"
             )
@@ -167,6 +191,176 @@ class OpenFOAMLattice:
     @property
     def dimensions(self) -> tuple[int, int, int]:
         return tuple(value - 1 for value in self.points)
+
+
+@dataclass(frozen=True)
+class OpenFOAMImportParameters:
+    """Complete explicit interpretation of one sampled-set function output."""
+
+    output: Path
+    name: str
+    input_directory: Path
+    set_name: str
+    format: str
+    fields: tuple[OpenFOAMFieldSpec, ...]
+    lattice: OpenFOAMLattice
+    source_axes: tuple[str, str, str]
+    source_precision: str
+    write_precision: int
+    sampling_method: str
+    solver_method: str
+    export_command: str
+    separator: str = ","
+    length_unit: str = "m"
+    time_unit: str = "s"
+    mass_unit: str = "kg"
+    temperature_unit: str = "K"
+    codec: str = "zlib"
+    level: int | None = None
+    float_type: str = "float32"
+    brick_size: tuple[int, int, int] = (32, 32, 32)
+    solver_version: str | None = None
+    solver_commit: str | None = None
+    solver_configuration: str | None = None
+    source_case: str | None = None
+    max_input_bytes: int | None = None
+    force: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "output", Path(self.output))
+        object.__setattr__(self, "input_directory", Path(self.input_directory))
+        object.__setattr__(self, "fields", tuple(self.fields))
+        object.__setattr__(self, "source_axes", tuple(self.source_axes))
+        raw_bricks = tuple(self.brick_size)
+        if len(raw_bricks) != 3 or any(
+            not isinstance(value, Integral)
+            or isinstance(value, (bool, np.bool_))
+            or not 1 <= int(value) <= 65535
+            for value in raw_bricks
+        ):
+            raise OpenFOAMError(
+                "brick_size must contain three integers in [1, 65535]; got "
+                f"{raw_bricks}"
+            )
+        object.__setattr__(
+            self,
+            "brick_size",
+            tuple(int(value) for value in raw_bricks),
+        )
+        if not isinstance(self.lattice, OpenFOAMLattice):
+            raise OpenFOAMError("lattice must be an OpenFOAMLattice declaration")
+        if not isinstance(self.force, bool):
+            raise OpenFOAMError("force must be a boolean")
+        if not isinstance(self.name, str) or not self.name:
+            raise OpenFOAMError("case name must be a non-empty string")
+        if not isinstance(self.set_name, str) or not self.set_name or any(
+            character in self.set_name for character in "/\\"
+        ):
+            raise OpenFOAMError("set_name must be a safe non-empty file stem")
+        if self.format not in ("csv", "raw"):
+            raise OpenFOAMError("format must be 'csv' or 'raw'")
+        if (
+            not isinstance(self.separator, str)
+            or len(self.separator) != 1
+            or self.separator in "\r\n\0"
+        ):
+            raise OpenFOAMError(
+                "separator must be exactly one non-newline, non-NUL character"
+            )
+        if not self.fields:
+            raise OpenFOAMError("at least the OpenFOAM U field is required")
+        if any(not isinstance(field, OpenFOAMFieldSpec) for field in self.fields):
+            raise OpenFOAMError("fields must contain only OpenFOAMFieldSpec values")
+        field_ids = [field.field_id for field in self.fields]
+        source_names = [field.source_name for field in self.fields]
+        if field_ids.count("U") != 1 or next(
+            (
+                field.component_count
+                for field in self.fields
+                if field.field_id == "U"
+            ),
+            None,
+        ) != 3:
+            raise OpenFOAMError(
+                "exactly one three-component OpenFOAM U field is required"
+            )
+        if _MASK_ID in field_ids:
+            raise OpenFOAMError(f"field id {_MASK_ID!r} is reserved for the point mask")
+        if len(field_ids) != len(set(field_ids)):
+            raise OpenFOAMError(f"field ids must be unique; got {field_ids}")
+        if len(source_names) != len(set(source_names)):
+            raise OpenFOAMError(
+                f"OpenFOAM source field names must be unique; got {source_names}"
+            )
+        if (
+            len(self.source_axes) != 3
+            or any(
+                not isinstance(axis, str) or not _AXIS_PATTERN.fullmatch(axis)
+                for axis in self.source_axes
+            )
+            or {axis[1] for axis in self.source_axes if isinstance(axis, str)}
+            != {"X", "Y", "Z"}
+        ):
+            raise OpenFOAMError(
+                "source_axes must map source X/Y/Z to a signed permutation of "
+                "canonical axes, for example ('+X', '+Y', '+Z')"
+            )
+        if self.source_precision not in ("float32", "float64"):
+            raise OpenFOAMError("source_precision must be 'float32' or 'float64'")
+        if (
+            not isinstance(self.write_precision, int)
+            or isinstance(self.write_precision, bool)
+            or self.write_precision < 1
+        ):
+            raise OpenFOAMError("write_precision must be a positive integer")
+        for label, value in (
+            ("sampling_method", self.sampling_method),
+            ("solver_method", self.solver_method),
+            ("export_command", self.export_command),
+            ("length_unit", self.length_unit),
+            ("time_unit", self.time_unit),
+            ("mass_unit", self.mass_unit),
+            ("temperature_unit", self.temperature_unit),
+        ):
+            if not isinstance(value, str) or not value:
+                raise OpenFOAMError(f"{label} must be a non-empty string")
+        for label, value in (
+            ("solver_version", self.solver_version),
+            ("solver_commit", self.solver_commit),
+            ("solver_configuration", self.solver_configuration),
+            ("source_case", self.source_case),
+        ):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise OpenFOAMError(f"{label} must be non-empty when present")
+        if self.float_type not in ("float16", "float32"):
+            raise OpenFOAMError(
+                f"float_type must be 'float16' or 'float32'; got {self.float_type!r}"
+            )
+        codec_id_from_name(self.codec)
+        if self.level is not None and self.codec != "zlib":
+            raise OpenFOAMError(
+                "compression level is supported only for zlib; the selected "
+                f"codec {self.codec!r} ignores it"
+            )
+        if self.level is not None and (
+            not isinstance(self.level, int)
+            or isinstance(self.level, bool)
+            or not 0 <= self.level <= 9
+        ):
+            raise OpenFOAMError("zlib compression level must be an integer in [0, 9]")
+        if self.max_input_bytes is not None and (
+            not isinstance(self.max_input_bytes, int)
+            or isinstance(self.max_input_bytes, bool)
+            or self.max_input_bytes < 0
+        ):
+            raise OpenFOAMError("max_input_bytes must be a non-negative integer")
+        output = self.output.resolve(strict=False)
+        source = self.input_directory.resolve(strict=False)
+        if source == output or output in source.parents:
+            raise OpenFOAMError(
+                f"input {self.input_directory} is inside output {self.output}; "
+                "replacing the case would delete its own source data"
+            )
 
 
 @dataclass(frozen=True)
@@ -620,3 +814,565 @@ def scatter_sampled_set(
         valid[index] = 1
 
     return OpenFOAMScatteredFrame(values=stored, valid_mask=valid)
+
+
+@dataclass(frozen=True)
+class _CanonicalGrid:
+    dimensions: tuple[int, int, int]
+    points: tuple[int, int, int]
+    origin: tuple[float, float, float]
+    spacing: tuple[float, float, float]
+
+
+def _axis_mapping(
+    source_axes: Sequence[str],
+) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    source_for_canonical = [0, 0, 0]
+    signs = [1, 1, 1]
+    canonical_indices = {"X": 0, "Y": 1, "Z": 2}
+    for source_index, token in enumerate(source_axes):
+        canonical_index = canonical_indices[token[1]]
+        source_for_canonical[canonical_index] = source_index
+        signs[canonical_index] = 1 if token[0] == "+" else -1
+    return tuple(source_for_canonical), tuple(signs)
+
+
+def _orientation_determinant(source_axes: Sequence[str]) -> int:
+    source_for_canonical, signs = _axis_mapping(source_axes)
+    matrix = np.zeros((3, 3), dtype=np.int8)
+    for canonical_index, source_index in enumerate(source_for_canonical):
+        matrix[canonical_index, source_index] = signs[canonical_index]
+    return int(round(float(np.linalg.det(matrix))))
+
+
+def _canonical_grid(
+    lattice: OpenFOAMLattice,
+    source_axes: Sequence[str],
+) -> _CanonicalGrid:
+    source_for_canonical, signs = _axis_mapping(source_axes)
+    points: list[int] = []
+    origin: list[float] = []
+    spacing: list[float] = []
+    for canonical_index, source_index in enumerate(source_for_canonical):
+        count = lattice.points[source_index]
+        delta = lattice.spacing[source_index]
+        source_origin = lattice.origin[source_index]
+        sign = signs[canonical_index]
+        points.append(count)
+        spacing.append(delta)
+        origin.append(
+            source_origin
+            if sign > 0
+            else -(source_origin + (count - 1) * delta)
+        )
+    point_counts = tuple(points)
+    return _CanonicalGrid(
+        dimensions=tuple(value - 1 for value in point_counts),
+        points=point_counts,
+        origin=tuple(origin),
+        spacing=tuple(spacing),
+    )
+
+
+def _transform_values(
+    values: np.ndarray,
+    *,
+    source_axes: Sequence[str],
+    vector_kind: str | None,
+) -> np.ndarray:
+    source_for_canonical, signs = _axis_mapping(source_axes)
+    mapped = np.asarray(values).transpose((*source_for_canonical, 3))
+    for canonical_index, sign in enumerate(signs):
+        if sign < 0:
+            mapped = np.flip(mapped, axis=canonical_index)
+    if vector_kind is None:
+        return mapped.copy(order="C")
+
+    transformed = np.empty_like(mapped)
+    orientation = (
+        _orientation_determinant(source_axes)
+        if vector_kind == "pseudo"
+        else 1
+    )
+    for canonical_index, source_index in enumerate(source_for_canonical):
+        transformed[..., canonical_index] = (
+            orientation
+            * signs[canonical_index]
+            * mapped[..., source_index]
+        )
+    return transformed
+
+
+def _stored_values(
+    values: np.ndarray,
+    *,
+    field: OpenFOAMFieldSpec,
+    mask: np.ndarray,
+    parameters: OpenFOAMImportParameters,
+    path: Path,
+    time: Decimal,
+) -> np.ndarray:
+    source = np.asarray(values)
+    target_dtype = np.dtype("<f2" if parameters.float_type == "float16" else "<f4")
+    stored = np.empty(source.shape, dtype=target_dtype, order="C")
+    for z_index in range(source.shape[2]):
+        source_slice = source[:, :, z_index, :]
+        active = mask[:, :, z_index]
+        if np.isinf(source_slice[active]).any():
+            raise OpenFOAMError(
+                f"{path}: time {time} field {field.source_name!r} contains infinity"
+            )
+        if field.phase is not None:
+            phase = source_slice[..., 0][active]
+            finite = phase[np.isfinite(phase)]
+            if finite.size and (
+                float(finite.min()) < 0.0 or float(finite.max()) > 1.0
+            ):
+                raise OpenFOAMError(
+                    f"{path}: time {time} field {field.source_name!r} is declared "
+                    "as a volume fraction but active values fall outside [0, 1]"
+                )
+        with np.errstate(over="ignore", invalid="ignore"):
+            stored_slice = source_slice.astype(target_dtype)
+        overflow = np.isfinite(source_slice) & ~np.isfinite(stored_slice)
+        overflow &= active[..., None]
+        if overflow.any():
+            flat = int(np.argmax(overflow.reshape(-1)))
+            raise OpenFOAMError(
+                f"{path}: time {time} field {field.source_name!r} value "
+                f"{source_slice.reshape(-1)[flat]!r} overflows "
+                f"{parameters.float_type} storage"
+            )
+        stored_slice[~active] = np.nan
+        stored[:, :, z_index, :] = stored_slice
+    return stored
+
+
+def _update_digest(
+    digest: Any,
+    *,
+    frame: OpenFOAMFrameSource,
+    table: OpenFOAMSampledSet,
+    fields: Sequence[OpenFOAMFieldSpec],
+) -> None:
+    digest.update(
+        dump_json(
+            {
+                "time": str(frame.time),
+                "rowNumbers": table.row_numbers,
+                "fieldIds": [field.field_id for field in fields],
+            },
+            indent=None,
+        ).encode("utf-8")
+    )
+    digest.update(memoryview(np.ascontiguousarray(table.coordinates)).cast("B"))
+    for field in fields:
+        digest.update(
+            memoryview(np.ascontiguousarray(table.values[field.field_id])).cast("B")
+        )
+
+
+def _case_id(digest: Any) -> str:
+    return str(uuid.uuid5(_CASE_NAMESPACE, digest.hexdigest()))
+
+
+def _tool_version() -> str:
+    from . import __version__
+
+    return __version__
+
+
+def _field_entry(
+    *,
+    field: OpenFOAMFieldSpec,
+    numeric_id: int,
+    statistics: StatisticsAccumulator,
+    parameters: OpenFOAMImportParameters,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "numericId": numeric_id,
+        "id": field.field_id,
+        "name": field.source_name,
+        "description": (
+            f"OpenFOAM sampled-set field {field.source_name!r}, imported without "
+            "spatial interpolation."
+        ),
+        "semantic": field.semantic,
+        "kind": "vector" if field.component_count == 3 else "scalar",
+        "components": list(field.components),
+        "componentCount": field.component_count,
+        "dataType": parameters.float_type,
+        "association": "point",
+        "grid": _GRID_ID,
+        "unit": field.unit,
+        "solverPrecision": parameters.source_precision,
+        "temporalInterpolation": "linear",
+        "storage": {
+            "type": "bricked-volume",
+            "codec": parameters.codec,
+            "brickSize": list(parameters.brick_size),
+            "pathPattern": f"frames/{{frame:06d}}/{field.field_id}.cvf",
+        },
+        "display": {
+            "defaultComponent": (
+                "magnitude" if field.component_count == 3 else field.components[0]
+            ),
+            "defaultColorMap": (
+                "coolwarm"
+                if field.semantic in ("vorticity", "q-criterion", "pressure")
+                else "viridis"
+            ),
+            "defaultRangeMode": "global",
+        },
+    }
+    if parameters.level is not None and parameters.codec != "none":
+        entry["storage"]["level"] = parameters.level
+    if field.phase is not None:
+        entry["phase"] = dict(field.phase)
+    declared = statistics.to_manifest()
+    if declared is not None:
+        entry["statistics"] = declared
+    return entry
+
+
+def _mask_entry(
+    *,
+    statistics: StatisticsAccumulator,
+    parameters: OpenFOAMImportParameters,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "numericId": 1,
+        "id": _MASK_ID,
+        "name": "Valid sample-point mask",
+        "description": (
+            "1 where OpenFOAM supplied a finite three-component velocity sample; "
+            "0 for missing rows, invalid-location sentinels, or missing velocity."
+        ),
+        "semantic": "mask",
+        "kind": "scalar",
+        "components": ["valid"],
+        "componentCount": 1,
+        "dataType": "uint8",
+        "association": "point",
+        "grid": _GRID_ID,
+        "unit": "1",
+        "temporalInterpolation": "nearest",
+        "storage": {
+            "type": "bricked-volume",
+            "codec": "none",
+            "brickSize": list(parameters.brick_size),
+            "pathPattern": "frames/{frame:06d}/validMask.cvf",
+        },
+        "display": {
+            "defaultComponent": "valid",
+            "defaultColorMap": "grayscale",
+            "defaultRangeMode": "manual",
+            "recommendedRange": [0.0, 1.0],
+        },
+    }
+    declared = statistics.to_manifest()
+    if declared is not None:
+        entry["statistics"] = declared
+    return entry
+
+
+def _manifest(
+    *,
+    parameters: OpenFOAMImportParameters,
+    grid: _CanonicalGrid,
+    frames: Sequence[OpenFOAMFrameSource],
+    case_id: str,
+    field_statistics: dict[str, StatisticsAccumulator],
+    mask_statistics: StatisticsAccumulator,
+    quality: dict[str, Any],
+) -> dict[str, Any]:
+    solver: dict[str, str] = {
+        "name": "OpenFOAM",
+        "method": parameters.solver_method,
+    }
+    for key, value in (
+        ("version", parameters.solver_version),
+        ("commit", parameters.solver_commit),
+        ("configuration", parameters.solver_configuration),
+    ):
+        if value is not None:
+            solver[key] = value
+
+    fields: list[dict[str, Any]] = [
+        _mask_entry(statistics=mask_statistics, parameters=parameters)
+    ]
+    for numeric_id, field in enumerate(parameters.fields, start=2):
+        fields.append(
+            _field_entry(
+                field=field,
+                numeric_id=numeric_id,
+                statistics=field_statistics[field.field_id],
+                parameters=parameters,
+            )
+        )
+
+    notes = [
+        "OpenFOAM sampledSets output was read from one explicit scalar/vector "
+        "column schema; unavailable fields were not inferred from shifted columns.",
+        "The sampled-set axis was required to be xyz and every row was scattered "
+        "only onto the explicitly declared Cartesian point lattice; no spatial "
+        "interpolation or resampling was performed.",
+        f"Sampling method {parameters.sampling_method!r}, source scalar precision "
+        f"{parameters.source_precision!r}, and OpenFOAM write precision "
+        f"{parameters.write_precision} were declared explicitly.",
+        f"Coordinates were accepted only within tolerance "
+        f"{parameters.lattice.coordinate_tolerance!r} of the declared lattice.",
+        "Missing sample rows and OpenFOAM pTraits<Type>::max invalid-location "
+        "sentinels were stored as NaN with validMask=0.",
+        f"Source axes {parameters.source_axes!r} were transformed into canonical "
+        "right-handed +X-forward, +Z-up coordinates; true vectors and "
+        "pseudovectors used their distinct orientation transforms.",
+        "Native requested OpenFOAM Q and vorticity fields were retained when "
+        "present; the converter did not replace them with derived approximations.",
+    ]
+    provenance: dict[str, Any] = {
+        "sourceType": "external-solver",
+        "generatorCommand": "python -m cfdviz import-openfoam",
+        "generatorVersion": _tool_version(),
+        "exportCommand": parameters.export_command,
+        "notes": notes,
+    }
+    if parameters.source_case is not None:
+        provenance["sourceCase"] = parameters.source_case
+    if parameters.solver_commit is not None:
+        provenance["sourceRevision"] = parameters.solver_commit
+
+    velocity = next(field for field in parameters.fields if field.field_id == "U")
+    tags = ["external-solver", "OpenFOAM"]
+    tags.append(
+        "three-dimensional"
+        if all(dimension > 1 for dimension in grid.dimensions)
+        else "lower-dimensional"
+    )
+    return {
+        "format": "CFDViz",
+        "version": FORMAT_VERSION,
+        "case": {
+            "id": case_id,
+            "name": parameters.name,
+            "description": (
+                "External OpenFOAM solver output converted for visualization; "
+                "FlowViz did not perform the simulation."
+            ),
+            "quality": "external-solver-sample",
+            "solver": solver,
+            "tags": tags,
+        },
+        "units": {
+            "length": parameters.length_unit,
+            "time": parameters.time_unit,
+            "mass": parameters.mass_unit,
+            "temperature": parameters.temperature_unit,
+        },
+        "coordinates": {
+            "handedness": "right",
+            "upAxis": "Z",
+            "forwardAxis": "X",
+            "origin": list(grid.origin),
+        },
+        "timeline": {
+            "frameCount": len(frames),
+            "times": [float(frame.time) for frame in frames],
+            "defaultInterpolation": "linear",
+        },
+        "grids": [
+            {
+                "id": _GRID_ID,
+                "name": "OpenFOAM sampled point lattice",
+                "type": "uniform-cartesian",
+                "dimensions": list(grid.dimensions),
+                "origin": list(grid.origin),
+                "spacing": list(grid.spacing),
+                "maskField": _MASK_ID,
+            }
+        ],
+        "fields": fields,
+        "derivedFields": [
+            {
+                "id": "velocityMagnitude",
+                "name": "Velocity magnitude",
+                "expression": "mag(U)",
+                "unit": velocity.unit,
+                "components": ["magnitude"],
+                "componentCount": 1,
+            }
+        ],
+        "qualityMetrics": quality,
+        "provenance": provenance,
+    }
+
+
+def import_openfoam_case(parameters: OpenFOAMImportParameters) -> Path:
+    """Convert one explicit OpenFOAM sampled-set sequence to CFDViz 1.1."""
+    frames = discover_sampled_set_frames(
+        parameters.input_directory,
+        set_name=parameters.set_name,
+        format=parameters.format,
+    )
+    grid = _canonical_grid(parameters.lattice, parameters.source_axes)
+    codec = codec_id_from_name(parameters.codec)
+    field_statistics = {
+        field.field_id: StatisticsAccumulator(field.component_count)
+        for field in parameters.fields
+    }
+    mask_statistics = StatisticsAccumulator(1)
+    quality = QualityAccumulator(
+        grid.dimensions,
+        grid.spacing,
+        association="point",
+    )
+    digest = hashlib.sha256()
+    digest.update(
+        dump_json(
+            {
+                "name": parameters.name,
+                "times": [str(frame.time) for frame in frames],
+                "setName": parameters.set_name,
+                "format": parameters.format,
+                "separator": parameters.separator,
+                "lattice": {
+                    "origin": parameters.lattice.origin,
+                    "spacing": parameters.lattice.spacing,
+                    "points": parameters.lattice.points,
+                    "coordinateTolerance": parameters.lattice.coordinate_tolerance,
+                },
+                "sourceAxes": parameters.source_axes,
+                "sourcePrecision": parameters.source_precision,
+                "writePrecision": parameters.write_precision,
+                "samplingMethod": parameters.sampling_method,
+                "solverMethod": parameters.solver_method,
+                "units": [
+                    parameters.length_unit,
+                    parameters.time_unit,
+                    parameters.mass_unit,
+                    parameters.temperature_unit,
+                ],
+                "floatType": parameters.float_type,
+                "fields": [
+                    {
+                        "sourceName": field.source_name,
+                        "id": field.field_id,
+                        "components": field.components,
+                        "unit": field.unit,
+                        "semantic": field.semantic,
+                        "vectorKind": field.vector_kind,
+                        "phase": field.phase,
+                    }
+                    for field in parameters.fields
+                ],
+            },
+            indent=None,
+        ).encode("utf-8")
+    )
+
+    try:
+        with staged_output(parameters.output, force=parameters.force) as root:
+            for frame_index, frame in enumerate(frames):
+                table = read_sampled_set(
+                    frame.path,
+                    fields=parameters.fields,
+                    format=parameters.format,
+                    separator=parameters.separator,
+                    max_input_bytes=parameters.max_input_bytes,
+                )
+                scattered = scatter_sampled_set(
+                    table,
+                    lattice=parameters.lattice,
+                    fields=parameters.fields,
+                    source_precision=parameters.source_precision,
+                    write_precision=parameters.write_precision,
+                )
+                _update_digest(
+                    digest,
+                    frame=frame,
+                    table=table,
+                    fields=parameters.fields,
+                )
+                point_mask = _transform_values(
+                    scattered.valid_mask[..., None],
+                    source_axes=parameters.source_axes,
+                    vector_kind=None,
+                )[..., 0].astype(bool, copy=False)
+
+                for numeric_id, field in enumerate(parameters.fields, start=2):
+                    transformed = _transform_values(
+                        scattered.values[field.field_id],
+                        source_axes=parameters.source_axes,
+                        vector_kind=field.vector_kind,
+                    )
+                    stored = _stored_values(
+                        transformed,
+                        field=field,
+                        mask=point_mask,
+                        parameters=parameters,
+                        path=frame.path,
+                        time=frame.time,
+                    )
+                    field_statistics[field.field_id].add(stored, point_mask)
+                    if field.field_id == "U":
+                        quality.add(stored, point_mask)
+                    write_cvf(
+                        root / f"frames/{frame_index:06d}/{field.field_id}.cvf",
+                        values=stored,
+                        dtype=parameters.float_type,
+                        association="point",
+                        codec=codec,
+                        level=parameters.level,
+                        brick_size=parameters.brick_size,
+                        frame_index=frame_index,
+                        field_numeric_id=numeric_id,
+                        simulation_time=float(frame.time),
+                        dimensions=grid.dimensions,
+                        mask=point_mask,
+                    )
+
+                stored_mask = point_mask.astype(np.uint8)[..., None]
+                mask_statistics.add(stored_mask, None)
+                write_cvf(
+                    root / f"frames/{frame_index:06d}/validMask.cvf",
+                    values=stored_mask,
+                    dtype="uint8",
+                    association="point",
+                    codec=codec_id_from_name("none"),
+                    brick_size=parameters.brick_size,
+                    frame_index=frame_index,
+                    field_numeric_id=1,
+                    simulation_time=float(frame.time),
+                    dimensions=grid.dimensions,
+                )
+
+            quality_manifest = quality.to_manifest(
+                frame_count=len(frames),
+                grid_id=_GRID_ID,
+                velocity_field="U",
+            )
+            manifest = _manifest(
+                parameters=parameters,
+                grid=grid,
+                frames=frames,
+                case_id=_case_id(digest),
+                field_statistics=field_statistics,
+                mask_statistics=mask_statistics,
+                quality=quality_manifest,
+            )
+            (root / "manifest.json").write_text(
+                dump_json(manifest) + "\n",
+                encoding="utf-8",
+            )
+            write_known_values(root)
+            report = validate_case(root)
+            if not report.ok:
+                raise OpenFOAMError(
+                    "generated OpenFOAM case failed validation:\n" + report.render()
+                )
+    except OpenFOAMError:
+        raise
+    except (ConversionError, CVFError, OSError, ValueError) as exc:
+        raise OpenFOAMError(str(exc)) from exc
+
+    return parameters.output

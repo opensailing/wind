@@ -4,12 +4,13 @@ Required by `plan.md` §19. Maps each expected post-processing concept to the
 FlowViz control, its implementation status, where the code lives, known
 limitations, and the milestone that delivers it.
 
-**Status as of this revision:** the reader layer is complete and tested, the
-volume renderer draws real data through a real shader, and the Slate workspace
-exists and is operable. What is largely still missing is the wiring *between*
-them: several controls edit a correct, tested view model that no production
-code reads. Those rows say `Scaffolded`, and the limitation column names the
-missing caller, because that is the fact a reader needs.
+**Status as of this revision:** the CFDViz reader layer and the upstream
+OpenFOAM sampled-set converter are complete and tested, the volume renderer
+draws real data through a real shader, and the Slate workspace exists and is
+operable. What is largely still missing is the wiring *between* runtime units:
+several controls edit a correct, tested view model that no production code
+reads. Those rows say `Scaffolded`, and the limitation column names the missing
+caller, because that is the fact a reader needs.
 
 ## Status vocabulary
 
@@ -132,7 +133,43 @@ This is the part that is real.
 | Mesh arrays | CVA reader | Done | `Private/CFDViz/CFDVizArrayReader.cpp` | Cross-language bridge against the Python reference is verified (`CFDVizKnownValuesTest.cpp`) | B |
 | Boundary / block visibility | Patch visibility list | Not started | — | Patch IDs are read from CVM; nothing exposes them | D |
 | Asynchronous load | Background case loader | Partial | `Private/Playback/FlowVizCasePlayer.cpp`, `Private/Playback/FlowVizFrameCache.cpp` | The player decodes off the game thread with a bounded frame cache, satisfying rule 1 for playback. Not `Done` while the player reaches no renderer (task #57), because the property that matters — no hitch on the game thread during scrub — cannot be observed until it does | B/C |
+| OpenFOAM sampled-set conversion | `cfdviz import-openfoam` | Done | `Tools/cfdviz/src/cfdviz/openfoam.py`, `Tools/cfdviz/tests/test_openfoam.py`, `Tools/cfdviz/tests/test_openfoam_import.py` | Uniform Cartesian point lattices exported by `sampledSets` as CSV or raw text with `axis xyz`; scalar and vector fields only. Missing points remain missing, and no interpolation or resampling is performed. Tensors, unstructured grids, and direct case-dictionary reading remain outside this converter. | #103 |
 | Direct OpenFOAM reader | — | Not started | — | Explicitly deferred (§20). FlowViz reads the CFDViz format; conversion is upstream | Deferred |
+
+### OpenFOAM conversion contract
+
+Export one sampled set per numeric time directory with `axis xyz`, then name
+its point lattice and every field explicitly. For example:
+
+```sh
+PYTHONPATH=FlowViz/Tools/cfdviz/src python3 -m cfdviz import-openfoam \
+  --input-directory /path/to/case/postProcessing/flowvizLattice \
+  --set-name volume --format csv \
+  --output /path/to/MotorBike.cfdviz --name "OpenFOAM motorBike" \
+  --field U vector --field p scalar --field Q scalar \
+  --field vorticity vector --pressure-kind kinematic \
+  --lattice-origin -5 -2 0 --lattice-spacing 0.02 0.02 0.02 \
+  --lattice-points 501 201 151 --coordinate-tolerance 1e-8 \
+  --source-axes +X +Y +Z --source-precision float64 \
+  --write-precision 12 --sampling-method uniform \
+  --solver-method finite-volume \
+  --export-command "postProcess -func flowvizLattice" \
+  --source-case motorBike --solver-version 13
+```
+
+`--lattice-points` names source **point** counts. The resulting CFDViz grid cell
+counts are one smaller on every axis, while imported fields and `validMask`
+remain point-associated. OpenFOAM `p` always requires `--pressure-kind`; an
+`alpha.<primary>` field always requires `--secondary-phase`. Unknown fields
+require matching `--field-id SOURCE=ID`, `--field-unit SOURCE=UNIT`, and
+`--field-semantic SOURCE=SEMANTIC`; unknown vectors also require
+`--vector-kind SOURCE=true|pseudo`.
+
+The converter rejects non-`xyz` coordinate columns, duplicate or off-lattice
+rows, ambiguous time directory names, partially missing vectors, infinities,
+storage overflow, and phase fractions outside `[0, 1]`. Fully missing rows and
+OpenFOAM invalid-location sentinels become NaN with `validMask=0`. Native Q and
+vorticity are preserved rather than silently regenerated.
 
 ## 9. Explicitly out of parity scope
 

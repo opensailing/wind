@@ -403,6 +403,11 @@ def test_discovery_rejects_decimal_times_that_collapse_to_one_float(tmp_path: Pa
         discover_sampled_set_frames(root, set_name="volume", format="csv")
 
 
+def test_scalar_field_rejects_a_vector_transform_kind():
+    with pytest.raises(OpenFOAMError, match="scalar.*vector_kind"):
+        openfoam_field("Q", "scalar", vector_kind="pseudo")
+
+
 def test_field_schema_requires_pressure_and_phase_interpretation():
     with pytest.raises(OpenFOAMError, match="pressure_kind"):
         openfoam_field("p", "scalar")

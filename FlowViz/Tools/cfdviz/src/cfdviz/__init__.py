@@ -83,6 +83,20 @@ from .fluidx3d import (
     fluidx3d_field,
     import_fluidx3d_case,
 )
+from .openfoam import (
+    OpenFOAMError,
+    OpenFOAMFieldSpec,
+    OpenFOAMFrameSource,
+    OpenFOAMImportParameters,
+    OpenFOAMLattice,
+    OpenFOAMSampledSet,
+    OpenFOAMScatteredFrame,
+    discover_sampled_set_frames,
+    import_openfoam_case,
+    openfoam_field,
+    read_sampled_set,
+    scatter_sampled_set,
+)
 from .vtk_legacy import VTKError, VTKLegacyHeader, read_structured_points
 
 #: Version of this package. Kept in step with ``pyproject.toml``; a test asserts
@@ -128,6 +142,18 @@ __all__ = [
     "FluidX3DFieldSource",
     "FluidX3DImportParameters",
     "FluidX3DError",
+    "openfoam_field",
+    "import_openfoam_case",
+    "read_sampled_set",
+    "discover_sampled_set_frames",
+    "scatter_sampled_set",
+    "OpenFOAMFieldSpec",
+    "OpenFOAMFrameSource",
+    "OpenFOAMImportParameters",
+    "OpenFOAMLattice",
+    "OpenFOAMSampledSet",
+    "OpenFOAMScatteredFrame",
+    "OpenFOAMError",
     # Meshes and mesh arrays (spec 5 and 6)
     "read_cvm",
     "write_cvm",

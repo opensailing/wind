@@ -22,6 +22,8 @@ Subcommands:
     selects the small preset that is committed to source control.
 ``import-fluidx3d``
     Convert explicitly identified FluidX3D legacy VTK volume sequences.
+``import-openfoam``
+    Convert explicitly described OpenFOAM sampled-set point lattices.
 ``extract``
     Pull one field at one frame out of a case, as a summary, a single voxel, or
     a ``.npy`` file.
@@ -67,6 +69,12 @@ from .fluidx3d import (
     FluidX3DImportParameters,
     fluidx3d_field,
     import_fluidx3d_case,
+)
+from .openfoam import (
+    OpenFOAMImportParameters,
+    OpenFOAMLattice,
+    import_openfoam_case,
+    openfoam_field,
 )
 from .manifest import ManifestError, field_by_id, frame_path, load_manifest
 from .mock import (
@@ -133,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_generate_mock(subparsers)
     _add_import_fluidx3d(subparsers)
+    _add_import_openfoam(subparsers)
     _add_extract(subparsers)
     _add_benchmark_read(subparsers)
     return parser
@@ -380,6 +389,163 @@ def _add_import_fluidx3d(subparsers: argparse._SubParsersAction) -> None:
     )
     importer.add_argument("--source-case")
     importer.add_argument("--max-payload-bytes", type=int)
+    importer.add_argument(
+        "--force",
+        action="store_true",
+        help="replace a non-empty output only after conversion succeeds",
+    )
+
+
+def _add_import_openfoam(subparsers: argparse._SubParsersAction) -> None:
+    importer = subparsers.add_parser(
+        "import-openfoam",
+        help="convert OpenFOAM sampled-set point lattices",
+        description=(
+            "Convert one OpenFOAM sampledSets sequence exported with axis xyz. "
+            "The source lattice, field column order, scalar/vector kinds, pressure "
+            "interpretation, precision, and axis mapping are explicit; no spatial "
+            "interpolation or omitted-column inference is performed."
+        ),
+    )
+    importer.add_argument("--output", type=Path, required=True)
+    importer.add_argument("--name", required=True, help="case name in the manifest")
+    importer.add_argument(
+        "--input-directory",
+        type=Path,
+        required=True,
+        help="directory containing one numeric subdirectory per sampled time",
+    )
+    importer.add_argument("--set-name", required=True, help="sampled set file stem")
+    importer.add_argument("--format", choices=("csv", "raw"), required=True)
+    importer.add_argument(
+        "--separator",
+        default=",",
+        help="single-character CSV separator (default ',')",
+    )
+    importer.add_argument(
+        "--field",
+        action="append",
+        nargs=2,
+        required=True,
+        metavar=("SOURCE_NAME", "KIND"),
+        help=(
+            "source field name and explicit kind (scalar or vector), in sampled-set "
+            "column order; repeat for every field"
+        ),
+    )
+    importer.add_argument(
+        "--field-id",
+        action="append",
+        default=(),
+        metavar="SOURCE=ID",
+        help="target CFDViz id for an unknown or renamed source field",
+    )
+    importer.add_argument(
+        "--field-unit",
+        action="append",
+        default=(),
+        metavar="SOURCE=UNIT",
+        help="unit for an unknown or overridden source field",
+    )
+    importer.add_argument(
+        "--field-semantic",
+        action="append",
+        default=(),
+        metavar="SOURCE=SEMANTIC",
+        help="semantic for an unknown or overridden source field",
+    )
+    importer.add_argument(
+        "--vector-kind",
+        action="append",
+        default=(),
+        metavar="SOURCE=KIND",
+        help="true or pseudo vector transform for a vector field",
+    )
+    importer.add_argument(
+        "--pressure-kind",
+        choices=("kinematic", "dynamic"),
+        help="required interpretation of OpenFOAM p",
+    )
+    importer.add_argument(
+        "--secondary-phase",
+        help="required secondary phase name when importing alpha.<primary>",
+    )
+    importer.add_argument(
+        "--lattice-origin",
+        type=float,
+        nargs=3,
+        required=True,
+        metavar=("X", "Y", "Z"),
+    )
+    importer.add_argument(
+        "--lattice-spacing",
+        type=float,
+        nargs=3,
+        required=True,
+        metavar=("DX", "DY", "DZ"),
+    )
+    importer.add_argument(
+        "--lattice-points",
+        type=int,
+        nargs=3,
+        required=True,
+        metavar=("PX", "PY", "PZ"),
+        help="sample point counts; CFDViz cell dimensions are each count minus one",
+    )
+    importer.add_argument(
+        "--coordinate-tolerance",
+        type=float,
+        required=True,
+        help="absolute source-coordinate tolerance for lattice reconstruction",
+    )
+    importer.add_argument(
+        "--source-axes",
+        nargs=3,
+        required=True,
+        metavar=("SOURCE_X", "SOURCE_Y", "SOURCE_Z"),
+        help="signed canonical direction of source X/Y/Z, e.g. +X +Y +Z",
+    )
+    importer.add_argument(
+        "--source-precision",
+        choices=("float32", "float64"),
+        required=True,
+        help="OpenFOAM scalar precision used for invalid-location sentinels",
+    )
+    importer.add_argument(
+        "--write-precision",
+        type=int,
+        required=True,
+        help="OpenFOAM sampled-set text write precision",
+    )
+    importer.add_argument("--sampling-method", required=True)
+    importer.add_argument("--solver-method", required=True)
+    importer.add_argument("--export-command", required=True)
+    importer.add_argument("--length-unit", default="m")
+    importer.add_argument("--time-unit", default="s")
+    importer.add_argument("--mass-unit", default="kg")
+    importer.add_argument("--temperature-unit", default="K")
+    importer.add_argument("--codec", choices=_WRITABLE_CODECS, default="zlib")
+    importer.add_argument("--level", type=int)
+    precision = importer.add_mutually_exclusive_group()
+    precision.add_argument(
+        "--float16", action="store_const", const="float16", dest="float_type"
+    )
+    precision.add_argument(
+        "--float32", action="store_const", const="float32", dest="float_type"
+    )
+    importer.set_defaults(float_type="float32")
+    importer.add_argument(
+        "--brick-size",
+        type=int,
+        nargs=3,
+        default=(32, 32, 32),
+        metavar=("BX", "BY", "BZ"),
+    )
+    importer.add_argument("--solver-version")
+    importer.add_argument("--solver-commit")
+    importer.add_argument("--solver-configuration")
+    importer.add_argument("--source-case")
+    importer.add_argument("--max-input-bytes", type=int)
     importer.add_argument(
         "--force",
         action="store_true",
@@ -814,6 +980,133 @@ def _import_fluidx3d(arguments: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# import-openfoam
+# ---------------------------------------------------------------------------
+
+
+def _import_openfoam(arguments: argparse.Namespace) -> int:
+    kinds: dict[str, str] = {}
+    ordered_names: list[str] = []
+    for source_name, kind in arguments.field:
+        if source_name in kinds:
+            raise ConversionError(f"--field repeats source field {source_name!r}")
+        if kind not in ("scalar", "vector"):
+            raise ConversionError(
+                f"--field {source_name!r} kind must be 'scalar' or 'vector'; "
+                f"got {kind!r}"
+            )
+        kinds[source_name] = kind
+        ordered_names.append(source_name)
+
+    field_ids = _assignment_map(
+        arguments.field_id,
+        label="--field-id",
+        convert=str,
+    )
+    units = _assignment_map(
+        arguments.field_unit,
+        label="--field-unit",
+        convert=str,
+    )
+    semantics = _assignment_map(
+        arguments.field_semantic,
+        label="--field-semantic",
+        convert=str,
+    )
+    vector_kinds = _assignment_map(
+        arguments.vector_kind,
+        label="--vector-kind",
+        convert=str,
+    )
+    overrides = set(field_ids) | set(units) | set(semantics) | set(vector_kinds)
+    unknown_overrides = overrides - set(kinds)
+    if unknown_overrides:
+        raise ConversionError(
+            "field overrides name fields not supplied by --field: "
+            f"{sorted(unknown_overrides)}"
+        )
+    invalid_vector_kinds = {
+        name: value
+        for name, value in vector_kinds.items()
+        if value not in ("true", "pseudo")
+    }
+    if invalid_vector_kinds:
+        raise ConversionError(
+            "--vector-kind values must be 'true' or 'pseudo'; got "
+            f"{invalid_vector_kinds}"
+        )
+
+    fields = tuple(
+        openfoam_field(
+            source_name,
+            kinds[source_name],
+            field_id=field_ids.get(source_name),
+            unit=units.get(source_name),
+            semantic=semantics.get(source_name),
+            vector_kind=vector_kinds.get(source_name),
+            pressure_kind=(
+                arguments.pressure_kind if source_name == "p" else None
+            ),
+            secondary_phase=(
+                arguments.secondary_phase
+                if source_name.startswith("alpha.")
+                else None
+            ),
+        )
+        for source_name in ordered_names
+    )
+    lattice = OpenFOAMLattice(
+        origin=tuple(arguments.lattice_origin),
+        spacing=tuple(arguments.lattice_spacing),
+        points=tuple(arguments.lattice_points),
+        coordinate_tolerance=arguments.coordinate_tolerance,
+    )
+    parameters = OpenFOAMImportParameters(
+        output=arguments.output,
+        name=arguments.name,
+        input_directory=arguments.input_directory,
+        set_name=arguments.set_name,
+        format=arguments.format,
+        separator=arguments.separator,
+        fields=fields,
+        lattice=lattice,
+        source_axes=tuple(arguments.source_axes),
+        source_precision=arguments.source_precision,
+        write_precision=arguments.write_precision,
+        sampling_method=arguments.sampling_method,
+        solver_method=arguments.solver_method,
+        export_command=arguments.export_command,
+        length_unit=arguments.length_unit,
+        time_unit=arguments.time_unit,
+        mass_unit=arguments.mass_unit,
+        temperature_unit=arguments.temperature_unit,
+        codec=arguments.codec,
+        level=arguments.level,
+        float_type=arguments.float_type,
+        brick_size=tuple(arguments.brick_size),
+        solver_version=arguments.solver_version,
+        solver_commit=arguments.solver_commit,
+        solver_configuration=arguments.solver_configuration,
+        source_case=arguments.source_case,
+        max_input_bytes=arguments.max_input_bytes,
+        force=arguments.force,
+    )
+    root = import_openfoam_case(parameters)
+    manifest = load_manifest(root)
+    timeline = manifest["timeline"]
+    dimensions = manifest["grids"][0]["dimensions"]
+    total = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+    print(
+        f"wrote {root} from OpenFOAM: "
+        f"{'x'.join(str(value) for value in dimensions)} cells, "
+        f"{timeline['frameCount']} frames, {len(manifest['fields'])} fields, "
+        f"{total / 1024 / 1024:.2f} MiB"
+    )
+    print(f"  external solver data: {manifest['case']['id']}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # extract
 # ---------------------------------------------------------------------------
 
@@ -1130,6 +1423,7 @@ _COMMANDS = {
     "known-values": _known_values,
     "generate-mock": _generate_mock,
     "import-fluidx3d": _import_fluidx3d,
+    "import-openfoam": _import_openfoam,
     "extract": _extract,
     "benchmark-read": _benchmark_read,
 }
