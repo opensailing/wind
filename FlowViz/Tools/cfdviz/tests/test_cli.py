@@ -150,8 +150,11 @@ def test_info_summarizes_a_case(capsys, valid_case: Path):
     assert "synthetic" in out
     assert "effective 3D" in out
     assert "active dimensions=4x3x2" in out
-    assert "velocity RMS=[1.0, 0.25, 0.1]" in out
-    assert "spanwise gradient RMS=0.05" in out
+    assert (
+        "velocity RMS=[8.200609733428363, 8.40014880820572, "
+        "8.602325267042627]" in out
+    )
+    assert "spanwise gradient RMS=12.99038105676658" in out
     assert "temporal frames=2" in out
     assert "solver-post --write-fields" in out
     assert "alphaWater" in out and "volume-fraction" in out

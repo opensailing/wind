@@ -539,6 +539,36 @@ def test_field_source_exposes_only_explicit_caller_inputs(tmp_path: Path):
     ]
 
 
+def test_field_unit_override_must_be_a_nonempty_string(tmp_path: Path):
+    with pytest.raises(FluidX3DError, match="unit.*non-empty string"):
+        fluidx3d_field(
+            "density",
+            (tmp_path / "rho-000000000.vtk",),
+            unit=7,
+        )
+
+
+def test_field_mapping_requires_the_canonical_fluidx3d_filename_prefix(
+    tmp_path: Path,
+):
+    path = _write_vtk(tmp_path / "rho-000000000.vtk", _velocity(0))
+    parameters = FluidX3DImportParameters(
+        output=tmp_path / "WrongPrefix.cfdviz",
+        name="wrong-prefix",
+        fields=(fluidx3d_field("U", (path,)),),
+        source_time_step=1.0,
+        solver_step_offset=0,
+        source_units="lattice",
+        source_axes=("+X", "+Y", "+Z"),
+        solver_method="lattice-Boltzmann D3Q19",
+        assume_all_cells_valid=True,
+        codec="none",
+    )
+
+    with pytest.raises(FluidX3DError, match="field 'U'.*prefix.*'u'"):
+        import_fluidx3d_case(parameters)
+
+
 def test_source_unit_mode_and_solver_method_are_required(tmp_path: Path):
     velocity_files, _ = _inputs(tmp_path, steps=(0,))
     common = {
@@ -683,7 +713,7 @@ def test_force_values_are_retained_only_on_solid_cells(tmp_path: Path):
     velocity_files, flag_files = _inputs(tmp_path, steps=(0,))
     force = np.ones((4, 3, 2, 3), dtype="<f4")
     force[1, 2, 1] = (9.0, 8.0, 7.0)
-    force_path = _write_vtk(tmp_path / "force-000000000.vtk", force)
+    force_path = _write_vtk(tmp_path / "F-000000000.vtk", force)
     parameters = FluidX3DImportParameters(
         output=tmp_path / "Force.cfdviz",
         name="force",
@@ -1054,6 +1084,14 @@ def test_zlib_level_and_force_flag_are_validated_at_construction(tmp_path: Path)
         replace(parameters, codec="zlib", level=10)
     with pytest.raises(FluidX3DError, match="force must be a boolean"):
         replace(parameters, force="false")
+
+
+@pytest.mark.parametrize("bits", ["1", 1.5, True])
+def test_excluded_flag_bits_requires_an_integer_byte(tmp_path: Path, bits):
+    parameters = _parameters(tmp_path)
+
+    with pytest.raises(FluidX3DError, match="excluded_flag_bits.*integer.*0.*255"):
+        replace(parameters, excluded_flag_bits=bits)
 
 
 def test_solver_step_offset_recovers_fluidx3d_filename_rollover(tmp_path: Path):

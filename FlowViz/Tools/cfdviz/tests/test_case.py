@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import json
 import struct
+import weakref
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from conftest import build_case, sample_manifest
+from conftest import build_case, sample_field_values, sample_manifest
 from cfdviz.case import (
     ValidationReport,
     build_known_values,
@@ -49,6 +50,23 @@ def test_report_counts_what_it_checked(valid_case: Path):
     report = validate_case(valid_case)
     assert report.checked_files >= 6   # 3 fields x 2 frames
     assert report.checked_bricks >= 6
+
+
+def test_validation_processes_fields_frame_by_frame(monkeypatch, valid_case: Path):
+    import cfdviz.case as case_module
+
+    calls: list[tuple[str, int]] = []
+    original = case_module._read_field_frame
+
+    def record_read(report, root, manifest, entry, frame, times):
+        calls.append((str(entry.get("id")), frame))
+        return original(report, root, manifest, entry, frame, times)
+
+    monkeypatch.setattr(case_module, "_read_field_frame", record_read)
+    report = validate_case(valid_case)
+
+    assert report.ok, report.render()
+    assert calls.index(("U", 0)) < calls.index(("validMask", 1))
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +201,63 @@ def test_a_frame_time_disagreeing_with_the_timeline_is_reported(valid_case: Path
     assert any("simulationTime" in e for e in report.errors)
 
 
+@pytest.mark.parametrize(
+    ("key", "forged"),
+    [
+        ("activeCellCount", 22),
+        (
+            "velocityComponentRms",
+            [8.200609733428363, 99.0, 8.602325267042627],
+        ),
+        ("spanwiseGradientRms", 0.1),
+    ],
+)
+def test_declared_quality_metrics_are_recomputed_from_stored_payloads(
+    tmp_path: Path,
+    key: str,
+    forged,
+):
+    manifest = sample_manifest()
+    manifest["qualityMetrics"][key] = forged
+    root = build_case(tmp_path / "ForgedQuality.cfdviz", manifest)
+
+    report = validate_case(root)
+
+    assert not report.ok
+    joined = " ".join(report.errors)
+    assert f"qualityMetrics.{key}" in joined
+    assert "declared" in joined
+    assert "stored data gives" in joined
+
+
+def test_quality_recomputation_combines_grid_mask_and_velocity_nan(tmp_path: Path):
+    from cfdviz.cvf import write_cvf
+
+    manifest = sample_manifest()
+    root = build_case(tmp_path / "FieldValidity.cfdviz", manifest)
+    velocity = sample_field_values("U", 0)
+    velocity[1, 0, 0] = np.nan  # Grid-valid, but field-invalid.
+    mask = sample_field_values("validMask", 0)[..., 0].astype(bool)
+    entry = next(field for field in manifest["fields"] if field["id"] == "U")
+    write_cvf(
+        root / "frames/000000/U.cvf",
+        values=velocity,
+        dtype=entry["dataType"],
+        association=entry["association"],
+        codec=3,
+        brick_size=tuple(entry["storage"]["brickSize"]),
+        frame_index=0,
+        field_numeric_id=entry["numericId"],
+        simulation_time=manifest["timeline"]["times"][0],
+        mask=mask,
+    )
+
+    report = validate_case(root)
+
+    assert not report.ok
+    assert any("qualityMetrics.velocityComponentRms" in error for error in report.errors)
+
+
 def test_declared_statistics_are_recomputed_and_the_discrepancy_shown(
     tmp_path: Path,
 ):
@@ -311,6 +386,20 @@ def test_known_values_has_the_required_top_level_fields(valid_case: Path):
     assert bridge["samples"]
 
 
+def test_known_values_find_special_voxels_without_full_coordinate_lists(
+    monkeypatch,
+    valid_case: Path,
+):
+    def reject_argwhere(*_args, **_kwargs):
+        raise AssertionError("known-value discovery must not enumerate all coordinates")
+
+    monkeypatch.setattr(np, "argwhere", reject_argwhere)
+    bridge = build_known_values(valid_case)
+
+    assert any(sample.get("note") == "nan" for sample in bridge["samples"])
+    assert any(sample.get("note") == "masked" for sample in bridge["samples"])
+
+
 def test_known_values_bits_are_the_exact_stored_bit_pattern(valid_case: Path):
     """Spec 9.2: comparison is on ``bits``, never on ``value``."""
     from cfdviz.cvf import read_cvf
@@ -385,6 +474,29 @@ def test_known_values_is_strict_json_with_no_nan_token(valid_case: Path):
 def test_verify_known_values_accepts_the_case_it_was_built_from(valid_case: Path):
     bridge = build_known_values(valid_case)
     assert verify_known_values(valid_case, bridge) == []
+
+
+def test_verify_known_values_releases_previous_field_frame(
+    monkeypatch,
+    valid_case: Path,
+):
+    import cfdviz.case as case_module
+
+    bridge = build_known_values(valid_case)
+    original = case_module.read_cvf
+    references: list[weakref.ReferenceType[np.ndarray]] = []
+    live_counts: list[int] = []
+
+    def tracked_read(path):
+        field = original(path)
+        references.append(weakref.ref(field.values))
+        live_counts.append(sum(reference() is not None for reference in references))
+        return field
+
+    monkeypatch.setattr(case_module, "read_cvf", tracked_read)
+
+    assert verify_known_values(valid_case, bridge) == []
+    assert max(live_counts) <= 2
 
 
 def test_verify_known_values_detects_a_changed_voxel(valid_case: Path):

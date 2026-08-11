@@ -348,12 +348,16 @@ def sample_manifest() -> dict:
         ],
         "qualityMetrics": {
             "grid": "main",
-            "activeCellCount": 24,
+            "activeCellCount": 23,
             "activeDimensions": list(SAMPLE_DIMENSIONS),
             "effectiveSpatialDimensions": 3,
             "velocityField": "U",
-            "velocityComponentRms": [1.0, 0.25, 0.1],
-            "spanwiseGradientRms": 0.05,
+            "velocityComponentRms": [
+                8.200609733428363,
+                8.40014880820572,
+                8.602325267042627,
+            ],
+            "spanwiseGradientRms": 12.99038105676658,
             "temporalFrameCount": len(SAMPLE_TIMES),
         },
         "meshes": [

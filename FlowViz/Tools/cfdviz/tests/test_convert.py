@@ -87,6 +87,39 @@ def test_quality_metrics_use_physical_spanwise_spacing_and_all_frames():
     assert metrics["temporalFrameCount"] == 2
 
 
+def test_quality_spanwise_uses_one_sided_edges_and_centered_interior():
+    z = np.arange(4, dtype=np.float64)
+    velocity = np.zeros((1, 1, 4, 3), dtype=np.float64)
+    velocity[0, 0, :, 0] = z * z
+    accumulator = QualityAccumulator((1, 1, 4), (1.0, 1.0, 1.0))
+
+    accumulator.add(velocity, np.ones((1, 1, 4), dtype=bool))
+    metrics = accumulator.to_manifest(
+        frame_count=1,
+        grid_id="main",
+        velocity_field="U",
+    )
+
+    # d(z^2)/dz is sampled as [1, 2, 4, 5] by edge one-sided and interior
+    # centered stencils, so RMS = sqrt((1 + 4 + 16 + 25) / 4).
+    assert metrics["spanwiseGradientRms"] == pytest.approx(np.sqrt(11.5))
+
+
+def test_quality_spanwise_stencil_requires_current_cell_and_neighbors():
+    velocity = np.zeros((1, 1, 3, 3), dtype=np.float64)
+    velocity[0, 0, :, 0] = [0.0, np.nan, 4.0]
+    accumulator = QualityAccumulator((1, 1, 3), (1.0, 1.0, 1.0))
+
+    accumulator.add(velocity, np.ones((1, 1, 3), dtype=bool))
+
+    with pytest.raises(ConversionError, match="no valid spanwise stencil"):
+        accumulator.to_manifest(
+            frame_count=1,
+            grid_id="main",
+            velocity_field="U",
+        )
+
+
 def test_quality_metrics_expose_a_spanwise_degenerate_extrusion():
     x, y, z = np.indices((4, 3, 2), dtype=np.float64)
     velocity = np.stack((x + y, y, np.zeros_like(z)), axis=-1)

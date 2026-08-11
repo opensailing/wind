@@ -53,6 +53,13 @@ _SURFACE_MASK: Final = 0x38
 _FILENAME_STEP_CYCLE: Final = 1_000_000_000
 _MAX_SAFE_STEP: Final = (1 << 53) - 1
 _AXIS_PATTERN: Final = re.compile(r"^[+-][XYZ]$")
+_FIELD_FILENAME_PREFIXES: Final = {
+    "U": "u",
+    "density": "rho",
+    "force": "F",
+    "phi": "phi",
+    "temperature": "T",
+}
 
 
 class FluidX3DError(ConversionError):
@@ -296,6 +303,15 @@ class FluidX3DImportParameters:
             raise FluidX3DError("exactly one FluidX3D U field is required")
         if len(ids) != len(set(ids)):
             raise FluidX3DError(f"field ids must be unique; got {ids}")
+        if (
+            not isinstance(self.excluded_flag_bits, int)
+            or isinstance(self.excluded_flag_bits, bool)
+            or not 0 <= self.excluded_flag_bits <= 0xFF
+        ):
+            raise FluidX3DError(
+                "excluded_flag_bits must be an integer in [0, 255]; got "
+                f"{self.excluded_flag_bits!r}"
+            )
         if self.flag_files and self.assume_all_cells_valid:
             raise FluidX3DError(
                 "assume_all_cells_valid cannot be combined with a flags sequence"
@@ -394,12 +410,6 @@ class FluidX3DImportParameters:
             or not 0 <= self.level <= 9
         ):
             raise FluidX3DError("zlib compression level must be an integer in [0, 9]")
-        bits = int(self.excluded_flag_bits)
-        if bits < 0 or bits > 0xFF:
-            raise FluidX3DError(
-                f"excluded_flag_bits must be in [0, 255]; got {bits}"
-            )
-        object.__setattr__(self, "excluded_flag_bits", bits)
         if self.max_payload_bytes is not None and self.max_payload_bytes < 0:
             raise FluidX3DError("max_payload_bytes must be non-negative")
         self._reject_output_containing_sources()
@@ -484,6 +494,20 @@ def _sequence(
     return _Sequence(files=indexed)
 
 
+def _check_field_filename_prefix(source: FluidX3DFieldSource) -> None:
+    expected = _FIELD_FILENAME_PREFIXES[source.field_id]
+    for path in source.files:
+        match = _STEP_PATTERN.search(path.name)
+        if match is None:
+            continue
+        prefix = path.name[:match.start()]
+        if prefix != expected:
+            raise FluidX3DError(
+                f"field {source.field_id!r} source {path} has filename prefix "
+                f"{prefix!r}; canonical FluidX3D exports use {expected!r}"
+            )
+
+
 def _ordered_sources(
     parameters: FluidX3DImportParameters,
 ) -> tuple[list[FluidX3DFieldSource], dict[str, _Sequence], _Sequence | None, list[int]]:
@@ -491,6 +515,8 @@ def _ordered_sources(
         parameters.fields,
         key=lambda source: (source.field_id != "U", source.field_id),
     )
+    for source in sources:
+        _check_field_filename_prefix(source)
     sequences = {
         source.field_id: _sequence(
             source.files,

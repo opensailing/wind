@@ -32,6 +32,7 @@ from typing import Any, Final, Sequence
 import numpy as np
 
 from .codecs import CodecError, UnsupportedCodecError, codec_id_from_name
+from .convert import ConversionError, QualityAccumulator
 from .crc32c import CHECK_VALUE, crc32c
 from .cva import CVAError, read_cva
 from .cvf import CVFError, CVFFormatError, CVFReader, read_cvf
@@ -402,67 +403,136 @@ def validate_case(root: Path | str) -> ValidationReport:
     fields = manifest.get("fields") if isinstance(manifest.get("fields"), list) else []
     report.note(f"{len(times)} frames, {len(fields)} fields")
 
+    entries = [entry for entry in fields if isinstance(entry, dict)]
     mask_field_ids = {
         grid.get("maskField")
         for grid in (manifest.get("grids") or [])
         if isinstance(grid, dict) and grid.get("maskField")
     }
-
-    # Mask fields are decoded first, and their values kept: every other field's
-    # statistics depend on them, and reading a mask twice would both double the
-    # checked-file count and report a broken mask once per field that used it.
-    mask_values: dict[tuple[str, int], np.ndarray] = {}
-    for entry in fields:
-        if not isinstance(entry, dict) or entry.get("id") not in mask_field_ids:
-            continue
-        for frame in range(len(times)):
-            values = _read_field_frame(report, root, manifest, entry, frame, times)
-            if values is not None:
-                mask_values[(str(entry.get("id")), frame)] = values
-
-    for entry in fields:
-        if not isinstance(entry, dict):
-            continue
-        field_id = entry.get("id")
-        grid = grid_by_id(manifest, entry.get("grid")) if entry.get("grid") else None
-        mask_id = grid.get("maskField") if isinstance(grid, dict) else None
-
+    statistics: list[tuple[dict[str, Any], FieldStatistics]] = []
+    for entry in entries:
         components = entry.get("componentCount")
         components = components if isinstance(components, int) and components > 0 else 1
-        stats = FieldStatistics(
-            minimum=np.full(components, np.inf),
-            maximum=np.full(components, -np.inf),
+        statistics.append(
+            (
+                entry,
+                FieldStatistics(
+                    minimum=np.full(components, np.inf),
+                    maximum=np.full(components, -np.inf),
+                ),
+            )
         )
 
-        for frame in range(len(times)):
+    declared_quality = manifest.get("qualityMetrics")
+    quality: QualityAccumulator | None = None
+    quality_grid_id: str | None = None
+    quality_velocity_field: str | None = None
+    quality_failed = False
+    if isinstance(declared_quality, dict):
+        grid_id = declared_quality.get("grid")
+        velocity_field = declared_quality.get("velocityField")
+        quality_grid = grid_by_id(manifest, grid_id) if isinstance(grid_id, str) else None
+        if isinstance(quality_grid, dict) and isinstance(velocity_field, str):
+            dimensions = quality_grid.get("dimensions")
+            spacing = quality_grid.get("spacing")
+            if isinstance(dimensions, list) and isinstance(spacing, list):
+                try:
+                    quality = QualityAccumulator(dimensions, spacing)
+                    quality_grid_id = grid_id
+                    quality_velocity_field = velocity_field
+                except (ConversionError, TypeError, ValueError) as exc:
+                    report.error(f"qualityMetrics could not be recomputed: {exc}")
+                    quality_failed = True
+
+    # Process one complete frame at a time. Each grid mask is decoded once for the
+    # frame, used by every associated field, and released before the next frame.
+    for frame in range(len(times)):
+        frame_masks: dict[str, np.ndarray] = {}
+        for entry in entries:
+            field_id = entry.get("id")
+            if field_id not in mask_field_ids:
+                continue
+            values = _read_field_frame(report, root, manifest, entry, frame, times)
+            if values is not None:
+                frame_masks[str(field_id)] = values
+
+        for entry, stats in statistics:
+            field_id = entry.get("id")
             if field_id in mask_field_ids:
-                values = mask_values.get((str(field_id), frame))
+                values = frame_masks.get(str(field_id))
             else:
                 values = _read_field_frame(report, root, manifest, entry, frame, times)
             if values is None:
                 continue
 
+            grid = grid_by_id(manifest, entry.get("grid")) if entry.get("grid") else None
+            mask_id = grid.get("maskField") if isinstance(grid, dict) else None
             mask = None
+            mask_resolved = True
             if mask_id and mask_id != field_id:
-                stored = mask_values.get((str(mask_id), frame))
+                stored = frame_masks.get(str(mask_id))
                 if stored is None:
                     report.error(
                         f"field {field_id!r} frame {frame}: mask field {mask_id!r} "
                         "could not be read, so mask coverage is unknown"
                     )
+                    mask_resolved = False
                 elif stored.shape[:3] != values.shape[:3]:
                     report.error(
                         f"field {field_id!r} frame {frame}: mask field {mask_id!r} has "
                         f"extent {stored.shape[:3]} but the field is "
                         f"{values.shape[:3]}"
                     )
+                    mask_resolved = False
                 else:
                     mask = stored[..., 0] != 0
             _accumulate(stats, values, mask)
 
+            if (
+                quality is not None
+                and not quality_failed
+                and field_id == quality_velocity_field
+                and entry.get("grid") == quality_grid_id
+                and mask_resolved
+            ):
+                quality_mask = (
+                    mask
+                    if mask is not None
+                    else np.ones(values.shape[:3], dtype=bool)
+                )
+                try:
+                    quality.add(values, quality_mask)
+                except (ConversionError, TypeError, ValueError) as exc:
+                    report.error(f"qualityMetrics could not be recomputed: {exc}")
+                    quality_failed = True
+
+    for entry, stats in statistics:
+        field_id = entry.get("id")
         if field_id:
             report.statistics[str(field_id)] = stats
             _check_declared_statistics(report, entry, stats)
+
+    if (
+        quality is not None
+        and not quality_failed
+        and isinstance(declared_quality, dict)
+        and quality_grid_id is not None
+        and quality_velocity_field is not None
+    ):
+        try:
+            recomputed_quality = quality.to_manifest(
+                frame_count=len(times),
+                grid_id=quality_grid_id,
+                velocity_field=quality_velocity_field,
+            )
+        except (ConversionError, TypeError, ValueError) as exc:
+            report.error(f"qualityMetrics could not be recomputed: {exc}")
+        else:
+            _check_declared_quality_metrics(
+                report,
+                declared_quality,
+                recomputed_quality,
+            )
 
     # Only when the stored data is otherwise sound. On a case whose files are
     # already broken, every bridge sample would fail for the *same* reason and
@@ -505,6 +575,58 @@ def _read_field_frame(report: ValidationReport, root: Path, manifest: dict[str, 
     time = _finite_float(times[frame]) if frame < len(times) else None
     grid = grid_by_id(manifest, entry.get("grid")) if entry.get("grid") else None
     return _validate_field_file(report, path, relative, entry, grid, frame, time)
+
+
+def _check_declared_quality_metrics(
+    report: ValidationReport,
+    declared: dict[str, Any],
+    recomputed: dict[str, Any],
+) -> None:
+    """Compare representative-data claims against stored velocity evidence."""
+    for key in (
+        "activeCellCount",
+        "activeDimensions",
+        "effectiveSpatialDimensions",
+        "temporalFrameCount",
+    ):
+        value = declared.get(key)
+        if key == "activeDimensions":
+            well_formed = (
+                isinstance(value, list)
+                and len(value) == 3
+                and all(isinstance(item, int) and not isinstance(item, bool) for item in value)
+            )
+        else:
+            well_formed = isinstance(value, int) and not isinstance(value, bool)
+        if well_formed and value != recomputed[key]:
+            report.error(
+                f"declared qualityMetrics.{key} is {value!r} but the stored data "
+                f"gives {recomputed[key]!r}"
+            )
+
+    declared_rms = declared.get("velocityComponentRms")
+    if isinstance(declared_rms, list) and len(declared_rms) == 3:
+        parsed_rms = [_finite_float(value) for value in declared_rms]
+        if all(value is not None for value in parsed_rms) and any(
+            not _close_enough(float(value), float(stored))
+            for value, stored in zip(parsed_rms, recomputed["velocityComponentRms"])
+        ):
+            report.error(
+                "declared qualityMetrics.velocityComponentRms is "
+                f"{declared_rms!r} but the stored data gives "
+                f"{recomputed['velocityComponentRms']!r}"
+            )
+
+    declared_gradient = _finite_float(declared.get("spanwiseGradientRms"))
+    if declared_gradient is not None and not _close_enough(
+        declared_gradient,
+        float(recomputed["spanwiseGradientRms"]),
+    ):
+        report.error(
+            "declared qualityMetrics.spanwiseGradientRms is "
+            f"{declared_gradient!r} but the stored data gives "
+            f"{recomputed['spanwiseGradientRms']!r}"
+        )
 
 
 def _check_declared_statistics(report: ValidationReport, entry: dict[str, Any],
@@ -621,6 +743,31 @@ def _sample(field_id: str, frame: int, voxel: tuple[int, int, int], component: i
     return entry
 
 
+def _first_nan_index(values: np.ndarray) -> tuple[int, int, int, int] | None:
+    """Find one NaN with at most one Z plane of temporary mask storage."""
+    for z_index in range(values.shape[2]):
+        plane = np.isnan(values[:, :, z_index, :])
+        matches = np.flatnonzero(plane)
+        if matches.size:
+            x_index, y_index, component = np.unravel_index(
+                int(matches[0]),
+                plane.shape,
+            )
+            return int(x_index), int(y_index), z_index, int(component)
+    return None
+
+
+def _first_zero_index(values: np.ndarray) -> tuple[int, int, int] | None:
+    """Find one zero-valued mask cell without an N-by-3 coordinate array."""
+    for z_index in range(values.shape[2]):
+        plane = values[:, :, z_index, 0] == 0
+        matches = np.flatnonzero(plane)
+        if matches.size:
+            x_index, y_index = np.unravel_index(int(matches[0]), plane.shape)
+            return int(x_index), int(y_index), z_index
+    return None
+
+
 def build_known_values(root: Path | str) -> dict[str, Any]:
     """Build the cross-language verification bridge for a case (spec 9).
 
@@ -712,15 +859,18 @@ def build_known_values(root: Path | str) -> dict[str, Any]:
                 )
 
                 if field_id not in mask_field_ids:
-                    with np.errstate(invalid="ignore"):
-                        nan_mask = np.isnan(values.astype(np.float64))
-                    if bool(np.any(nan_mask)):
-                        index = np.argwhere(nan_mask)[0]
-                        voxel = (int(index[0]), int(index[1]), int(index[2]))
+                    nan_index = _first_nan_index(values)
+                    if nan_index is not None:
+                        x_index, y_index, z_index, component = nan_index
+                        voxel = (x_index, y_index, z_index)
                         samples.append(
                             _sample(
-                                field_id, frame, voxel, int(index[3]),
-                                values[voxel][int(index[3])], "nan",
+                                field_id,
+                                frame,
+                                voxel,
+                                component,
+                                values[voxel][component],
+                                "nan",
                             )
                         )
 
@@ -737,9 +887,8 @@ def build_known_values(root: Path | str) -> dict[str, Any]:
             if not mask_path.is_file():
                 continue
             mask_values = read_cvf(mask_path).values
-            rejected = np.argwhere(mask_values[..., 0] == 0)
-            if len(rejected):
-                voxel = tuple(int(v) for v in rejected[0])
+            voxel = _first_zero_index(mask_values)
+            if voxel is not None:
                 samples.append(
                     _sample(
                         str(mask_id), frames[0], voxel, 0,
@@ -1000,7 +1149,8 @@ def verify_known_values(root: Path | str, bridge: dict[str, Any]) -> list[str]:
         problems.append("samples is empty; the bridge proves nothing")
         return problems
 
-    cache: dict[tuple[str, int], np.ndarray] = {}
+    cached_key: tuple[str, int] | None = None
+    cached_values: np.ndarray | None = None
     for index, sample in enumerate(samples):
         if not isinstance(sample, dict):
             problems.append(f"samples[{index}] is not an object")
@@ -1020,7 +1170,9 @@ def verify_known_values(root: Path | str, bridge: dict[str, Any]) -> list[str]:
             continue
 
         key = (field_id, frame)
-        if key not in cache:
+        if key != cached_key:
+            cached_key = key
+            cached_values = None
             entry = field_by_id(manifest, field_id)
             if entry is None:
                 problems.append(
@@ -1035,12 +1187,16 @@ def verify_known_values(root: Path | str, bridge: dict[str, Any]) -> list[str]:
                 )
                 continue
             try:
-                cache[key] = read_cvf(frame_path(root, pattern, frame)).values
+                cached_values = read_cvf(
+                    frame_path(root, pattern, frame)
+                ).values
             except (CVFError, CVFFormatError, CodecError, ManifestError, OSError) as exc:
                 problems.append(f"samples[{index}]: {exc}")
                 continue
 
-        values = cache[key]
+        if cached_values is None:
+            continue
+        values = cached_values
         x, y, z = (int(v) for v in voxel)
         if not (
             0 <= x < values.shape[0]
