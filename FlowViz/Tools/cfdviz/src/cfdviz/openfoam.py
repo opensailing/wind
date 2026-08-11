@@ -50,6 +50,8 @@ _GRID_ID: Final = "main"
 _MASK_ID: Final = "validMask"
 _AXIS_PATTERN: Final = re.compile(r"^[+-][XYZ]$")
 _MAX_LATTICE_POINTS: Final = 100_000_000
+_MAX_INPUT_BYTES: Final = 1_073_741_824
+_MAX_DENSE_BYTES: Final = 2_147_483_648
 
 
 class OpenFOAMError(ConversionError):
@@ -79,10 +81,13 @@ class OpenFOAMFieldSpec:
         object.__setattr__(self, "field_id", safe_field_id)
         if self.component_count not in (1, 3):
             raise OpenFOAMError("OpenFOAM fields must be scalar or three-component vector")
-        if len(self.components) != self.component_count:
+        expected_components = (
+            ("value",) if self.component_count == 1 else ("x", "y", "z")
+        )
+        if self.components != expected_components:
             raise OpenFOAMError(
-                f"field {self.source_name!r} declares {self.component_count} components "
-                f"but names {len(self.components)}"
+                f"field {self.source_name!r} must use canonical component names "
+                f"{expected_components}; got {self.components}"
             )
         if not isinstance(self.unit, str) or not self.unit:
             raise OpenFOAMError(f"field {self.source_name!r} unit must be non-empty")
@@ -194,6 +199,27 @@ class OpenFOAMLattice:
         return tuple(value - 1 for value in self.points)
 
 
+def _estimated_import_working_bytes(
+    *,
+    point_count: int,
+    fields: Sequence[OpenFOAMFieldSpec],
+    float_type: str,
+) -> int:
+    """Conservative peak estimate for parsing, scatter, and one transformed field."""
+    total_components = sum(field.component_count for field in fields)
+    largest_field = max(field.component_count for field in fields)
+    source_columns = 3 + total_components
+    # Python float/list storage varies by interpreter. Forty bytes per numeric token
+    # accounts for a float object plus its list slot without pretending precision.
+    parsed_rows = point_count * source_columns * 40
+    source_arrays = point_count * source_columns * 8
+    scattered = point_count * (total_components * 8 + 1)
+    stored_bytes = 2 if float_type == "float16" else 4
+    canonical_field = point_count * largest_field * (8 + stored_bytes)
+    canonical_masks = point_count * 3
+    return parsed_rows + source_arrays + scattered + canonical_field + canonical_masks
+
+
 @dataclass(frozen=True)
 class OpenFOAMImportParameters:
     """Complete explicit interpretation of one sampled-set function output."""
@@ -224,8 +250,9 @@ class OpenFOAMImportParameters:
     solver_commit: str | None = None
     solver_configuration: str | None = None
     source_case: str | None = None
-    max_input_bytes: int | None = None
+    max_input_bytes: int | None = _MAX_INPUT_BYTES
     max_lattice_points: int = _MAX_LATTICE_POINTS
+    max_dense_bytes: int = _MAX_DENSE_BYTES
     force: bool = False
 
     def __post_init__(self) -> None:
@@ -258,6 +285,13 @@ class OpenFOAMImportParameters:
         ):
             raise OpenFOAMError("max_lattice_points must be a positive integer")
         object.__setattr__(self, "max_lattice_points", int(self.max_lattice_points))
+        if (
+            not isinstance(self.max_dense_bytes, Integral)
+            or isinstance(self.max_dense_bytes, (bool, np.bool_))
+            or int(self.max_dense_bytes) < 1
+        ):
+            raise OpenFOAMError("max_dense_bytes must be a positive integer")
+        object.__setattr__(self, "max_dense_bytes", int(self.max_dense_bytes))
         lattice_point_count = math.prod(self.lattice.points)
         if lattice_point_count > self.max_lattice_points:
             raise OpenFOAMError(
@@ -314,6 +348,21 @@ class OpenFOAMImportParameters:
             raise OpenFOAMError(
                 f"OpenFOAM source field names must be unique; got {source_names}"
             )
+        if self.float_type not in ("float16", "float32"):
+            raise OpenFOAMError(
+                f"float_type must be 'float16' or 'float32'; got {self.float_type!r}"
+            )
+        estimated_bytes = _estimated_import_working_bytes(
+            point_count=lattice_point_count,
+            fields=self.fields,
+            float_type=self.float_type,
+        )
+        if estimated_bytes > self.max_dense_bytes:
+            raise OpenFOAMError(
+                f"estimated dense import working set is {estimated_bytes} bytes, "
+                f"above max_dense_bytes={self.max_dense_bytes}; raise the explicit "
+                "limit only after checking available memory"
+            )
         if (
             len(self.source_axes) != 3
             or any(
@@ -357,10 +406,6 @@ class OpenFOAMImportParameters:
         ):
             if value is not None and (not isinstance(value, str) or not value):
                 raise OpenFOAMError(f"{label} must be non-empty when present")
-        if self.float_type not in ("float16", "float32"):
-            raise OpenFOAMError(
-                f"float_type must be 'float16' or 'float32'; got {self.float_type!r}"
-            )
         try:
             codec_id_from_name(self.codec)
         except CodecError as exc:
@@ -523,6 +568,27 @@ def openfoam_field(
         raise OpenFOAMError(
             f"secondary_phase does not apply to field {source_name!r}"
         )
+    if source_name in ("p", "p_rgh"):
+        if unit is not None and unit != defaults["unit"]:
+            raise OpenFOAMError(
+                f"unit {unit!r} conflicts with pressure_kind={pressure_kind!r}; "
+                f"expected {defaults['unit']!r}"
+            )
+        if semantic is not None and semantic != defaults["semantic"]:
+            raise OpenFOAMError(
+                f"semantic {semantic!r} conflicts with pressure_kind="
+                f"{pressure_kind!r}; expected {defaults['semantic']!r}"
+            )
+    if source_name.startswith("alpha."):
+        if unit is not None and unit != "1":
+            raise OpenFOAMError(
+                f"unit {unit!r} conflicts with volume-fraction field {source_name!r}"
+            )
+        if semantic is not None and semantic != "volume-fraction":
+            raise OpenFOAMError(
+                f"semantic {semantic!r} conflicts with volume-fraction field "
+                f"{source_name!r}"
+            )
     if not defaults and (field_id is None or unit is None or semantic is None):
         raise OpenFOAMError(
             f"unknown OpenFOAM field {source_name!r} requires field_id, unit, and semantic"
@@ -606,7 +672,8 @@ def read_sampled_set(
     fields: Sequence[OpenFOAMFieldSpec],
     format: str,
     separator: str = ",",
-    max_input_bytes: int | None = None,
+    max_input_bytes: int | None = _MAX_INPUT_BYTES,
+    max_rows: int | None = _MAX_LATTICE_POINTS,
 ) -> OpenFOAMSampledSet:
     """Read one OpenFOAM sampledSets raw or CSV table with explicit columns."""
     source = Path(path)
@@ -617,23 +684,40 @@ def read_sampled_set(
         raise OpenFOAMError("OpenFOAM source field names must be unique")
     if len({field.field_id for field in declared}) != len(declared):
         raise OpenFOAMError("CFDViz target field ids must be unique")
+    if max_rows is not None and (
+        not isinstance(max_rows, Integral)
+        or isinstance(max_rows, (bool, np.bool_))
+        or int(max_rows) < 0
+    ):
+        raise OpenFOAMError("max_rows must be a non-negative integer")
+    if max_rows is not None:
+        max_rows = int(max_rows)
     expected = _expected_columns(declared)
     text = _read_text(source, max_input_bytes)
 
-    rows: list[tuple[int, list[str]]] = []
+    rows: Iterable[tuple[int, list[str]]]
+    csv_rows = False
     if format == "csv":
-        if not isinstance(separator, str) or len(separator) != 1:
-            raise OpenFOAMError("CSV separator must be exactly one character")
+        if (
+            not isinstance(separator, str)
+            or len(separator) != 1
+            or separator in "\r\n\0"
+        ):
+            raise OpenFOAMError(
+                "CSV separator must be exactly one non-newline, non-NUL character"
+            )
+        csv_rows = True
+        parsed = enumerate(csv.reader(io.StringIO(text), delimiter=separator), start=1)
         try:
-            parsed = list(csv.reader(io.StringIO(text), delimiter=separator))
+            header_line, header = next(
+                (line_number, row) for line_number, row in parsed if row
+            )
+        except StopIteration as exc:
+            raise OpenFOAMError(f"{source}: sampled-set CSV is empty") from exc
         except csv.Error as exc:
             raise OpenFOAMError(
                 f"{source}: cannot parse sampled-set CSV: {exc}"
             ) from exc
-        nonempty = [(index, row) for index, row in enumerate(parsed, start=1) if row]
-        if not nonempty:
-            raise OpenFOAMError(f"{source}: sampled-set CSV is empty")
-        header_line, header = nonempty[0]
         if header[:3] != ["x", "y", "z"]:
             raise OpenFOAMError(
                 f"{source}:{header_line}: coordinate columns are {header[:4]!r}; "
@@ -644,16 +728,22 @@ def read_sampled_set(
                 f"{source}:{header_line}: header {header!r} does not match explicit "
                 f"field columns {expected!r}; OpenFOAM may have omitted a field"
             )
-        rows = nonempty[1:]
+        rows = parsed
     elif format == "raw":
-        lines = text.splitlines()
-        header_index = next((i for i, line in enumerate(lines) if line.strip()), None)
-        if header_index is None or not lines[header_index].lstrip().startswith("#"):
+        lines = enumerate(io.StringIO(text), start=1)
+        header_line = None
+        header_text = None
+        for line_number, line in lines:
+            if line.strip():
+                header_line = line_number
+                header_text = line
+                break
+        if header_line is None or header_text is None or not header_text.lstrip().startswith("#"):
             raise OpenFOAMError(f"{source}: raw sampled set must begin with a '# ' header")
-        header = lines[header_index].lstrip()[1:].split()
+        header = header_text.lstrip()[1:].split()
         if header[:3] != ["x", "y", "z"]:
             raise OpenFOAMError(
-                f"{source}:{header_index + 1}: coordinate columns are {header[:4]!r}; "
+                f"{source}:{header_line}: coordinate columns are {header[:4]!r}; "
                 "export OpenFOAM sampledSets with axis xyz"
             )
         for actual in header:
@@ -665,7 +755,7 @@ def read_sampled_set(
                 ]
                 if len(matches) != 1:
                     raise OpenFOAMError(
-                        f"{source}:{header_index + 1}: ambiguous truncated raw header "
+                        f"{source}:{header_line}: ambiguous truncated raw header "
                         f"label {actual!r} matches {matches!r}"
                     )
         if len(header) != len(expected) or any(
@@ -673,47 +763,62 @@ def read_sampled_set(
             for actual, wanted in zip(header, expected)
         ):
             raise OpenFOAMError(
-                f"{source}:{header_index + 1}: header {header!r} does not match "
+                f"{source}:{header_line}: header {header!r} does not match "
                 f"explicit field columns {expected!r}"
             )
-        rows = [
-            (index, line.split())
-            for index, line in enumerate(lines[header_index + 1 :], start=header_index + 2)
+        rows = (
+            (line_number, line.split())
+            for line_number, line in lines
             if line.strip()
-        ]
+        )
     else:
         raise OpenFOAMError(f"sampled-set format must be 'csv' or 'raw'; got {format!r}")
 
     coordinates: list[list[float]] = []
     field_rows = {field.field_id: [] for field in declared}
     row_numbers: list[int] = []
-    for row_number, row in rows:
-        if len(row) != len(expected):
-            raise OpenFOAMError(
-                f"{source}:{row_number}: row has {len(row)} columns, expected "
-                f"{len(expected)}"
-            )
-        try:
-            numbers = [float(token) for token in row]
-        except ValueError as exc:
-            raise OpenFOAMError(
-                f"{source}:{row_number}: non-numeric sampled value: {exc}"
-            ) from exc
-        if any(not math.isfinite(value) for value in numbers[:3]):
-            raise OpenFOAMError(
-                f"{source}:{row_number}: coordinates must be finite; got {numbers[:3]}"
-            )
-        if any(math.isinf(value) for value in numbers[3:]):
-            raise OpenFOAMError(
-                f"{source}:{row_number}: sampled field values contain infinity"
-            )
-        coordinates.append(numbers[:3])
-        cursor = 3
-        for field in declared:
-            stop = cursor + field.component_count
-            field_rows[field.field_id].append(numbers[cursor:stop])
-            cursor = stop
-        row_numbers.append(row_number)
+    try:
+        for row_number, row in rows:
+            if not row:
+                continue
+            if max_rows is not None and len(row_numbers) >= max_rows:
+                raise OpenFOAMError(
+                    f"{source}:{row_number}: sampled-set row count is above limit "
+                    f"{max_rows}"
+                )
+            if len(row) != len(expected):
+                raise OpenFOAMError(
+                    f"{source}:{row_number}: row has {len(row)} columns, expected "
+                    f"{len(expected)}"
+                )
+            try:
+                numbers = [float(token) for token in row]
+            except ValueError as exc:
+                raise OpenFOAMError(
+                    f"{source}:{row_number}: non-numeric sampled value: {exc}"
+                ) from exc
+            if any(not math.isfinite(value) for value in numbers[:3]):
+                raise OpenFOAMError(
+                    f"{source}:{row_number}: coordinates must be finite; got "
+                    f"{numbers[:3]}"
+                )
+            if any(math.isinf(value) for value in numbers[3:]):
+                raise OpenFOAMError(
+                    f"{source}:{row_number}: sampled field values contain infinity"
+                )
+            coordinates.append(numbers[:3])
+            cursor = 3
+            for field in declared:
+                stop = cursor + field.component_count
+                field_rows[field.field_id].append(numbers[cursor:stop])
+                cursor = stop
+            row_numbers.append(row_number)
+    except csv.Error as exc:
+        if not csv_rows:
+            raise
+        raise OpenFOAMError(
+            f"{source}: cannot parse sampled-set CSV: {exc}"
+        ) from exc
 
     return OpenFOAMSampledSet(
         path=source,
@@ -795,6 +900,8 @@ def scatter_sampled_set(
     fields: Sequence[OpenFOAMFieldSpec],
     source_precision: str,
     write_precision: int,
+    max_lattice_points: int = _MAX_LATTICE_POINTS,
+    max_dense_bytes: int = _MAX_DENSE_BYTES,
 ) -> OpenFOAMScatteredFrame:
     """Scatter unordered sampled points onto a declared Cartesian point lattice."""
     declared = tuple(fields)
@@ -806,6 +913,30 @@ def scatter_sampled_set(
         or write_precision < 6
     ):
         raise OpenFOAMError("write_precision must be an integer >= 6")
+    for label, value in (
+        ("max_lattice_points", max_lattice_points),
+        ("max_dense_bytes", max_dense_bytes),
+    ):
+        if (
+            not isinstance(value, Integral)
+            or isinstance(value, (bool, np.bool_))
+            or int(value) < 1
+        ):
+            raise OpenFOAMError(f"{label} must be a positive integer")
+    point_count = math.prod(lattice.points)
+    if point_count > int(max_lattice_points):
+        raise OpenFOAMError(
+            f"lattice contains {point_count} points, above max_lattice_points="
+            f"{int(max_lattice_points)}"
+        )
+    scatter_bytes = point_count * (
+        sum(field.component_count for field in declared) * 8 + 1
+    )
+    if scatter_bytes > int(max_dense_bytes):
+        raise OpenFOAMError(
+            f"dense scatter requires at least {scatter_bytes} bytes, above "
+            f"max_dense_bytes={int(max_dense_bytes)}"
+        )
     if table.coordinates.shape[0] != len(table.row_numbers):
         raise OpenFOAMError(f"{table.path}: coordinate and row counts disagree")
     for field in declared:
@@ -1038,6 +1169,17 @@ def _stored_values(
     return stored
 
 
+def _decimal_identity(value: Decimal) -> str:
+    if value.is_zero():
+        return "0"
+    sign, digits, exponent = value.as_tuple()
+    canonical_digits = list(digits)
+    while canonical_digits and canonical_digits[-1] == 0:
+        canonical_digits.pop()
+        exponent += 1
+    return f"{sign}:{''.join(str(digit) for digit in canonical_digits)}:{exponent}"
+
+
 def _update_frame_digest(
     digest: Any,
     *,
@@ -1046,7 +1188,7 @@ def _update_frame_digest(
 ) -> None:
     """Hash canonical lattice-order evidence, not incidental source text order."""
     digest.update(
-        dump_json({"time": str(frame.time)}, indent=None).encode("utf-8")
+        dump_json({"time": _decimal_identity(frame.time)}, indent=None).encode("utf-8")
     )
     digest.update(
         memoryview(np.ascontiguousarray(point_mask, dtype=np.uint8)).cast("B")
@@ -1317,7 +1459,7 @@ def import_openfoam_case(parameters: OpenFOAMImportParameters) -> Path:
         dump_json(
             {
                 "name": parameters.name,
-                "times": [str(frame.time) for frame in frames],
+                "times": [_decimal_identity(frame.time) for frame in frames],
                 "setName": parameters.set_name,
                 "format": parameters.format,
                 "separator": parameters.separator,
@@ -1365,6 +1507,7 @@ def import_openfoam_case(parameters: OpenFOAMImportParameters) -> Path:
                     format=parameters.format,
                     separator=parameters.separator,
                     max_input_bytes=parameters.max_input_bytes,
+                    max_rows=math.prod(parameters.lattice.points),
                 )
                 scattered = scatter_sampled_set(
                     table,
@@ -1372,6 +1515,8 @@ def import_openfoam_case(parameters: OpenFOAMImportParameters) -> Path:
                     fields=parameters.fields,
                     source_precision=parameters.source_precision,
                     write_precision=parameters.write_precision,
+                    max_lattice_points=parameters.max_lattice_points,
+                    max_dense_bytes=parameters.max_dense_bytes,
                 )
                 point_mask = _transform_values(
                     scattered.valid_mask[..., None],

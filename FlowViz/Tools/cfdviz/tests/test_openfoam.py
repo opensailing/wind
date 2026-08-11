@@ -12,7 +12,9 @@ import pytest
 import cfdviz.openfoam as openfoam_module
 from cfdviz.openfoam import (
     OpenFOAMError,
+    OpenFOAMFieldSpec,
     OpenFOAMLattice,
+    OpenFOAMSampledSet,
     discover_sampled_set_frames,
     openfoam_field,
     read_sampled_set,
@@ -278,6 +280,23 @@ def test_csv_parser_supports_an_explicit_custom_separator(tmp_path: Path):
     assert table.values["U"].tolist() == [[1.0, 2.0, 3.0]]
 
 
+@pytest.mark.parametrize("separator", ["\n", "\0"])
+def test_public_parser_rejects_invalid_csv_separator(
+    tmp_path: Path,
+    separator: str,
+):
+    path = tmp_path / "volume.csv"
+    path.write_text(_csv([]), encoding="utf-8")
+
+    with pytest.raises(OpenFOAMError, match="CSV separator"):
+        read_sampled_set(
+            path,
+            fields=_fields(),
+            format="csv",
+            separator=separator,
+        )
+
+
 def test_parser_checks_on_disk_bound_before_loading_file(
     tmp_path: Path,
     monkeypatch,
@@ -339,6 +358,27 @@ def test_parser_translates_csv_field_limit_errors(tmp_path: Path):
 
     with pytest.raises(OpenFOAMError, match="cannot parse sampled-set CSV"):
         read_sampled_set(path, fields=_fields(), format="csv")
+
+
+def test_parser_enforces_explicit_row_budget(tmp_path: Path):
+    path = tmp_path / "too-many-rows.csv"
+    path.write_text(
+        _csv(
+            [
+                "10,20,30,1,2,3,100000,0.25,-1,0,1",
+                "12,20,30,2,2,3,99990,0.20,-1,0,1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(OpenFOAMError, match="row count.*above limit"):
+        read_sampled_set(
+            path,
+            fields=_fields(),
+            format="csv",
+            max_rows=1,
+        )
 
 
 def test_parser_bounds_both_compressed_and_decompressed_input(tmp_path: Path):
@@ -494,6 +534,62 @@ def test_lattice_rejects_invalid_geometry(changes: dict, message: str):
         OpenFOAMLattice(**arguments)
 
 
+def test_public_scatter_enforces_default_lattice_budget_before_allocation():
+    fields = _fields()
+    table = OpenFOAMSampledSet(
+        path=Path("oversized.csv"),
+        coordinates=np.empty((0, 3), dtype=np.float64),
+        values={
+            field.field_id: np.empty((0, field.component_count), dtype=np.float64)
+            for field in fields
+        },
+        row_numbers=(),
+    )
+    lattice = OpenFOAMLattice(
+        origin=(0.0, 0.0, 0.0),
+        spacing=(1.0, 1.0, 1.0),
+        points=(1001, 1001, 101),
+        coordinate_tolerance=1.0e-9,
+    )
+
+    with pytest.raises(OpenFOAMError, match="max_lattice_points"):
+        scatter_sampled_set(
+            table,
+            lattice=lattice,
+            fields=fields,
+            source_precision="float64",
+            write_precision=12,
+        )
+
+
+def test_public_scatter_enforces_default_dense_byte_budget_before_allocation():
+    fields = _fields()
+    table = OpenFOAMSampledSet(
+        path=Path("oversized.csv"),
+        coordinates=np.empty((0, 3), dtype=np.float64),
+        values={
+            field.field_id: np.empty((0, field.component_count), dtype=np.float64)
+            for field in fields
+        },
+        row_numbers=(),
+    )
+    lattice = OpenFOAMLattice(
+        origin=(0.0, 0.0, 0.0),
+        spacing=(1.0, 1.0, 1.0),
+        points=(464, 464, 464),
+        coordinate_tolerance=1.0e-9,
+    )
+
+    with pytest.raises(OpenFOAMError, match="max_dense_bytes"):
+        scatter_sampled_set(
+            table,
+            lattice=lattice,
+            fields=fields,
+            source_precision="float64",
+            write_precision=12,
+        )
+
+
 def test_scatter_rejects_coordinates_outside_declared_lattice(tmp_path: Path):
     path = tmp_path / "volume.csv"
     path.write_text(
@@ -529,6 +625,29 @@ def test_discovery_rejects_decimal_times_that_collapse_to_one_float(tmp_path: Pa
         discover_sampled_set_frames(root, set_name="volume", format="csv")
 
 
+@pytest.mark.parametrize(
+    ("component_count", "components"),
+    [
+        (1, ("scalar",)),
+        (3, ("u", "v", "w")),
+    ],
+)
+def test_public_field_schema_requires_canonical_component_names(
+    component_count: int,
+    components: tuple[str, ...],
+):
+    with pytest.raises(OpenFOAMError, match="canonical component names"):
+        OpenFOAMFieldSpec(
+            source_name="custom",
+            field_id="custom",
+            component_count=component_count,
+            components=components,
+            unit="1",
+            semantic="custom",
+            vector_kind="true" if component_count == 3 else None,
+        )
+
+
 def test_scalar_field_rejects_a_vector_transform_kind():
     with pytest.raises(OpenFOAMError, match="scalar.*vector_kind"):
         openfoam_field("Q", "scalar", vector_kind="pseudo")
@@ -562,6 +681,30 @@ def test_custom_field_empty_overrides_raise_openfoam_error(empty: str):
 
     with pytest.raises(OpenFOAMError, match=empty.replace("_", " ")):
         openfoam_field("custom", "scalar", **arguments)
+
+
+@pytest.mark.parametrize(
+    ("source_name", "kwargs", "message"),
+    [
+        (
+            "p_rgh",
+            {"pressure_kind": "kinematic", "unit": "Pa"},
+            "unit.*pressure_kind",
+        ),
+        (
+            "alpha.water",
+            {"secondary_phase": "air", "semantic": "temperature"},
+            "semantic.*volume-fraction",
+        ),
+    ],
+)
+def test_pressure_and_phase_interpretations_reject_conflicting_overrides(
+    source_name: str,
+    kwargs: dict,
+    message: str,
+):
+    with pytest.raises(OpenFOAMError, match=message):
+        openfoam_field(source_name, "scalar", **kwargs)
 
 
 def test_field_schema_requires_pressure_and_phase_interpretation():

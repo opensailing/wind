@@ -419,8 +419,8 @@ def _add_import_openfoam(subparsers: argparse._SubParsersAction) -> None:
     importer.add_argument("--format", choices=("csv", "raw"), required=True)
     importer.add_argument(
         "--separator",
-        default=",",
-        help="single-character CSV separator (default ',')",
+        default=None,
+        help="single-character CSV separator (CSV only; default ',')",
     )
     importer.add_argument(
         "--field",
@@ -551,12 +551,23 @@ def _add_import_openfoam(subparsers: argparse._SubParsersAction) -> None:
     importer.add_argument("--solver-commit")
     importer.add_argument("--solver-configuration")
     importer.add_argument("--source-case")
-    importer.add_argument("--max-input-bytes", type=int)
+    importer.add_argument(
+        "--max-input-bytes",
+        type=int,
+        default=1_073_741_824,
+        help="maximum on-disk and decompressed bytes per frame (default 1 GiB)",
+    )
     importer.add_argument(
         "--max-lattice-points",
         type=int,
         default=100_000_000,
         help="maximum dense source lattice points (default 100000000)",
+    )
+    importer.add_argument(
+        "--max-dense-bytes",
+        type=int,
+        default=2_147_483_648,
+        help="maximum estimated dense conversion working set (default 2 GiB)",
     )
     importer.add_argument(
         "--force",
@@ -1010,6 +1021,10 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
         kinds[source_name] = kind
         ordered_names.append(source_name)
 
+    if arguments.format == "raw" and arguments.separator is not None:
+        raise ConversionError("--separator is CSV-only and cannot be set for raw input")
+    separator = arguments.separator if arguments.separator is not None else ","
+
     field_ids = _assignment_map(
         arguments.field_id or (),
         label="--field-id",
@@ -1103,7 +1118,7 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
         input_directory=arguments.input_directory,
         set_name=arguments.set_name,
         format=arguments.format,
-        separator=arguments.separator,
+        separator=separator,
         fields=fields,
         lattice=lattice,
         source_axes=tuple(arguments.source_axes),
@@ -1126,6 +1141,7 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
         source_case=arguments.source_case,
         max_input_bytes=arguments.max_input_bytes,
         max_lattice_points=arguments.max_lattice_points,
+        max_dense_bytes=arguments.max_dense_bytes,
         force=arguments.force,
     )
     root = import_openfoam_case(parameters)

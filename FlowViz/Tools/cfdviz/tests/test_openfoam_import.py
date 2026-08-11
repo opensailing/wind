@@ -462,6 +462,40 @@ def test_import_identity_ignores_source_row_order_and_blank_lines(tmp_path: Path
     assert first_files == second_files
 
 
+def test_import_identity_uses_numeric_time_not_directory_spelling(tmp_path: Path):
+    lattice = OpenFOAMLattice(
+        origin=(0.0, 0.0, 0.0),
+        spacing=(1.0, 1.0, 1.0),
+        points=(2, 2, 2),
+        coordinate_tolerance=1.0e-9,
+    )
+    first_source = tmp_path / "integer-time"
+    second_source = tmp_path / "decimal-time"
+    _write_sequence(first_source, lattice=lattice, times=("1",))
+    _write_sequence(second_source, lattice=lattice, times=("1.0",))
+    first = _parameters(tmp_path, input_directory=first_source, lattice=lattice)
+    second = replace(
+        first,
+        output=tmp_path / "DecimalTime.cfdviz",
+        input_directory=second_source,
+    )
+
+    import_openfoam_case(first)
+    import_openfoam_case(second)
+
+    first_files = {
+        path.relative_to(first.output): path.read_bytes()
+        for path in first.output.rglob("*")
+        if path.is_file()
+    }
+    second_files = {
+        path.relative_to(second.output): path.read_bytes()
+        for path in second.output.rglob("*")
+        if path.is_file()
+    }
+    assert first_files == second_files
+
+
 def test_import_preserves_nonempty_output_without_force(tmp_path: Path):
     lattice = OpenFOAMLattice(
         origin=(0.0, 0.0, 0.0),
@@ -540,6 +574,22 @@ def test_import_parameters_reject_output_nested_in_source(tmp_path: Path):
         replace(parameters, output=source / "0")
 
 
+def test_import_parameters_bound_estimated_dense_working_set(tmp_path: Path):
+    lattice = OpenFOAMLattice(
+        origin=(0.0, 0.0, 0.0),
+        spacing=(1.0, 1.0, 1.0),
+        points=(464, 464, 464),
+        coordinate_tolerance=1.0e-9,
+    )
+
+    with pytest.raises(OpenFOAMError, match="max_dense_bytes"):
+        _parameters(
+            tmp_path,
+            input_directory=tmp_path / "samples",
+            lattice=lattice,
+        )
+
+
 def test_import_parameters_bound_dense_lattice_allocation(tmp_path: Path):
     lattice = OpenFOAMLattice(
         origin=(0.0, 0.0, 0.0),
@@ -562,6 +612,7 @@ def _cli_arguments(
     output: Path,
     fields: tuple[tuple[str, str], ...],
     extra: tuple[str, ...] = (),
+    input_format: str = "csv",
 ) -> list[str]:
     arguments = [
         "import-openfoam",
@@ -574,7 +625,7 @@ def _cli_arguments(
         "--set-name",
         "volume",
         "--format",
-        "csv",
+        input_format,
     ]
     for source_name, kind in fields:
         arguments.extend(("--field", source_name, kind))
@@ -927,6 +978,44 @@ def test_import_openfoam_cli_rejects_unused_field_interpretations(
     assert status != 0
     assert "does not apply" in text or "not supplied by --field" in text
     assert "internal error" not in text
+
+
+def test_import_openfoam_cli_rejects_explicit_separator_for_raw_input(
+    capsys,
+    tmp_path: Path,
+):
+    lattice = OpenFOAMLattice(
+        origin=(0.0, 0.0, 0.0),
+        spacing=(1.0, 1.0, 1.0),
+        points=(2, 2, 2),
+        coordinate_tolerance=1.0e-9,
+    )
+    source = tmp_path / "raw-cli"
+    _write_u_scalar_fields_sequence(source, lattice=lattice, scalar_values={})
+    csv_path = source / "0" / "volume.csv"
+    lines = csv_path.read_text("utf-8").splitlines()
+    (source / "0" / "volume.xy").write_text(
+        "# " + lines[0].replace(",", " ") + "\n"
+        + "\n".join(line.replace(",", " ") for line in lines[1:])
+        + "\n",
+        encoding="utf-8",
+    )
+    csv_path.unlink()
+
+    status = main(
+        _cli_arguments(
+            source=source,
+            output=tmp_path / "RawSeparator.cfdviz",
+            fields=(("U", "vector"),),
+            input_format="raw",
+            extra=("--separator", ","),
+        )
+    )
+    captured = capsys.readouterr()
+
+    assert status != 0
+    assert "separator" in captured.err
+    assert "CSV-only" in captured.err
 
 
 def test_import_openfoam_cli_forwards_lattice_point_budget(capsys, tmp_path: Path):

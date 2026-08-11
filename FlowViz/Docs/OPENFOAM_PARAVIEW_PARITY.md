@@ -160,15 +160,19 @@ PYTHONPATH=FlowViz/Tools/cfdviz/src python3 -m cfdviz import-openfoam \
 `--lattice-points` names source **point** counts. The resulting CFDViz grid cell
 counts are one smaller on every axis, while imported fields and `validMask`
 remain point-associated. The dense source lattice is capped at 100,000,000
-points by default; raise `--max-lattice-points` only after checking the memory
+points and the estimated conversion working set at 2 GiB by default; raise
+`--max-lattice-points` or `--max-dense-bytes` only after checking the memory
 required by every requested field. `--max-input-bytes` independently caps both
-the on-disk file and streamed decompressed text for each frame.
+the on-disk file and streamed decompressed text for each frame, with a 1 GiB
+default. The parser also stops when source rows exceed the declared lattice's
+point count, before retaining an unbounded duplicate-row table.
 
 OpenFOAM `p` and `p_rgh` always require `--pressure-kind kinematic|dynamic`.
 Each `alpha.<primary>` field requires its own mapping, for example
 `--secondary-phase alpha.water=air`; repeat the option for multiple phase
-fields. Primary and secondary names must differ. Unknown fields require matching
-`--field-id SOURCE=ID`, `--field-unit SOURCE=UNIT`, and
+fields. Primary and secondary names must differ, and generic unit/semantic
+overrides cannot contradict pressure or volume-fraction interpretation. Unknown
+fields require matching `--field-id SOURCE=ID`, `--field-unit SOURCE=UNIT`, and
 `--field-semantic SOURCE=SEMANTIC`; unknown vectors also require
 `--vector-kind SOURCE=true|pseudo`. Interpretation and override options that do
 not name an imported field are rejected instead of silently ignored.
@@ -186,7 +190,8 @@ overflow, and phase fractions outside `[0, 1]`. Fully missing points and OpenFOA
 invalid-location sentinels become NaN with `validMask=0`. Native Q and vorticity
 are preserved rather than silently regenerated. Case identity hashes canonical
 lattice-order stored values and masks, so source row order and blank lines do not
-change an otherwise byte-identical CFDViz case.
+change an otherwise byte-identical CFDViz case. Equivalent numeric time names
+such as `1` and `1.0` likewise produce the same identity.
 
 ## 9. Explicitly out of parity scope
 
