@@ -20,6 +20,8 @@ Subcommands:
 ``generate-mock``
     Write the synthetic cylinder-wake case of plan section 7. ``--low-res``
     selects the small preset that is committed to source control.
+``import-fluidx3d``
+    Convert explicitly identified FluidX3D legacy VTK volume sequences.
 ``extract``
     Pull one field at one frame out of a case, as a summary, a single voxel, or
     a ``.npy`` file.
@@ -58,8 +60,14 @@ from .case import (
     write_known_values,
 )
 from .codecs import CODEC_NAMES, CODEC_ZSTD, CodecError
+from .convert import ConversionError
 from .cvf import CVFError, CVFReader
 from .cvm import CVMError
+from .fluidx3d import (
+    FluidX3DImportParameters,
+    fluidx3d_field,
+    import_fluidx3d_case,
+)
 from .manifest import ManifestError, field_by_id, frame_path, load_manifest
 from .mock import (
     MockCaseParameters,
@@ -124,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     _add_generate_mock(subparsers)
+    _add_import_fluidx3d(subparsers)
     _add_extract(subparsers)
     _add_benchmark_read(subparsers)
     return parser
@@ -242,6 +251,140 @@ def _add_generate_mock(subparsers: argparse._SubParsersAction) -> None:
              f"(default {defaults.seed})",
     )
     generate.add_argument("--name", help="case name recorded in the manifest")
+
+
+def _add_import_fluidx3d(subparsers: argparse._SubParsersAction) -> None:
+    importer = subparsers.add_parser(
+        "import-fluidx3d",
+        help="convert FluidX3D legacy VTK volume sequences",
+        description=(
+            "Convert binary VTK STRUCTURED_POINTS files written by FluidX3D. "
+            "Each --field group starts with its physical field id followed by "
+            "one or more files; shell-expanded globs are accepted. Units and "
+            "scales are explicit because FluidX3D VTK files do not disclose "
+            "whether SI conversion was enabled."
+        ),
+    )
+    importer.add_argument("--output", type=Path, required=True)
+    importer.add_argument("--name", required=True, help="case name in the manifest")
+    importer.add_argument(
+        "--field",
+        action="append",
+        nargs="+",
+        required=True,
+        metavar="ID_OR_VTK",
+        help=(
+            "field id followed by its VTK files; repeat for another field. "
+            "Supported ids: U, density, phi, temperature, force"
+        ),
+    )
+    importer.add_argument(
+        "--flags",
+        type=Path,
+        nargs="+",
+        default=(),
+        metavar="VTK",
+        help="FluidX3D flags sequence used for field-specific validity",
+    )
+    importer.add_argument(
+        "--assume-all-cells-valid",
+        action="store_true",
+        help="explicitly declare every lattice cell valid when --flags is absent",
+    )
+    importer.add_argument(
+        "--force-interpretation",
+        choices=("boundary", "volume"),
+        help="required meaning of an imported force field",
+    )
+    importer.add_argument(
+        "--source-time-step",
+        type=float,
+        required=True,
+        help="duration of one solver step in --time-unit",
+    )
+    importer.add_argument(
+        "--solver-step-offset",
+        type=int,
+        required=True,
+        help=(
+            "multiple of 1000000000 added to FluidX3D's nine-digit filename "
+            "step suffix"
+        ),
+    )
+    importer.add_argument(
+        "--source-units",
+        choices=("si", "lattice"),
+        required=True,
+        help="unit mode passed to FluidX3D write_vtk; never inferred",
+    )
+    importer.add_argument(
+        "--source-axes",
+        nargs=3,
+        required=True,
+        metavar=("SOURCE_X", "SOURCE_Y", "SOURCE_Z"),
+        help=(
+            "signed canonical direction of source X/Y/Z, for example "
+            "--source-axes +X +Y +Z"
+        ),
+    )
+    importer.add_argument("--length-scale", type=float, default=1.0)
+    importer.add_argument("--velocity-scale", type=float, default=1.0)
+    importer.add_argument("--length-unit")
+    importer.add_argument("--time-unit")
+    importer.add_argument("--mass-unit")
+    importer.add_argument("--temperature-unit")
+    importer.add_argument(
+        "--field-scale",
+        action="append",
+        default=(),
+        metavar="ID=SCALE",
+        help="additional explicit multiplier for one field; repeatable",
+    )
+    importer.add_argument(
+        "--field-unit",
+        action="append",
+        default=(),
+        metavar="ID=UNIT",
+        help="override one field's displayed unit; repeatable",
+    )
+    importer.add_argument("--codec", choices=_WRITABLE_CODECS, default="zlib")
+    importer.add_argument("--level", type=int)
+    precision = importer.add_mutually_exclusive_group()
+    precision.add_argument(
+        "--float16", action="store_const", const="float16", dest="float_type"
+    )
+    precision.add_argument(
+        "--float32", action="store_const", const="float32", dest="float_type"
+    )
+    importer.set_defaults(float_type="float32")
+    importer.add_argument(
+        "--brick-size",
+        type=int,
+        nargs=3,
+        default=(32, 32, 32),
+        metavar=("BX", "BY", "BZ"),
+    )
+    importer.add_argument(
+        "--excluded-flag-bits",
+        type=lambda value: int(value, 0),
+        default=0,
+        help="global flag bits excluded from validMask, decimal or 0x-prefixed",
+    )
+    importer.add_argument("--solver-version")
+    importer.add_argument("--solver-commit")
+    importer.add_argument("--solver-configuration")
+    importer.add_argument(
+        "--solver-method",
+        required=True,
+        help="explicit lattice/method, for example 'lattice-Boltzmann D3Q19'",
+    )
+    importer.add_argument("--source-case")
+    importer.add_argument("--max-payload-bytes", type=int)
+    importer.add_argument(
+        "--force",
+        action="store_true",
+        help="replace a non-empty output only after conversion succeeds",
+    )
 
 
 def _add_extract(subparsers: argparse._SubParsersAction) -> None:
@@ -565,6 +708,112 @@ def _generate_mock(arguments: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# import-fluidx3d
+# ---------------------------------------------------------------------------
+
+
+def _assignment_map(
+    values: Sequence[str],
+    *,
+    label: str,
+    convert: Any,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for value in values:
+        key, separator, raw = value.partition("=")
+        if not separator or not key or not raw:
+            raise ConversionError(f"{label} must use ID=VALUE syntax; got {value!r}")
+        if key in result:
+            raise ConversionError(f"{label} repeats field {key!r}")
+        try:
+            result[key] = convert(raw)
+        except (TypeError, ValueError) as exc:
+            raise ConversionError(f"invalid {label} {value!r}: {exc}") from exc
+    return result
+
+
+def _import_fluidx3d(arguments: argparse.Namespace) -> int:
+    grouped: dict[str, list[Path]] = {}
+    for group in arguments.field:
+        field_id, *raw_paths = group
+        if not raw_paths:
+            raise ConversionError(
+                f"--field {field_id!r} needs at least one VTK file"
+            )
+        grouped.setdefault(field_id, []).extend(Path(path) for path in raw_paths)
+
+    scales = _assignment_map(
+        arguments.field_scale,
+        label="--field-scale",
+        convert=float,
+    )
+    units = _assignment_map(
+        arguments.field_unit,
+        label="--field-unit",
+        convert=str,
+    )
+    unknown_overrides = (set(scales) | set(units)) - set(grouped)
+    if unknown_overrides:
+        raise ConversionError(
+            f"field overrides name fields not supplied by --field: "
+            f"{sorted(unknown_overrides)}"
+        )
+
+    sources = tuple(
+        fluidx3d_field(
+            field_id,
+            paths,
+            value_scale=scales.get(field_id, 1.0),
+            unit=units.get(field_id),
+        )
+        for field_id, paths in grouped.items()
+    )
+    parameters = FluidX3DImportParameters(
+        output=arguments.output,
+        name=arguments.name,
+        fields=sources,
+        source_time_step=arguments.source_time_step,
+        solver_step_offset=arguments.solver_step_offset,
+        source_units=arguments.source_units,
+        source_axes=tuple(arguments.source_axes),
+        solver_method=arguments.solver_method,
+        flag_files=tuple(arguments.flags),
+        assume_all_cells_valid=arguments.assume_all_cells_valid,
+        force_interpretation=arguments.force_interpretation,
+        length_scale=arguments.length_scale,
+        velocity_scale=arguments.velocity_scale,
+        length_unit=arguments.length_unit,
+        time_unit=arguments.time_unit,
+        mass_unit=arguments.mass_unit,
+        temperature_unit=arguments.temperature_unit,
+        codec=arguments.codec,
+        level=arguments.level,
+        float_type=arguments.float_type,
+        brick_size=tuple(arguments.brick_size),
+        excluded_flag_bits=arguments.excluded_flag_bits,
+        solver_version=arguments.solver_version,
+        solver_commit=arguments.solver_commit,
+        solver_configuration=arguments.solver_configuration,
+        source_case=arguments.source_case,
+        max_payload_bytes=arguments.max_payload_bytes,
+        force=arguments.force,
+    )
+    root = import_fluidx3d_case(parameters)
+    manifest = load_manifest(root)
+    timeline = manifest["timeline"]
+    dimensions = manifest["grids"][0]["dimensions"]
+    total = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+    print(
+        f"wrote {root} from FluidX3D: "
+        f"{'x'.join(str(value) for value in dimensions)} cells, "
+        f"{timeline['frameCount']} frames, {len(manifest['fields'])} fields, "
+        f"{total / 1024 / 1024:.2f} MiB"
+    )
+    print(f"  external solver data: {manifest['case']['id']}")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # extract
 # ---------------------------------------------------------------------------
 
@@ -880,6 +1129,7 @@ _COMMANDS = {
     "inspect": _info,
     "known-values": _known_values,
     "generate-mock": _generate_mock,
+    "import-fluidx3d": _import_fluidx3d,
     "extract": _extract,
     "benchmark-read": _benchmark_read,
 }
@@ -909,7 +1159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     handler = _COMMANDS[arguments.command]
     try:
         return handler(arguments)
-    except (CVFError, CodecError, ManifestError, OSError) as exc:
+    except (CVFError, CodecError, ConversionError, ManifestError, OSError) as exc:
         # Expected failure: the input is bad. One line, no traceback.
         print(f"cfdviz: {exc}", file=sys.stderr)
         return EXIT_INVALID

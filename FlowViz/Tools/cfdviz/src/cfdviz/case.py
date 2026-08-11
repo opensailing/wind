@@ -245,7 +245,8 @@ def _accumulate(stats: FieldStatistics, values: np.ndarray,
 
     if not np.any(valid):
         return
-    data = flat.astype(np.float64)
+    with np.errstate(invalid="ignore"):
+        data = flat.astype(np.float64)
     minimum = np.where(valid, data, np.inf).min(axis=0)
     maximum = np.where(valid, data, -np.inf).max(axis=0)
     stats.minimum = np.minimum(stats.minimum, minimum)

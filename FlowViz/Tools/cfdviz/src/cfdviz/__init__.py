@@ -76,6 +76,13 @@ from .manifest import (
     load_schema,
     validate_manifest,
 )
+from .fluidx3d import (
+    FluidX3DError,
+    FluidX3DFieldSource,
+    FluidX3DImportParameters,
+    fluidx3d_field,
+    import_fluidx3d_case,
+)
 from .vtk_legacy import VTKError, VTKLegacyHeader, read_structured_points
 
 #: Version of this package. Kept in step with ``pyproject.toml``; a test asserts
@@ -112,10 +119,15 @@ __all__ = [
     "CVFFormatError",
     "CVF_ASSOC_CELL",
     "CVF_ASSOC_POINT",
-    # External structured-volume inputs
+    # External structured-volume inputs and converters
     "read_structured_points",
     "VTKLegacyHeader",
     "VTKError",
+    "fluidx3d_field",
+    "import_fluidx3d_case",
+    "FluidX3DFieldSource",
+    "FluidX3DImportParameters",
+    "FluidX3DError",
     # Meshes and mesh arrays (spec 5 and 6)
     "read_cvm",
     "write_cvm",
