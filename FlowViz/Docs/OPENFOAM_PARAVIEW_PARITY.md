@@ -63,6 +63,7 @@ So a row here is only `Done` when a **production** caller exists, and
 | Wireframe | Wireframe mode | Not started | — | — | D |
 | Points | Point cloud mode | Not started | — | — | D |
 | Volume | Ray-marched volume renderer | Partial | `Shaders/FlowVizVolumeRayMarch.usf`, `Private/Render/FlowVizVolumeRayMarchDispatcher.cpp`, `Private/Scene/FlowVizVolumeComponent.cpp` | All five composite modes required by `plan.md` §9 are implemented in the shader — `FLOWVIZ_MODE_ALPHA`, `MAXIMUM`, `MINIMUM`, `AVERAGE`, `ISOSURFACE` — plus a `DIAGNOSTIC` echo mode used to verify parameter transport. Dispatch runs from the scene proxy and is verified end to end under a real RHI. As of 2026-08-06 all six are selectable from the workspace's Render panel (`SFlowVizRenderSettingsPanel`, #74) as well as from Blueprint. Still not `Done`: visual review has not passed | C |
+| Volume fraction / level set | Phase-field interpretation | Scaffolded | `Docs/CFDVIZ_FORMAT.md` §3.6, `Private/CFDViz/CFDVizManifest.cpp` | CFDViz 1.1 parses and validates scalar `volume-fraction` and `signed-distance` metadata, including interface value and inside convention, and the case summary discloses it. No converter writes representative phase payloads and no renderer consumes the interpretation yet; those are tasks #103 and #107 | #107 |
 
 ## 3. Filters — geometry
 
@@ -125,7 +126,7 @@ This is the part that is real.
 
 | ParaView concept | FlowViz control | Status | Source | Known limitation | Milestone |
 | --- | --- | --- | --- | --- | --- |
-| Reader (case open) | CFDViz case reader | Done | `Private/CFDViz/CFDVizManifest.cpp` | Manifest 1.0. Rejects `mesh-vertex`/`mesh-element` grids per format §3.2; `structures[]` is reserved and parsed-when-present. Path containment is defence-in-depth: `IsSafeRelativePath` rejects `..` segments lexically first, so the `IsUnderDirectory` check is unreachable through `ResolveRelativePath` and is tested as a direct assertion rather than a differential | B |
+| Reader (case open) | CFDViz case reader | Done | `Docs/CFDVIZ_FORMAT.md`, `Private/CFDViz/CFDVizManifest.cpp`, `Tools/cfdviz/src/cfdviz/manifest.py` | Manifest 1.1 is implemented independently in Python and Unreal: external-solver identity/provenance, fixed-step sampling cadence, phase interpretation, and representative quality declarations are parsed, cross-referenced, validated, and disclosed by the CLI/case summary. All 1.1 blocks are optional and additive; unknown object properties remain ignored, required closed-enum values remain strict, and newer 1.x minors load. CVF/CVM/CVA binary header versions remain 1.0. Quality declarations are evidence, not trust: payload recomputation belongs to the converter/qualification work in #103–#104 | #102 |
 | Volume data | CVF bricked-volume reader | Done | `Private/CFDViz/CFDVizVolumeReader.cpp` | `CFDVizVolumeReaderTest.cpp` and `CFDVizVolumeIntegrityTest.cpp` have landed, including the sparse-brick case that was failing when this row last read `Partial` | B |
 | Surface mesh | CVM reader | Done | `Private/CFDViz/CFDVizMeshReader.cpp` | — | B |
 | Mesh arrays | CVA reader | Done | `Private/CFDViz/CFDVizArrayReader.cpp` | Cross-language bridge against the Python reference is verified (`CFDVizKnownValuesTest.cpp`) | B |

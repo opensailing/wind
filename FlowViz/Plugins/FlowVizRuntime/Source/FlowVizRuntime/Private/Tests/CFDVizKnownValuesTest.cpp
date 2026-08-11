@@ -56,7 +56,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 		| EAutomationTestFlags::EngineFilter)
 
-namespace
+namespace CFDVizKnownValuesTest
 {
 	/** The committed low-resolution sample, relative to the plugin's base directory. */
 	FString GetSampleCaseDir()
@@ -138,6 +138,8 @@ namespace
 
 bool FCFDVizKnownValuesTest::RunTest(const FString& Parameters)
 {
+	using namespace CFDVizKnownValuesTest;
+
 	const FString CaseDir = GetSampleCaseDir();
 	if (!TestFalse(TEXT("the plugin base directory resolved"), CaseDir.IsEmpty()))
 	{

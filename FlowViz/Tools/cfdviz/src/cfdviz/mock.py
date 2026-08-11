@@ -1,6 +1,6 @@
 """The synthetic cylinder-wake generator — plan section 7.
 
-This module writes a complete, valid CFDViz 1.0 case containing an unsteady
+This module writes a complete, valid CFDViz 1.1 case containing an unsteady
 wake behind a circular cylinder. It exists so that the Unreal renderer has
 something to display before any real solver output exists, and so that every
 reader in the project can be exercised against data with realistic structure:

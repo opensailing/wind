@@ -238,11 +238,18 @@ def sample_manifest() -> dict:
     """
     return {
         "format": "CFDViz",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "case": {
             "id": "d7f46da7-6bd8-4d4b-9410-32d1ea776328",
             "name": "Sample",
-            "quality": "visualization-demo",
+            "quality": "synthetic-correctness-fixture",
+            "solver": {
+                "name": "TestSolver",
+                "version": "2.0",
+                "method": "finite-volume",
+                "commit": "abc123",
+                "configuration": "unsteady-3d",
+            },
         },
         "units": {"length": "m", "time": "s"},
         "coordinates": {"handedness": "right", "upAxis": "Z", "forwardAxis": "X"},
@@ -250,6 +257,11 @@ def sample_manifest() -> dict:
             "frameCount": len(SAMPLE_TIMES),
             "times": list(SAMPLE_TIMES),
             "steps": [0, 100],
+            "sampling": {
+                "sourceTimeStep": 0.005,
+                "storedStepStride": 100,
+                "maxFeatureDisplacementCells": 0.75,
+            },
         },
         "grids": [
             {
@@ -309,7 +321,41 @@ def sample_manifest() -> dict:
                     "pathPattern": "frames/{frame:06d}/validMask.cvf",
                 },
             },
+            {
+                "numericId": 4,
+                "id": "alphaWater",
+                "semantic": "volume-fraction",
+                "components": ["alpha"],
+                "componentCount": 1,
+                "dataType": "float32",
+                "association": "cell",
+                "grid": "main",
+                "unit": "1",
+                "phase": {
+                    "representation": "volume-fraction",
+                    "primaryPhase": "water",
+                    "secondaryPhase": "air",
+                    "interfaceValue": 0.5,
+                    "inside": "greater-than-interface",
+                },
+                "storage": {
+                    "type": "bricked-volume",
+                    "codec": "zlib",
+                    "brickSize": [4, 4, 4],
+                    "pathPattern": "frames/{frame:06d}/alphaWater.cvf",
+                },
+            },
         ],
+        "qualityMetrics": {
+            "grid": "main",
+            "activeCellCount": 24,
+            "activeDimensions": list(SAMPLE_DIMENSIONS),
+            "effectiveSpatialDimensions": 3,
+            "velocityField": "U",
+            "velocityComponentRms": [1.0, 0.25, 0.1],
+            "spanwiseGradientRms": 0.05,
+            "temporalFrameCount": len(SAMPLE_TIMES),
+        },
         "meshes": [
             {
                 "id": "obstacle",
@@ -323,6 +369,15 @@ def sample_manifest() -> dict:
                 ],
             }
         ],
+        "provenance": {
+            "sourceType": "synthetic",
+            "generatorCommand": "cfdviz test-import source.case",
+            "generatorVersion": "1.1.0",
+            "sourceCase": "source.case",
+            "sourceRevision": "source-commit-456",
+            "exportCommand": "solver-post --write-fields",
+            "notes": ["Fixture provenance exercises the external-solver contract."],
+        },
     }
 
 

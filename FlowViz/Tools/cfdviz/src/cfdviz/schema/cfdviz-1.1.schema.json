@@ -1,0 +1,610 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flowviz.dev/schema/cfdviz-1.1.schema.json",
+  "title": "CFDViz 1.1 case manifest",
+  "description": "Normative JSON Schema for manifest.json, per Docs/CFDVIZ_FORMAT.md section 3. Unknown object properties are deliberately permitted everywhere: format rule 1.4 requires readers to ignore unknown properties silently so that a newer-minor manifest still loads in an older reader. Unknown values of a *required* enum are rejected, which is why dataType, association, grid type, storage type, codec and declared phase interpretation are closed enums here. Invariants that JSON Schema cannot express (monotonic timeline, cross-reference resolution, uniqueness of ids across sibling objects, and consistency of declared quality metrics) are enforced by cfdviz.manifest.validate_manifest and MUST also be checked by every reader.",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "case",
+    "units",
+    "coordinates",
+    "timeline",
+    "grids",
+    "fields"
+  ],
+  "properties": {
+    "format": {
+      "const": "CFDViz",
+      "description": "Exact format marker. Any other value is not a CFDViz case."
+    },
+    "version": {
+      "$ref": "#/$defs/semanticVersion",
+      "description": "Format version as MAJOR.MINOR.PATCH. An unsupported MAJOR is rejected; a newer MINOR is accepted provided every required construct is present."
+    },
+    "case": { "$ref": "#/$defs/caseMetadata" },
+    "units": { "$ref": "#/$defs/units" },
+    "coordinates": { "$ref": "#/$defs/coordinateSystem" },
+    "timeline": { "$ref": "#/$defs/timeline" },
+    "grids": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/grid" },
+      "description": "Declared grids. Grid ids MUST be unique; every field.grid MUST name one of them. Cross-reference and uniqueness checks are not expressible here and live in cfdviz.manifest.validate_manifest. No minItems is imposed: section 3.1 enumerates the conditions that make a manifest invalid and an empty array is not among them, so adding strictness here would make this schema disagree with the Unreal reader."
+    },
+    "fields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/field" },
+      "description": "Stored volume fields. Both `id` and `numericId` MUST be unique across the array; see the note on `grids` for why no minItems is imposed."
+    },
+    "meshes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mesh" }
+    },
+    "derivedFields": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/derivedField" }
+    },
+    "structures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/structure" },
+      "description": "Reserved for mesh-associated (FEA) results; see CFDVIZ_FORMAT.md section 6.5. Empty in 1.x sample cases, where CVA files are discovered at meshes/*.cva instead."
+    },
+    "qualityMetrics": { "$ref": "#/$defs/qualityMetrics" },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+
+  "$defs": {
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$"
+    },
+
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Stable machine identifier, unique within its array."
+    },
+
+    "vector3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+
+    "spacing3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number", "exclusiveMinimum": 0 },
+      "description": "Cell size along X, Y, Z in units.length. Every component MUST be > 0."
+    },
+
+    "dimensions3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+      "description": "Cell counts [nx, ny, nz]. Each component is at least 1 and fits the signed 32-bit manifest representation shared with Unreal; CVF headers store the same positive values as uint32."
+    },
+
+    "brickSize3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "integer", "minimum": 1, "maximum": 65535 },
+      "description": "Brick edge lengths in voxels. Stored as uint16 in the CVF header (section 4.1)."
+    },
+
+    "matrix4x4": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": { "type": "number" },
+      "description": "Row-major 4x4 matrix, 16 numbers, row 0 first."
+    },
+
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?![\\s\\S]*(?:^|/)\\.\\.(?:/|$))(?![\\s\\S]*[\\\\\\u0000-\\u001F])[\\s\\S]+$",
+      "description": "Path relative to the case root, '/' separated. Rejects absolute paths, leading '/', Windows drive letters, backslashes (a separator on Windows, so '..\\x' would otherwise escape the root), control characters and any '..' segment (format rule 1.3). The check is lexical and happens before any filesystem call. cfdviz.manifest.is_safe_relative_path is the authoritative implementation; this pattern mirrors it so schema validation alone already rejects traversal."
+    },
+
+    "componentStatistics": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": { "type": "number" },
+      "description": "One entry per component, same order as field.components. Statistics ignore NaN and masked cells (section 4.4.7); a field with no valid data anywhere records +inf/-inf, which JSON can only express with the non-standard Infinity tokens, so such fields SHOULD omit statistics instead."
+    },
+
+    "caseMetadata": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier",
+          "description": "Stable case identifier; a UUID is recommended. Echoed in known_values.json as caseId."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "createdUtc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp, e.g. 2026-08-04T00:00:00Z."
+        },
+        "quality": {
+          "type": "string",
+          "description": "Data-quality classification surfaced in the UI, e.g. 'visualization-demo' for synthetic data that is explicitly not validation-grade CFD."
+        },
+        "solver": {
+          "type": "object",
+          "description": "External solver identity and reproducibility hints. These values describe where the stored data came from; FlowViz never executes the solver at runtime.",
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" },
+            "method": { "type": "string" },
+            "commit": { "type": "string" },
+            "configuration": { "type": "string" }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "units": {
+      "type": "object",
+      "required": ["length", "time"],
+      "description": "Solver units. Values are stored in these units and are never normalized, quantized, clamped or rescaled by a reader or writer (format rule 1.6).",
+      "properties": {
+        "length": { "type": "string", "minLength": 1, "description": "SI metres ('m') preferred." },
+        "time": { "type": "string", "minLength": 1 },
+        "mass": { "type": "string", "minLength": 1 },
+        "temperature": { "type": "string", "minLength": 1 },
+        "angle": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "coordinateSystem": {
+      "type": "object",
+      "required": ["handedness", "upAxis", "forwardAxis"],
+      "description": "The canonical CFDViz frame (section 2) is fixed: right-handed, Z-up, X-forward. These fields exist so a reader can assert the case really is canonical rather than assume it. Conversion to Unreal's left-handed centimetre frame happens in exactly one adapter and is never written back into stored fields.",
+      "properties": {
+        "handedness": { "enum": ["right"] },
+        "upAxis": { "enum": ["Z"] },
+        "forwardAxis": { "enum": ["X"] },
+        "origin": { "$ref": "#/$defs/vector3" },
+        "sourceToCanonical": {
+          "oneOf": [{ "$ref": "#/$defs/matrix4x4" }, { "type": "null" }],
+          "description": "Row-major 4x4 transform from source coordinates into canonical coordinates. Null or absent means identity."
+        },
+        "crs": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" },
+            {
+              "type": "object",
+              "description": "Reserved georeferencing metadata (plan section 16.5). Never required for ordinary local CFD cases.",
+              "properties": {
+                "identifier": { "type": "string" },
+                "epsg": { "type": "integer" },
+                "originLatitude": { "type": "number" },
+                "originLongitude": { "type": "number" },
+                "originHeight": { "type": "number" },
+                "localBasis": { "type": "string" }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    "timeline": {
+      "type": "object",
+      "required": ["frameCount", "times"],
+      "properties": {
+        "frameCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of stored frames. MUST equal len(times), and len(steps) when steps is present."
+        },
+        "times": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Physical time of each stored frame in units.time. MUST be strictly monotonically increasing; NaN is not a legal time."
+        },
+        "steps": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Optional solver step number per frame, for provenance and UI display."
+        },
+        "defaultInterpolation": {
+          "enum": ["nearest", "linear"],
+          "description": "Default temporal interpolation. Any visually interpolated frame must be identified as interpolation in the UI."
+        },
+        "sampling": { "$ref": "#/$defs/timelineSampling" }
+      }
+    },
+
+    "timelineSampling": {
+      "type": "object",
+      "description": "Optional fixed-step source-sampling declaration. It records solver/output cadence and a converter-computed temporal adequacy metric; it does not invent intermediate solver states.",
+      "required": ["sourceTimeStep", "storedStepStride", "maxFeatureDisplacementCells"],
+      "properties": {
+        "sourceTimeStep": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Physical duration of one source solver step in units.time."
+        },
+        "storedStepStride": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of source solver steps between adjacent stored snapshots. When timeline.steps is present, every adjacent difference MUST equal this value."
+        },
+        "maxFeatureDisplacementCells": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Largest estimated displacement of the fastest important visible structure between adjacent stored snapshots, measured in cells. A representative dataset should ordinarily be no greater than approximately one."
+        }
+      }
+    },
+
+    "grid": {
+      "type": "object",
+      "required": ["id", "type", "dimensions", "origin", "spacing"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string" },
+        "type": {
+          "enum": ["uniform-cartesian"],
+          "description": "Required enum; CFDViz 1.x defines exactly one grid type. Unknown values are rejected, not ignored."
+        },
+        "dimensions": { "$ref": "#/$defs/dimensions3" },
+        "origin": {
+          "$ref": "#/$defs/vector3",
+          "description": "Physical position of the grid corner, i.e. of point (0,0,0). Cell (i,j,k) is centred at origin + spacing * (i+0.5, j+0.5, k+0.5)."
+        },
+        "spacing": { "$ref": "#/$defs/spacing3" },
+        "maskField": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional field id whose values reject cells from statistics and rendering. MUST name a declared field."
+        }
+      }
+    },
+
+    "fieldStorage": {
+      "type": "object",
+      "required": ["type", "codec", "pathPattern"],
+      "properties": {
+        "type": {
+          "enum": ["bricked-volume"],
+          "description": "Required enum; CFDViz 1.x stores volume fields as CVF bricked volumes only."
+        },
+        "brickSize": { "$ref": "#/$defs/brickSize3" },
+        "codec": {
+          "enum": ["none", "zstd", "lz4", "zlib"],
+          "description": "Payload codec name. 'zlib' (codec id 3) is the shipping default: UE 5.8 ships no linkable C++ zstd, so 'zstd' is RESERVED and a 1.0 reader MUST reject it with the exact message in format section 7. 'lz4' is permitted where available."
+        },
+        "level": {
+          "type": "integer",
+          "description": "Optional codec level recorded for provenance; it does not affect decoding."
+        },
+        "pathPattern": {
+          "$ref": "#/$defs/relativePath",
+          "description": "Per-frame file path relative to the case root, with a Python format placeholder for the frame index, e.g. 'frames/{frame:06d}/U.cvf'."
+        }
+      }
+    },
+
+    "fieldStatistics": {
+      "type": "object",
+      "description": "Declared statistics over all stored frames. NaN values and cells rejected by the mask field are excluded (format rules 1.7 and 4.4.7). A validator recomputes these and reports any discrepancy.",
+      "properties": {
+        "globalComponentMin": { "$ref": "#/$defs/componentStatistics" },
+        "globalComponentMax": { "$ref": "#/$defs/componentStatistics" },
+        "globalMagnitudeMin": { "type": "number", "minimum": 0 },
+        "globalMagnitudeMax": { "type": "number", "minimum": 0 }
+      }
+    },
+
+    "fieldDisplay": {
+      "type": "object",
+      "description": "Presentation hints only. A reader MUST NOT let these alter stored values.",
+      "properties": {
+        "defaultComponent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "'magnitude' or one of field.components."
+        },
+        "defaultColorMap": { "type": "string", "minLength": 1 },
+        "defaultRangeMode": {
+          "enum": ["global", "frame", "manual"],
+          "description": "Whether the colour range defaults to the global statistics, the current frame's range, or recommendedRange."
+        },
+        "recommendedRange": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" },
+          "description": "[min, max] in the field's own unit."
+        },
+        "opacityPoints": {
+          "type": "array",
+          "description": "Piecewise-linear opacity transfer function as [value, opacity] pairs, value in the field's own unit.",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "prefixItems": [
+              { "type": "number" },
+              { "type": "number", "minimum": 0, "maximum": 1 }
+            ]
+          }
+        }
+      }
+    },
+
+    "phaseInterpretation": {
+      "type": "object",
+      "description": "Interpretation of a scalar floating-point field as a two-phase interface. This metadata tells the renderer which iso-value and normal orientation are physically meaningful.",
+      "required": ["representation", "interfaceValue", "inside"],
+      "properties": {
+        "representation": {
+          "enum": ["volume-fraction", "signed-distance"],
+          "description": "Required enum. Volume fraction conventionally uses an interface near 0.5; signed distance conventionally uses zero."
+        },
+        "primaryPhase": { "type": "string", "minLength": 1 },
+        "secondaryPhase": { "type": "string", "minLength": 1 },
+        "interfaceValue": {
+          "type": "number",
+          "description": "Iso-value that separates the phases. For volume-fraction it MUST lie in [0,1]."
+        },
+        "inside": {
+          "enum": ["greater-than-interface", "less-than-interface"],
+          "description": "Required enum identifying which side of interfaceValue is the primary phase; it also defines the surface-normal sign."
+        }
+      }
+    },
+
+    "field": {
+      "type": "object",
+      "required": [
+        "numericId",
+        "id",
+        "components",
+        "componentCount",
+        "dataType",
+        "association",
+        "grid",
+        "storage"
+      ],
+      "properties": {
+        "numericId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Unique numeric id, written into the CVF header as uint32 so a .cvf file can be tied back to its manifest entry without the filename."
+        },
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "semantic": {
+          "type": "string",
+          "description": "Physical meaning hint, e.g. 'velocity', 'pressure', 'vorticity', 'q-criterion', 'mask'."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Shape hint, e.g. 'scalar', 'vector'. Authoritative component count is componentCount."
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Component names in storage order; components are interleaved per voxel (section 4.4.2). Length MUST equal componentCount."
+        },
+        "componentCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "Capped at 4 because the CVF header and brick directory carry float32[4] background/min/max slots (sections 4.1, 4.3)."
+        },
+        "dataType": {
+          "enum": ["float16", "float32", "uint8"],
+          "description": "Required enum. float64 grid-field storage is not supported in 1.x; record original solver precision in solverPrecision instead."
+        },
+        "association": {
+          "enum": ["cell", "point"],
+          "description": "Required enum. 'cell' means nx*ny*nz values centred at origin + spacing*(i+0.5); 'point' means (nx+1)*(ny+1)*(nz+1) values at origin + spacing*(i,j,k). mesh-vertex, mesh-element, integration-point, face and particle are reserved for a future version and MUST be rejected in 1.x."
+        },
+        "grid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Id of the grid this field is sampled on. MUST name a declared grid."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Solver unit of the stored values, e.g. 'm/s'."
+        },
+        "solverPrecision": {
+          "enum": ["float32", "float64"],
+          "description": "Provenance only: the precision the solver computed in. Does not affect storage."
+        },
+        "temporalInterpolation": { "enum": ["nearest", "linear"] },
+        "phase": { "$ref": "#/$defs/phaseInterpretation" },
+        "storage": { "$ref": "#/$defs/fieldStorage" },
+        "statistics": { "$ref": "#/$defs/fieldStatistics" },
+        "display": { "$ref": "#/$defs/fieldDisplay" }
+      }
+    },
+
+    "boundaryPatch": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Patch id matching the CVM patchIds array (uint32 per triangle). Unique within its mesh."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "description": "Boundary condition class, e.g. 'wall', 'inlet', 'outlet', 'symmetry', 'empty'."
+        },
+        "color": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 4,
+          "items": { "type": "number", "minimum": 0, "maximum": 1 },
+          "description": "Suggested linear RGB or RGBA display colour."
+        },
+        "defaultVisible": { "type": "boolean" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+
+    "mesh": {
+      "type": "object",
+      "required": ["id", "path"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string" },
+        "path": {
+          "$ref": "#/$defs/relativePath",
+          "description": "Path to the .cvm file, relative to the case root."
+        },
+        "role": {
+          "type": "string",
+          "description": "Free-form role hint, e.g. 'boundary', 'obstacle', 'structure', 'decoration'. Not a required enum, so unknown values are ignored rather than rejected."
+        },
+        "static": {
+          "type": "boolean",
+          "description": "True when the geometry does not change across frames."
+        },
+        "transform": {
+          "$ref": "#/$defs/matrix4x4",
+          "description": "Optional row-major 4x4 placement into canonical coordinates. Absent means identity."
+        },
+        "patches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/boundaryPatch" }
+        }
+      }
+    },
+
+    "derivedField": {
+      "type": "object",
+      "required": ["id", "expression"],
+      "description": "A field computed on demand from stored fields; never written to disk.",
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string" },
+        "expression": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Evaluation expression over stored field ids, e.g. 'mag(U)'."
+        },
+        "unit": { "type": "string" },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "componentCount": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "display": { "$ref": "#/$defs/fieldDisplay" }
+      }
+    },
+
+    "structure": {
+      "type": "object",
+      "required": ["id", "mesh"],
+      "description": "Reserved association between a CVM mesh and mesh-associated (CVA) results; see CFDVIZ_FORMAT.md section 6.5. Optional in 1.x: readers MUST validate it when present and MUST NOT require it, because CVA files are also discovered at meshes/*.cva.",
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string" },
+        "mesh": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Id of a declared mesh."
+        },
+        "displacementField": { "type": "string" },
+        "velocityField": { "type": "string" },
+        "stressField": { "type": "string" },
+        "strainField": { "type": "string" },
+        "variants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "e.g. 'raw', 'smoothed'."
+        },
+        "vertexToNodeMap": { "$ref": "#/$defs/relativePath" }
+      }
+    },
+
+    "qualityMetrics": {
+      "type": "object",
+      "description": "Optional, machine-recomputable evidence that a dataset is spatially and temporally representative. These declarations are never a substitute for validation against stored payloads.",
+      "required": [
+        "grid",
+        "activeCellCount",
+        "activeDimensions",
+        "effectiveSpatialDimensions",
+        "velocityField",
+        "velocityComponentRms",
+        "spanwiseGradientRms",
+        "temporalFrameCount"
+      ],
+      "properties": {
+        "grid": { "$ref": "#/$defs/identifier" },
+        "activeCellCount": { "type": "integer", "minimum": 1 },
+        "activeDimensions": { "$ref": "#/$defs/dimensions3" },
+        "effectiveSpatialDimensions": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "velocityField": { "$ref": "#/$defs/identifier" },
+        "velocityComponentRms": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "number", "minimum": 0 },
+          "description": "RMS of each canonical velocity component over valid active cells. A genuine 3D dataset must not silently collapse the spanwise component to zero."
+        },
+        "spanwiseGradientRms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "RMS magnitude of derivatives along the canonical spanwise axis, in the velocity field's unit per units.length."
+        },
+        "temporalFrameCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "description": "Free-form origin record. Never load-bearing for decoding.",
+      "properties": {
+        "sourceType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Origin class such as 'external-solver' or 'synthetic'. Free-form so future origins remain additive; representative-data qualification checks the value it requires."
+        },
+        "generatorCommand": { "type": "string" },
+        "generatorVersion": { "type": "string" },
+        "sourceCase": { "type": "string" },
+        "sourceRevision": { "type": "string", "minLength": 1 },
+        "exportCommand": { "type": "string", "minLength": 1 },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

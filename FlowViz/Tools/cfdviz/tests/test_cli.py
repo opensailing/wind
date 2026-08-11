@@ -50,7 +50,16 @@ def test_module_is_runnable_with_dash_m():
         env={"PYTHONPATH": str(root / "src"), "PATH": "/usr/bin:/bin"},
     )
     assert result.returncode == 0, result.stderr
-    assert "1.0" in result.stdout
+    assert "CFDViz format 1.1.0" in result.stdout
+
+
+def test_help_describes_the_current_format(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--help"])
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "CFDViz 1.1" in captured.out
+    assert "CFDViz 1.0 cases" not in captured.out
 
 
 def test_no_arguments_prints_usage_and_fails(capsys):
@@ -68,7 +77,7 @@ def test_unknown_subcommand_fails(capsys):
 def test_version_reports_the_format_version(capsys):
     status, out, _ = run(capsys, "--version")
     assert status == 0
-    assert "1.0.0" in out
+    assert "1.1.0" in out
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +145,40 @@ def test_info_summarizes_a_case(capsys, valid_case: Path):
     assert status == 0
     assert "pressure" in out and "U" in out
     assert "4x3x2" in out.replace(" ", "")
+    assert "synthetic-correctness-fixture" in out
+    assert "TestSolver 2.0" in out
+    assert "synthetic" in out
+    assert "effective 3D" in out
+    assert "active dimensions=4x3x2" in out
+    assert "velocity RMS=[1.0, 0.25, 0.1]" in out
+    assert "spanwise gradient RMS=0.05" in out
+    assert "temporal frames=2" in out
+    assert "solver-post --write-fields" in out
+    assert "alphaWater" in out and "volume-fraction" in out
+    assert "0.75 cells/snapshot" in out
+
+
+def test_info_discloses_valid_partial_solver_and_provenance_blocks(
+    capsys, valid_case: Path
+):
+    manifest_path = valid_case / "manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    manifest["case"]["solver"] = {
+        "method": "finite-volume",
+        "commit": "revision-123",
+    }
+    manifest["provenance"] = {
+        "sourceRevision": "case-revision-456",
+        "exportCommand": "postProcess -func sample",
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    status, out, _ = run(capsys, "info", str(valid_case))
+    assert status == 0
+    assert "finite-volume" in out
+    assert "revision-123" in out
+    assert "case-revision-456" in out
+    assert "postProcess -func sample" in out
 
 
 def test_info_on_a_single_cvf_file_prints_header_facts(capsys, valid_case: Path):
@@ -187,6 +230,20 @@ def test_known_values_writes_the_bridge_file(capsys, valid_case: Path):
     assert status == 0
     bridge = json.loads((valid_case / "known_values.json").read_text("utf-8"))
     assert bridge["crc32cCheck"] == "0xE3069283"
+
+
+def test_known_values_preserves_the_loaded_manifest_version(
+    capsys, valid_case: Path
+):
+    manifest_path = valid_case / "manifest.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    manifest["version"] = "1.0.0"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    status, _, _ = run(capsys, "known-values", str(valid_case))
+    assert status == 0
+    bridge = json.loads((valid_case / "known_values.json").read_text("utf-8"))
+    assert bridge["formatVersion"] == "1.0.0"
 
 
 def test_known_values_check_mode_passes_on_a_matching_bridge(

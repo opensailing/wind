@@ -604,6 +604,21 @@ bool FFlowVizConsoleCaseSummaryTest::RunTest(const FString& Parameters)
 		Summary.Contains(TEXT("20 frames")));
 	TestTrue(TEXT("the summary names the grid resolution"),
 		Summary.Contains(TEXT("56 x 28 x 6")));
+	FCFDVizCase SolverWithoutIdentity = Case;
+	SolverWithoutIdentity.Metadata.Solver.Name.Reset();
+	SolverWithoutIdentity.Metadata.Solver.Version.Reset();
+	TestTrue(TEXT("CONTROL: the formatter fixture still has method-only solver evidence"),
+		!SolverWithoutIdentity.Metadata.Solver.Method.IsEmpty());
+	const FString MethodOnlySummary = FlowVizConsoleCommands::FormatCaseSummary(
+		SolverWithoutIdentity, SampleField);
+	TArray<FString> SummaryLines;
+	MethodOnlySummary.ParseIntoArrayLines(SummaryLines);
+	const bool bHasBlankSolverRow = SummaryLines.ContainsByPredicate(
+		[](const FString& Line) { return Line.TrimEnd() == TEXT("  Solver"); });
+	TestFalse(TEXT("an omitted solver identity does not produce a blank summary row"),
+		bHasBlankSolverRow);
+	TestTrue(TEXT("method-only solver evidence is still disclosed"),
+		MethodOnlySummary.Contains(SolverWithoutIdentity.Metadata.Solver.Method));
 
 	/*
 	 * THE CODEC IS ASSERTED ON EACH FIELD'S OWN ROW, not as "the word zlib appears
@@ -791,6 +806,93 @@ bool FFlowVizConsoleCaseSummaryTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("the summary lists the mask field, so a manifest and its dump cannot disagree "
 				  "about what is in the case"),
 		Summary.Contains(TEXT("validMask")));
+
+	/*
+	 * CFDViz 1.1 REPRESENTATIVE-DATA EVIDENCE MUST REACH THE USER.
+	 *
+	 * The committed sample deliberately remains a synthetic 1.0 correctness
+	 * fixture, so construct the additive metadata here rather than relabelling it
+	 * as external CFD. Formatting takes a case by value and does not validate it;
+	 * this is exactly the seam a console reader uses after a validated load.
+	 */
+	FCFDVizCase Representative = Case;
+	Representative.Metadata.Quality = TEXT("external-solver-sample");
+	Representative.Metadata.Solver.Name = TEXT("OpenFOAM");
+	Representative.Metadata.Solver.Version = TEXT("13");
+	Representative.Metadata.Solver.Method = TEXT("finite-volume LES");
+	Representative.Metadata.Solver.Commit = TEXT("foam-commit-abc");
+	Representative.Metadata.Solver.Configuration = TEXT("motorBike-transient");
+
+	FCFDVizTimelineSampling Sampling;
+	Sampling.SourceTimeStep = 0.0025;
+	Sampling.StoredStepStride = 4;
+	Sampling.MaxFeatureDisplacementCells = 0.8;
+	Representative.Timeline.Sampling = Sampling;
+
+	Representative.Provenance.SourceType = TEXT("external-solver");
+	Representative.Provenance.SourceRevision = TEXT("case-revision-def");
+	Representative.Provenance.ExportCommand = TEXT("postProcess -func sample");
+
+	FCFDVizQualityMetrics Quality;
+	Quality.GridId = Representative.Grids[0].Id;
+	Quality.ActiveCellCount = 1234;
+	Quality.ActiveDimensions = FIntVector(56, 28, 6);
+	Quality.EffectiveSpatialDimensions = 3;
+	Quality.VelocityFieldId = FName(TEXT("U"));
+	Quality.VelocityComponentRms = FVector(2.0, 0.5, 0.25);
+	Quality.SpanwiseGradientRms = 0.125;
+	Quality.TemporalFrameCount = Representative.Timeline.FrameCount;
+	Representative.QualityMetrics = Quality;
+
+	FCFDVizField* PhaseField = Representative.Fields.FindByPredicate(
+		[](const FCFDVizField& Field) { return Field.Id == FName(TEXT("alphaWater")); });
+	if (PhaseField == nullptr)
+	{
+		// The synthetic fixture has no liquid field. Reuse pressure only to exercise
+		// the formatter; no production manifest is changed or misclassified.
+		PhaseField = Representative.Fields.FindByPredicate(
+			[](const FCFDVizField& Field) { return Field.Id == FName(TEXT("pressure")); });
+	}
+	if (TestNotNull(TEXT("CONTROL: a scalar field is available for phase formatting"), PhaseField))
+	{
+		FCFDVizPhaseInterpretation Phase;
+		Phase.Representation = ECFDVizPhaseRepresentation::VolumeFraction;
+		Phase.PrimaryPhase = TEXT("water");
+		Phase.SecondaryPhase = TEXT("air");
+		Phase.InterfaceValue = 0.5;
+		Phase.Inside = ECFDVizPhaseInside::GreaterThanInterface;
+		PhaseField->Phase = Phase;
+	}
+
+	const FString RepresentativeSummary =
+		FlowVizConsoleCommands::FormatCaseSummary(Representative, SampleField);
+	TestTrue(TEXT("the summary prints the solver method"),
+		RepresentativeSummary.Contains(TEXT("finite-volume LES")));
+	TestTrue(TEXT("the summary prints the solver revision"),
+		RepresentativeSummary.Contains(TEXT("foam-commit-abc")));
+	TestTrue(TEXT("the summary prints the solver configuration"),
+		RepresentativeSummary.Contains(TEXT("motorBike-transient")));
+	TestTrue(TEXT("the summary names external-solver provenance on its own row"),
+		RepresentativeSummary.Contains(TEXT("  Provenance        external-solver\n")));
+	TestTrue(TEXT("the summary prints the source revision"),
+		RepresentativeSummary.Contains(TEXT("case-revision-def")));
+	TestTrue(TEXT("the summary prints the export command"),
+		RepresentativeSummary.Contains(TEXT("postProcess -func sample")));
+	TestTrue(TEXT("the summary prints the stored-step stride"),
+		RepresentativeSummary.Contains(TEXT("stride 4")));
+	TestTrue(TEXT("the summary prints the feature-displacement gate"),
+		RepresentativeSummary.Contains(TEXT("0.8 cells/snapshot")));
+	TestTrue(TEXT("the summary prints effective three-dimensionality"),
+		RepresentativeSummary.Contains(TEXT("effective 3D")));
+	TestTrue(TEXT("the summary prints the quality velocity field"),
+		RepresentativeSummary.Contains(TEXT("velocity 'U'")));
+	TestTrue(TEXT("the summary prints spanwise variation evidence"),
+		RepresentativeSummary.Contains(TEXT("spanwise gradient RMS 0.125")));
+	TestTrue(TEXT("the phase field row names the representation"),
+		RepresentativeSummary.Contains(TEXT("volume-fraction")));
+	TestTrue(TEXT("the phase field row prints the interface and inside convention"),
+		RepresentativeSummary.Contains(TEXT("interface 0.5"))
+			&& RepresentativeSummary.Contains(TEXT("greater-than-interface")));
 
 	return true;
 }

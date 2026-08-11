@@ -1,4 +1,4 @@
-"""``cfdviz`` — the reference implementation of the CFDViz 1.0 case format.
+"""``cfdviz`` — the reference implementation of the CFDViz 1.1 case format.
 
 The normative specification is ``FlowViz/Docs/CFDVIZ_FORMAT.md``. Where this
 package and prose disagree, the prose wins; where the prose is silent, this
@@ -69,6 +69,7 @@ from .cvf import (
 )
 from .cvm import CVMData, CVMError, CVMHeader, read_cvm, write_cvm
 from .manifest import (
+    FORMAT_VERSION,
     ManifestError,
     is_safe_relative_path,
     load_manifest,
@@ -79,11 +80,6 @@ from .manifest import (
 #: Version of this package. Kept in step with ``pyproject.toml``; a test asserts
 #: the two agree, because a drifting version makes a bug report unactionable.
 __version__ = "1.0.0"
-
-#: Version of the *format* this package reads and writes, as it appears in a
-#: manifest's ``version`` field. Distinct from :data:`__version__` on purpose:
-#: the tool will outlive format 1.0.0 and the two will diverge.
-FORMAT_VERSION = "1.0.0"
 
 __all__ = [
     "__version__",

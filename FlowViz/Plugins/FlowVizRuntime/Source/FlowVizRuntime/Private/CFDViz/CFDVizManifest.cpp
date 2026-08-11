@@ -52,10 +52,9 @@ namespace
 			return false;
 		}
 		const TSharedPtr<FJsonValue> Value = Object->TryGetField(Name);
-		// JSON null is treated as absent throughout: the schema's optional
-		// properties may be written as null, and both spellings mean "not
-		// declared" rather than "declared as nothing".
-		if (!Value.IsValid() || Value->Type == EJson::Null)
+		// Preserve explicit JSON null. Required and strict optional readers must
+		// reject a declared value of the wrong type; only a missing key is absent.
+		if (!Value.IsValid())
 		{
 			return false;
 		}
@@ -103,6 +102,26 @@ namespace
 		{
 			Value->TryGetString(OutString);
 		}
+	}
+
+	/** Optional string whose declared type is strict whenever the property exists. */
+	FCFDVizResult ReadOptionalStringStrict(const TSharedPtr<FJsonObject>& Parent, const FString& Name,
+		const FString& Path, FString& OutString, bool bRequireNonEmpty = false)
+	{
+		TSharedPtr<FJsonValue> Value;
+		if (!TryGetField(Parent, Name, Value))
+		{
+			return FCFDVizResult::Ok();
+		}
+		if (Value->Type != EJson::String || !Value->TryGetString(OutString))
+		{
+			return ManifestError(FString::Printf(TEXT("%s must be a string when present"), *Path));
+		}
+		if (bRequireNonEmpty && OutString.IsEmpty())
+		{
+			return ManifestError(FString::Printf(TEXT("%s must not be empty when present"), *Path));
+		}
+		return FCFDVizResult::Ok();
 	}
 
 	void ReadOptionalBool(const TSharedPtr<FJsonObject>& Parent, const FString& Name, bool& OutBool)
@@ -286,6 +305,36 @@ namespace
 		if (Name.Equals(TEXT("global"), ESearchCase::CaseSensitive)) { Out = ECFDVizRangeMode::Global; return true; }
 		if (Name.Equals(TEXT("frame"), ESearchCase::CaseSensitive)) { Out = ECFDVizRangeMode::Frame; return true; }
 		if (Name.Equals(TEXT("manual"), ESearchCase::CaseSensitive)) { Out = ECFDVizRangeMode::Manual; return true; }
+		return false;
+	}
+
+	bool TryParsePhaseRepresentation(const FString& Name, ECFDVizPhaseRepresentation& Out)
+	{
+		if (Name.Equals(TEXT("volume-fraction"), ESearchCase::CaseSensitive))
+		{
+			Out = ECFDVizPhaseRepresentation::VolumeFraction;
+			return true;
+		}
+		if (Name.Equals(TEXT("signed-distance"), ESearchCase::CaseSensitive))
+		{
+			Out = ECFDVizPhaseRepresentation::SignedDistance;
+			return true;
+		}
+		return false;
+	}
+
+	bool TryParsePhaseInside(const FString& Name, ECFDVizPhaseInside& Out)
+	{
+		if (Name.Equals(TEXT("greater-than-interface"), ESearchCase::CaseSensitive))
+		{
+			Out = ECFDVizPhaseInside::GreaterThanInterface;
+			return true;
+		}
+		if (Name.Equals(TEXT("less-than-interface"), ESearchCase::CaseSensitive))
+		{
+			Out = ECFDVizPhaseInside::LessThanInterface;
+			return true;
+		}
 		return false;
 	}
 
@@ -680,7 +729,8 @@ const FCFDVizBoundaryPatch* FCFDVizMesh::FindPatch(uint32 PatchId) const
 
 namespace
 {
-	FCFDVizResult ParseCaseMetadata(const TSharedPtr<FJsonObject>& Root, FCFDVizCaseMetadata& Out)
+	FCFDVizResult ParseCaseMetadata(const TSharedPtr<FJsonObject>& Root,
+		bool bRequireNonEmptySolverStrings, FCFDVizCaseMetadata& Out)
 	{
 		TSharedPtr<FJsonObject> Object;
 		FCFDVizResult Result = RequireObject(Root, TEXT("case"), TEXT("case"), Object);
@@ -709,12 +759,27 @@ namespace
 		if (TryGetField(Object, TEXT("solver"), SolverValue))
 		{
 			const TSharedPtr<FJsonObject>* Solver = nullptr;
-			if (SolverValue->TryGetObject(Solver) && Solver != nullptr && Solver->IsValid())
+			if (!SolverValue->TryGetObject(Solver) || Solver == nullptr || !Solver->IsValid())
 			{
-				ReadOptionalString(*Solver, TEXT("name"), Out.Solver.Name);
-				ReadOptionalString(*Solver, TEXT("version"), Out.Solver.Version);
-				ReadOptionalString(*Solver, TEXT("method"), Out.Solver.Method);
+				return ManifestError(TEXT("case.solver must be an object when present"));
 			}
+
+			Result = ReadOptionalStringStrict(*Solver, TEXT("name"), TEXT("case.solver.name"),
+				Out.Solver.Name, /*bRequireNonEmpty=*/bRequireNonEmptySolverStrings);
+			if (!Result.IsOk()) { return Result; }
+			Result = ReadOptionalStringStrict(*Solver, TEXT("version"), TEXT("case.solver.version"),
+				Out.Solver.Version, /*bRequireNonEmpty=*/bRequireNonEmptySolverStrings);
+			if (!Result.IsOk()) { return Result; }
+			Result = ReadOptionalStringStrict(*Solver, TEXT("method"), TEXT("case.solver.method"),
+				Out.Solver.Method, /*bRequireNonEmpty=*/bRequireNonEmptySolverStrings);
+			if (!Result.IsOk()) { return Result; }
+			Result = ReadOptionalStringStrict(*Solver, TEXT("commit"), TEXT("case.solver.commit"),
+				Out.Solver.Commit, /*bRequireNonEmpty=*/bRequireNonEmptySolverStrings);
+			if (!Result.IsOk()) { return Result; }
+			Result = ReadOptionalStringStrict(*Solver, TEXT("configuration"),
+				TEXT("case.solver.configuration"), Out.Solver.Configuration,
+				/*bRequireNonEmpty=*/bRequireNonEmptySolverStrings);
+			if (!Result.IsOk()) { return Result; }
 		}
 
 		return FCFDVizResult::Ok();
@@ -767,7 +832,7 @@ namespace
 		if (!Handedness.Equals(TEXT("right"), ESearchCase::CaseSensitive))
 		{
 			return ManifestError(FString::Printf(
-				TEXT("coordinates.handedness is \"%s\"; CFDViz 1.0 stores data right-handed only"),
+				TEXT("coordinates.handedness is \"%s\"; CFDViz 1.x stores data right-handed only"),
 				*Handedness));
 		}
 
@@ -780,7 +845,7 @@ namespace
 		if (!UpAxis.Equals(TEXT("Z"), ESearchCase::CaseSensitive))
 		{
 			return ManifestError(FString::Printf(
-				TEXT("coordinates.upAxis is \"%s\"; CFDViz 1.0 is Z-up only"), *UpAxis));
+				TEXT("coordinates.upAxis is \"%s\"; CFDViz 1.x is Z-up only"), *UpAxis));
 		}
 
 		FString ForwardAxis;
@@ -792,7 +857,7 @@ namespace
 		if (!ForwardAxis.Equals(TEXT("X"), ESearchCase::CaseSensitive))
 		{
 			return ManifestError(FString::Printf(
-				TEXT("coordinates.forwardAxis is \"%s\"; CFDViz 1.0 is X-forward only"), *ForwardAxis));
+				TEXT("coordinates.forwardAxis is \"%s\"; CFDViz 1.x is X-forward only"), *ForwardAxis));
 		}
 
 		Out.System = FCFDVizCoordinateSystem::Canonical();
@@ -906,6 +971,30 @@ namespace
 				TEXT("timeline.defaultInterpolation is \"%s\"; expected nearest or linear"), *Interpolation));
 		}
 
+		TSharedPtr<FJsonValue> SamplingValue;
+		if (TryGetField(Object, TEXT("sampling"), SamplingValue))
+		{
+			const TSharedPtr<FJsonObject>* SamplingObject = nullptr;
+			if (!SamplingValue->TryGetObject(SamplingObject) || SamplingObject == nullptr
+				|| !SamplingObject->IsValid())
+			{
+				return ManifestError(TEXT("timeline.sampling must be an object when present"));
+			}
+
+			FCFDVizTimelineSampling Sampling;
+			Result = RequireNumber(*SamplingObject, TEXT("sourceTimeStep"),
+				TEXT("timeline.sampling.sourceTimeStep"), Sampling.SourceTimeStep);
+			if (!Result.IsOk()) { return Result; }
+			Result = RequireInteger(*SamplingObject, TEXT("storedStepStride"),
+				TEXT("timeline.sampling.storedStepStride"), Sampling.StoredStepStride);
+			if (!Result.IsOk()) { return Result; }
+			Result = RequireNumber(*SamplingObject, TEXT("maxFeatureDisplacementCells"),
+				TEXT("timeline.sampling.maxFeatureDisplacementCells"),
+				Sampling.MaxFeatureDisplacementCells);
+			if (!Result.IsOk()) { return Result; }
+			Out.Sampling = Sampling;
+		}
+
 		return FCFDVizResult::Ok();
 	}
 
@@ -935,7 +1024,7 @@ namespace
 		if (!Type.Equals(TEXT("uniform-cartesian"), ESearchCase::CaseSensitive))
 		{
 			return ManifestError(FString::Printf(
-				TEXT("%s.type is \"%s\"; CFDViz 1.0 defines only \"uniform-cartesian\""), *Path, *Type));
+				TEXT("%s.type is \"%s\"; CFDViz 1.x defines only \"uniform-cartesian\""), *Path, *Type));
 		}
 		Out.Type = ECFDVizGridType::UniformCartesian;
 
@@ -1023,7 +1112,7 @@ namespace
 		if (!Type.Equals(TEXT("bricked-volume"), ESearchCase::CaseSensitive))
 		{
 			return ManifestError(FString::Printf(
-				TEXT("%s.storage.type is \"%s\"; CFDViz 1.0 stores volume fields as \"bricked-volume\""),
+				TEXT("%s.storage.type is \"%s\"; CFDViz 1.x stores volume fields as \"bricked-volume\""),
 				*Path, *Type));
 		}
 		Out.Type = ECFDVizStorageType::BrickedVolume;
@@ -1106,6 +1195,63 @@ namespace
 		return FCFDVizResult::Ok();
 	}
 
+	FCFDVizResult ParsePhaseInterpretation(const TSharedPtr<FJsonObject>& Parent,
+		const FString& Path, TOptional<FCFDVizPhaseInterpretation>& Out)
+	{
+		TSharedPtr<FJsonValue> Value;
+		if (!TryGetField(Parent, TEXT("phase"), Value))
+		{
+			return FCFDVizResult::Ok();
+		}
+
+		const TSharedPtr<FJsonObject>* Object = nullptr;
+		if (!Value->TryGetObject(Object) || Object == nullptr || !Object->IsValid())
+		{
+			return ManifestError(FString::Printf(TEXT("%s.phase must be an object when present"), *Path));
+		}
+
+		FCFDVizPhaseInterpretation Phase;
+		FString Representation;
+		FCFDVizResult Result = RequireString(*Object, TEXT("representation"),
+			Path + TEXT(".phase.representation"), Representation);
+		if (!Result.IsOk()) { return Result; }
+		if (!TryParsePhaseRepresentation(Representation, Phase.Representation))
+		{
+			return ManifestError(FString::Printf(
+				TEXT("%s.phase.representation is \"%s\"; expected volume-fraction or signed-distance"),
+				*Path, *Representation));
+		}
+
+		Result = ReadOptionalStringStrict(*Object, TEXT("primaryPhase"),
+			Path + TEXT(".phase.primaryPhase"), Phase.PrimaryPhase, /*bRequireNonEmpty=*/true);
+		if (!Result.IsOk()) { return Result; }
+		Result = ReadOptionalStringStrict(*Object, TEXT("secondaryPhase"),
+			Path + TEXT(".phase.secondaryPhase"), Phase.SecondaryPhase, /*bRequireNonEmpty=*/true);
+		if (!Result.IsOk()) { return Result; }
+
+		Result = RequireNumber(*Object, TEXT("interfaceValue"),
+			Path + TEXT(".phase.interfaceValue"), Phase.InterfaceValue);
+		if (!Result.IsOk()) { return Result; }
+		if (!FMath::IsFinite(Phase.InterfaceValue))
+		{
+			return ManifestError(FString::Printf(
+				TEXT("%s.phase.interfaceValue must be finite"), *Path));
+		}
+
+		FString Inside;
+		Result = RequireString(*Object, TEXT("inside"), Path + TEXT(".phase.inside"), Inside);
+		if (!Result.IsOk()) { return Result; }
+		if (!TryParsePhaseInside(Inside, Phase.Inside))
+		{
+			return ManifestError(FString::Printf(
+				TEXT("%s.phase.inside is \"%s\"; expected greater-than-interface or less-than-interface"),
+				*Path, *Inside));
+		}
+
+		Out = MoveTemp(Phase);
+		return FCFDVizResult::Ok();
+	}
+
 	FCFDVizResult ParseField(const TSharedPtr<FJsonObject>& Object, int32 FieldIndex, FCFDVizField& Out)
 	{
 		const FString Path = FString::Printf(TEXT("fields[%d]"), FieldIndex);
@@ -1175,7 +1321,7 @@ namespace
 		if (!IsDataTypeSupportedInCvf(Out.DataType))
 		{
 			return ManifestError(FString::Printf(
-				TEXT("%s.dataType is \"float64\"; float64 field storage is not supported in CFDViz 1.0 ")
+				TEXT("%s.dataType is \"float64\"; float64 field storage is not supported in CFDViz 1.x ")
 				TEXT("(section 3.3) - record it in solverPrecision instead"), *Path));
 		}
 
@@ -1193,7 +1339,7 @@ namespace
 			{
 				return ManifestError(FString::Printf(
 					TEXT("%s.association is \"%s\", which is reserved for a future version and must be ")
-					TEXT("rejected in CFDViz 1.0 (section 3.2)"), *Path, *Association));
+					TEXT("rejected in CFDViz 1.x (section 3.2)"), *Path, *Association));
 			}
 			return ManifestError(FString::Printf(
 				TEXT("%s.association is \"%s\"; expected cell or point"), *Path, *Association));
@@ -1234,6 +1380,12 @@ namespace
 					*Path, *Interpolation));
 			}
 			Out.TemporalInterpolation = Parsed;
+		}
+
+		Result = ParsePhaseInterpretation(Object, Path, Out.Phase);
+		if (!Result.IsOk())
+		{
+			return Result;
 		}
 
 		Result = ParseFieldStorage(Object, Path, Out.Storage);
@@ -1444,6 +1596,204 @@ namespace
 
 		return FCFDVizResult::Ok();
 	}
+
+	FCFDVizResult ParseQualityMetrics(const TSharedPtr<FJsonObject>& Root,
+		TOptional<FCFDVizQualityMetrics>& Out)
+	{
+		TSharedPtr<FJsonValue> Value;
+		if (!TryGetField(Root, TEXT("qualityMetrics"), Value))
+		{
+			return FCFDVizResult::Ok();
+		}
+
+		const TSharedPtr<FJsonObject>* Object = nullptr;
+		if (!Value->TryGetObject(Object) || Object == nullptr || !Object->IsValid())
+		{
+			return ManifestError(TEXT("qualityMetrics must be an object when present"));
+		}
+
+		FCFDVizQualityMetrics Quality;
+		FString GridId;
+		FCFDVizResult Result = RequireString(*Object, TEXT("grid"),
+			TEXT("qualityMetrics.grid"), GridId);
+		if (!Result.IsOk()) { return Result; }
+		Quality.GridId = FName(*GridId);
+
+		Result = RequireInteger(*Object, TEXT("activeCellCount"),
+			TEXT("qualityMetrics.activeCellCount"), Quality.ActiveCellCount);
+		if (!Result.IsOk()) { return Result; }
+
+		TArray<double> ActiveDimensions;
+		Result = RequireNumberArray(*Object, TEXT("activeDimensions"),
+			TEXT("qualityMetrics.activeDimensions"), 3, ActiveDimensions);
+		if (!Result.IsOk()) { return Result; }
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			const double Dimension = ActiveDimensions[Axis];
+			if (!FMath::IsFinite(Dimension) || Dimension != FMath::TruncToDouble(Dimension)
+				|| Dimension < 1.0 || Dimension > static_cast<double>(MAX_int32))
+			{
+				return ManifestError(FString::Printf(
+					TEXT("qualityMetrics.activeDimensions[%d] must be a positive int32"), Axis));
+			}
+		}
+		Quality.ActiveDimensions = FIntVector(
+			static_cast<int32>(ActiveDimensions[0]),
+			static_cast<int32>(ActiveDimensions[1]),
+			static_cast<int32>(ActiveDimensions[2]));
+
+		int64 EffectiveDimensions = 0;
+		Result = RequireInteger(*Object, TEXT("effectiveSpatialDimensions"),
+			TEXT("qualityMetrics.effectiveSpatialDimensions"), EffectiveDimensions);
+		if (!Result.IsOk()) { return Result; }
+		if (EffectiveDimensions < 0 || EffectiveDimensions > 3)
+		{
+			return ManifestError(TEXT("qualityMetrics.effectiveSpatialDimensions must be in 0..3"));
+		}
+		Quality.EffectiveSpatialDimensions = static_cast<int32>(EffectiveDimensions);
+
+		FString VelocityFieldId;
+		Result = RequireString(*Object, TEXT("velocityField"),
+			TEXT("qualityMetrics.velocityField"), VelocityFieldId);
+		if (!Result.IsOk()) { return Result; }
+		Quality.VelocityFieldId = FName(*VelocityFieldId);
+
+		TArray<double> VelocityRms;
+		Result = RequireNumberArray(*Object, TEXT("velocityComponentRms"),
+			TEXT("qualityMetrics.velocityComponentRms"), 3, VelocityRms);
+		if (!Result.IsOk()) { return Result; }
+		Quality.VelocityComponentRms = FVector(VelocityRms[0], VelocityRms[1], VelocityRms[2]);
+
+		Result = RequireNumber(*Object, TEXT("spanwiseGradientRms"),
+			TEXT("qualityMetrics.spanwiseGradientRms"), Quality.SpanwiseGradientRms);
+		if (!Result.IsOk()) { return Result; }
+
+		int64 TemporalFrameCount = 0;
+		Result = RequireInteger(*Object, TEXT("temporalFrameCount"),
+			TEXT("qualityMetrics.temporalFrameCount"), TemporalFrameCount);
+		if (!Result.IsOk()) { return Result; }
+		if (TemporalFrameCount < 0 || TemporalFrameCount > MAX_int32)
+		{
+			return ManifestError(TEXT("qualityMetrics.temporalFrameCount must fit in int32"));
+		}
+		Quality.TemporalFrameCount = static_cast<int32>(TemporalFrameCount);
+
+		Out = MoveTemp(Quality);
+		return FCFDVizResult::Ok();
+	}
+
+	FCFDVizResult ParseProvenance(const TSharedPtr<FJsonObject>& Root, FCFDVizProvenance& Out)
+	{
+		TSharedPtr<FJsonValue> Value;
+		if (!TryGetField(Root, TEXT("provenance"), Value))
+		{
+			return FCFDVizResult::Ok();
+		}
+
+		const TSharedPtr<FJsonObject>* Object = nullptr;
+		if (!Value->TryGetObject(Object) || Object == nullptr || !Object->IsValid())
+		{
+			return ManifestError(TEXT("provenance must be an object when present"));
+		}
+
+		FCFDVizResult Result = ReadOptionalStringStrict(*Object, TEXT("sourceType"),
+			TEXT("provenance.sourceType"), Out.SourceType, /*bRequireNonEmpty=*/true);
+		if (!Result.IsOk()) { return Result; }
+		Result = ReadOptionalStringStrict(*Object, TEXT("generatorCommand"),
+			TEXT("provenance.generatorCommand"), Out.GeneratorCommand);
+		if (!Result.IsOk()) { return Result; }
+		Result = ReadOptionalStringStrict(*Object, TEXT("generatorVersion"),
+			TEXT("provenance.generatorVersion"), Out.GeneratorVersion);
+		if (!Result.IsOk()) { return Result; }
+		Result = ReadOptionalStringStrict(*Object, TEXT("sourceCase"),
+			TEXT("provenance.sourceCase"), Out.SourceCase);
+		if (!Result.IsOk()) { return Result; }
+		Result = ReadOptionalStringStrict(*Object, TEXT("sourceRevision"),
+			TEXT("provenance.sourceRevision"), Out.SourceRevision, /*bRequireNonEmpty=*/true);
+		if (!Result.IsOk()) { return Result; }
+		Result = ReadOptionalStringStrict(*Object, TEXT("exportCommand"),
+			TEXT("provenance.exportCommand"), Out.ExportCommand, /*bRequireNonEmpty=*/true);
+		if (!Result.IsOk()) { return Result; }
+
+		TSharedPtr<FJsonValue> NotesValue;
+		if (TryGetField(*Object, TEXT("notes"), NotesValue))
+		{
+			Result = RequireStringArray(*Object, TEXT("notes"), TEXT("provenance.notes"), Out.Notes);
+			if (!Result.IsOk()) { return Result; }
+		}
+
+		return FCFDVizResult::Ok();
+	}
+
+	FCFDVizResult ValidateQualityReferenceCasing(const TSharedPtr<FJsonObject>& Root)
+	{
+		TSharedPtr<FJsonValue> QualityValue;
+		if (!TryGetField(Root, TEXT("qualityMetrics"), QualityValue))
+		{
+			return FCFDVizResult::Ok();
+		}
+
+		const TSharedPtr<FJsonObject>* QualityObject = nullptr;
+		if (!QualityValue->TryGetObject(QualityObject) || QualityObject == nullptr
+			|| !QualityObject->IsValid())
+		{
+			return ManifestError(TEXT("qualityMetrics must be an object when present"));
+		}
+
+		FString GridId;
+		FCFDVizResult Result = RequireString(*QualityObject, TEXT("grid"),
+			TEXT("qualityMetrics.grid"), GridId);
+		if (!Result.IsOk()) { return Result; }
+
+		const TArray<TSharedPtr<FJsonValue>>* GridValues = nullptr;
+		Result = RequireArray(Root, TEXT("grids"), TEXT("grids"), GridValues);
+		if (!Result.IsOk()) { return Result; }
+		const bool bHasExactGrid = GridValues->ContainsByPredicate(
+			[&GridId](const TSharedPtr<FJsonValue>& GridValue)
+			{
+				const TSharedPtr<FJsonObject>* GridObject = nullptr;
+				FString CandidateId;
+				return GridValue.IsValid() && GridValue->TryGetObject(GridObject)
+					&& GridObject != nullptr && GridObject->IsValid()
+					&& (*GridObject)->TryGetStringField(TEXT("id"), CandidateId)
+					&& CandidateId.Equals(GridId, ESearchCase::CaseSensitive);
+			});
+		if (!bHasExactGrid)
+		{
+			return ManifestError(FString::Printf(
+				TEXT("qualityMetrics.grid \"%s\" does not name a declared grid with identical casing"),
+				*GridId));
+		}
+
+		FString VelocityFieldId;
+		Result = RequireString(*QualityObject, TEXT("velocityField"),
+			TEXT("qualityMetrics.velocityField"), VelocityFieldId);
+		if (!Result.IsOk()) { return Result; }
+
+		const TArray<TSharedPtr<FJsonValue>>* FieldValues = nullptr;
+		Result = RequireArray(Root, TEXT("fields"), TEXT("fields"), FieldValues);
+		if (!Result.IsOk()) { return Result; }
+		const bool bHasExactVelocityField = FieldValues->ContainsByPredicate(
+			[&VelocityFieldId, &GridId](const TSharedPtr<FJsonValue>& FieldValue)
+			{
+				const TSharedPtr<FJsonObject>* FieldObject = nullptr;
+				FString CandidateId;
+				FString CandidateGrid;
+				return FieldValue.IsValid() && FieldValue->TryGetObject(FieldObject)
+					&& FieldObject != nullptr && FieldObject->IsValid()
+					&& (*FieldObject)->TryGetStringField(TEXT("id"), CandidateId)
+					&& CandidateId.Equals(VelocityFieldId, ESearchCase::CaseSensitive)
+					&& (*FieldObject)->TryGetStringField(TEXT("grid"), CandidateGrid)
+					&& CandidateGrid.Equals(GridId, ESearchCase::CaseSensitive);
+			});
+		if (!bHasExactVelocityField)
+		{
+			return ManifestError(TEXT("qualityMetrics.velocityField must name a field on "
+				"qualityMetrics.grid with identical casing"));
+		}
+
+		return FCFDVizResult::Ok();
+	}
 }
 
 FCFDVizResult FCFDVizCase::ParseFromString(const FString& Json, const FString& ContextPath, FCFDVizCase& OutCase)
@@ -1507,7 +1857,7 @@ FCFDVizResult FCFDVizCase::ParseFromString(const FString& Json, const FString& C
 	}
 
 	// --- required blocks ----------------------------------------------------
-	Result = ParseCaseMetadata(Root, Parsed.Metadata);
+	Result = ParseCaseMetadata(Root, Parsed.VersionMinor >= 1, Parsed.Metadata);
 	if (!Result.IsOk()) { Result.FilePath = ContextPath; return Result; }
 
 	Result = ParseUnits(Root, Parsed.Units);
@@ -1558,6 +1908,9 @@ FCFDVizResult FCFDVizCase::ParseFromString(const FString& Json, const FString& C
 		if (!Result.IsOk()) { Result.FilePath = ContextPath; return Result; }
 		Parsed.Fields.Add(MoveTemp(Field));
 	}
+
+	Result = ParseQualityMetrics(Root, Parsed.QualityMetrics);
+	if (!Result.IsOk()) { Result.FilePath = ContextPath; return Result; }
 
 	// --- optional collections -----------------------------------------------
 	const TArray<TSharedPtr<FJsonValue>>* Meshes = nullptr;
@@ -1617,23 +1970,20 @@ FCFDVizResult FCFDVizCase::ParseFromString(const FString& Json, const FString& C
 		}
 	}
 
-	TSharedPtr<FJsonValue> ProvenanceValue;
-	if (TryGetField(Root, TEXT("provenance"), ProvenanceValue))
-	{
-		const TSharedPtr<FJsonObject>* Object = nullptr;
-		if (ProvenanceValue->TryGetObject(Object) && Object != nullptr && Object->IsValid())
-		{
-			ReadOptionalString(*Object, TEXT("generatorCommand"), Parsed.Provenance.GeneratorCommand);
-			ReadOptionalString(*Object, TEXT("generatorVersion"), Parsed.Provenance.GeneratorVersion);
-			ReadOptionalString(*Object, TEXT("sourceCase"), Parsed.Provenance.SourceCase);
-			ReadOptionalStringArray(*Object, TEXT("notes"), Parsed.Provenance.Notes);
-		}
-	}
+	Result = ParseProvenance(Root, Parsed.Provenance);
+	if (!Result.IsOk()) { Result.FilePath = ContextPath; return Result; }
 
 	// Validation is not optional: running it here is what makes a successful
 	// return always mean a usable case, with no way to obtain a
 	// parsed-but-unvalidated one by forgetting a call.
 	Result = Parsed.Validate();
+	if (!Result.IsOk())
+	{
+		Result.FilePath = ContextPath;
+		return Result;
+	}
+
+	Result = ValidateQualityReferenceCasing(Root);
 	if (!Result.IsOk())
 	{
 		Result.FilePath = ContextPath;
@@ -1767,6 +2117,12 @@ FCFDVizResult FCFDVizCase::Validate() const
 			TEXT("unsupported major version %d; this reader implements CFDViz %u.x"),
 			VersionMajor, CFDViz::SupportedMajorVersion));
 	}
+	if (Metadata.Quality.Equals(TEXT("external-solver-sample"), ESearchCase::CaseSensitive)
+		&& !Provenance.SourceType.Equals(TEXT("external-solver"), ESearchCase::CaseSensitive))
+	{
+		return ManifestError(TEXT("case.quality 'external-solver-sample' requires "
+			"provenance.sourceType 'external-solver'"));
+	}
 
 	// --- timeline -----------------------------------------------------------
 	if (Timeline.FrameCount != Timeline.Times.Num())
@@ -1785,6 +2141,55 @@ FCFDVizResult FCFDVizCase::Validate() const
 	{
 		return ManifestError(
 			TEXT("timeline.times must be finite and strictly increasing; a repeated or NaN time is not a frame ordering"));
+	}
+	if (Timeline.Sampling.IsSet())
+	{
+		const FCFDVizTimelineSampling& Sampling = Timeline.Sampling.GetValue();
+		if (!FMath::IsFinite(Sampling.SourceTimeStep) || Sampling.SourceTimeStep <= 0.0)
+		{
+			return ManifestError(
+				TEXT("timeline.sampling.sourceTimeStep must be finite and greater than 0"));
+		}
+		if (Sampling.StoredStepStride < 1)
+		{
+			return ManifestError(
+				TEXT("timeline.sampling.storedStepStride must be an integer of at least 1"));
+		}
+		if (!FMath::IsFinite(Sampling.MaxFeatureDisplacementCells)
+			|| Sampling.MaxFeatureDisplacementCells < 0.0)
+		{
+			return ManifestError(TEXT("timeline.sampling.maxFeatureDisplacementCells must be "
+				"finite and non-negative"));
+		}
+
+		for (int32 Index = 1; Index < Timeline.Steps.Num(); ++Index)
+		{
+			if (Timeline.Steps[Index] - Timeline.Steps[Index - 1] != Sampling.StoredStepStride)
+			{
+				return ManifestError(TEXT("timeline.sampling.storedStepStride does not match "
+					"adjacent timeline.steps differences"));
+			}
+		}
+
+		const double ExpectedInterval =
+			Sampling.SourceTimeStep * static_cast<double>(Sampling.StoredStepStride);
+		if (!FMath::IsFinite(ExpectedInterval))
+		{
+			return ManifestError(TEXT("timeline.sampling.sourceTimeStep multiplied by "
+				"storedStepStride must be finite"));
+		}
+		const double Tolerance = FMath::Max(1.0e-12, FMath::Abs(ExpectedInterval) * 1.0e-9);
+		for (int32 Index = 1; Index < Timeline.Times.Num(); ++Index)
+		{
+			const double ActualInterval = Timeline.Times[Index] - Timeline.Times[Index - 1];
+			if (!FMath::IsNearlyEqual(ActualInterval, ExpectedInterval, Tolerance))
+			{
+				return ManifestError(FString::Printf(
+					TEXT("timeline.sampling.sourceTimeStep multiplied by storedStepStride does not "
+						"match adjacent timeline.times differences; expected %.17g"),
+					ExpectedInterval));
+			}
+		}
 	}
 
 	// --- grids --------------------------------------------------------------
@@ -1870,8 +2275,49 @@ FCFDVizResult FCFDVizCase::Validate() const
 		if (Field.Association != ECFDVizAssociation::Cell && Field.Association != ECFDVizAssociation::Point)
 		{
 			return ManifestError(FString::Printf(
-				TEXT("%s: association %s is reserved for a future version; CFDViz 1.0 defines cell and point only ")
+				TEXT("%s: association %s is reserved for a future version; CFDViz 1.x defines cell and point only ")
 				TEXT("(section 3.2)"), *Label, AssociationToString(Field.Association)));
+		}
+
+		if (Field.Phase.IsSet())
+		{
+			const FCFDVizPhaseInterpretation& Phase = Field.Phase.GetValue();
+			if (Field.ComponentCount != 1)
+			{
+				return ManifestError(FString::Printf(
+					TEXT("%s: phase interpretation requires a scalar field with componentCount 1"),
+					*Label));
+			}
+			if (Field.DataType != ECFDVizDataType::Float16
+				&& Field.DataType != ECFDVizDataType::Float32)
+			{
+				return ManifestError(FString::Printf(
+					TEXT("%s: phase interpretation requires floating-point storage"), *Label));
+			}
+			if (Phase.Representation != ECFDVizPhaseRepresentation::VolumeFraction
+				&& Phase.Representation != ECFDVizPhaseRepresentation::SignedDistance)
+			{
+				return ManifestError(FString::Printf(
+					TEXT("%s: phase.representation is not a known CFDViz 1.1 value"), *Label));
+			}
+			if (Phase.Inside != ECFDVizPhaseInside::GreaterThanInterface
+				&& Phase.Inside != ECFDVizPhaseInside::LessThanInterface)
+			{
+				return ManifestError(FString::Printf(
+					TEXT("%s: phase.inside is not a known CFDViz 1.1 value"), *Label));
+			}
+			if (!FMath::IsFinite(Phase.InterfaceValue))
+			{
+				return ManifestError(FString::Printf(
+					TEXT("%s: phase.interfaceValue must be finite"), *Label));
+			}
+			if (Phase.Representation == ECFDVizPhaseRepresentation::VolumeFraction
+				&& (Phase.InterfaceValue < 0.0 || Phase.InterfaceValue > 1.0))
+			{
+				return ManifestError(FString::Printf(
+					TEXT("%s: phase.interfaceValue must lie in [0, 1] for a volume-fraction field"),
+					*Label));
+			}
 		}
 
 		if (!GridIds.Contains(Field.GridId))
@@ -1925,6 +2371,90 @@ FCFDVizResult FCFDVizCase::Validate() const
 			return ManifestError(FString::Printf(
 				TEXT("grid \"%s\": maskField \"%s\" does not name a declared field"),
 				*Grid.Id.ToString(), *Grid.MaskFieldId.ToString()));
+		}
+	}
+
+	// --- representative-data quality metrics -------------------------------
+	if (QualityMetrics.IsSet())
+	{
+		const FCFDVizQualityMetrics& Quality = QualityMetrics.GetValue();
+		const FCFDVizGridDescriptor* QualityGrid = FindGrid(Quality.GridId);
+		if (QualityGrid == nullptr)
+		{
+			return ManifestError(FString::Printf(
+				TEXT("qualityMetrics.grid \"%s\" does not name a declared grid"),
+				*Quality.GridId.ToString()));
+		}
+
+		const FCFDVizField* VelocityField = FindField(Quality.VelocityFieldId);
+		if (VelocityField == nullptr || VelocityField->ComponentCount != 3
+			|| VelocityField->GridId != Quality.GridId)
+		{
+			return ManifestError(TEXT("qualityMetrics.velocityField must name a three-component "
+				"field on qualityMetrics.grid"));
+		}
+
+		const FIntVector& Active = Quality.ActiveDimensions;
+		if (Active.X < 1 || Active.Y < 1 || Active.Z < 1)
+		{
+			return ManifestError(
+				TEXT("qualityMetrics.activeDimensions must contain three positive integers"));
+		}
+		const FIntVector& Declared = QualityGrid->Geometry.Dimensions;
+		if (Active.X > Declared.X || Active.Y > Declared.Y || Active.Z > Declared.Z)
+		{
+			return ManifestError(TEXT("qualityMetrics.activeDimensions exceeds the dimensions "
+				"of its declared grid"));
+		}
+
+		const int32 ExpectedEffectiveDimensions =
+			(Active.X > 1 ? 1 : 0) + (Active.Y > 1 ? 1 : 0) + (Active.Z > 1 ? 1 : 0);
+		if (Quality.EffectiveSpatialDimensions != ExpectedEffectiveDimensions)
+		{
+			return ManifestError(FString::Printf(
+				TEXT("qualityMetrics.effectiveSpatialDimensions is %d but activeDimensions implies %d"),
+				Quality.EffectiveSpatialDimensions, ExpectedEffectiveDimensions));
+		}
+
+		if (Quality.ActiveCellCount < 1)
+		{
+			return ManifestError(
+				TEXT("qualityMetrics.activeCellCount must be an integer of at least 1"));
+		}
+		int64 ActiveCapacity = 1;
+		const int32 ActiveAxes[3] = { Active.X, Active.Y, Active.Z };
+		for (const int32 Dimension : ActiveAxes)
+		{
+			if (ActiveCapacity > MAX_int64 / static_cast<int64>(Dimension))
+			{
+				ActiveCapacity = MAX_int64;
+				break;
+			}
+			ActiveCapacity *= static_cast<int64>(Dimension);
+		}
+		if (Quality.ActiveCellCount > ActiveCapacity)
+		{
+			return ManifestError(TEXT("qualityMetrics.activeCellCount exceeds the product of "
+				"qualityMetrics.activeDimensions"));
+		}
+
+		const FVector& VelocityRms = Quality.VelocityComponentRms;
+		if (!FMath::IsFinite(VelocityRms.X) || !FMath::IsFinite(VelocityRms.Y)
+			|| !FMath::IsFinite(VelocityRms.Z) || VelocityRms.X < 0.0
+			|| VelocityRms.Y < 0.0 || VelocityRms.Z < 0.0)
+		{
+			return ManifestError(TEXT("qualityMetrics.velocityComponentRms must contain three "
+				"finite, non-negative values"));
+		}
+		if (!FMath::IsFinite(Quality.SpanwiseGradientRms) || Quality.SpanwiseGradientRms < 0.0)
+		{
+			return ManifestError(
+				TEXT("qualityMetrics.spanwiseGradientRms must be finite and non-negative"));
+		}
+		if (Quality.TemporalFrameCount != Timeline.FrameCount)
+		{
+			return ManifestError(
+				TEXT("qualityMetrics.temporalFrameCount must equal timeline.frameCount"));
 		}
 	}
 

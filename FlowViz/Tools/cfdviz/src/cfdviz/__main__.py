@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for the ``cfdviz`` command."""
     parser = argparse.ArgumentParser(
         prog="cfdviz",
-        description="Inspect and validate CFDViz 1.0 cases.",
+        description="Inspect and validate CFDViz 1.1 cases.",
     )
     parser.add_argument(
         "--version",
@@ -319,11 +319,70 @@ def _info_case(root: Path) -> int:
 
     print(f"case {case.get('id', '<no id>')}  {case.get('name', '')}".rstrip())
     print(f"  format {manifest.get('format')} {manifest.get('version')}")
+    if case.get("quality"):
+        print(f"  quality {case.get('quality')}")
+    solver = case.get("solver") or {}
+    if isinstance(solver, dict) and solver:
+        solver_identity = " ".join(
+            str(part) for part in (solver.get("name"), solver.get("version")) if part
+        )
+        solver_line = "  solver"
+        if solver_identity:
+            solver_line += f" {solver_identity}"
+        if solver.get("method"):
+            solver_line += f" method={solver['method']}"
+        print(solver_line)
+        if solver.get("commit") or solver.get("configuration"):
+            details = []
+            if solver.get("commit"):
+                details.append(f"commit={solver['commit']}")
+            if solver.get("configuration"):
+                details.append(f"configuration={solver['configuration']}")
+            print(f"    {' '.join(details)}")
+
+    provenance = manifest.get("provenance") or {}
+    if isinstance(provenance, dict) and provenance:
+        source_line = "  source"
+        if provenance.get("sourceType"):
+            source_line += f" {provenance['sourceType']}"
+        if provenance.get("sourceRevision"):
+            source_line += f" revision={provenance['sourceRevision']}"
+        print(source_line)
+        if provenance.get("exportCommand"):
+            print(f"    export command={provenance['exportCommand']}")
+
     print(f"  frames {len(times)}", end="")
     if times:
         print(f"  t = {times[0]} .. {times[-1]}")
     else:
         print()
+
+    sampling = timeline.get("sampling") or {}
+    if isinstance(sampling, dict) and sampling:
+        print(
+            "  temporal sampling "
+            f"dt={sampling.get('sourceTimeStep')} stride="
+            f"{sampling.get('storedStepStride')} max displacement="
+            f"{sampling.get('maxFeatureDisplacementCells')} cells/snapshot"
+        )
+
+    quality_metrics = manifest.get("qualityMetrics") or {}
+    if isinstance(quality_metrics, dict) and quality_metrics:
+        active_dimensions = "x".join(
+            str(value) for value in quality_metrics.get("activeDimensions", [])
+        )
+        print(
+            f"  representative metrics effective "
+            f"{quality_metrics.get('effectiveSpatialDimensions')}D, "
+            f"active={quality_metrics.get('activeCellCount')} cells, "
+            f"active dimensions={active_dimensions}, "
+            f"velocity={quality_metrics.get('velocityField')}"
+        )
+        print(
+            f"    velocity RMS={quality_metrics.get('velocityComponentRms')} "
+            f"spanwise gradient RMS={quality_metrics.get('spanwiseGradientRms')} "
+            f"temporal frames={quality_metrics.get('temporalFrameCount')}"
+        )
 
     for grid in manifest.get("grids") or []:
         if not isinstance(grid, dict):
@@ -339,11 +398,18 @@ def _info_case(root: Path) -> int:
         if not isinstance(entry, dict):
             continue
         storage = entry.get("storage") or {}
-        print(
+        summary = (
             f"  field {entry.get('id')} (#{entry.get('numericId')}): "
             f"{entry.get('componentCount')}x{entry.get('dataType')} "
             f"{entry.get('association')} codec={storage.get('codec')}"
         )
+        phase = entry.get("phase")
+        if isinstance(phase, dict):
+            summary += (
+                f" phase={phase.get('representation')}@"
+                f"{phase.get('interfaceValue')} {phase.get('inside')}"
+            )
+        print(summary)
     for mesh in manifest.get("meshes") or []:
         if isinstance(mesh, dict):
             print(f"  mesh {mesh.get('id')}: {mesh.get('path')}")

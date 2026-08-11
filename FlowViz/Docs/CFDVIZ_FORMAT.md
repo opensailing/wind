@@ -1,4 +1,4 @@
-# CFDViz Case Format 1.0 — Normative Specification
+# CFDViz Case Format 1.1 — Normative Specification
 
 Status: **normative**. This document is the single source of truth for every CFDViz
 reader and writer, in every language. Where this document and any implementation
@@ -83,20 +83,30 @@ NEVER be written back into stored scientific fields. See `Docs/ADR/004-coordinat
 
 ## 3. manifest.json
 
-The JSON Schema is `Tools/cfdviz/src/cfdviz/schema/cfdviz-1.0.schema.json`, which
-is itself normative and MUST validate every case this project produces.
+The active JSON Schema is
+`Tools/cfdviz/src/cfdviz/schema/cfdviz-1.1.schema.json`. It is normative and MUST
+validate every case this project produces. The prose in this section defines the
+cross-property rules JSON Schema cannot express; every reader MUST enforce both.
 
 Required top-level properties: `format`, `version`, `case`, `units`,
 `coordinates`, `timeline`, `grids`, `fields`.
-Optional: `meshes`, `derivedFields`, `structures`, `provenance`.
+Optional: `meshes`, `derivedFields`, `structures`, `qualityMetrics`,
+`provenance`. The 1.1 properties defined in §§3.4–3.8 may be omitted, but when
+declared they must have their stated object, string, or array type; an explicit
+JSON `null` is not omission and MUST be rejected.
 
 `format` MUST be the exact string `"CFDViz"`.
+
+CFDViz 1.1 is an additive **manifest** revision. The CVF, CVM, and CVA binary
+headers remain at major version 1, minor version 0 exactly as specified in
+§§4–6. A writer MUST NOT change those header version fields merely because its
+manifest says `"version": "1.1.0"`.
 
 ### 3.1 Required invariants
 
 A manifest is invalid, and MUST be rejected with a specific message, if any hold:
 
-- `timeline.times` is not strictly monotonically increasing.
+- `timeline.times` is not strictly monotonically increasing and finite.
 - `len(timeline.times) != timeline.frameCount`, or likewise for `timeline.steps`.
 - Any `field.grid` does not name a declared grid `id`.
 - Any `grid.maskField` does not name a declared field `id`.
@@ -104,14 +114,21 @@ A manifest is invalid, and MUST be rejected with a specific message, if any hold
 - `field.componentCount` disagrees with `len(field.components)`.
 - `field.dataType` is not one of `float16`, `float32`, `uint8`.
 - `field.association` is not one of `cell`, `point`.
-- Any grid `dimensions` component is `< 1`, or any `spacing` component is `<= 0`.
+- Any grid `dimensions` component is outside `[1, 2147483647]`, or any
+  `spacing` component is `<= 0`. The signed upper bound is the manifest/runtime
+  contract shared with Unreal; CVF stores those same positive counts as uint32.
 - `field.storage.pathPattern` fails the path-traversal check of §1.3.
+- A declared `timeline.sampling` violates any cadence rule in §3.5.
+- A declared `field.phase` violates any scalar, storage, enum, or range rule in
+  §3.6.
+- A declared `qualityMetrics` block violates any reference, dimensionality,
+  range, or frame-count rule in §3.7.
 
 ### 3.2 Field associations
 
-Version 1.0 supports `cell` and `point` only. Reserved for future major/minor
-versions, and MUST be rejected in 1.0: `mesh-vertex`, `mesh-element`,
-`integration-point`, `face`, `particle`.
+CFDViz 1.x supports `cell` and `point` only. Reserved for a future version, and
+MUST be rejected in 1.x: `mesh-vertex`, `mesh-element`, `integration-point`,
+`face`, `particle`.
 
 For a grid of `dimensions = [nx, ny, nz]`:
 
@@ -126,9 +143,145 @@ visualisation error; it is covered by a dedicated test on both sides.
 
 ### 3.3 Data types
 
-`float64` field storage is **not** supported for GPU rendering in 1.0. The
+`float64` grid-field storage is **not** supported for GPU rendering in 1.x. The
 manifest MAY record original solver precision in `field.solverPrecision` for
 provenance; it does not affect storage.
+
+### 3.4 External solver identity
+
+`case.solver` is optional provenance. In a 1.1 manifest, its known properties
+are non-empty strings. Readers continue to accept empty solver strings from
+valid 1.0 manifests because 1.1 is additive:
+
+```json
+"case": {
+  "quality": "external-solver-sample",
+  "solver": {
+    "name": "OpenFOAM",
+    "version": "13",
+    "method": "finite-volume LES",
+    "commit": "source-revision-or-build-id",
+    "configuration": "motorBike-transient"
+  }
+}
+```
+
+These values identify the code and numerical configuration that produced the
+stored result. They MUST NOT cause FlowViz to execute, configure, or depend on a
+solver at runtime. `case.quality` is intentionally free-form and MUST be surfaced
+to users rather than treated as a closed enum. A case that claims
+`external-solver-sample` MUST also declare `provenance.sourceType` as the exact
+string `external-solver`. Synthetic correctness fixtures MUST use a synthetic
+classification and MUST NOT claim `external-solver-sample`.
+
+### 3.5 Temporal sampling
+
+`timeline.sampling` is optional. When present it MUST be an object containing:
+
+```json
+"sampling": {
+  "sourceTimeStep": 0.005,
+  "storedStepStride": 100,
+  "maxFeatureDisplacementCells": 0.75
+}
+```
+
+- `sourceTimeStep` is finite and `> 0`, in `units.time`.
+- `storedStepStride` is an integer `>= 1`.
+- `maxFeatureDisplacementCells` is finite and `>= 0`.
+- When `timeline.steps` is present, every adjacent difference MUST equal
+  `storedStepStride`.
+- Every adjacent `timeline.times` difference MUST equal
+  `sourceTimeStep * storedStepStride`, within a relative tolerance of `1e-9`
+  and an absolute floor of `1e-12`.
+
+`maxFeatureDisplacementCells` is converter-computed evidence about the fastest
+important visible structure. Representative data SHOULD ordinarily keep it at
+or below approximately one cell per stored snapshot. It does not synthesize
+missing states. Solver steps, stored snapshots, interactive render frames, and
+exported movie frames remain separate concepts.
+
+### 3.6 Phase interpretation
+
+A scalar grid field MAY declare a two-phase interface interpretation:
+
+```json
+"phase": {
+  "representation": "volume-fraction",
+  "primaryPhase": "water",
+  "secondaryPhase": "air",
+  "interfaceValue": 0.5,
+  "inside": "greater-than-interface"
+}
+```
+
+Required closed enums:
+
+- `representation`: `volume-fraction` or `signed-distance`.
+- `inside`: `greater-than-interface` or `less-than-interface`.
+
+The field MUST have exactly one component and MUST use `float16` or `float32`
+storage. Optional `primaryPhase` and `secondaryPhase` values MUST be non-empty
+strings when declared. `interfaceValue` MUST be finite; for `volume-fraction` it MUST lie in
+`[0,1]`. `inside` identifies which side belongs to `primaryPhase` and therefore
+defines surface-normal orientation. Masks and discrete status fields do not use
+this block and MUST be selected from the nearest stored frame, not numerically
+blended.
+
+### 3.7 Representative quality metrics
+
+`qualityMetrics` is optional, additive, and machine-recomputable evidence:
+
+```json
+"qualityMetrics": {
+  "grid": "main",
+  "activeCellCount": 24,
+  "activeDimensions": [4, 3, 2],
+  "effectiveSpatialDimensions": 3,
+  "velocityField": "U",
+  "velocityComponentRms": [1.0, 0.25, 0.1],
+  "spanwiseGradientRms": 0.05,
+  "temporalFrameCount": 2
+}
+```
+
+The named grid MUST exist. `velocityField` MUST name a three-component field on
+that grid. `activeDimensions` components MUST be positive and no larger than the
+grid dimensions. `effectiveSpatialDimensions` MUST equal the number of active
+dimensions greater than one. `activeCellCount` MUST be positive and no greater
+than the active-dimension product. Velocity RMS values and
+`spanwiseGradientRms` MUST be finite and non-negative. `temporalFrameCount` MUST
+equal `timeline.frameCount`.
+
+These declarations are not proof by themselves. Qualification tools MUST
+recompute them from the CVF payloads and validity mask; a reader MUST NOT trust
+a manifest claim as a substitute for looking at the data. A genuine fully 3D
+sample must demonstrate non-degenerate spanwise extent and variation rather
+than merely storing a grid whose Z dimension is greater than one.
+
+### 3.8 Provenance
+
+`provenance` is optional and never load-bearing for decoding. CFDViz 1.1 defines
+the following known properties:
+
+```json
+"provenance": {
+  "sourceType": "external-solver",
+  "generatorCommand": "cfdviz import-openfoam source.case",
+  "generatorVersion": "1.1.0",
+  "sourceCase": "source.case",
+  "sourceRevision": "case-revision",
+  "exportCommand": "postProcess -func sample",
+  "notes": ["Uniform Cartesian resampling disclosed here."]
+}
+```
+
+When declared, `sourceType`, `sourceRevision`, and `exportCommand` MUST be
+non-empty strings. All other known scalar properties MUST be strings and
+`notes` MUST be an array of strings. Unknown properties remain subject to §1.4
+and are ignored silently. `sourceType` is free-form; representative external CFD
+uses `external-solver`, while deterministic analytic fixtures identify
+themselves as synthetic.
 
 ---
 
@@ -393,15 +546,15 @@ still reports honest statistics rather than silently averaging NaN.
 
 A `.cva` is **not declared in `manifest.fields[]`**, and this is deliberate.
 `fields[]` describes grid storage: every entry names a `grid`, and §3.2 requires
-1.0 to *reject* the `mesh-vertex` and `mesh-element` associations a CVA carries.
-A CVA declared as a field would therefore be a manifest that 1.0 must refuse.
+1.x to *reject* the `mesh-vertex` and `mesh-element` associations a CVA carries.
+A CVA declared as a field would therefore be a manifest that 1.x must refuse.
 
 `manifest.structures[]` is the slot that binds a mesh to its results. Each entry
 names a `mesh` by id and may name `displacementField`, `velocityField`,
-`stressField` and `strainField`. It is **reserved in 1.0**: readers MUST parse
+`stressField` and `strainField`. It is **reserved in 1.x**: readers MUST parse
 and validate it when present, and MUST NOT require it.
 
-**Discovery convention.** Because `structures[]` is optional in 1.0, a case may
+**Discovery convention.** Because `structures[]` is optional in 1.x, a case may
 carry CVA files that nothing in the manifest points at. Both implementations
 resolve these the same way, and a reader MUST follow it or the two will disagree
 about what a case contains:
@@ -415,9 +568,10 @@ Python readers can be compared file by file. `§1.3` path-traversal rules apply
 unchanged: a discovered path that escapes the case root MUST be rejected, not
 clamped.
 
-**This is a 1.0 limitation, not the intended end state.** The better fix is a
-first-class manifest slot for mesh-associated arrays, which is a breaking change
-deferred to 1.1 — see the note in `structures[]` in `schema/manifest.schema.json`.
+**This is a 1.x limitation, not the intended end state.** The better fix is a
+first-class manifest slot for mesh-associated arrays, deferred to a future
+format revision. Until then, `structures[]` and the discovery convention above
+remain normative.
 Until then, *discovery is normative*: a reader that only honours `structures[]`
 will silently miss arrays that a conforming writer emitted.
 
@@ -504,7 +658,7 @@ asserts every entry. Neither side may regenerate the other's expectations.
 
 ```json
 {
-  "formatVersion": "1.0.0",
+  "formatVersion": "1.1.0",
   "caseId": "d7f46da7-6bd8-4d4b-9410-32d1ea776328",
   "crc32cCheck": "0xE3069283",
   "samples": [

@@ -118,6 +118,32 @@ namespace FlowVizConsoleCommands
 			return static_cast<double>(Bytes) / (1024.0 * 1024.0);
 		}
 
+		const TCHAR* PhaseRepresentationToString(ECFDVizPhaseRepresentation Representation)
+		{
+			switch (Representation)
+			{
+			case ECFDVizPhaseRepresentation::VolumeFraction:
+				return TEXT("volume-fraction");
+			case ECFDVizPhaseRepresentation::SignedDistance:
+				return TEXT("signed-distance");
+			default:
+				return TEXT("unknown");
+			}
+		}
+
+		const TCHAR* PhaseInsideToString(ECFDVizPhaseInside Inside)
+		{
+			switch (Inside)
+			{
+			case ECFDVizPhaseInside::GreaterThanInterface:
+				return TEXT("greater-than-interface");
+			case ECFDVizPhaseInside::LessThanInterface:
+				return TEXT("less-than-interface");
+			default:
+				return TEXT("unknown");
+			}
+		}
+
 		/**
 		 * Set one budget without disturbing the other.
 		 *
@@ -265,8 +291,24 @@ namespace FlowVizConsoleCommands
 		{
 			B.Appendf(TEXT("  Quality           %s\n"), *Case.Metadata.Quality);
 		}
-		B.Appendf(TEXT("  Solver            %s %s\n"),
-			*Case.Metadata.Solver.Name, *Case.Metadata.Solver.Version);
+		if (!Case.Metadata.Solver.Name.IsEmpty() || !Case.Metadata.Solver.Version.IsEmpty())
+		{
+			const FString SolverIdentity = FString::Printf(TEXT("%s %s"),
+				*Case.Metadata.Solver.Name, *Case.Metadata.Solver.Version).TrimStartAndEnd();
+			B.Appendf(TEXT("  Solver            %s\n"), *SolverIdentity);
+		}
+		if (!Case.Metadata.Solver.Method.IsEmpty())
+		{
+			B.Appendf(TEXT("  Solver method     %s\n"), *Case.Metadata.Solver.Method);
+		}
+		if (!Case.Metadata.Solver.Commit.IsEmpty())
+		{
+			B.Appendf(TEXT("  Solver revision   %s\n"), *Case.Metadata.Solver.Commit);
+		}
+		if (!Case.Metadata.Solver.Configuration.IsEmpty())
+		{
+			B.Appendf(TEXT("  Solver config     %s\n"), *Case.Metadata.Solver.Configuration);
+		}
 		B.Appendf(TEXT("  Format            %s %s\n"), *Case.Format, *Case.FormatVersion);
 		B.Appendf(TEXT("  Root              %s\n"),
 			Case.CaseRootDir.IsEmpty() ? TEXT("(unknown)") : *Case.CaseRootDir);
@@ -280,6 +322,13 @@ namespace FlowVizConsoleCommands
 				Case.Timeline.Times[0], Case.Timeline.Times.Last(), *Case.Units.Time);
 		}
 		B.Appendf(TEXT("\n"));
+		if (Case.Timeline.Sampling.IsSet())
+		{
+			const FCFDVizTimelineSampling& Sampling = Case.Timeline.Sampling.GetValue();
+			B.Appendf(TEXT("  Sampling          dt %.6g %s, stride %lld, %.6g cells/snapshot\n"),
+				Sampling.SourceTimeStep, *Case.Units.Time, Sampling.StoredStepStride,
+				Sampling.MaxFeatureDisplacementCells);
+		}
 
 		/* --- Grids --------------------------------------------------------- */
 
@@ -325,6 +374,20 @@ namespace FlowVizConsoleCommands
 			{
 				B.Appendf(TEXT("  [%s]"), *Field.Unit);
 			}
+			if (Field.Phase.IsSet())
+			{
+				const FCFDVizPhaseInterpretation& Phase = Field.Phase.GetValue();
+				B.Appendf(TEXT("  phase %s, interface %.6g, %s"),
+					Local::PhaseRepresentationToString(Phase.Representation), Phase.InterfaceValue,
+					Local::PhaseInsideToString(Phase.Inside));
+				if (!Phase.PrimaryPhase.IsEmpty() || !Phase.SecondaryPhase.IsEmpty())
+				{
+					B.Appendf(TEXT(" (%s / %s"),
+						Phase.PrimaryPhase.IsEmpty() ? TEXT("primary") : *Phase.PrimaryPhase,
+						Phase.SecondaryPhase.IsEmpty() ? TEXT("secondary") : *Phase.SecondaryPhase);
+					B.Appendf(TEXT(")"));
+				}
+			}
 			B.Appendf(TEXT("\n"));
 		}
 
@@ -357,6 +420,33 @@ namespace FlowVizConsoleCommands
 		if (Case.DerivedFields.Num() > 0)
 		{
 			B.Appendf(TEXT("  Derived fields    %d\n"), Case.DerivedFields.Num());
+		}
+
+		if (!Case.Provenance.SourceType.IsEmpty())
+		{
+			B.Appendf(TEXT("  Provenance        %s\n"), *Case.Provenance.SourceType);
+		}
+		if (!Case.Provenance.SourceRevision.IsEmpty())
+		{
+			B.Appendf(TEXT("  Source revision   %s\n"), *Case.Provenance.SourceRevision);
+		}
+		if (!Case.Provenance.ExportCommand.IsEmpty())
+		{
+			B.Appendf(TEXT("  Export command    %s\n"), *Case.Provenance.ExportCommand);
+		}
+
+		if (Case.QualityMetrics.IsSet())
+		{
+			const FCFDVizQualityMetrics& Quality = Case.QualityMetrics.GetValue();
+			B.Appendf(TEXT("  Quality metrics   grid '%s', %lld active cells, %d x %d x %d active, effective %dD\n"),
+				*Quality.GridId.ToString(), Quality.ActiveCellCount,
+				Quality.ActiveDimensions.X, Quality.ActiveDimensions.Y, Quality.ActiveDimensions.Z,
+				Quality.EffectiveSpatialDimensions);
+			B.Appendf(TEXT("                    velocity '%s' RMS %.6g x %.6g x %.6g, spanwise gradient RMS %.6g, %d frames\n"),
+				*Quality.VelocityFieldId.ToString(),
+				Quality.VelocityComponentRms.X, Quality.VelocityComponentRms.Y,
+				Quality.VelocityComponentRms.Z, Quality.SpanwiseGradientRms,
+				Quality.TemporalFrameCount);
 		}
 
 		return B.ToString();

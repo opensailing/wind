@@ -39,18 +39,30 @@ namespace
 	const TCHAR* const BaselineManifest = TEXT(R"JSON(
 {
   "format": "CFDViz",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "case": {
     "id": "d7f46da7-6bd8-4d4b-9410-32d1ea776328",
     "name": "Sample",
-    "quality": "visualization-demo"
+    "quality": "synthetic-correctness-fixture",
+    "solver": {
+      "name": "TestSolver",
+      "version": "2.0",
+      "method": "finite-volume",
+      "commit": "abc123",
+      "configuration": "unsteady-3d"
+    }
   },
   "units": { "length": "m", "time": "s" },
   "coordinates": { "handedness": "right", "upAxis": "Z", "forwardAxis": "X" },
   "timeline": {
     "frameCount": 2,
     "times": [0.0, 0.5],
-    "steps": [0, 100]
+    "steps": [0, 100],
+    "sampling": {
+      "sourceTimeStep": 0.005,
+      "storedStepStride": 100,
+      "maxFeatureDisplacementCells": 0.75
+    }
   },
   "grids": [
     {
@@ -109,8 +121,42 @@ namespace
         "brickSize": [4, 4, 4],
         "pathPattern": "frames/{frame:06d}/validMask.cvf"
       }
+    },
+    {
+      "numericId": 4,
+      "id": "alphaWater",
+      "semantic": "volume-fraction",
+      "components": ["alpha"],
+      "componentCount": 1,
+      "dataType": "float32",
+      "association": "cell",
+      "grid": "main",
+      "unit": "1",
+      "phase": {
+        "representation": "volume-fraction",
+        "primaryPhase": "water",
+        "secondaryPhase": "air",
+        "interfaceValue": 0.5,
+        "inside": "greater-than-interface"
+      },
+      "storage": {
+        "type": "bricked-volume",
+        "codec": "zlib",
+        "brickSize": [4, 4, 4],
+        "pathPattern": "frames/{frame:06d}/alphaWater.cvf"
+      }
     }
   ],
+  "qualityMetrics": {
+    "grid": "main",
+    "activeCellCount": 24,
+    "activeDimensions": [4, 3, 2],
+    "effectiveSpatialDimensions": 3,
+    "velocityField": "U",
+    "velocityComponentRms": [1.0, 0.25, 0.1],
+    "spanwiseGradientRms": 0.05,
+    "temporalFrameCount": 2
+  },
   "meshes": [
     {
       "id": "obstacle",
@@ -123,7 +169,16 @@ namespace
         { "id": 20, "name": "leeward", "type": "wall" }
       ]
     }
-  ]
+  ],
+  "provenance": {
+    "sourceType": "synthetic",
+    "generatorCommand": "cfdviz test-import source.case",
+    "generatorVersion": "1.1.0",
+    "sourceCase": "source.case",
+    "sourceRevision": "source-commit-456",
+    "exportCommand": "solver-post --write-fields",
+    "notes": ["Fixture provenance exercises the external-solver contract."]
+  }
 }
 )JSON");
 
@@ -159,14 +214,20 @@ bool FCFDVizManifestParseTest::RunTest(const FString& Parameters)
 	// --- identity ---------------------------------------------------------
 	TestEqual(TEXT("format marker"), Case.Format, FString(TEXT("CFDViz")));
 	TestEqual(TEXT("version major"), Case.VersionMajor, 1);
-	TestEqual(TEXT("version minor"), Case.VersionMinor, 0);
+	TestEqual(TEXT("version minor"), Case.VersionMinor, 1);
 	TestEqual(TEXT("version patch"), Case.VersionPatch, 0);
 	TestEqual(TEXT("case id"), Case.Metadata.Id, FString(TEXT("d7f46da7-6bd8-4d4b-9410-32d1ea776328")));
 	TestEqual(TEXT("case name"), Case.Metadata.Name, FString(TEXT("Sample")));
 	// Quality must survive parsing: it is how a UI tells a user that synthetic
 	// demo data is not validation-grade CFD.
 	TestEqual(TEXT("quality is carried through, not dropped"), Case.Metadata.Quality,
-		FString(TEXT("visualization-demo")));
+		FString(TEXT("synthetic-correctness-fixture")));
+	TestEqual(TEXT("solver name"), Case.Metadata.Solver.Name, FString(TEXT("TestSolver")));
+	TestEqual(TEXT("solver version"), Case.Metadata.Solver.Version, FString(TEXT("2.0")));
+	TestEqual(TEXT("solver method"), Case.Metadata.Solver.Method, FString(TEXT("finite-volume")));
+	TestEqual(TEXT("solver commit"), Case.Metadata.Solver.Commit, FString(TEXT("abc123")));
+	TestEqual(TEXT("solver configuration"), Case.Metadata.Solver.Configuration,
+		FString(TEXT("unsteady-3d")));
 
 	// --- units ------------------------------------------------------------
 	TestEqual(TEXT("length unit"), Case.Units.Length, FString(TEXT("m")));
@@ -197,6 +258,13 @@ bool FCFDVizManifestParseTest::RunTest(const FString& Parameters)
 	// that cannot display a frame the solver never produced.
 	TestTrue(TEXT("absent defaultInterpolation defaults to Nearest, never Linear"),
 		Case.Timeline.DefaultInterpolation == ECFDVizInterpolation::Nearest);
+	if (TestTrue(TEXT("temporal sampling metadata is present"), Case.Timeline.Sampling.IsSet()))
+	{
+		const FCFDVizTimelineSampling& Sampling = Case.Timeline.Sampling.GetValue();
+		TestEqual(TEXT("source solver time step"), Sampling.SourceTimeStep, 0.005);
+		TestEqual(TEXT("stored step stride"), Sampling.StoredStepStride, static_cast<int64>(100));
+		TestEqual(TEXT("feature displacement in cells"), Sampling.MaxFeatureDisplacementCells, 0.75);
+	}
 
 	// --- grid -------------------------------------------------------------
 	if (TestEqual(TEXT("one grid"), Case.Grids.Num(), 1))
@@ -211,7 +279,7 @@ bool FCFDVizManifestParseTest::RunTest(const FString& Parameters)
 	}
 
 	// --- fields -----------------------------------------------------------
-	if (TestEqual(TEXT("three fields"), Case.Fields.Num(), 3))
+	if (TestEqual(TEXT("four fields"), Case.Fields.Num(), 4))
 	{
 		const FCFDVizField* Pressure = Case.FindField(FName(TEXT("pressure")));
 		if (TestNotNull(TEXT("pressure found by id"), Pressure))
@@ -259,6 +327,20 @@ bool FCFDVizManifestParseTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("validMask codec is none"), Mask->Storage.Codec == ECFDVizCodec::None);
 			// "unit absent" must mean unknown, not dimensionless-and-fine.
 			TestTrue(TEXT("validMask has no declared unit"), Mask->Unit.IsEmpty());
+		}
+
+		const FCFDVizField* AlphaWater = Case.FindField(FName(TEXT("alphaWater")));
+		if (TestNotNull(TEXT("alphaWater found"), AlphaWater)
+			&& TestTrue(TEXT("phase interpretation is present"), AlphaWater->Phase.IsSet()))
+		{
+			const FCFDVizPhaseInterpretation& Phase = AlphaWater->Phase.GetValue();
+			TestTrue(TEXT("phase representation is volume fraction"),
+				Phase.Representation == ECFDVizPhaseRepresentation::VolumeFraction);
+			TestEqual(TEXT("primary phase name"), Phase.PrimaryPhase, FString(TEXT("water")));
+			TestEqual(TEXT("secondary phase name"), Phase.SecondaryPhase, FString(TEXT("air")));
+			TestEqual(TEXT("interface value"), Phase.InterfaceValue, 0.5);
+			TestTrue(TEXT("inside convention is greater than the interface"),
+				Phase.Inside == ECFDVizPhaseInside::GreaterThanInterface);
 		}
 
 		// Numeric-id lookup exists so a .cvf can be tied to its manifest entry
@@ -334,6 +416,28 @@ bool FCFDVizManifestParseTest::RunTest(const FString& Parameters)
 			Case.FindGridForField(Dangling));
 	}
 
+	// --- representative quality and provenance ---------------------------
+	if (TestTrue(TEXT("representative-data quality metrics are present"),
+		Case.QualityMetrics.IsSet()))
+	{
+		const FCFDVizQualityMetrics& Quality = Case.QualityMetrics.GetValue();
+		TestEqual(TEXT("quality grid"), Quality.GridId, FName(TEXT("main")));
+		TestEqual(TEXT("active cell count"), Quality.ActiveCellCount, static_cast<int64>(24));
+		TestEqual(TEXT("active dimensions"), Quality.ActiveDimensions, FIntVector(4, 3, 2));
+		TestEqual(TEXT("effective spatial dimensions"), Quality.EffectiveSpatialDimensions, 3);
+		TestEqual(TEXT("quality velocity field"), Quality.VelocityFieldId, FName(TEXT("U")));
+		TestEqual(TEXT("velocity RMS components"), Quality.VelocityComponentRms,
+			FVector(1.0, 0.25, 0.1));
+		TestEqual(TEXT("spanwise gradient RMS"), Quality.SpanwiseGradientRms, 0.05);
+		TestEqual(TEXT("quality temporal frame count"), Quality.TemporalFrameCount, 2);
+	}
+	TestEqual(TEXT("provenance source type"), Case.Provenance.SourceType,
+		FString(TEXT("synthetic")));
+	TestEqual(TEXT("provenance source revision"), Case.Provenance.SourceRevision,
+		FString(TEXT("source-commit-456")));
+	TestEqual(TEXT("provenance export command"), Case.Provenance.ExportCommand,
+		FString(TEXT("solver-post --write-fields")));
+
 	// --- mesh and patches --------------------------------------------------
 	if (TestEqual(TEXT("one mesh"), Case.Meshes.Num(), 1))
 	{
@@ -402,7 +506,7 @@ bool FCFDVizManifestRejectionTest::RunTest(const FString& Parameters)
 
 	// --- version policy (format rule 1.4) ----------------------------------
 	{
-		const FString Json = MutateManifest(TEXT("\"version\": \"1.0.0\""), TEXT("\"version\": \"2.0.0\""));
+		const FString Json = MutateManifest(TEXT("\"version\": \"1.1.0\""), TEXT("\"version\": \"2.0.0\""));
 		const FCFDVizResult Result = Parses(Json, Case);
 		TestFalse(TEXT("a different MAJOR version is rejected"), Result.IsOk());
 		TestTrue(TEXT("and it is reported as a version problem"),
@@ -412,14 +516,27 @@ bool FCFDVizManifestRejectionTest::RunTest(const FString& Parameters)
 		// A newer MINOR must be ACCEPTED. This is the direction that is easy to
 		// get wrong by treating any version difference as fatal, which would
 		// make every 1.x case unreadable the day 1.1 ships.
-		const FString Json = MutateManifest(TEXT("\"version\": \"1.0.0\""), TEXT("\"version\": \"1.7.0\""));
+		const FString Json = MutateManifest(TEXT("\"version\": \"1.1.0\""), TEXT("\"version\": \"1.7.0\""));
 		FCFDVizCase Newer;
 		const FCFDVizResult Result = Parses(Json, Newer);
 		TestTrue(TEXT("a newer MINOR version is accepted, not rejected"), Result.IsOk());
 		TestEqual(TEXT("and its minor is preserved"), Newer.VersionMinor, 7);
 	}
 	{
-		const FString Json = MutateManifest(TEXT("\"version\": \"1.0.0\""), TEXT("\"version\": \"banana\""));
+		FString Json = BaselineManifest;
+		Json.ReplaceInline(TEXT("\"version\": \"1.1.0\""), TEXT("\"version\": \"1.0.0\""),
+			ESearchCase::CaseSensitive);
+		Json.ReplaceInline(TEXT("\"name\": \"TestSolver\""), TEXT("\"name\": \"\""),
+			ESearchCase::CaseSensitive);
+		Json.ReplaceInline(TEXT("\"version\": \"2.0\""), TEXT("\"version\": \"\""),
+			ESearchCase::CaseSensitive);
+		Json.ReplaceInline(TEXT("\"method\": \"finite-volume\""), TEXT("\"method\": \"\""),
+			ESearchCase::CaseSensitive);
+		TestTrue(TEXT("a valid CFDViz 1.0 manifest keeps its legacy empty solver strings"),
+			Parses(Json, Case).IsOk());
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"version\": \"1.1.0\""), TEXT("\"version\": \"banana\""));
 		TestFalse(TEXT("a non-semver version is rejected"), Parses(Json, Case).IsOk());
 	}
 
@@ -430,6 +547,84 @@ bool FCFDVizManifestRejectionTest::RunTest(const FString& Parameters)
 			TEXT("\"units\": { \"length\": \"m\", \"time\": \"s\" }"),
 			TEXT("\"units\": { \"length\": \"m\", \"time\": \"s\", \"somethingNew\": 5 }"));
 		TestTrue(TEXT("an unknown property is ignored, not rejected"), Parses(Json, Case).IsOk());
+	}
+
+	// --- external-solver provenance ----------------------------------------
+	{
+		const FString Json = MutateManifest(TEXT("\"commit\": \"abc123\""), TEXT("\"commit\": 123"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("a non-string solver commit is rejected"), Result.IsOk());
+		TestTrue(TEXT("and the message names commit"), Result.Message.Contains(TEXT("commit")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"sourceRevision\": \"source-commit-456\""),
+			TEXT("\"sourceRevision\": [\"not\", \"a\", \"revision\"]"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("a non-string provenance sourceRevision is rejected"), Result.IsOk());
+		TestTrue(TEXT("and the message names sourceRevision"),
+			Result.Message.Contains(TEXT("sourceRevision")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"sourceType\": \"synthetic\""),
+			TEXT("\"sourceType\": 123"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("a non-string provenance sourceType is rejected"), Result.IsOk());
+		TestTrue(TEXT("and the message names sourceType"),
+			Result.Message.Contains(TEXT("sourceType")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"sourceType\": \"synthetic\""),
+			TEXT("\"sourceType\": \"\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("an empty provenance sourceType is rejected"), Result.IsOk());
+		TestTrue(TEXT("and the message names sourceType"),
+			Result.Message.Contains(TEXT("sourceType")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"quality\": \"synthetic-correctness-fixture\""),
+			TEXT("\"quality\": \"external-solver-sample\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("external-solver quality cannot use synthetic provenance"),
+			Result.IsOk());
+		TestTrue(TEXT("and the message names the quality/provenance relationship"),
+			Result.Message.Contains(TEXT("external-solver-sample"))
+				&& Result.Message.Contains(TEXT("sourceType")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"commit\": \"abc123\""),
+			TEXT("\"commit\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("an explicit null solver property is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names commit"),
+			Result.Message.Contains(TEXT("commit")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"solver\": {\n      \"name\": \"TestSolver\",\n      \"version\": \"2.0\",\n      \"method\": \"finite-volume\",\n      \"commit\": \"abc123\",\n      \"configuration\": \"unsteady-3d\"\n    }"),
+			TEXT("\"solver\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("explicit null case.solver is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names case.solver"),
+			Result.Message.Contains(TEXT("case.solver")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("  \"provenance\": {\n    \"sourceType\": \"synthetic\",\n    \"generatorCommand\": \"cfdviz test-import source.case\",\n    \"generatorVersion\": \"1.1.0\",\n    \"sourceCase\": \"source.case\",\n    \"sourceRevision\": \"source-commit-456\",\n    \"exportCommand\": \"solver-post --write-fields\",\n    \"notes\": [\"Fixture provenance exercises the external-solver contract.\"]\n  }"),
+			TEXT("  \"provenance\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("explicit null provenance is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names provenance"),
+			Result.Message.Contains(TEXT("provenance")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"notes\": [\"Fixture provenance exercises the external-solver contract.\"]"),
+			TEXT("\"notes\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("explicit null provenance.notes is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names provenance.notes"),
+			Result.Message.Contains(TEXT("provenance.notes")));
 	}
 
 	// --- required properties ------------------------------------------------
@@ -464,9 +659,83 @@ bool FCFDVizManifestRejectionTest::RunTest(const FString& Parameters)
 		const FString Json = MutateManifest(TEXT("\"association\": \"cell\",\n      \"grid\": \"main\",\n      \"unit\": \"Pa\""),
 			TEXT("\"association\": \"mesh-vertex\",\n      \"grid\": \"main\",\n      \"unit\": \"Pa\""));
 		const FCFDVizResult Result = Parses(Json, Case);
-		TestFalse(TEXT("a reserved association is rejected in 1.0"), Result.IsOk());
+		TestFalse(TEXT("a reserved association is rejected in 1.x"), Result.IsOk());
 		TestTrue(TEXT("and is described as reserved, not merely unknown"),
 			Result.Message.Contains(TEXT("reserved")));
+	}
+
+	// --- CFDViz 1.1 phase interpretation -----------------------------------
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"components\": [\"alpha\"],\n      \"componentCount\": 1"),
+			TEXT("\"components\": [\"alphaA\", \"alphaB\"],\n      \"componentCount\": 2"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("phase interpretation requires a scalar field"), Result.IsOk());
+		TestTrue(TEXT("and the message names the scalar requirement"),
+			Result.Message.Contains(TEXT("scalar")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"id\": \"alphaWater\",\n      \"semantic\": \"volume-fraction\",\n      \"components\": [\"alpha\"],\n      \"componentCount\": 1,\n      \"dataType\": \"float32\""),
+			TEXT("\"id\": \"alphaWater\",\n      \"semantic\": \"volume-fraction\",\n      \"components\": [\"alpha\"],\n      \"componentCount\": 1,\n      \"dataType\": \"uint8\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("phase interpretation requires floating-point storage"), Result.IsOk());
+		TestTrue(TEXT("and the message names floating-point storage"),
+			Result.Message.Contains(TEXT("floating")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"representation\": \"volume-fraction\""),
+			TEXT("\"representation\": \"particle-id\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("an unknown phase representation is rejected"), Result.IsOk());
+		TestTrue(TEXT("and the message names representation"),
+			Result.Message.Contains(TEXT("representation")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"inside\": \"greater-than-interface\""),
+			TEXT("\"inside\": \"sideways\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("an unknown phase inside convention is rejected"), Result.IsOk());
+		TestTrue(TEXT("and the message names inside"), Result.Message.Contains(TEXT("inside")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"interfaceValue\": 0.5"),
+			TEXT("\"interfaceValue\": 1.01"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("a volume-fraction interface must lie in the unit interval"),
+			Result.IsOk());
+		TestTrue(TEXT("and the message names interfaceValue"),
+			Result.Message.Contains(TEXT("interfaceValue")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"primaryPhase\": \"water\""),
+			TEXT("\"primaryPhase\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("an explicit null phase name is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names primaryPhase"),
+			Result.Message.Contains(TEXT("primaryPhase")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("      \"phase\": {\n        \"representation\": \"volume-fraction\",\n        \"primaryPhase\": \"water\",\n        \"secondaryPhase\": \"air\",\n        \"interfaceValue\": 0.5,\n        \"inside\": \"greater-than-interface\"\n      },\n"),
+			TEXT("      \"phase\": null,\n"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("explicit null field.phase is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names phase"),
+			Result.Message.Contains(TEXT("phase")));
+	}
+	{
+		const FString WithoutPhase = MutateManifest(
+			TEXT("      \"phase\": {\n        \"representation\": \"volume-fraction\",\n        \"primaryPhase\": \"water\",\n        \"secondaryPhase\": \"air\",\n        \"interfaceValue\": 0.5,\n        \"inside\": \"greater-than-interface\"\n      },\n"),
+			TEXT(""));
+		FCFDVizCase WithoutPhaseCase;
+		if (TestTrue(TEXT("phase interpretation is optional"),
+			Parses(WithoutPhase, WithoutPhaseCase).IsOk()))
+		{
+			const FCFDVizField* AlphaWater = WithoutPhaseCase.FindField(FName(TEXT("alphaWater")));
+			TestTrue(TEXT("and remains explicitly absent"),
+				AlphaWater != nullptr && !AlphaWater->Phase.IsSet());
+		}
 	}
 
 	// --- section 3.1 invariants ---------------------------------------------
@@ -493,6 +762,70 @@ bool FCFDVizManifestRejectionTest::RunTest(const FString& Parameters)
 	{
 		const FString Json = MutateManifest(TEXT("\"steps\": [0, 100]"), TEXT("\"steps\": [0, 100, 200]"));
 		TestFalse(TEXT("steps of the wrong length is rejected"), Parses(Json, Case).IsOk());
+	}
+
+	// --- CFDViz 1.1 temporal sampling --------------------------------------
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"sampling\": {\n      \"sourceTimeStep\": 0.005,\n      \"storedStepStride\": 100,\n      \"maxFeatureDisplacementCells\": 0.75\n    }"),
+			TEXT("\"sampling\": []"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("timeline.sampling must be an object"), Result.IsOk());
+		TestTrue(TEXT("and the message names timeline.sampling"),
+			Result.Message.Contains(TEXT("timeline.sampling")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"sampling\": {\n      \"sourceTimeStep\": 0.005,\n      \"storedStepStride\": 100,\n      \"maxFeatureDisplacementCells\": 0.75\n    }"),
+			TEXT("\"sampling\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("explicit null timeline.sampling is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names timeline.sampling"),
+			Result.Message.Contains(TEXT("timeline.sampling")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"sourceTimeStep\": 0.005"),
+			TEXT("\"sourceTimeStep\": 0.0"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("sourceTimeStep must be positive"), Result.IsOk());
+		TestTrue(TEXT("and the message names sourceTimeStep"),
+			Result.Message.Contains(TEXT("sourceTimeStep")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"steps\": [0, 100]"),
+			TEXT("\"steps\": [0, 99]"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("storedStepStride must match adjacent steps"), Result.IsOk());
+		TestTrue(TEXT("and the message names storedStepStride"),
+			Result.Message.Contains(TEXT("storedStepStride")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"sourceTimeStep\": 0.005"),
+			TEXT("\"sourceTimeStep\": 0.004"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("sourceTimeStep times stride must match stored times"), Result.IsOk());
+		TestTrue(TEXT("and the cadence mismatch names sourceTimeStep"),
+			Result.Message.Contains(TEXT("sourceTimeStep")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"maxFeatureDisplacementCells\": 0.75"),
+			TEXT("\"maxFeatureDisplacementCells\": -0.01"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("feature displacement cannot be negative"), Result.IsOk());
+		TestTrue(TEXT("and the message names maxFeatureDisplacementCells"),
+			Result.Message.Contains(TEXT("maxFeatureDisplacementCells")));
+	}
+	{
+		const FString WithoutSampling = MutateManifest(
+			TEXT("    \"sampling\": {\n      \"sourceTimeStep\": 0.005,\n      \"storedStepStride\": 100,\n      \"maxFeatureDisplacementCells\": 0.75\n    }\n"),
+			TEXT("    \"defaultInterpolation\": \"nearest\"\n"));
+		FCFDVizCase WithoutSamplingCase;
+		if (TestTrue(TEXT("temporal sampling metadata is optional"),
+			Parses(WithoutSampling, WithoutSamplingCase).IsOk()))
+		{
+			TestFalse(TEXT("and remains explicitly absent"),
+				WithoutSamplingCase.Timeline.Sampling.IsSet());
+		}
 	}
 	{
 		const FString Json = MutateManifest(TEXT("\"grid\": \"main\",\n      \"unit\": \"Pa\""),
@@ -545,6 +878,122 @@ bool FCFDVizManifestRejectionTest::RunTest(const FString& Parameters)
 	{
 		const FString Json = MutateManifest(TEXT("\"upAxis\": \"Z\""), TEXT("\"upAxis\": \"Y\""));
 		TestFalse(TEXT("a non-canonical up axis is rejected"), Parses(Json, Case).IsOk());
+	}
+
+	// --- CFDViz 1.1 representative quality metrics -------------------------
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"qualityMetrics\": {\n    \"grid\": \"main\",\n    \"activeCellCount\": 24,\n    \"activeDimensions\": [4, 3, 2],\n    \"effectiveSpatialDimensions\": 3,\n    \"velocityField\": \"U\",\n    \"velocityComponentRms\": [1.0, 0.25, 0.1],\n    \"spanwiseGradientRms\": 0.05,\n    \"temporalFrameCount\": 2\n  }"),
+			TEXT("\"qualityMetrics\": []"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("qualityMetrics must be an object when present"), Result.IsOk());
+		TestTrue(TEXT("and the message names qualityMetrics"),
+			Result.Message.Contains(TEXT("qualityMetrics")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"qualityMetrics\": {\n    \"grid\": \"main\",\n    \"activeCellCount\": 24,\n    \"activeDimensions\": [4, 3, 2],\n    \"effectiveSpatialDimensions\": 3,\n    \"velocityField\": \"U\",\n    \"velocityComponentRms\": [1.0, 0.25, 0.1],\n    \"spanwiseGradientRms\": 0.05,\n    \"temporalFrameCount\": 2\n  }"),
+			TEXT("\"qualityMetrics\": null"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("explicit null qualityMetrics is not omission"), Result.IsOk());
+		TestTrue(TEXT("and the message names qualityMetrics"),
+			Result.Message.Contains(TEXT("qualityMetrics")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"qualityMetrics\": {\n    \"grid\": \"main\""),
+			TEXT("\"qualityMetrics\": {\n    \"grid\": \"Main\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("qualityMetrics.grid references are case-sensitive"), Result.IsOk());
+		TestTrue(TEXT("and the message names qualityMetrics.grid"),
+			Result.Message.Contains(TEXT("qualityMetrics.grid")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"velocityField\": \"U\""),
+			TEXT("\"velocityField\": \"u\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("qualityMetrics.velocityField references are case-sensitive"),
+			Result.IsOk());
+		TestTrue(TEXT("and the message names velocityField"),
+			Result.Message.Contains(TEXT("velocityField")));
+	}
+	{
+		const FString Json = MutateManifest(
+			TEXT("\"qualityMetrics\": {\n    \"grid\": \"main\""),
+			TEXT("\"qualityMetrics\": {\n    \"grid\": \"nonexistent\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("qualityMetrics.grid must name a declared grid"), Result.IsOk());
+		TestTrue(TEXT("and the message names qualityMetrics.grid"),
+			Result.Message.Contains(TEXT("qualityMetrics.grid")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"velocityField\": \"U\""),
+			TEXT("\"velocityField\": \"pressure\""));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("quality velocityField must name a vector on the quality grid"),
+			Result.IsOk());
+		TestTrue(TEXT("and the message names velocityField"),
+			Result.Message.Contains(TEXT("velocityField")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"velocityComponentRms\": [1.0, 0.25, 0.1]"),
+			TEXT("\"velocityComponentRms\": [1.0, 0.25]"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("velocityComponentRms must have three components"), Result.IsOk());
+		TestTrue(TEXT("and the message names velocityComponentRms"),
+			Result.Message.Contains(TEXT("velocityComponentRms")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"spanwiseGradientRms\": 0.05"),
+			TEXT("\"spanwiseGradientRms\": -0.05"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("spanwiseGradientRms cannot be negative"), Result.IsOk());
+		TestTrue(TEXT("and the message names spanwiseGradientRms"),
+			Result.Message.Contains(TEXT("spanwiseGradientRms")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"activeDimensions\": [4, 3, 2]"),
+			TEXT("\"activeDimensions\": [5, 3, 2]"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("activeDimensions cannot exceed the declared grid"), Result.IsOk());
+		TestTrue(TEXT("and the message names activeDimensions"),
+			Result.Message.Contains(TEXT("activeDimensions")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"effectiveSpatialDimensions\": 3"),
+			TEXT("\"effectiveSpatialDimensions\": 2"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("effectiveSpatialDimensions must match activeDimensions"), Result.IsOk());
+		TestTrue(TEXT("and the message names effectiveSpatialDimensions"),
+			Result.Message.Contains(TEXT("effectiveSpatialDimensions")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"activeCellCount\": 24"),
+			TEXT("\"activeCellCount\": 25"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("activeCellCount cannot exceed activeDimensions volume"), Result.IsOk());
+		TestTrue(TEXT("and the message names activeCellCount"),
+			Result.Message.Contains(TEXT("activeCellCount")));
+	}
+	{
+		const FString Json = MutateManifest(TEXT("\"temporalFrameCount\": 2"),
+			TEXT("\"temporalFrameCount\": 3"));
+		const FCFDVizResult Result = Parses(Json, Case);
+		TestFalse(TEXT("quality temporalFrameCount must match the timeline"), Result.IsOk());
+		TestTrue(TEXT("and the message names temporalFrameCount"),
+			Result.Message.Contains(TEXT("temporalFrameCount")));
+	}
+	{
+		const FString WithoutQuality = MutateManifest(
+			TEXT("  \"qualityMetrics\": {\n    \"grid\": \"main\",\n    \"activeCellCount\": 24,\n    \"activeDimensions\": [4, 3, 2],\n    \"effectiveSpatialDimensions\": 3,\n    \"velocityField\": \"U\",\n    \"velocityComponentRms\": [1.0, 0.25, 0.1],\n    \"spanwiseGradientRms\": 0.05,\n    \"temporalFrameCount\": 2\n  },\n"),
+			TEXT(""));
+		FCFDVizCase WithoutQualityCase;
+		if (TestTrue(TEXT("quality metrics are optional"),
+			Parses(WithoutQuality, WithoutQualityCase).IsOk()))
+		{
+			TestFalse(TEXT("and remain explicitly absent"),
+				WithoutQualityCase.QualityMetrics.IsSet());
+		}
 	}
 
 	// --- section 1.3: path traversal ----------------------------------------
@@ -879,7 +1328,7 @@ bool FCFDVizManifestFileTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	TestEqual(TEXT("three fields"), Case.Fields.Num(), 3);
+	TestEqual(TEXT("four fields, including the CFDViz 1.1 phase scalar"), Case.Fields.Num(), 4);
 	TestFalse(TEXT("the manifest path is recorded"), Case.ManifestPath.IsEmpty());
 	// The case root is what every relative path resolves against, so it must be
 	// the manifest's DIRECTORY, not the manifest itself.
@@ -1181,7 +1630,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FCFDVizManifestOptionalTest::RunTest(const FString& Parameters)
 {
 	// Optional blocks that the baseline omits: derived fields, structures,
-	// provenance, display hints, and a sourceToCanonical matrix.
+	// display hints, and a sourceToCanonical matrix. The 1.1 baseline already
+	// carries external-solver provenance, so this test must not create a duplicate
+	// root key whose winner depends on the JSON parser.
 	const FString Json = MutateManifest(TEXT("\"meshes\": ["),
 		TEXT("\"derivedFields\": [\n")
 		TEXT("    { \"id\": \"speed\", \"expression\": \"mag(U)\", \"unit\": \"m/s\",\n")
@@ -1192,7 +1643,6 @@ bool FCFDVizManifestOptionalTest::RunTest(const FString& Parameters)
 		TEXT("  \"structures\": [\n")
 		TEXT("    { \"id\": \"beam\", \"mesh\": \"obstacle\", \"displacementField\": \"disp\" }\n")
 		TEXT("  ],\n")
-		TEXT("  \"provenance\": { \"generatorCommand\": \"cfdviz build\", \"generatorVersion\": \"1.0.0\" },\n")
 		TEXT("  \"meshes\": ["));
 
 	FCFDVizCase Case;
@@ -1241,7 +1691,8 @@ bool FCFDVizManifestOptionalTest::RunTest(const FString& Parameters)
 	}
 
 	// --- provenance ---------------------------------------------------------
-	TestEqual(TEXT("provenance command"), Case.Provenance.GeneratorCommand, FString(TEXT("cfdviz build")));
+	TestEqual(TEXT("baseline provenance remains unambiguous"), Case.Provenance.GeneratorCommand,
+		FString(TEXT("cfdviz test-import source.case")));
 
 	// A structure naming an undeclared mesh must be rejected.
 	{
@@ -1309,8 +1760,8 @@ bool FCFDVizManifestOptionalTest::RunTest(const FString& Parameters)
 
 	// --- createdUtc ---------------------------------------------------------
 	{
-		const FString WithDate = MutateManifest(TEXT("\"quality\": \"visualization-demo\""),
-			TEXT("\"quality\": \"visualization-demo\",\n    \"createdUtc\": \"2026-01-15T10:30:00Z\""));
+		const FString WithDate = MutateManifest(TEXT("\"quality\": \"synthetic-correctness-fixture\""),
+			TEXT("\"quality\": \"synthetic-correctness-fixture\",\n    \"createdUtc\": \"2026-01-15T10:30:00Z\""));
 
 		FCFDVizCase Dated;
 		if (TestTrue(TEXT("a manifest with createdUtc parses"),
@@ -1332,8 +1783,8 @@ bool FCFDVizManifestOptionalTest::RunTest(const FString& Parameters)
 	}
 	{
 		// An unparseable date must not fail the load.
-		const FString BadDate = MutateManifest(TEXT("\"quality\": \"visualization-demo\""),
-			TEXT("\"quality\": \"visualization-demo\",\n    \"createdUtc\": \"last Tuesday\""));
+		const FString BadDate = MutateManifest(TEXT("\"quality\": \"synthetic-correctness-fixture\""),
+			TEXT("\"quality\": \"synthetic-correctness-fixture\",\n    \"createdUtc\": \"last Tuesday\""));
 
 		FCFDVizCase Dated;
 		if (TestTrue(TEXT("an unparseable createdUtc does not fail the load"),

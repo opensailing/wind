@@ -305,7 +305,7 @@ def test_a_mask_field_of_the_wrong_shape_is_reported(tmp_path: Path):
 
 def test_known_values_has_the_required_top_level_fields(valid_case: Path):
     bridge = build_known_values(valid_case)
-    assert bridge["formatVersion"] == "1.0.0"
+    assert bridge["formatVersion"] == "1.1.0"
     assert bridge["caseId"] == sample_manifest()["case"]["id"]
     assert bridge["crc32cCheck"] == f"0x{CHECK_VALUE:08X}"
     assert bridge["samples"]
@@ -333,7 +333,7 @@ def test_known_values_bits_are_the_exact_stored_bit_pattern(valid_case: Path):
 
 def test_known_values_bit_width_follows_the_field_data_type(valid_case: Path):
     """Spec 9.1: 4 hex digits for float16, 2 for uint8, 8 for float32."""
-    widths = {"pressure": 8, "U": 8, "validMask": 2}
+    widths = {"pressure": 8, "U": 8, "validMask": 2, "alphaWater": 8}
     for sample in build_known_values(valid_case)["samples"]:
         body = sample["bits"].removeprefix("0x")
         assert len(body) == widths[sample["field"]], sample

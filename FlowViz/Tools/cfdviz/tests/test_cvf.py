@@ -449,7 +449,7 @@ def test_uint8_storage_is_not_rescaled(tmp_path: Path):
 
 
 def test_float64_storage_is_rejected(tmp_path: Path):
-    """Section 3.3: float64 field storage is not supported in 1.0."""
+    """Section 3.3: float64 grid-field storage is not supported in 1.x."""
     with pytest.raises(CVFError, match="float64"):
         write_cvf(tmp_path / "f64.cvf", values=ramp((2, 2, 2, 1), "<f8"), dtype="float64")
 

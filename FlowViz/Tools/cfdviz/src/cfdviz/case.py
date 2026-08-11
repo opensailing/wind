@@ -37,7 +37,6 @@ from .cva import CVAError, read_cva
 from .cvf import CVFError, CVFFormatError, CVFReader, read_cvf
 from .cvm import CVMError, read_cvm
 from .manifest import (
-    FORMAT_VERSION,
     ManifestError,
     field_by_id,
     frame_path,
@@ -751,7 +750,7 @@ def build_known_values(root: Path | str) -> dict[str, Any]:
     array_samples = _array_samples(root, manifest, frames)
 
     return {
-        "formatVersion": FORMAT_VERSION,
+        "formatVersion": manifest.get("version"),
         "caseId": (manifest.get("case") or {}).get("id"),
         "crc32cCheck": f"0x{CHECK_VALUE:08X}",
         "samples": samples,

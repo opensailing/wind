@@ -34,7 +34,11 @@ def test_version_matches_pyproject():
 
 
 def test_format_version_is_the_spec_version():
-    assert cfdviz.FORMAT_VERSION == "1.0.0"
+    assert cfdviz.FORMAT_VERSION == "1.1.0"
+
+
+def test_package_description_names_the_active_manifest_revision():
+    assert "CFDViz 1.1 case format" in pyproject()["project"]["description"]
 
 
 @pytest.mark.parametrize(

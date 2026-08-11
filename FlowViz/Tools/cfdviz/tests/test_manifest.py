@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from conftest import sample_manifest
+import cfdviz.manifest as manifest_module
 from cfdviz.manifest import (
     SCHEMA_PATH,
     ManifestError,
@@ -36,6 +37,13 @@ from cfdviz.manifest import (
 
 def good() -> dict:
     return sample_manifest()
+
+
+@pytest.fixture
+def validate_fallback(monkeypatch):
+    """Exercise the required validator path when jsonschema is not installed."""
+    monkeypatch.setattr(manifest_module, "_schema_problems", lambda _manifest: [])
+    return manifest_module.validate_manifest
 
 
 # ---------------------------------------------------------------------------
@@ -116,11 +124,17 @@ def test_schema_pattern_and_the_function_agree():
 def test_schema_file_exists_and_is_the_declared_one():
     assert SCHEMA_PATH.is_file()
     schema = load_schema()
-    assert schema["$id"] == "https://flowviz.dev/schema/cfdviz-1.0.schema.json"
+    assert schema["$id"] == "https://flowviz.dev/schema/cfdviz-1.1.schema.json"
 
 
 def test_the_sample_manifest_validates():
     assert validate_manifest(good()) == []
+
+
+def test_the_synthetic_sample_is_not_labelled_as_external_solver_data():
+    manifest = good()
+    assert manifest["case"]["quality"] == "synthetic-correctness-fixture"
+    assert manifest["provenance"]["sourceType"] == "synthetic"
 
 
 def test_schema_validation_rejects_a_missing_required_property():
@@ -151,12 +165,94 @@ def test_newer_minor_version_is_accepted():
     assert validate_manifest(manifest) == []
 
 
+def test_a_valid_1_0_manifest_keeps_its_legacy_empty_solver_strings():
+    manifest = good()
+    manifest["version"] = "1.0.0"
+    manifest["case"]["solver"] = {"name": "", "version": "", "method": ""}
+    assert validate_manifest(manifest) == []
+
+
+def test_a_1_1_solver_property_must_not_be_empty():
+    manifest = good()
+    manifest["case"]["solver"]["method"] = ""
+    assert any("method" in problem for problem in validate_manifest(manifest))
+
+
 def test_unknown_properties_are_ignored_silently():
     """Spec 1.4: unknown JSON object properties are ignored, not rejected."""
     manifest = good()
-    manifest["somethingFrom1_1"] = {"nested": [1, 2, 3]}
-    manifest["fields"][0]["futureHint"] = "ignore me"
+    manifest["somethingFrom1_2"] = {"nested": [1, 2, 3]}
+    manifest["case"]["solver"]["futureSolverHint"] = "ignore me"
+    manifest["timeline"]["sampling"]["futureSamplingHint"] = "ignore me"
+    manifest["qualityMetrics"]["futureQualityHint"] = "ignore me"
+    manifest["fields"][-1]["phase"]["futurePhaseHint"] = "ignore me"
+    manifest["provenance"]["futureProvenanceHint"] = "ignore me"
     assert validate_manifest(manifest) == []
+
+
+def test_external_solver_revision_must_be_a_string():
+    manifest = good()
+    manifest["case"]["solver"]["commit"] = 123
+    assert any("commit" in p for p in validate_manifest(manifest))
+
+
+def test_provenance_source_revision_must_be_a_string():
+    manifest = good()
+    manifest["provenance"]["sourceRevision"] = ["not", "a", "revision"]
+    assert any("sourceRevision" in p for p in validate_manifest(manifest))
+
+
+@pytest.mark.parametrize("value", ["", 123])
+def test_provenance_source_type_must_be_a_nonempty_string(value):
+    manifest = good()
+    manifest["provenance"]["sourceType"] = value
+    assert any("sourceType" in p for p in validate_manifest(manifest))
+
+
+def test_manual_fallback_enforces_solver_and_provenance_types(validate_fallback):
+    manifest = good()
+    manifest["case"]["solver"]["commit"] = 123
+    manifest["provenance"]["sourceRevision"] = ["not", "a", "revision"]
+    manifest["provenance"]["notes"] = [123]
+    problems = validate_fallback(manifest)
+    assert any("commit" in problem for problem in problems)
+    assert any("sourceRevision" in problem for problem in problems)
+    assert any("notes" in problem for problem in problems)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("case", "solver"),
+        ("timeline", "sampling"),
+        ("field", "phase"),
+        ("qualityMetrics",),
+        ("provenance",),
+    ],
+)
+def test_explicit_null_optional_blocks_are_rejected_by_the_fallback(
+    validate_fallback, path
+):
+    manifest = good()
+    if path == ("field", "phase"):
+        manifest["fields"][-1]["phase"] = None
+    elif len(path) == 2:
+        manifest[path[0]][path[1]] = None
+    else:
+        manifest[path[0]] = None
+    assert any("object" in problem for problem in validate_fallback(manifest))
+
+
+def test_external_solver_quality_requires_external_solver_provenance(
+    validate_fallback,
+):
+    manifest = good()
+    manifest["case"]["quality"] = "external-solver-sample"
+    manifest["provenance"]["sourceType"] = "synthetic"
+    assert any(
+        "external-solver-sample" in problem and "sourceType" in problem
+        for problem in validate_fallback(manifest)
+    )
 
 
 def test_unknown_value_of_a_required_enum_is_rejected():
@@ -189,6 +285,13 @@ def test_nan_is_not_a_legal_time():
     assert any("monoton" in p or "NaN" in p for p in validate_manifest(manifest))
 
 
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+def test_infinity_is_not_a_legal_time_without_jsonschema(validate_fallback, value):
+    manifest = good()
+    manifest["timeline"]["times"] = [0.0, value]
+    assert any("finite" in problem for problem in validate_fallback(manifest))
+
+
 def test_frame_count_must_match_times():
     manifest = good()
     manifest["timeline"]["frameCount"] = 3
@@ -199,6 +302,38 @@ def test_frame_count_must_match_steps_when_present():
     manifest = good()
     manifest["timeline"]["steps"] = [0]
     assert any("steps" in p for p in validate_manifest(manifest))
+
+
+def test_timeline_sampling_must_be_an_object_when_present():
+    manifest = good()
+    manifest["timeline"]["sampling"] = []
+    assert any("timeline.sampling" in p for p in validate_manifest(manifest))
+
+
+def test_source_time_step_must_be_positive():
+    manifest = good()
+    manifest["timeline"]["sampling"]["sourceTimeStep"] = 0.0
+    assert any("sourceTimeStep" in p for p in validate_manifest(manifest))
+
+
+def test_stored_step_stride_must_match_declared_steps():
+    manifest = good()
+    manifest["timeline"]["steps"] = [0, 99]
+    assert any("storedStepStride" in p for p in validate_manifest(manifest))
+
+
+def test_source_time_step_and_stride_must_match_stored_times():
+    manifest = good()
+    manifest["timeline"]["sampling"]["sourceTimeStep"] = 0.004
+    assert any("sourceTimeStep" in p for p in validate_manifest(manifest))
+
+
+def test_max_feature_displacement_must_be_finite_and_non_negative():
+    manifest = good()
+    manifest["timeline"]["sampling"]["maxFeatureDisplacementCells"] = -0.01
+    assert any(
+        "maxFeatureDisplacementCells" in p for p in validate_manifest(manifest)
+    )
 
 
 def test_field_grid_must_name_a_declared_grid():
@@ -217,6 +352,13 @@ def test_duplicate_field_numeric_ids_are_rejected():
     manifest = good()
     manifest["fields"][1]["numericId"] = manifest["fields"][0]["numericId"]
     assert any("numericId" in p for p in validate_manifest(manifest))
+
+
+def test_uint32_field_and_patch_ids_remain_valid():
+    manifest = good()
+    manifest["fields"][0]["numericId"] = 3_000_000_000
+    manifest["meshes"][0]["patches"][0]["id"] = 3_000_000_001
+    assert validate_manifest(manifest) == []
 
 
 def test_duplicate_field_ids_are_rejected():
@@ -266,6 +408,175 @@ def test_negative_spacing_is_rejected():
     manifest = good()
     manifest["grids"][0]["spacing"] = [0.1, -0.1, 0.1]
     assert any("spacing" in p for p in validate_manifest(manifest))
+
+
+def test_phase_interpretation_requires_a_scalar_field():
+    manifest = good()
+    manifest["fields"][-1]["components"] = ["r", "g"]
+    manifest["fields"][-1]["componentCount"] = 2
+    assert any("phase" in p and "scalar" in p for p in validate_manifest(manifest))
+
+
+def test_phase_interpretation_requires_floating_point_storage():
+    manifest = good()
+    manifest["fields"][-1]["dataType"] = "uint8"
+    assert any("phase" in p and "floating" in p for p in validate_manifest(manifest))
+
+
+def test_volume_fraction_interface_value_must_be_in_unit_interval():
+    manifest = good()
+    manifest["fields"][-1]["phase"]["interfaceValue"] = 1.01
+    assert any("interfaceValue" in p for p in validate_manifest(manifest))
+
+
+def test_unknown_phase_representation_is_rejected():
+    manifest = good()
+    manifest["fields"][-1]["phase"]["representation"] = "particle-id"
+    assert any("representation" in p for p in validate_manifest(manifest))
+
+
+def test_unknown_phase_inside_convention_is_rejected():
+    manifest = good()
+    manifest["fields"][-1]["phase"]["inside"] = "sideways"
+    assert any("inside" in p for p in validate_manifest(manifest))
+
+
+def test_phase_interface_value_must_be_finite():
+    manifest = good()
+    manifest["fields"][-1]["phase"]["interfaceValue"] = float("nan")
+    assert any("interfaceValue" in p for p in validate_manifest(manifest))
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("primaryPhase", 123),
+        ("primaryPhase", ""),
+        ("secondaryPhase", []),
+        ("secondaryPhase", ""),
+    ],
+)
+def test_phase_names_are_nonempty_strings_without_jsonschema(
+    validate_fallback, key, value
+):
+    manifest = good()
+    manifest["fields"][-1]["phase"][key] = value
+    assert any(key in problem for problem in validate_fallback(manifest))
+
+
+def test_phase_interpretation_is_optional():
+    manifest = good()
+    del manifest["fields"][-1]["phase"]
+    assert validate_manifest(manifest) == []
+
+
+def test_quality_metrics_are_optional():
+    manifest = good()
+    del manifest["qualityMetrics"]
+    assert validate_manifest(manifest) == []
+
+
+def test_quality_metrics_grid_must_name_a_declared_grid():
+    manifest = good()
+    manifest["qualityMetrics"]["grid"] = "nonexistent"
+    assert any("qualityMetrics.grid" in p for p in validate_manifest(manifest))
+
+
+def test_quality_references_are_case_sensitive():
+    manifest = good()
+    manifest["qualityMetrics"]["grid"] = "Main"
+    manifest["qualityMetrics"]["velocityField"] = "u"
+    problems = validate_manifest(manifest)
+    assert any("qualityMetrics.grid" in problem for problem in problems)
+    assert any("velocityField" in problem for problem in problems)
+
+
+def test_zero_effective_dimensions_agree_with_a_single_active_cell():
+    manifest = good()
+    manifest["grids"][0]["dimensions"] = [1, 1, 1]
+    manifest["qualityMetrics"]["activeDimensions"] = [1, 1, 1]
+    manifest["qualityMetrics"]["activeCellCount"] = 1
+    manifest["qualityMetrics"]["effectiveSpatialDimensions"] = 0
+    assert validate_manifest(manifest) == []
+
+
+def test_zero_frame_quality_evidence_agrees_with_an_empty_timeline():
+    manifest = good()
+    manifest["timeline"]["frameCount"] = 0
+    manifest["timeline"]["times"] = []
+    manifest["timeline"]["steps"] = []
+    del manifest["timeline"]["sampling"]
+    manifest["qualityMetrics"]["temporalFrameCount"] = 0
+    assert validate_manifest(manifest) == []
+
+
+def test_grid_dimensions_must_fit_the_unreal_signed_integer_contract(
+    validate_fallback,
+):
+    manifest = good()
+    manifest["grids"][0]["dimensions"][0] = 2_147_483_648
+    assert any("dimensions X" in problem for problem in validate_fallback(manifest))
+
+
+def test_quality_metrics_velocity_must_name_a_vector_field_on_its_grid():
+    manifest = good()
+    manifest["qualityMetrics"]["velocityField"] = "pressure"
+    assert any("velocityField" in p for p in validate_manifest(manifest))
+
+
+def test_quality_velocity_component_rms_has_three_components():
+    manifest = good()
+    manifest["qualityMetrics"]["velocityComponentRms"] = [1.0, 0.25]
+    assert any("velocityComponentRms" in p for p in validate_manifest(manifest))
+
+
+def test_quality_spanwise_gradient_must_be_finite_and_non_negative():
+    manifest = good()
+    manifest["qualityMetrics"]["spanwiseGradientRms"] = float("nan")
+    assert any("spanwiseGradientRms" in p for p in validate_manifest(manifest))
+
+
+def test_quality_active_dimensions_must_fit_the_declared_grid():
+    manifest = good()
+    manifest["qualityMetrics"]["activeDimensions"] = [5, 3, 2]
+    assert any("activeDimensions" in p for p in validate_manifest(manifest))
+
+
+def test_quality_effective_dimensions_must_match_active_dimensions():
+    manifest = good()
+    manifest["qualityMetrics"]["effectiveSpatialDimensions"] = 2
+    assert any(
+        "effectiveSpatialDimensions" in p for p in validate_manifest(manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("effectiveSpatialDimensions", 3.0),
+        ("effectiveSpatialDimensions", True),
+        ("temporalFrameCount", 2.0),
+        ("temporalFrameCount", True),
+    ],
+)
+def test_quality_integer_evidence_is_strict_without_jsonschema(
+    validate_fallback, key, value
+):
+    manifest = good()
+    manifest["qualityMetrics"][key] = value
+    assert any(key in problem for problem in validate_fallback(manifest))
+
+
+def test_quality_active_cell_count_must_fit_active_dimensions():
+    manifest = good()
+    manifest["qualityMetrics"]["activeCellCount"] = 25
+    assert any("activeCellCount" in p for p in validate_manifest(manifest))
+
+
+def test_quality_temporal_frame_count_must_match_the_timeline():
+    manifest = good()
+    manifest["qualityMetrics"]["temporalFrameCount"] = 3
+    assert any("temporalFrameCount" in p for p in validate_manifest(manifest))
 
 
 def test_path_pattern_traversal_is_rejected():

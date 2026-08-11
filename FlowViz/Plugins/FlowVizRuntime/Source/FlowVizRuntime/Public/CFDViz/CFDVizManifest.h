@@ -13,7 +13,7 @@
 #include "Misc/Optional.h"
 
 /**
- * manifest.json - the CFDViz 1.0 case description (format section 3).
+ * manifest.json - the CFDViz 1.1 case description (format section 3).
  *
  * The manifest is the only file that says what a case contains. Everything else
  * - which .cvf holds which field at which frame, what a value means physically,
@@ -40,9 +40,9 @@
  *
  * VERSION POLICY (format rule 1.4), implemented in ParseFromString:
  *   - major != 1                 -> rejected, naming the version found.
- *   - minor > 0                  -> ACCEPTED. A 1.1 manifest loads in this
- *                                   reader as long as every 1.0-required
- *                                   construct is present.
+ *   - newer minor                -> ACCEPTED as long as every required
+ *                                   construct understood by this 1.1 reader
+ *                                   is present.
  *   - unknown object properties  -> ignored silently, at every level.
  *   - unknown value of a REQUIRED enum (dataType, association, codec, grid type,
  *     storage type, handedness, upAxis, forwardAxis) -> rejected, never guessed.
@@ -56,14 +56,14 @@
 /* only the spellings in the .cpp are normative.                                 */
 /* -------------------------------------------------------------------------- */
 
-/** `grid.type`. 1.0 defines exactly one grid type; anything else is rejected, not ignored. */
+/** `grid.type`. CFDViz 1.x defines exactly one grid type; anything else is rejected, not ignored. */
 enum class ECFDVizGridType : uint8
 {
 	/** Uniform Cartesian: constant spacing per axis, axis-aligned, described entirely by dimensions/origin/spacing. */
 	UniformCartesian = 0
 };
 
-/** `field.storage.type`. 1.0 stores volume fields as CVF bricked volumes only. */
+/** `field.storage.type`. CFDViz 1.x stores volume fields as CVF bricked volumes only. */
 enum class ECFDVizStorageType : uint8
 {
 	BrickedVolume = 0
@@ -89,6 +89,24 @@ enum class ECFDVizRangeMode : uint8
 	Manual = 2
 };
 
+/** `field.phase.representation` - how an interface scalar is interpreted. */
+enum class ECFDVizPhaseRepresentation : uint8
+{
+	/** A bounded phase fraction, conventionally in [0, 1]. */
+	VolumeFraction = 0,
+	/** A signed distance or level-set field. */
+	SignedDistance = 1
+};
+
+/** `field.phase.inside` - which side of the interface is the primary phase. */
+enum class ECFDVizPhaseInside : uint8
+{
+	/** Values greater than `interfaceValue` belong to the primary phase. */
+	GreaterThanInterface = 0,
+	/** Values less than `interfaceValue` belong to the primary phase. */
+	LessThanInterface = 1
+};
+
 /* -------------------------------------------------------------------------- */
 /* Leaf structures                                                              */
 /* -------------------------------------------------------------------------- */
@@ -101,8 +119,14 @@ struct FCFDVizSolverInfo
 	FString Name;
 	FString Version;
 
-	/** Numerical method, e.g. "analytic-vortex-street", "PISO". Free-form. */
+	/** Numerical method, e.g. "finite-volume", "LBM D3Q19". Free-form. */
 	FString Method;
+
+	/** Source revision of the solver executable or source tree. Empty when unavailable. */
+	FString Commit;
+
+	/** Human-readable run/model configuration, e.g. "transient-LES". */
+	FString Configuration;
 };
 
 /**
@@ -195,7 +219,7 @@ struct FCFDVizCoordinates
 	 * `coordinates.origin`. Provenance: where the canonical frame sits relative to
 	 * the source dataset.
 	 *
-	 * CFDViz 1.0 gives this NO decoding meaning. `grid.origin` alone positions
+	 * CFDViz 1.x gives this NO decoding meaning. `grid.origin` alone positions
 	 * cells; adding this to a grid position double-offsets the entire volume,
 	 * which looks like a plausible translation and is wrong. Defaults to zero.
 	 */
@@ -210,6 +234,24 @@ struct FCFDVizCoordinates
 
 	/** `crs` when given as a string - reserved georeferencing metadata. Empty when absent, null, or given as an object. */
 	FString Crs;
+};
+
+/**
+ * `timeline.sampling` - how stored snapshots relate to the external solver.
+ *
+ * Optional and additive in CFDViz 1.1. These values describe cadence and a
+ * temporal-adequacy measurement; they never advance a simulation in FlowViz.
+ */
+struct FCFDVizTimelineSampling
+{
+	/** Physical time advanced by one source solver step, in `units.time`. Must be finite and > 0. */
+	double SourceTimeStep = 0.0;
+
+	/** Number of source solver steps between adjacent stored snapshots. Must be >= 1. */
+	int64 StoredStepStride = 0;
+
+	/** Maximum important-feature displacement between stored snapshots, measured in grid cells. Finite and >= 0. */
+	double MaxFeatureDisplacementCells = 0.0;
 };
 
 /**
@@ -236,6 +278,9 @@ struct FCFDVizTimeline
 	 * produced.
 	 */
 	ECFDVizInterpolation DefaultInterpolation = ECFDVizInterpolation::Nearest;
+
+	/** External-solver sampling cadence and adequacy evidence. Unset when the manifest omits `timeline.sampling`. */
+	TOptional<FCFDVizTimelineSampling> Sampling;
 
 	bool HasSteps() const
 	{
@@ -439,6 +484,28 @@ struct FCFDVizFieldDisplay
 };
 
 /**
+ * `field.phase` - interpretation of a scalar free-surface/interface field.
+ *
+ * Optional in CFDViz 1.1. It is metadata over stored floating-point values; it
+ * does not change decoding, clamp values, or generate topology.
+ */
+struct FCFDVizPhaseInterpretation
+{
+	ECFDVizPhaseRepresentation Representation = ECFDVizPhaseRepresentation::VolumeFraction;
+
+	/** Phase on the declared `Inside` side, e.g. "water". Empty when unnamed. */
+	FString PrimaryPhase;
+
+	/** Opposite phase, e.g. "air". Empty when unnamed. */
+	FString SecondaryPhase;
+
+	/** Iso-value of the interface. Must be finite; volume fractions additionally require [0, 1]. */
+	double InterfaceValue = 0.5;
+
+	ECFDVizPhaseInside Inside = ECFDVizPhaseInside::GreaterThanInterface;
+};
+
+/**
  * `field` - one stored volume field (required: `numericId`, `id`, `components`,
  * `componentCount`, `dataType`, `association`, `grid`, `storage`).
  */
@@ -490,6 +557,9 @@ struct FCFDVizField
 
 	/** Unset when absent, in which case the timeline's default applies - see ResolveTemporalInterpolation. */
 	TOptional<ECFDVizInterpolation> TemporalInterpolation;
+
+	/** Free-surface/interface interpretation. Unset for ordinary scalar and vector fields. */
+	TOptional<FCFDVizPhaseInterpretation> Phase;
 
 	FCFDVizFieldStorage Storage;
 	FCFDVizFieldStatistics Statistics;
@@ -559,7 +629,7 @@ struct FCFDVizMesh
 	/**
 	 * True when the geometry does not change across frames.
 	 *
-	 * DEFAULTS TO true when absent, because in 1.0 a mesh declares a single
+	 * DEFAULTS TO true when absent, because in 1.x a mesh declares a single
 	 * `path` with no frame placeholder - so its geometry cannot vary by frame and
 	 * defaulting to false would describe something the format cannot express.
 	 */
@@ -602,8 +672,8 @@ struct FCFDVizDerivedField
  * `structures[]` - association between a CVM mesh and mesh-associated (CVA)
  * results (required: `id`, `mesh`).
  *
- * Reserved for FEA in 1.0: the format specifies and round-trip tests CVA, but no
- * 1.0 UI renders every result type, and 1.0 sample cases declare this empty. It
+ * Reserved for FEA in 1.x: the format specifies and round-trip tests CVA, but no
+ * 1.x UI renders every result type, and 1.x sample cases declare this empty. It
  * is parsed and validated anyway so a case that does declare one is not silently
  * half-read.
  */
@@ -629,13 +699,51 @@ struct FCFDVizStructure
 };
 
 /**
+ * `qualityMetrics` - recomputable evidence that a dataset is representative.
+ *
+ * Optional in CFDViz 1.1. These declarations are validated for shape and
+ * cross-references, but a converter/acceptance harness must recompute them from
+ * payloads rather than trusting the manifest as proof by itself.
+ */
+struct FCFDVizQualityMetrics
+{
+	/** Grid on which all spatial metrics were evaluated. */
+	FName GridId;
+
+	/** Number of active/valid cells used by the measurement. */
+	int64 ActiveCellCount = 0;
+
+	/** Extent of active data per axis, bounded by the declared grid dimensions. */
+	FIntVector ActiveDimensions = FIntVector::ZeroValue;
+
+	/** Number of ActiveDimensions components greater than one. */
+	int32 EffectiveSpatialDimensions = 0;
+
+	/** Three-component velocity field on GridId used for the velocity metrics. */
+	FName VelocityFieldId;
+
+	/** RMS velocity component values in velocity-field component order. */
+	FVector VelocityComponentRms = FVector::ZeroVector;
+
+	/** RMS gradient in the spanwise direction; finite and non-negative. */
+	double SpanwiseGradientRms = 0.0;
+
+	/** Number of payload frames evaluated; must equal timeline.frameCount. */
+	int32 TemporalFrameCount = 0;
+};
+
+/**
  * `provenance` - free-form origin record. Never load-bearing for decoding.
  */
 struct FCFDVizProvenance
 {
+	/** Origin class, e.g. "external-solver". Empty when not declared. */
+	FString SourceType;
 	FString GeneratorCommand;
 	FString GeneratorVersion;
 	FString SourceCase;
+	FString SourceRevision;
+	FString ExportCommand;
 	TArray<FString> Notes;
 };
 
@@ -740,6 +848,10 @@ struct FCFDVizCase
 	TArray<FCFDVizMesh> Meshes;
 	TArray<FCFDVizDerivedField> DerivedFields;
 	TArray<FCFDVizStructure> Structures;
+
+	/** Representative-data evidence. Unset when the additive CFDViz 1.1 block is absent. */
+	TOptional<FCFDVizQualityMetrics> QualityMetrics;
+
 	FCFDVizProvenance Provenance;
 
 	/* --- Loading -------------------------------------------------------------- */
