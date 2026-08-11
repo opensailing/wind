@@ -230,6 +230,68 @@ def test_declared_quality_metrics_are_recomputed_from_stored_payloads(
     assert "stored data gives" in joined
 
 
+def test_point_associated_quality_is_recomputed_from_cvf_payloads(tmp_path: Path):
+    from cfdviz.cvf import write_cvf
+
+    manifest = sample_manifest()
+    velocity_entry = next(
+        field for field in manifest["fields"] if field["id"] == "U"
+    )
+    velocity_entry["association"] = "point"
+    manifest["fields"] = [velocity_entry]
+    manifest["grids"][0].pop("maskField")
+    manifest["grids"][0]["dimensions"] = [1, 1, 1]
+    manifest["grids"][0]["spacing"] = [2.0, 3.0, 5.0]
+    manifest["timeline"] = {"frameCount": 1, "times": [0.0]}
+    manifest["qualityMetrics"] = {
+        "grid": "main",
+        "activeCellCount": 1,
+        "activeDimensions": [1, 1, 1],
+        "effectiveSpatialDimensions": 0,
+        "velocityField": "U",
+        "velocityComponentRms": [1.0, 2.0, 3.0],
+        "spanwiseGradientRms": 0.0,
+        "temporalFrameCount": 1,
+    }
+    manifest.pop("meshes")
+    root = tmp_path / "PointQuality.cfdviz"
+    root.mkdir()
+    values = np.empty((2, 2, 2, 3), dtype="<f4")
+    values[...] = [1.0, 2.0, 3.0]
+    write_cvf(
+        root / "frames/000000/U.cvf",
+        values=values,
+        dtype="float32",
+        association="point",
+        codec=3,
+        brick_size=(4, 4, 4),
+        frame_index=0,
+        field_numeric_id=velocity_entry["numericId"],
+        simulation_time=0.0,
+    )
+    (root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )
+
+    report = validate_case(root)
+
+    assert report.ok, report.render()
+    manifest["qualityMetrics"]["velocityComponentRms"][1] = 99.0
+    (root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )
+
+    forged_report = validate_case(root)
+
+    assert not forged_report.ok
+    joined = " ".join(forged_report.errors)
+    assert "qualityMetrics.velocityComponentRms" in joined
+    assert "declared" in joined
+    assert "stored data gives" in joined
+
+
 def test_quality_recomputation_combines_grid_mask_and_velocity_nan(tmp_path: Path):
     from cfdviz.cvf import write_cvf
 

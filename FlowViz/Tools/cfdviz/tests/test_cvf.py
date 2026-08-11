@@ -39,6 +39,7 @@ from cfdviz.cvf import (
     CVF_MAGIC,
     CVFError,
     CVFFormatError,
+    CVFHeader,
     CVFReader,
     read_cvf,
     write_cvf,
@@ -128,6 +129,23 @@ def test_header_field_offsets(tmp_path: Path):
     assert payload_offset == 128 + 2 * 80                       # payloadOffset
     assert struct.unpack_from("<4f", blob, 88) == (1.0, 2.0, 3.0, 4.0)  # backgroundValue
     assert blob[108:128] == b"\x00" * 20                        # reserved
+
+
+def test_header_dimension_leaves_room_for_point_value_extent(tmp_path: Path):
+    path = tmp_path / "dimension-boundary.cvf"
+    _write_reference(path)
+    accepted = tamper_cvf(path.read_bytes(), 40, "<I", 0x7FFFFFFE)
+
+    header = CVFHeader.unpack(accepted, path=path)
+
+    assert header.dimension_x == 0x7FFFFFFE
+    rejected = tamper_cvf(accepted, 40, "<I", 0x7FFFFFFF)
+    with pytest.raises(
+        CVFFormatError,
+        match=r"dimension.*point.*extent|point.*extent.*dimension",
+    ) as excinfo:
+        CVFHeader.unpack(rejected, path=path)
+    assert excinfo.value.offset == 40
 
 
 def test_header_crc_covers_the_header_with_its_own_field_zeroed(tmp_path: Path):

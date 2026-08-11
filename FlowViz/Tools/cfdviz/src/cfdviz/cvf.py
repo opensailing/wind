@@ -183,6 +183,10 @@ CVF_KNOWN_FLAGS: Final = CVF_FLAG_SPARSE
 #: ``float32[4]``, which caps a CVF at four components.
 MAX_COMPONENT_COUNT: Final = 4
 
+#: Cell counts stop one below MAX_int32 so a point-associated n + 1 value
+#: extent is representable by every reader.
+MAX_GRID_DIMENSION: Final = 0x7FFFFFFE
+
 #: ``brickSizeX/Y/Z`` are uint16.
 MAX_BRICK_SIZE: Final = 0xFFFF
 
@@ -737,6 +741,14 @@ class CVFHeader:
                 path=path,
                 offset=40,
             )
+        if max(dim_x, dim_y, dim_z) > MAX_GRID_DIMENSION:
+            raise CVFFormatError(
+                f"grid dimension ({dim_x}, {dim_y}, {dim_z}) exceeds "
+                f"{MAX_GRID_DIMENSION}; cell counts must leave room for a "
+                "point-associated n + 1 value extent in signed 32-bit readers",
+                path=path,
+                offset=40,
+            )
         if min(brick_x, brick_y, brick_z) < 1:
             raise CVFFormatError(
                 f"brickSize ({brick_x}, {brick_y}, {brick_z}) has a component below 1; "
@@ -1085,6 +1097,13 @@ def write_cvf(
                 f"grid dimensions {dims} has a component below 1; every dimension must "
                 "be at least 1 (spec 3.1)"
             )
+
+    if max(dims) > MAX_GRID_DIMENSION:
+        raise CVFError(
+            f"grid dimensions {dims} exceed {MAX_GRID_DIMENSION}; cell counts must "
+            "leave room for a point-associated n + 1 value extent in signed "
+            "32-bit readers"
+        )
 
     expected_extent = (
         tuple(n + 1 for n in dims) if association_id == CVF_ASSOC_POINT else dims

@@ -86,8 +86,8 @@
       "type": "array",
       "minItems": 3,
       "maxItems": 3,
-      "items": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
-      "description": "Cell counts [nx, ny, nz]. Each component is at least 1 and fits the signed 32-bit manifest representation shared with Unreal; CVF headers store the same positive values as uint32."
+      "items": { "type": "integer", "minimum": 1, "maximum": 2147483646 },
+      "description": "Cell counts [nx, ny, nz]. Each component is in [1, 2147483646], leaving room for the n + 1 value extent of point-associated fields in the signed 32-bit representation shared with Unreal; CVF headers store the same positive values as uint32."
     },
 
     "brickSize3": {
@@ -566,7 +566,11 @@
       ],
       "properties": {
         "grid": { "$ref": "#/$defs/identifier" },
-        "activeCellCount": { "type": "integer", "minimum": 1 },
+        "activeCellCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of valid cells. Point-associated velocity is first centred by averaging all eight valid finite corners."
+        },
         "activeDimensions": { "$ref": "#/$defs/dimensions3" },
         "effectiveSpatialDimensions": { "type": "integer", "minimum": 0, "maximum": 3 },
         "velocityField": { "$ref": "#/$defs/identifier" },
@@ -575,12 +579,12 @@
           "minItems": 3,
           "maxItems": 3,
           "items": { "type": "number", "minimum": 0 },
-          "description": "RMS of each canonical velocity component over valid active cells. A genuine 3D dataset must not silently collapse the spanwise component to zero."
+          "description": "RMS of each canonical velocity component over valid active cells. Cell-associated velocity is used directly; point-associated velocity is centred by averaging all eight valid finite corners. A genuine 3D dataset must not silently collapse the spanwise component to zero."
         },
         "spanwiseGradientRms": {
           "type": "number",
           "minimum": 0,
-          "description": "RMS magnitude of derivatives along the canonical spanwise axis, in the velocity field's unit per units.length."
+          "description": "RMS magnitude of derivatives along canonical Z on cell-centred velocity, using the grid's Z spacing and reported in the velocity field's unit per units.length."
         },
         "temporalFrameCount": { "type": "integer", "minimum": 0 }
       }

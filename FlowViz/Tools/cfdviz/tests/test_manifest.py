@@ -510,12 +510,16 @@ def test_zero_frame_quality_evidence_agrees_with_an_empty_timeline():
     assert validate_manifest(manifest) == []
 
 
-def test_grid_dimensions_must_fit_the_unreal_signed_integer_contract(
-    validate_fallback,
-):
+def test_grid_dimension_leaves_room_for_point_value_extent(validate_fallback):
     manifest = good()
-    manifest["grids"][0]["dimensions"][0] = 2_147_483_648
-    assert any("dimensions X" in problem for problem in validate_fallback(manifest))
+    manifest["grids"][0]["dimensions"][0] = 2_147_483_646
+    assert validate_manifest(manifest) == []
+    assert validate_fallback(manifest) == []
+
+    manifest["grids"][0]["dimensions"][0] = 2_147_483_647
+    for validate in (validate_manifest, validate_fallback):
+        problems = validate(manifest)
+        assert any("dimensions" in problem for problem in problems)
 
 
 def test_quality_metrics_velocity_must_name_a_vector_field_on_its_grid():

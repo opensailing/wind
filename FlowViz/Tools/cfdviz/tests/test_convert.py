@@ -191,6 +191,164 @@ def test_quality_metrics_require_at_least_one_valid_velocity_cell():
         )
 
 
+def test_quality_point_association_averages_eight_corners_to_cell_centres():
+    x, y, z = np.indices((3, 2, 3), dtype=np.float64)
+    x *= 2.0
+    y *= 3.0
+    z *= 5.0
+    velocity = np.stack(
+        (
+            x + 2.0 * y + 3.0 * z,
+            -4.0 * x + 5.0 * y - 6.0 * z,
+            7.0 * x - 8.0 * y + 9.0 * z,
+        ),
+        axis=-1,
+    )
+    accumulator = QualityAccumulator(
+        (2, 1, 2),
+        (2.0, 3.0, 5.0),
+        association="point",
+    )
+
+    accumulator.add(velocity, np.ones((3, 2, 3), dtype=bool))
+    metrics = accumulator.to_manifest(
+        frame_count=1,
+        grid_id="main",
+        velocity_field="U",
+    )
+
+    assert metrics["velocityComponentRms"] == pytest.approx(
+        [21.383404780343096, 34.2235299172952, 52.576135270672]
+    )
+    assert metrics["spanwiseGradientRms"] == pytest.approx(np.sqrt(126.0))
+    assert metrics["activeCellCount"] == 4
+    assert metrics["activeDimensions"] == [2, 1, 2]
+    assert metrics["effectiveSpatialDimensions"] == 2
+
+
+@pytest.mark.parametrize("invalid_kind", ["mask", "nan"])
+def test_quality_point_association_requires_all_eight_corners_valid(
+    invalid_kind: str,
+):
+    velocity = np.ones((3, 3, 3, 3), dtype=np.float64)
+    mask = np.ones((3, 3, 3), dtype=bool)
+    if invalid_kind == "mask":
+        mask[0, 0, 0] = False
+    else:
+        velocity[0, 0, 0, 1] = np.nan
+    accumulator = QualityAccumulator(
+        (2, 2, 2),
+        (1.0, 1.0, 1.0),
+        association="point",
+    )
+
+    accumulator.add(velocity, mask)
+    metrics = accumulator.to_manifest(
+        frame_count=1,
+        grid_id="main",
+        velocity_field="U",
+    )
+
+    assert metrics["activeCellCount"] == 7
+    assert metrics["velocityComponentRms"] == pytest.approx([1.0, 1.0, 1.0])
+
+
+def test_quality_point_association_uses_point_extent_for_mask():
+    accumulator = QualityAccumulator(
+        (2, 2, 2),
+        (1.0, 1.0, 1.0),
+        association="point",
+    )
+
+    with pytest.raises(ValueError, match=r"mask.*\(3, 3, 3\).*\(2, 2, 2\)"):
+        accumulator.add(
+            np.ones((3, 3, 3, 3), dtype=np.float64),
+            np.ones((2, 2, 2), dtype=bool),
+        )
+
+
+def test_quality_point_association_rejects_cell_sized_velocity():
+    accumulator = QualityAccumulator(
+        (2, 2, 2),
+        (1.0, 1.0, 1.0),
+        association="point",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"velocity.*\(3, 3, 3, 3\).*\(2, 2, 2, 3\)",
+    ):
+        accumulator.add(
+            np.ones((2, 2, 2, 3), dtype=np.float64),
+            np.ones((3, 3, 3), dtype=bool),
+        )
+
+
+def test_quality_point_association_rejects_infinity_before_averaging():
+    velocity = np.ones((2, 2, 2, 3), dtype=np.float64)
+    velocity[0, 0, 0, 0] = np.inf
+    accumulator = QualityAccumulator(
+        (1, 1, 1),
+        (1.0, 1.0, 1.0),
+        association="point",
+    )
+
+    with pytest.raises(ConversionError, match="infinity"):
+        accumulator.add(velocity, np.ones((2, 2, 2), dtype=bool))
+
+
+def test_quality_point_average_widens_before_summing():
+    velocity = np.full((2, 2, 2, 3), np.float32(1.0e38), dtype=np.float32)
+    accumulator = QualityAccumulator(
+        (1, 1, 1),
+        (1.0, 1.0, 1.0),
+        association="point",
+    )
+
+    accumulator.add(velocity, np.ones((2, 2, 2), dtype=bool))
+    metrics = accumulator.to_manifest(
+        frame_count=1,
+        grid_id="main",
+        velocity_field="U",
+    )
+
+    assert np.isfinite(metrics["velocityComponentRms"]).all()
+    assert metrics["velocityComponentRms"] == pytest.approx([1.0e38] * 3)
+
+
+def test_quality_rejects_unknown_association():
+    with pytest.raises(ValueError, match="association"):
+        QualityAccumulator(
+            (2, 2, 2),
+            (1.0, 1.0, 1.0),
+            association="vertex",
+        )
+
+
+@pytest.mark.parametrize(
+    "dimensions",
+    [
+        (True, 2, 2),
+        (2.5, 2, 2),
+        (0, 2, 2),
+        (-1, 2, 2),
+    ],
+)
+def test_quality_rejects_non_integer_or_non_positive_dimensions(dimensions):
+    with pytest.raises(ValueError, match="dimensions"):
+        QualityAccumulator(dimensions, (1.0, 1.0, 1.0))
+
+
+def test_quality_accepts_numpy_integer_dimensions():
+    accumulator = QualityAccumulator(
+        (np.int64(2), np.int32(3), np.uint16(4)),
+        (1.0, 1.0, 1.0),
+        association="cell",
+    )
+
+    assert accumulator.dimensions == (2, 3, 4)
+
+
 def test_existing_nonempty_output_is_refused_without_force(tmp_path: Path):
     output = tmp_path / "case.cfdviz"
     output.mkdir()

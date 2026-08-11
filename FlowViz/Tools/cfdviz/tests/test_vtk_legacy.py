@@ -139,8 +139,8 @@ def test_dimensions_that_cannot_fit_the_file_are_rejected_before_allocation(
     tmp_path: Path,
 ):
     blob = _vtk_bytes(ramp((4, 3, 2, 1), "<f4"))
-    blob = blob.replace(b"DIMENSIONS 4 3 2", b"DIMENSIONS 2147483647 3 2")
-    blob = blob.replace(b"POINT_DATA 24", b"POINT_DATA 12884901882")
+    blob = blob.replace(b"DIMENSIONS 4 3 2", b"DIMENSIONS 2147483646 3 2")
+    blob = blob.replace(b"POINT_DATA 24", b"POINT_DATA 12884901876")
     path = _write(tmp_path / "lying-dimensions.vtk", blob)
 
     with pytest.raises(VTKError, match=r"lying-dimensions\.vtk.*expected .* bytes.*found"):

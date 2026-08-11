@@ -432,12 +432,30 @@ def validate_case(root: Path | str) -> ValidationReport:
         grid_id = declared_quality.get("grid")
         velocity_field = declared_quality.get("velocityField")
         quality_grid = grid_by_id(manifest, grid_id) if isinstance(grid_id, str) else None
-        if isinstance(quality_grid, dict) and isinstance(velocity_field, str):
+        velocity_entry = (
+            field_by_id(manifest, velocity_field)
+            if isinstance(velocity_field, str)
+            else None
+        )
+        if (
+            isinstance(quality_grid, dict)
+            and isinstance(velocity_field, str)
+            and isinstance(velocity_entry, dict)
+        ):
             dimensions = quality_grid.get("dimensions")
             spacing = quality_grid.get("spacing")
-            if isinstance(dimensions, list) and isinstance(spacing, list):
+            association = velocity_entry.get("association")
+            if (
+                isinstance(dimensions, list)
+                and isinstance(spacing, list)
+                and isinstance(association, str)
+            ):
                 try:
-                    quality = QualityAccumulator(dimensions, spacing)
+                    quality = QualityAccumulator(
+                        dimensions,
+                        spacing,
+                        association=association,
+                    )
                     quality_grid_id = grid_id
                     quality_velocity_field = velocity_field
                 except (ConversionError, TypeError, ValueError) as exc:

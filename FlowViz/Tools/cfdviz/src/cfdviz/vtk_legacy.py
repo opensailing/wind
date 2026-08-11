@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 VTK_HEADER_LIMIT: Final = 4096
-_MAX_DIMENSION: Final = 2_147_483_647
+_MAX_DIMENSION: Final = 2_147_483_646
 _MAX_COMPONENTS: Final = 4
 
 _VTK_DTYPES: Final[dict[str, str]] = {

@@ -62,9 +62,9 @@ FORMAT_MARKER: Final = "CFDViz"
 #: The format version this implementation writes.
 FORMAT_VERSION: Final = "1.1.0"
 
-#: Unreal stores manifest dimensions in FIntVector. Keep the manifest contract
-#: within that signed representation even though the CVF header is unsigned.
-MAX_MANIFEST_DIMENSION: Final = 2_147_483_647
+#: Unreal stores manifest dimensions in FIntVector. Cell counts stop one below
+#: MAX_int32 so a point-associated value extent of n + 1 also fits.
+MAX_MANIFEST_DIMENSION: Final = 2_147_483_646
 
 #: The major version this implementation reads. A newer *minor* is accepted
 #: (spec 1.4); a different major is not.

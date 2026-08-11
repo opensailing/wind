@@ -114,7 +114,9 @@ A manifest is invalid, and MUST be rejected with a specific message, if any hold
 - `field.componentCount` disagrees with `len(field.components)`.
 - `field.dataType` is not one of `float16`, `float32`, `uint8`.
 - `field.association` is not one of `cell`, `point`.
-- Any grid `dimensions` component is outside `[1, 2147483647]`, or any
+- Any grid `dimensions` component is outside `[1, 2147483646]` (one below
+  signed-int32 maximum so point-associated `n + 1` value extents remain
+  representable), or any
   `spacing` component is `<= 0`. The signed upper bound is the manifest/runtime
   contract shared with Unreal; CVF stores those same positive counts as uint32.
 - `field.storage.pathPattern` fails the path-traversal check of §1.3.
@@ -252,6 +254,14 @@ dimensions greater than one. `activeCellCount` MUST be positive and no greater
 than the active-dimension product. Velocity RMS values and
 `spanwiseGradientRms` MUST be finite and non-negative. `temporalFrameCount` MUST
 equal `timeline.frameCount`.
+
+These metrics are always measured on the grid's **cell lattice**. A
+cell-associated velocity field is used directly. For a point-associated
+velocity field, each cell velocity is the arithmetic mean of its eight corner
+vectors; the cell is valid only when all eight point-mask values are valid and
+all eight vectors are finite. `activeCellCount` and `activeDimensions` count
+those resulting cells, never point samples. The spanwise derivative is evaluated
+on the cell-centred vectors along canonical Z using the grid's Z spacing.
 
 These declarations are not proof by themselves. Qualification tools MUST
 recompute them from the CVF payloads and validity mask; a reader MUST NOT trust

@@ -8,8 +8,9 @@ import re
 import shutil
 import tempfile
 from contextlib import contextmanager
+from numbers import Integral
 from pathlib import Path
-from typing import Any, Final, Iterator, Sequence
+from typing import Any, Final, Iterator, Literal, Sequence
 
 import numpy as np
 
@@ -216,16 +217,35 @@ class QualityAccumulator:
         self,
         dimensions: Sequence[int],
         spacing: Sequence[float],
+        *,
+        association: Literal["cell", "point"] = "cell",
     ) -> None:
-        if len(dimensions) != 3:
-            raise ValueError("dimensions must contain exactly three values")
-        parsed_dimensions = tuple(int(value) for value in dimensions)
-        if any(value < 1 for value in parsed_dimensions):
-            raise ValueError(f"dimensions must be positive; got {parsed_dimensions}")
+        raw_dimensions = tuple(dimensions)
+        if len(raw_dimensions) != 3 or any(
+            not isinstance(value, Integral)
+            or isinstance(value, (bool, np.bool_))
+            or int(value) < 1
+            for value in raw_dimensions
+        ):
+            raise ValueError(
+                "dimensions must contain exactly three positive integers; got "
+                f"{raw_dimensions}"
+            )
+        if association not in ("cell", "point"):
+            raise ValueError(
+                f"association must be 'cell' or 'point'; got {association!r}"
+            )
+        parsed_dimensions = tuple(int(value) for value in raw_dimensions)
         self.dimensions = (
             parsed_dimensions[0],
             parsed_dimensions[1],
             parsed_dimensions[2],
+        )
+        self.association = association
+        self.value_extent = (
+            self.dimensions
+            if association == "cell"
+            else tuple(value + 1 for value in self.dimensions)
         )
         self.spacing = _triple(spacing, label="spacing")
         self.active_union = np.zeros(self.dimensions, dtype=bool)
@@ -237,24 +257,63 @@ class QualityAccumulator:
 
     def add(self, velocity: np.ndarray, mask: np.ndarray) -> None:
         values = np.asarray(velocity)
-        expected_shape = self.dimensions + (3,)
+        expected_shape = self.value_extent + (3,)
         if values.shape != expected_shape:
             raise ValueError(
                 f"velocity must have shape {expected_shape}; got {values.shape}"
             )
         mask_values = np.asarray(mask, dtype=bool)
-        if mask_values.shape != self.dimensions:
+        if mask_values.shape != self.value_extent:
             raise ValueError(
-                f"mask must have shape {self.dimensions}; got {mask_values.shape}"
+                f"mask must have shape {self.value_extent}; got {mask_values.shape}"
             )
 
         def load_slice(index: int) -> tuple[np.ndarray, np.ndarray]:
+            if self.association == "cell":
+                with np.errstate(invalid="ignore"):
+                    data = values[:, :, index, :].astype(np.float64)
+                active = mask_values[:, :, index]
+                if np.isinf(data[active]).any():
+                    raise ConversionError("active velocity cells contain infinity")
+                return data, active & np.isfinite(data).all(axis=-1)
+
             with np.errstate(invalid="ignore"):
-                data = values[:, :, index, :].astype(np.float64)
-            active = mask_values[:, :, index]
-            if np.isinf(data[active]).any():
+                point_data = values[:, :, index : index + 2, :].astype(
+                    np.float64
+                )
+            point_mask = mask_values[:, :, index : index + 2]
+            if np.isinf(point_data[point_mask]).any():
                 raise ConversionError("active velocity cells contain infinity")
-            return data, active & np.isfinite(data).all(axis=-1)
+            point_valid = point_mask & np.isfinite(point_data).all(axis=-1)
+            data_corners = (
+                point_data[:-1, :-1, 0, :],
+                point_data[1:, :-1, 0, :],
+                point_data[:-1, 1:, 0, :],
+                point_data[1:, 1:, 0, :],
+                point_data[:-1, :-1, 1, :],
+                point_data[1:, :-1, 1, :],
+                point_data[:-1, 1:, 1, :],
+                point_data[1:, 1:, 1, :],
+            )
+            valid_corners = (
+                point_valid[:-1, :-1, 0],
+                point_valid[1:, :-1, 0],
+                point_valid[:-1, 1:, 0],
+                point_valid[1:, 1:, 0],
+                point_valid[:-1, :-1, 1],
+                point_valid[1:, :-1, 1],
+                point_valid[:-1, 1:, 1],
+                point_valid[1:, 1:, 1],
+            )
+            with np.errstate(invalid="ignore", over="ignore"):
+                data = data_corners[0].copy()
+                for corner in data_corners[1:]:
+                    data += corner
+                data *= 0.125
+            active = valid_corners[0].copy()
+            for corner in valid_corners[1:]:
+                active &= corner
+            return data, active
 
         nz = self.dimensions[2]
         previous_data: np.ndarray | None = None
