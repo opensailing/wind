@@ -76,6 +76,7 @@ from .manifest import (
     load_schema,
     validate_manifest,
 )
+from .vtk_legacy import VTKError, VTKLegacyHeader, read_structured_points
 
 #: Version of this package. Kept in step with ``pyproject.toml``; a test asserts
 #: the two agree, because a drifting version makes a bug report unactionable.
@@ -111,6 +112,10 @@ __all__ = [
     "CVFFormatError",
     "CVF_ASSOC_CELL",
     "CVF_ASSOC_POINT",
+    # External structured-volume inputs
+    "read_structured_points",
+    "VTKLegacyHeader",
+    "VTKError",
     # Meshes and mesh arrays (spec 5 and 6)
     "read_cvm",
     "write_cvm",
