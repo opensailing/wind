@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import cfdviz.openfoam as openfoam_module
 from cfdviz.openfoam import (
     OpenFOAMError,
     OpenFOAMLattice,
@@ -71,6 +72,35 @@ def test_raw_parser_ignores_segment_blank_lines_and_supports_gzip(tmp_path: Path
     assert table.row_numbers == (2, 5)
 
 
+def test_raw_parser_rejects_ambiguous_truncated_field_labels(tmp_path: Path):
+    fields = (
+        openfoam_field("U", "vector"),
+        openfoam_field(
+            "longScalarOne",
+            "scalar",
+            field_id="longScalarOne",
+            unit="1",
+            semantic="custom",
+        ),
+        openfoam_field(
+            "longScalarTwo",
+            "scalar",
+            field_id="longScalarTwo",
+            unit="1",
+            semantic="custom",
+        ),
+    )
+    path = tmp_path / "volume.xy"
+    path.write_text(
+        "# x y z U_x U_y U_z longScalar... longScalar...\n"
+        "0 0 0 1 2 3 4 5\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(OpenFOAMError, match="ambiguous truncated"):
+        read_sampled_set(path, fields=fields, format="raw")
+
+
 @pytest.mark.parametrize(
     "header",
     [
@@ -100,7 +130,7 @@ def test_parser_rejects_shifted_or_silently_missing_columns(tmp_path: Path):
 
 def test_discovery_sorts_decimal_time_directories_numerically(tmp_path: Path):
     root = tmp_path / "postProcessing" / "flowvizLattice"
-    for name in ("0.2", "1e-05", "0"):
+    for name in ("0.2", "1e-05", "0", "-0.1"):
         directory = root / name
         directory.mkdir(parents=True)
         (directory / "volume.csv").write_text(_csv([]), encoding="utf-8")
@@ -109,6 +139,7 @@ def test_discovery_sorts_decimal_time_directories_numerically(tmp_path: Path):
     frames = discover_sampled_set_frames(root, set_name="volume", format="csv")
 
     assert [frame.time for frame in frames] == [
+        Decimal("-0.1"),
         Decimal("0"),
         Decimal("1e-05"),
         Decimal("0.2"),
@@ -247,6 +278,69 @@ def test_csv_parser_supports_an_explicit_custom_separator(tmp_path: Path):
     assert table.values["U"].tolist() == [[1.0, 2.0, 3.0]]
 
 
+def test_parser_checks_on_disk_bound_before_loading_file(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "volume.csv"
+    path.write_text(_csv(["10,20,30,1,2,3,100000,0.25,-1,0,1"]), encoding="utf-8")
+
+    def fail_read_bytes(_path):
+        raise AssertionError("oversized input was read before its size was checked")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+    with pytest.raises(OpenFOAMError, match="on-disk input.*above limit"):
+        read_sampled_set(
+            path,
+            fields=_fields(),
+            format="csv",
+            max_input_bytes=path.stat().st_size - 1,
+        )
+
+
+def test_gzip_bound_streams_without_full_decompress_allocation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "volume.csv.gz"
+    payload = _csv(["10,20,30,1,2,3,100000,0.25,-1,0,1"] * 100)
+    with gzip.open(path, "wt", encoding="utf-8", newline="") as stream:
+        stream.write(payload)
+
+    def fail_decompress(_raw):
+        raise AssertionError("gzip.decompress allocated the full expanded payload")
+
+    monkeypatch.setattr(openfoam_module.gzip, "decompress", fail_decompress)
+    with pytest.raises(OpenFOAMError, match="decompressed input.*above limit"):
+        read_sampled_set(
+            path,
+            fields=_fields(),
+            format="csv",
+            max_input_bytes=path.stat().st_size,
+        )
+
+
+def test_parser_translates_truncated_gzip_errors(tmp_path: Path):
+    path = tmp_path / "truncated.csv.gz"
+    path.write_bytes(gzip.compress(_csv([]).encode("utf-8"))[:-4])
+
+    with pytest.raises(OpenFOAMError, match="cannot read sampled-set text"):
+        read_sampled_set(path, fields=_fields(), format="csv")
+
+
+def test_parser_translates_csv_field_limit_errors(tmp_path: Path):
+    path = tmp_path / "oversized-field.csv"
+    oversized = "9" * (openfoam_module.csv.field_size_limit() + 1)
+    path.write_text(
+        "x,y,z,U_x,U_y,U_z,p,Q,vorticity_x,vorticity_y,vorticity_z\n"
+        f"{oversized},20,30,1,2,3,100000,0.25,-1,0,1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(OpenFOAMError, match="cannot parse sampled-set CSV"):
+        read_sampled_set(path, fields=_fields(), format="csv")
+
+
 def test_parser_bounds_both_compressed_and_decompressed_input(tmp_path: Path):
     path = tmp_path / "volume.csv.gz"
     payload = _csv(["10,20,30,1,2,3,100000,0.25,-1,0,1"] * 100)
@@ -316,6 +410,37 @@ def test_scatter_rejects_a_partially_missing_vector(tmp_path: Path):
         )
 
 
+@pytest.mark.parametrize(
+    "row",
+    [
+        "10,20,30,nan,nan,nan,100000,0.25,-1,0,1",
+        "10,20,30,1,2,3,nan,0.25,-1,0,1",
+    ],
+)
+def test_scatter_rejects_mixed_missingness_between_fields(
+    tmp_path: Path,
+    row: str,
+):
+    path = tmp_path / "volume.csv"
+    path.write_text(_csv([row]), encoding="utf-8")
+    table = read_sampled_set(path, fields=_fields(), format="csv")
+    lattice = OpenFOAMLattice(
+        origin=(10.0, 20.0, 30.0),
+        spacing=(2.0, 3.0, 5.0),
+        points=(2, 2, 2),
+        coordinate_tolerance=1.0e-9,
+    )
+
+    with pytest.raises(OpenFOAMError, match="missing.*some.*fields"):
+        scatter_sampled_set(
+            table,
+            lattice=lattice,
+            fields=_fields(),
+            source_precision="float64",
+            write_precision=12,
+        )
+
+
 def test_scatter_rejects_sentinel_mixed_with_ordinary_values(tmp_path: Path):
     path = tmp_path / "volume.csv"
     sentinel = "1.79769e+307"
@@ -350,6 +475,7 @@ def test_scatter_rejects_sentinel_mixed_with_ordinary_values(tmp_path: Path):
         ({"points": (2, 1, 2)}, "point counts"),
         ({"points": (2, 2.5, 2)}, "point counts"),
         ({"points": (2, True, 2)}, "point counts"),
+        ({"points": (2_147_483_648, 2, 2)}, "point counts"),
         ({"coordinate_tolerance": False}, "coordinate_tolerance"),
         ({"coordinate_tolerance": -1.0}, "coordinate_tolerance"),
         ({"coordinate_tolerance": 1.0}, "coordinate_tolerance"),
@@ -408,13 +534,52 @@ def test_scalar_field_rejects_a_vector_transform_kind():
         openfoam_field("Q", "scalar", vector_kind="pseudo")
 
 
+@pytest.mark.parametrize(
+    ("source_name", "kind", "kwargs"),
+    [
+        ("Q", "vector", {"vector_kind": "true"}),
+        ("U", "scalar", {}),
+        ("p", "vector", {"pressure_kind": "dynamic", "vector_kind": "true"}),
+    ],
+)
+def test_standard_fields_reject_the_wrong_scalar_vector_kind(
+    source_name: str,
+    kind: str,
+    kwargs: dict,
+):
+    with pytest.raises(OpenFOAMError, match="must be declared as"):
+        openfoam_field(source_name, kind, **kwargs)
+
+
+@pytest.mark.parametrize("empty", ["field_id", "unit", "semantic"])
+def test_custom_field_empty_overrides_raise_openfoam_error(empty: str):
+    arguments = {
+        "field_id": "custom",
+        "unit": "1",
+        "semantic": "custom",
+    }
+    arguments[empty] = ""
+
+    with pytest.raises(OpenFOAMError, match=empty.replace("_", " ")):
+        openfoam_field("custom", "scalar", **arguments)
+
+
 def test_field_schema_requires_pressure_and_phase_interpretation():
     with pytest.raises(OpenFOAMError, match="pressure_kind"):
         openfoam_field("p", "scalar")
+    with pytest.raises(OpenFOAMError, match="pressure_kind"):
+        openfoam_field("p_rgh", "scalar")
     with pytest.raises(OpenFOAMError, match="secondary_phase"):
         openfoam_field("alpha.water", "scalar")
+    with pytest.raises(OpenFOAMError, match="must differ"):
+        openfoam_field("alpha.water", "scalar", secondary_phase="water")
 
     dynamic_pressure = openfoam_field("p", "scalar", pressure_kind="dynamic")
+    dynamic_reduced_pressure = openfoam_field(
+        "p_rgh",
+        "scalar",
+        pressure_kind="dynamic",
+    )
     water = openfoam_field(
         "alpha.water",
         "scalar",
@@ -423,6 +588,8 @@ def test_field_schema_requires_pressure_and_phase_interpretation():
 
     assert dynamic_pressure.field_id == "pressure"
     assert dynamic_pressure.unit == "Pa"
+    assert dynamic_reduced_pressure.field_id == "p_rgh"
+    assert dynamic_reduced_pressure.unit == "Pa"
     assert water.phase == {
         "representation": "volume-fraction",
         "primaryPhase": "water",

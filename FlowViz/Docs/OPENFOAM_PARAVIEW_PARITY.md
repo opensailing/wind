@@ -64,7 +64,7 @@ So a row here is only `Done` when a **production** caller exists, and
 | Wireframe | Wireframe mode | Not started | — | — | D |
 | Points | Point cloud mode | Not started | — | — | D |
 | Volume | Ray-marched volume renderer | Partial | `Shaders/FlowVizVolumeRayMarch.usf`, `Private/Render/FlowVizVolumeRayMarchDispatcher.cpp`, `Private/Scene/FlowVizVolumeComponent.cpp` | All five composite modes required by `plan.md` §9 are implemented in the shader — `FLOWVIZ_MODE_ALPHA`, `MAXIMUM`, `MINIMUM`, `AVERAGE`, `ISOSURFACE` — plus a `DIAGNOSTIC` echo mode used to verify parameter transport. Dispatch runs from the scene proxy and is verified end to end under a real RHI. As of 2026-08-06 all six are selectable from the workspace's Render panel (`SFlowVizRenderSettingsPanel`, #74) as well as from Blueprint. Still not `Done`: visual review has not passed | C |
-| Volume fraction / level set | Phase-field interpretation | Scaffolded | `Docs/CFDVIZ_FORMAT.md` §3.6, `Private/CFDViz/CFDVizManifest.cpp` | CFDViz 1.1 parses and validates scalar `volume-fraction` and `signed-distance` metadata, including interface value and inside convention, and the case summary discloses it. No converter writes representative phase payloads and no renderer consumes the interpretation yet; those are tasks #103 and #107 | #107 |
+| Volume fraction / level set | Phase-field interpretation | Partial | `Docs/CFDVIZ_FORMAT.md` §3.6, `Private/CFDViz/CFDVizManifest.cpp`, `Tools/cfdviz/src/cfdviz/openfoam.py` | CFDViz 1.1 parses and validates scalar `volume-fraction` and `signed-distance` metadata. The OpenFOAM converter writes explicitly interpreted `alpha.<primary>` volume-fraction payloads with per-field secondary phases and range validation. The renderer does not consume the phase interpretation yet; cinematic free-surface rendering remains task #107. | #107 |
 
 ## 3. Filters — geometry
 
@@ -159,17 +159,34 @@ PYTHONPATH=FlowViz/Tools/cfdviz/src python3 -m cfdviz import-openfoam \
 
 `--lattice-points` names source **point** counts. The resulting CFDViz grid cell
 counts are one smaller on every axis, while imported fields and `validMask`
-remain point-associated. OpenFOAM `p` always requires `--pressure-kind`; an
-`alpha.<primary>` field always requires `--secondary-phase`. Unknown fields
-require matching `--field-id SOURCE=ID`, `--field-unit SOURCE=UNIT`, and
+remain point-associated. The dense source lattice is capped at 100,000,000
+points by default; raise `--max-lattice-points` only after checking the memory
+required by every requested field. `--max-input-bytes` independently caps both
+the on-disk file and streamed decompressed text for each frame.
+
+OpenFOAM `p` and `p_rgh` always require `--pressure-kind kinematic|dynamic`.
+Each `alpha.<primary>` field requires its own mapping, for example
+`--secondary-phase alpha.water=air`; repeat the option for multiple phase
+fields. Primary and secondary names must differ. Unknown fields require matching
+`--field-id SOURCE=ID`, `--field-unit SOURCE=UNIT`, and
 `--field-semantic SOURCE=SEMANTIC`; unknown vectors also require
-`--vector-kind SOURCE=true|pseudo`.
+`--vector-kind SOURCE=true|pseudo`. Interpretation and override options that do
+not name an imported field are rejected instead of silently ignored.
+
+`--write-precision` must be at least 6 so OpenFOAM's textual maximum-value
+sentinel remains distinguishable from infinity. `--separator` applies only to
+CSV input; raw `.xy[.gz]` input uses whitespace and accepts blank segment
+separators. Negative finite OpenFOAM time-directory names are valid and are
+sorted with `decimal.Decimal` before conversion.
 
 The converter rejects non-`xyz` coordinate columns, duplicate or off-lattice
-rows, ambiguous time directory names, partially missing vectors, infinities,
-storage overflow, and phase fractions outside `[0, 1]`. Fully missing rows and
-OpenFOAM invalid-location sentinels become NaN with `validMask=0`. Native Q and
-vorticity are preserved rather than silently regenerated.
+rows, ambiguous truncated raw labels, numerically duplicate time directories,
+partially missing vectors, mixed missingness between fields, infinities, storage
+overflow, and phase fractions outside `[0, 1]`. Fully missing points and OpenFOAM
+invalid-location sentinels become NaN with `validMask=0`. Native Q and vorticity
+are preserved rather than silently regenerated. Case identity hashes canonical
+lattice-order stored values and masks, so source row order and blank lines do not
+change an otherwise byte-identical CFDViz case.
 
 ## 9. Explicitly out of parity scope
 

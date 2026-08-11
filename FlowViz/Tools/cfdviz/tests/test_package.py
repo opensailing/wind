@@ -65,7 +65,11 @@ def test_top_level_re_exports_the_public_api():
         "read_cva", "write_cva",
         "crc32c", "validate_manifest", "validate_case",
         "read_structured_points", "fluidx3d_field", "import_fluidx3d_case",
-        "openfoam_field", "import_openfoam_case",
+        "openfoam_field", "import_openfoam_case", "read_sampled_set",
+        "discover_sampled_set_frames", "scatter_sampled_set",
+        "OpenFOAMFieldSpec", "OpenFOAMFrameSource", "OpenFOAMImportParameters",
+        "OpenFOAMLattice", "OpenFOAMSampledSet", "OpenFOAMScatteredFrame",
+        "OpenFOAMError",
     ):
         assert hasattr(cfdviz, name), name
         assert name in cfdviz.__all__, name

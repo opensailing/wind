@@ -436,39 +436,45 @@ def _add_import_openfoam(subparsers: argparse._SubParsersAction) -> None:
     importer.add_argument(
         "--field-id",
         action="append",
-        default=(),
+        default=None,
         metavar="SOURCE=ID",
         help="target CFDViz id for an unknown or renamed source field",
     )
     importer.add_argument(
         "--field-unit",
         action="append",
-        default=(),
+        default=None,
         metavar="SOURCE=UNIT",
         help="unit for an unknown or overridden source field",
     )
     importer.add_argument(
         "--field-semantic",
         action="append",
-        default=(),
+        default=None,
         metavar="SOURCE=SEMANTIC",
         help="semantic for an unknown or overridden source field",
     )
     importer.add_argument(
         "--vector-kind",
         action="append",
-        default=(),
+        default=None,
         metavar="SOURCE=KIND",
         help="true or pseudo vector transform for a vector field",
     )
     importer.add_argument(
         "--pressure-kind",
         choices=("kinematic", "dynamic"),
-        help="required interpretation of OpenFOAM p",
+        help="required interpretation of imported OpenFOAM p and p_rgh fields",
     )
     importer.add_argument(
         "--secondary-phase",
-        help="required secondary phase name when importing alpha.<primary>",
+        action="append",
+        default=None,
+        metavar="SOURCE=PHASE",
+        help=(
+            "secondary phase for one imported alpha.<primary> source field; "
+            "repeat for each phase field"
+        ),
     )
     importer.add_argument(
         "--lattice-origin",
@@ -546,6 +552,12 @@ def _add_import_openfoam(subparsers: argparse._SubParsersAction) -> None:
     importer.add_argument("--solver-configuration")
     importer.add_argument("--source-case")
     importer.add_argument("--max-input-bytes", type=int)
+    importer.add_argument(
+        "--max-lattice-points",
+        type=int,
+        default=100_000_000,
+        help="maximum dense source lattice points (default 100000000)",
+    )
     importer.add_argument(
         "--force",
         action="store_true",
@@ -999,26 +1011,37 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
         ordered_names.append(source_name)
 
     field_ids = _assignment_map(
-        arguments.field_id,
+        arguments.field_id or (),
         label="--field-id",
         convert=str,
     )
     units = _assignment_map(
-        arguments.field_unit,
+        arguments.field_unit or (),
         label="--field-unit",
         convert=str,
     )
     semantics = _assignment_map(
-        arguments.field_semantic,
+        arguments.field_semantic or (),
         label="--field-semantic",
         convert=str,
     )
     vector_kinds = _assignment_map(
-        arguments.vector_kind,
+        arguments.vector_kind or (),
         label="--vector-kind",
         convert=str,
     )
-    overrides = set(field_ids) | set(units) | set(semantics) | set(vector_kinds)
+    secondary_phases = _assignment_map(
+        arguments.secondary_phase or (),
+        label="--secondary-phase",
+        convert=str,
+    )
+    overrides = (
+        set(field_ids)
+        | set(units)
+        | set(semantics)
+        | set(vector_kinds)
+        | set(secondary_phases)
+    )
     unknown_overrides = overrides - set(kinds)
     if unknown_overrides:
         raise ConversionError(
@@ -1035,6 +1058,21 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
             "--vector-kind values must be 'true' or 'pseudo'; got "
             f"{invalid_vector_kinds}"
         )
+    if arguments.pressure_kind is not None and not set(kinds).intersection(
+        {"p", "p_rgh"}
+    ):
+        raise ConversionError(
+            "--pressure-kind does not apply because neither p nor p_rgh was "
+            "supplied by --field"
+        )
+    invalid_phase_fields = sorted(
+        name for name in secondary_phases if not name.startswith("alpha.")
+    )
+    if invalid_phase_fields:
+        raise ConversionError(
+            "--secondary-phase does not apply to non-alpha fields: "
+            f"{invalid_phase_fields}"
+        )
 
     fields = tuple(
         openfoam_field(
@@ -1045,13 +1083,11 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
             semantic=semantics.get(source_name),
             vector_kind=vector_kinds.get(source_name),
             pressure_kind=(
-                arguments.pressure_kind if source_name == "p" else None
-            ),
-            secondary_phase=(
-                arguments.secondary_phase
-                if source_name.startswith("alpha.")
+                arguments.pressure_kind
+                if source_name in ("p", "p_rgh")
                 else None
             ),
+            secondary_phase=secondary_phases.get(source_name),
         )
         for source_name in ordered_names
     )
@@ -1089,20 +1125,28 @@ def _import_openfoam(arguments: argparse.Namespace) -> int:
         solver_configuration=arguments.solver_configuration,
         source_case=arguments.source_case,
         max_input_bytes=arguments.max_input_bytes,
+        max_lattice_points=arguments.max_lattice_points,
         force=arguments.force,
     )
     root = import_openfoam_case(parameters)
-    manifest = load_manifest(root)
-    timeline = manifest["timeline"]
-    dimensions = manifest["grids"][0]["dimensions"]
-    total = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
-    print(
-        f"wrote {root} from OpenFOAM: "
-        f"{'x'.join(str(value) for value in dimensions)} cells, "
-        f"{timeline['frameCount']} frames, {len(manifest['fields'])} fields, "
-        f"{total / 1024 / 1024:.2f} MiB"
-    )
-    print(f"  external solver data: {manifest['case']['id']}")
+    try:
+        manifest = load_manifest(root)
+        timeline = manifest["timeline"]
+        dimensions = manifest["grids"][0]["dimensions"]
+        total = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+        print(
+            f"wrote {root} from OpenFOAM: "
+            f"{'x'.join(str(value) for value in dimensions)} cells, "
+            f"{timeline['frameCount']} frames, {len(manifest['fields'])} fields, "
+            f"{total / 1024 / 1024:.2f} MiB"
+        )
+        print(f"  external solver data: {manifest['case']['id']}")
+    except Exception as exc:  # noqa: BLE001 - publication already succeeded
+        print(
+            f"cfdviz: wrote {root} from OpenFOAM; summary unavailable: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
     return EXIT_OK
 
 

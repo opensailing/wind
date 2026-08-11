@@ -18,7 +18,7 @@ from typing import Any, Final, Iterable, Sequence
 import numpy as np
 
 from .case import validate_case, write_known_values
-from .codecs import codec_id_from_name
+from .codecs import CodecError, codec_id_from_name
 from .convert import (
     ConversionError,
     QualityAccumulator,
@@ -28,7 +28,7 @@ from .convert import (
     staged_output,
 )
 from .cvf import CVFError, write_cvf
-from .manifest import FORMAT_VERSION
+from .manifest import FORMAT_VERSION, MAX_MANIFEST_DIMENSION
 
 __all__ = [
     "OpenFOAMError",
@@ -49,6 +49,7 @@ _CASE_NAMESPACE: Final = uuid.UUID("6b37c23a-3d94-5fcc-85db-79c0f9414942")
 _GRID_ID: Final = "main"
 _MASK_ID: Final = "validMask"
 _AXIS_PATTERN: Final = re.compile(r"^[+-][XYZ]$")
+_MAX_LATTICE_POINTS: Final = 100_000_000
 
 
 class OpenFOAMError(ConversionError):
@@ -71,11 +72,11 @@ class OpenFOAMFieldSpec:
     def __post_init__(self) -> None:
         if not isinstance(self.source_name, str) or not self.source_name:
             raise OpenFOAMError("OpenFOAM source field name must be non-empty")
-        object.__setattr__(
-            self,
-            "field_id",
-            require_safe_identifier(self.field_id, label="field id"),
-        )
+        try:
+            safe_field_id = require_safe_identifier(self.field_id, label="field id")
+        except ConversionError as exc:
+            raise OpenFOAMError(str(exc)) from exc
+        object.__setattr__(self, "field_id", safe_field_id)
         if self.component_count not in (1, 3):
             raise OpenFOAMError("OpenFOAM fields must be scalar or three-component vector")
         if len(self.components) != self.component_count:
@@ -156,7 +157,7 @@ class OpenFOAMLattice:
         if len(raw_points) != 3 or any(
             not isinstance(value, Integral)
             or isinstance(value, (bool, np.bool_))
-            or int(value) < 2
+            or not 2 <= int(value) <= MAX_MANIFEST_DIMENSION + 1
             for value in raw_points
         ):
             raise OpenFOAMError(
@@ -224,6 +225,7 @@ class OpenFOAMImportParameters:
     solver_configuration: str | None = None
     source_case: str | None = None
     max_input_bytes: int | None = None
+    max_lattice_points: int = _MAX_LATTICE_POINTS
     force: bool = False
 
     def __post_init__(self) -> None:
@@ -249,6 +251,20 @@ class OpenFOAMImportParameters:
         )
         if not isinstance(self.lattice, OpenFOAMLattice):
             raise OpenFOAMError("lattice must be an OpenFOAMLattice declaration")
+        if (
+            not isinstance(self.max_lattice_points, Integral)
+            or isinstance(self.max_lattice_points, (bool, np.bool_))
+            or int(self.max_lattice_points) < 1
+        ):
+            raise OpenFOAMError("max_lattice_points must be a positive integer")
+        object.__setattr__(self, "max_lattice_points", int(self.max_lattice_points))
+        lattice_point_count = math.prod(self.lattice.points)
+        if lattice_point_count > self.max_lattice_points:
+            raise OpenFOAMError(
+                f"lattice contains {lattice_point_count} points, above "
+                f"max_lattice_points={self.max_lattice_points}; raise the explicit "
+                "limit only after checking the required dense allocation"
+            )
         if not isinstance(self.force, bool):
             raise OpenFOAMError("force must be a boolean")
         if not isinstance(self.name, str) or not self.name:
@@ -267,22 +283,28 @@ class OpenFOAMImportParameters:
             raise OpenFOAMError(
                 "separator must be exactly one non-newline, non-NUL character"
             )
+        if self.format == "raw" and self.separator != ",":
+            raise OpenFOAMError("separator is CSV-only and must not be set for raw input")
         if not self.fields:
             raise OpenFOAMError("at least the OpenFOAM U field is required")
         if any(not isinstance(field, OpenFOAMFieldSpec) for field in self.fields):
             raise OpenFOAMError("fields must contain only OpenFOAMFieldSpec values")
         field_ids = [field.field_id for field in self.fields]
         source_names = [field.source_name for field in self.fields]
-        if field_ids.count("U") != 1 or next(
-            (
-                field.component_count
-                for field in self.fields
-                if field.field_id == "U"
-            ),
-            None,
-        ) != 3:
+        velocity_fields = [field for field in self.fields if field.field_id == "U"]
+        if len(velocity_fields) != 1 or velocity_fields[0].component_count != 3:
             raise OpenFOAMError(
                 "exactly one three-component OpenFOAM U field is required"
+            )
+        velocity = velocity_fields[0]
+        if (
+            velocity.source_name != "U"
+            or velocity.semantic != "velocity"
+            or velocity.vector_kind != "true"
+        ):
+            raise OpenFOAMError(
+                "the U field must be OpenFOAM U with velocity semantics and a true "
+                "vector transform"
             )
         if _MASK_ID in field_ids:
             raise OpenFOAMError(f"field id {_MASK_ID!r} is reserved for the point mask")
@@ -310,9 +332,12 @@ class OpenFOAMImportParameters:
         if (
             not isinstance(self.write_precision, int)
             or isinstance(self.write_precision, bool)
-            or self.write_precision < 1
+            or self.write_precision < 6
         ):
-            raise OpenFOAMError("write_precision must be a positive integer")
+            raise OpenFOAMError(
+                "write_precision must be an integer >= 6 so OpenFOAM maximum-value "
+                "sentinels remain distinguishable from infinity"
+            )
         for label, value in (
             ("sampling_method", self.sampling_method),
             ("solver_method", self.solver_method),
@@ -336,7 +361,14 @@ class OpenFOAMImportParameters:
             raise OpenFOAMError(
                 f"float_type must be 'float16' or 'float32'; got {self.float_type!r}"
             )
-        codec_id_from_name(self.codec)
+        try:
+            codec_id_from_name(self.codec)
+        except CodecError as exc:
+            raise OpenFOAMError(str(exc)) from exc
+        if self.codec == "zstd":
+            raise OpenFOAMError(
+                "zstd is reserved but unwritable; use none, zlib, or installed lz4"
+            )
         if self.level is not None and self.codec != "zlib":
             raise OpenFOAMError(
                 "compression level is supported only for zlib; the selected "
@@ -360,6 +392,11 @@ class OpenFOAMImportParameters:
             raise OpenFOAMError(
                 f"input {self.input_directory} is inside output {self.output}; "
                 "replacing the case would delete its own source data"
+            )
+        if source in output.parents:
+            raise OpenFOAMError(
+                f"output {self.output} is inside input {self.input_directory}; "
+                "publishing the case could replace source time directories"
             )
 
 
@@ -436,28 +473,40 @@ def openfoam_field(
         raise OpenFOAMError(f"field {source_name!r} kind must be 'scalar' or 'vector'")
     defaults = dict(_STANDARD_FIELDS.get(source_name, {}))
     phase = None
-    if source_name == "p":
+    expected_kind = (
+        "vector"
+        if source_name in ("U", "vorticity")
+        else "scalar"
+        if defaults or source_name in ("p", "p_rgh") or source_name.startswith("alpha.")
+        else None
+    )
+    if expected_kind is not None and kind != expected_kind:
+        raise OpenFOAMError(
+            f"OpenFOAM field {source_name!r} must be declared as {expected_kind}"
+        )
+    if source_name in ("p", "p_rgh"):
         if pressure_kind not in ("kinematic", "dynamic"):
             raise OpenFOAMError(
-                "OpenFOAM p requires pressure_kind='kinematic' or 'dynamic'"
+                f"OpenFOAM {source_name} requires pressure_kind='kinematic' or "
+                "'dynamic'"
             )
         defaults = {
-            "field_id": "pressure",
+            "field_id": "pressure" if source_name == "p" else "p_rgh",
             "unit": "m2/s2" if pressure_kind == "kinematic" else "Pa",
-            "semantic": "pressure",
+            "semantic": "pressure" if source_name == "p" else "reduced-pressure",
         }
-    elif source_name == "p_rgh":
-        defaults = {
-            "field_id": "p_rgh",
-            "unit": "m2/s2",
-            "semantic": "reduced-pressure",
-        }
-    elif source_name.startswith("alpha."):
+    elif pressure_kind is not None:
+        raise OpenFOAMError(
+            f"pressure_kind does not apply to non-pressure field {source_name!r}"
+        )
+    if source_name.startswith("alpha."):
         primary = source_name.split(".", 1)[1]
         if not primary or not secondary_phase:
             raise OpenFOAMError(
                 f"field {source_name!r} requires an explicit secondary_phase"
             )
+        if secondary_phase == primary:
+            raise OpenFOAMError("primary and secondary phase names must differ")
         defaults = {
             "field_id": source_name,
             "unit": "1",
@@ -470,23 +519,37 @@ def openfoam_field(
             "interfaceValue": 0.5,
             "inside": "greater-than-interface",
         }
+    elif secondary_phase is not None:
+        raise OpenFOAMError(
+            f"secondary_phase does not apply to field {source_name!r}"
+        )
     if not defaults and (field_id is None or unit is None or semantic is None):
         raise OpenFOAMError(
             f"unknown OpenFOAM field {source_name!r} requires field_id, unit, and semantic"
         )
     component_count = 1 if kind == "scalar" else 3
-    resolved_kind = vector_kind or defaults.get("vector_kind")
+    default_vector_kind = defaults.get("vector_kind")
+    if (
+        default_vector_kind is not None
+        and vector_kind is not None
+        and vector_kind != default_vector_kind
+    ):
+        raise OpenFOAMError(
+            f"OpenFOAM field {source_name!r} requires vector_kind="
+            f"{default_vector_kind!r}"
+        )
+    resolved_kind = vector_kind or default_vector_kind
     if component_count == 3 and resolved_kind is None:
         raise OpenFOAMError(
             f"vector field {source_name!r} requires vector_kind='true' or 'pseudo'"
         )
     return OpenFOAMFieldSpec(
         source_name=source_name,
-        field_id=field_id or defaults["field_id"],
+        field_id=field_id if field_id is not None else defaults["field_id"],
         component_count=component_count,
         components=("value",) if component_count == 1 else ("x", "y", "z"),
-        unit=unit or defaults["unit"],
-        semantic=semantic or defaults["semantic"],
+        unit=unit if unit is not None else defaults["unit"],
+        semantic=semantic if semantic is not None else defaults["semantic"],
         vector_kind=resolved_kind,
         phase=phase,
     )
@@ -500,23 +563,29 @@ def _read_text(path: Path, max_input_bytes: int | None) -> str:
     ):
         raise OpenFOAMError("max_input_bytes must be a non-negative integer")
     try:
-        raw = path.read_bytes()
-        if max_input_bytes is not None and len(raw) > max_input_bytes:
+        on_disk_bytes = path.stat().st_size
+        if max_input_bytes is not None and on_disk_bytes > max_input_bytes:
             raise OpenFOAMError(
-                f"{path}: compressed/on-disk input is {len(raw)} bytes, above limit "
-                f"{max_input_bytes}"
+                f"{path}: compressed/on-disk input is {on_disk_bytes} bytes, above "
+                f"limit {max_input_bytes}"
             )
-        if path.suffix.lower() == ".gz":
-            raw = gzip.decompress(raw)
+        read_size = -1 if max_input_bytes is None else max_input_bytes + 1
+        with path.open("rb") as source:
+            if path.suffix.lower() == ".gz":
+                with gzip.GzipFile(fileobj=source, mode="rb") as stream:
+                    raw = stream.read(read_size)
+                description = "decompressed input"
+            else:
+                raw = source.read(read_size)
+                description = "on-disk input"
         if max_input_bytes is not None and len(raw) > max_input_bytes:
             raise OpenFOAMError(
-                f"{path}: decompressed input is {len(raw)} bytes, above limit "
-                f"{max_input_bytes}"
+                f"{path}: {description} is above limit {max_input_bytes} bytes"
             )
         return raw.decode("utf-8")
     except OpenFOAMError:
         raise
-    except (OSError, UnicodeError, gzip.BadGzipFile) as exc:
+    except (EOFError, OSError, UnicodeError) as exc:
         raise OpenFOAMError(f"{path}: cannot read sampled-set text: {exc}") from exc
 
 
@@ -555,7 +624,12 @@ def read_sampled_set(
     if format == "csv":
         if not isinstance(separator, str) or len(separator) != 1:
             raise OpenFOAMError("CSV separator must be exactly one character")
-        parsed = list(csv.reader(io.StringIO(text), delimiter=separator))
+        try:
+            parsed = list(csv.reader(io.StringIO(text), delimiter=separator))
+        except csv.Error as exc:
+            raise OpenFOAMError(
+                f"{source}: cannot parse sampled-set CSV: {exc}"
+            ) from exc
         nonempty = [(index, row) for index, row in enumerate(parsed, start=1) if row]
         if not nonempty:
             raise OpenFOAMError(f"{source}: sampled-set CSV is empty")
@@ -582,6 +656,18 @@ def read_sampled_set(
                 f"{source}:{header_index + 1}: coordinate columns are {header[:4]!r}; "
                 "export OpenFOAM sampledSets with axis xyz"
             )
+        for actual in header:
+            if actual.endswith("..."):
+                matches = [
+                    wanted
+                    for wanted in expected
+                    if _raw_header_matches(actual, wanted)
+                ]
+                if len(matches) != 1:
+                    raise OpenFOAMError(
+                        f"{source}:{header_index + 1}: ambiguous truncated raw header "
+                        f"label {actual!r} matches {matches!r}"
+                    )
         if len(header) != len(expected) or any(
             not _raw_header_matches(actual, wanted)
             for actual, wanted in zip(header, expected)
@@ -667,10 +753,8 @@ def discover_sampled_set_frames(
             time = Decimal(directory.name)
         except InvalidOperation:
             continue
-        if not time.is_finite() or time < 0:
-            raise OpenFOAMError(
-                f"{directory}: time directory must be finite and non-negative"
-            )
+        if not time.is_finite():
+            raise OpenFOAMError(f"{directory}: time directory must be finite")
         if time in by_time:
             other_name, _ = by_time[time]
             raise OpenFOAMError(
@@ -719,9 +803,9 @@ def scatter_sampled_set(
     if (
         not isinstance(write_precision, int)
         or isinstance(write_precision, bool)
-        or write_precision < 1
+        or write_precision < 6
     ):
-        raise OpenFOAMError("write_precision must be a positive integer")
+        raise OpenFOAMError("write_precision must be an integer >= 6")
     if table.coordinates.shape[0] != len(table.row_numbers):
         raise OpenFOAMError(f"{table.path}: coordinate and row counts disagree")
     for field in declared:
@@ -797,17 +881,23 @@ def scatter_sampled_set(
                 )
             continue
 
+        field_missing: list[bool] = []
         for field in declared:
             row_values = table.values[field.field_id][row_index]
-            if field.component_count == 3:
-                missing = np.isnan(row_values)
-                if missing.any() and not missing.all():
-                    raise OpenFOAMError(
-                        f"{table.path}:{row_number}: vector field "
-                        f"{field.source_name!r} has only some NaN components"
-                    )
-        velocity_values = table.values[velocity.field_id][row_index]
-        if not np.isfinite(velocity_values).all():
+            missing = np.isnan(row_values)
+            if missing.any() and not missing.all():
+                description = "vector field" if field.component_count == 3 else "field"
+                raise OpenFOAMError(
+                    f"{table.path}:{row_number}: {description} "
+                    f"{field.source_name!r} has only some NaN components"
+                )
+            field_missing.append(bool(missing.all()))
+        if any(field_missing):
+            if not all(field_missing):
+                raise OpenFOAMError(
+                    f"{table.path}:{row_number}: sampled point is missing values for "
+                    "some fields but not others"
+                )
             continue
         for field in declared:
             stored[field.field_id][index] = table.values[field.field_id][row_index]
@@ -948,28 +1038,24 @@ def _stored_values(
     return stored
 
 
-def _update_digest(
+def _update_frame_digest(
     digest: Any,
     *,
     frame: OpenFOAMFrameSource,
-    table: OpenFOAMSampledSet,
-    fields: Sequence[OpenFOAMFieldSpec],
+    point_mask: np.ndarray,
 ) -> None:
+    """Hash canonical lattice-order evidence, not incidental source text order."""
     digest.update(
-        dump_json(
-            {
-                "time": str(frame.time),
-                "rowNumbers": table.row_numbers,
-                "fieldIds": [field.field_id for field in fields],
-            },
-            indent=None,
-        ).encode("utf-8")
+        dump_json({"time": str(frame.time)}, indent=None).encode("utf-8")
     )
-    digest.update(memoryview(np.ascontiguousarray(table.coordinates)).cast("B"))
-    for field in fields:
-        digest.update(
-            memoryview(np.ascontiguousarray(table.values[field.field_id])).cast("B")
-        )
+    digest.update(
+        memoryview(np.ascontiguousarray(point_mask, dtype=np.uint8)).cast("B")
+    )
+
+
+def _update_field_digest(digest: Any, *, field_id: str, stored: np.ndarray) -> None:
+    digest.update(dump_json({"fieldId": field_id}, indent=None).encode("utf-8"))
+    digest.update(memoryview(np.ascontiguousarray(stored)).cast("B"))
 
 
 def _case_id(digest: Any) -> str:
@@ -1045,8 +1131,8 @@ def _mask_entry(
         "id": _MASK_ID,
         "name": "Valid sample-point mask",
         "description": (
-            "1 where OpenFOAM supplied a finite three-component velocity sample; "
-            "0 for missing rows, invalid-location sentinels, or missing velocity."
+            "1 where OpenFOAM supplied finite values for every requested field; "
+            "0 for missing rows, invalid-location sentinels, or fully missing points."
         ),
         "semantic": "mask",
         "kind": "scalar",
@@ -1287,17 +1373,16 @@ def import_openfoam_case(parameters: OpenFOAMImportParameters) -> Path:
                     source_precision=parameters.source_precision,
                     write_precision=parameters.write_precision,
                 )
-                _update_digest(
-                    digest,
-                    frame=frame,
-                    table=table,
-                    fields=parameters.fields,
-                )
                 point_mask = _transform_values(
                     scattered.valid_mask[..., None],
                     source_axes=parameters.source_axes,
                     vector_kind=None,
                 )[..., 0].astype(bool, copy=False)
+                _update_frame_digest(
+                    digest,
+                    frame=frame,
+                    point_mask=point_mask,
+                )
 
                 for numeric_id, field in enumerate(parameters.fields, start=2):
                     transformed = _transform_values(
@@ -1312,6 +1397,11 @@ def import_openfoam_case(parameters: OpenFOAMImportParameters) -> Path:
                         parameters=parameters,
                         path=frame.path,
                         time=frame.time,
+                    )
+                    _update_field_digest(
+                        digest,
+                        field_id=field.field_id,
+                        stored=stored,
                     )
                     field_statistics[field.field_id].add(stored, point_mask)
                     if field.field_id == "U":
