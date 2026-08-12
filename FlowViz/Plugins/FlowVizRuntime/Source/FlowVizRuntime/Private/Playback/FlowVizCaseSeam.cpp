@@ -24,6 +24,7 @@ namespace FlowVizPlayback
 	FFlowVizVolumeFrameSelection ToVolumeFrameSelection(const FFlowVizDisplaySelection& Display)
 	{
 		FFlowVizVolumeFrameSelection Out;
+		Out.bStale = Display.bStale;
 
 		// Nothing complete is resident. Draw nothing rather than frame 0: frame 0
 		// is a real measurement and showing it here would be inventing data.
@@ -41,6 +42,7 @@ namespace FlowVizPlayback
 		{
 			Out.FrameB = Out.FrameA;
 			Out.Alpha = 0.0f;
+			Out.NearestFrame = Out.FrameA;
 			return Out;
 		}
 
@@ -57,6 +59,7 @@ namespace FlowVizPlayback
 			// Alpha vanished under narrowing: the blend is frame A exactly.
 			Out.FrameB = Out.FrameA;
 			Out.Alpha = 0.0f;
+			Out.NearestFrame = Out.FrameA;
 			return Out;
 		}
 
@@ -67,11 +70,13 @@ namespace FlowVizPlayback
 			Out.FrameA = Display.FrameB;
 			Out.FrameB = Out.FrameA;
 			Out.Alpha = 0.0f;
+			Out.NearestFrame = Out.FrameA;
 			return Out;
 		}
 
 		Out.FrameB = Display.FrameB;
 		Out.Alpha = NarrowedAlpha;
+		Out.NearestFrame = NarrowedAlpha >= 0.5f ? Out.FrameB : Out.FrameA;
 		return Out;
 	}
 

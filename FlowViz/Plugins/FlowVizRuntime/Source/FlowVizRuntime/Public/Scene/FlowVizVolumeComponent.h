@@ -143,6 +143,19 @@ struct FFlowVizVolumeFrameSelection
 	float Alpha = 0.0f;
 
 	/**
+	 * Stored frame whose classification data applies to this display.
+	 *
+	 * Derived from the SAME narrowed float alpha the shader receives: A below
+	 * 0.5f, B at and above 0.5f. A mask chosen from the player's double-precision
+	 * NearestFrame can disagree at the rounding boundary, producing pixels blended
+	 * with one alpha and classified against the other frame.
+	 */
+	int32 NearestFrame = INDEX_NONE;
+
+	/** The playhead is ahead of the resident display and these pixels are being held. */
+	bool bStale = false;
+
+	/**
 	 * True when the displayed frame was SYNTHESIZED rather than stored - which
 	 * VISUAL_QA section 1 rule 5 requires be disclosed on screen.
 	 *

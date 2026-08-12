@@ -9,6 +9,8 @@
 #include "Playback/FlowVizFrameCache.h"
 #include "Scene/FlowVizVolumeComponent.h"
 
+#include <cmath>
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -1622,6 +1624,8 @@ bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("...with B collapsed onto A so no blend is issued"),
 			Seam.FrameB, Seam.FrameA);
 		TestEqual(TEXT("...at alpha 0"), Seam.Alpha, 0.0f);
+		TestEqual(TEXT("...and its nearest classification frame is the collapsed B"),
+			Seam.NearestFrame, 2);
 	}
 
 	// The same hazard at the other end: an alpha just above 0 narrowing to 0.0f.
@@ -1653,6 +1657,8 @@ bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("...and it names frame A alone"), Seam.FrameA, 3);
 		TestEqual(TEXT("...with B collapsed onto A"), Seam.FrameB, Seam.FrameA);
 		TestEqual(TEXT("...at alpha 0"), Seam.Alpha, 0.0f);
+		TestEqual(TEXT("...and its nearest classification frame remains A"),
+			Seam.NearestFrame, 3);
 	}
 
 	// ---------------------------------------------------------------------
@@ -1672,6 +1678,32 @@ bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("a genuine blend keeps its alpha"), Seam.Alpha, 0.5f);
 		TestTrue(TEXT("a genuine blend IS disclosed as interpolated"),
 			Seam.IsInterpolated());
+		TestEqual(TEXT("the exact midpoint classifies through frame B, matching the player"),
+			Seam.NearestFrame, 2);
+	}
+
+	// A narrowed alpha below the midpoint must classify through A, while the
+	// otherwise identical value above it must classify through B. These are
+	// deliberately adjacent floats so the test exercises the exact shader-side
+	// decision rather than a comfortable double-precision approximation.
+	{
+		FFlowVizDisplaySelection Display;
+		Display.FrameA = 10;
+		Display.FrameB = 11;
+		Display.bStale = true;
+
+		Display.Alpha = static_cast<double>(std::nextafter(0.5f, 0.0f));
+		const FFlowVizVolumeFrameSelection Below = ToVolumeFrameSelection(Display);
+		TestEqual(TEXT("the float immediately below 0.5 classifies through A"),
+			Below.NearestFrame, 10);
+		TestTrue(TEXT("stale display state crosses the rendering seam"), Below.bStale);
+
+		Display.Alpha = static_cast<double>(std::nextafter(0.5f, 1.0f));
+		Display.bStale = false;
+		const FFlowVizVolumeFrameSelection Above = ToVolumeFrameSelection(Display);
+		TestEqual(TEXT("the float immediately above 0.5 classifies through B"),
+			Above.NearestFrame, 11);
+		TestFalse(TEXT("a caught-up display is not reported stale"), Above.bStale);
 	}
 
 	// ---------------------------------------------------------------------
@@ -1803,6 +1835,9 @@ bool FFlowVizPlaybackSeamTest::RunTest(const FString& Parameters)
 
 		const FFlowVizVolumeFrameSelection Seam = ToVolumeFrameSelection(Empty);
 		TestEqual(TEXT("an empty display draws nothing"), Seam.FrameA, (int32)INDEX_NONE);
+		TestEqual(TEXT("an empty display has no nearest classification frame"),
+			Seam.NearestFrame, (int32)INDEX_NONE);
+		TestFalse(TEXT("a default empty display is not stale"), Seam.bStale);
 		TestFalse(TEXT("an empty display discloses no interpolation"),
 			Seam.IsInterpolated());
 	}
