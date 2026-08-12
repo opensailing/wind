@@ -34,6 +34,8 @@ namespace FlowVizTemporalDispatcherFixture
 		FFlowVizVolumeSlotTextures SlotA;
 		FFlowVizVolumeSlotTextures SlotB;
 		FTextureRHIRef WrongFormatField;
+		FTextureRHIRef VectorFieldA;
+		FTextureRHIRef VectorFieldB;
 		FTextureRHIRef WrongExtentField;
 		FTextureRHIRef WrongExtentStatus;
 		FSceneViewInitOptions ViewInit;
@@ -71,6 +73,10 @@ namespace FlowVizTemporalDispatcherFixture
 						TEXT("FlowVizTemporalDispatcherStatusB"), Extent, PF_R8_UINT);
 					Self->WrongFormatField = CreateVolume(
 						TEXT("FlowVizTemporalDispatcherWrongFormat"), Extent, PF_R16F);
+					Self->VectorFieldA = CreateVolume(
+						TEXT("FlowVizTemporalDispatcherVectorA"), Extent, PF_A32B32G32R32F);
+					Self->VectorFieldB = CreateVolume(
+						TEXT("FlowVizTemporalDispatcherVectorB"), Extent, PF_A32B32G32R32F);
 					Self->WrongExtentField = CreateVolume(
 						TEXT("FlowVizTemporalDispatcherWrongExtentField"), WrongExtent, PF_R32_FLOAT);
 					Self->WrongExtentStatus = CreateVolume(
@@ -100,6 +106,8 @@ namespace FlowVizTemporalDispatcherFixture
 				&& SlotA.StatusTexture.IsValid()
 				&& SlotB.StatusTexture.IsValid()
 				&& WrongFormatField.IsValid()
+				&& VectorFieldA.IsValid()
+				&& VectorFieldB.IsValid()
 				&& WrongExtentField.IsValid()
 				&& WrongExtentStatus.IsValid()
 				&& SlotA.ScalarLayout.IsValid()
@@ -114,6 +122,8 @@ namespace FlowVizTemporalDispatcherFixture
 			SlotB.ScalarTexture.SafeRelease();
 			SlotB.StatusTexture.SafeRelease();
 			WrongFormatField.SafeRelease();
+			VectorFieldA.SafeRelease();
+			VectorFieldB.SafeRelease();
 			WrongExtentField.SafeRelease();
 			WrongExtentStatus.SafeRelease();
 			FlushRenderingCommands();
@@ -204,6 +214,47 @@ bool FFlowVizTemporalDispatcherTest::RunTest(const FString& Parameters)
 				Actual.BlendAlpha, InteriorAlpha);
 			TestEqual(TEXT("a compatible pair does not start a degradation episode"),
 				Harness.Dispatcher.GetInterpolationDegradedEpisodeCount(), uint64(0));
+		}
+	}
+
+	/* Vector-only residency must reach production rather than falling through the empty scalar channel. */
+	{
+		FFlowVizVolumeSlotTextures VectorSlotA = Harness.SlotA;
+		FFlowVizVolumeSlotTextures VectorSlotB = Harness.SlotB;
+		VectorSlotA.ScalarTexture.SafeRelease();
+		VectorSlotB.ScalarTexture.SafeRelease();
+		VectorSlotA.ScalarLayout = FFlowVizVolumeLayout();
+		VectorSlotB.ScalarLayout = FFlowVizVolumeLayout();
+		VectorSlotA.VectorTexture = Harness.VectorFieldA;
+		VectorSlotB.VectorTexture = Harness.VectorFieldB;
+		FFlowVizVolumeLayout::Make(
+			FIntVector(2, 2, 2), 3, ECFDVizDataType::Float32, VectorSlotA.VectorLayout);
+		VectorSlotB.VectorLayout = VectorSlotA.VectorLayout;
+
+		FFlowVizVolumeRayMarchContext Context = Harness.MakeContext(nullptr, InteriorAlpha);
+		Context.SlotA = &VectorSlotA;
+		Context.SlotB = &VectorSlotB;
+		Context.Parameters.VolumeDimensions = VectorSlotA.VectorLayout.Extent;
+		Context.Parameters.ComponentCount = VectorSlotA.VectorLayout.SourceComponentCount;
+		Context.Parameters.TextureComponentCount = VectorSlotA.VectorLayout.TextureComponentCount;
+		Context.Parameters.DataTypeCode = static_cast<uint32>(VectorSlotA.VectorLayout.DataType);
+
+		FFlowVizVolumeRayMarchParameters Actual;
+		if (TestTrue(TEXT("a compatible vector-only temporal request is queued"),
+				Harness.Dispatch(Context, Actual)))
+		{
+			TestTrue(TEXT("production binds vector frame A as the primary field"),
+				static_cast<FRHITexture*>(Actual.FieldTexture)
+					== Harness.VectorFieldA.GetReference());
+			TestTrue(TEXT("production retains the distinct vector frame-B field"),
+				static_cast<FRHITexture*>(Actual.FieldTextureB)
+					== Harness.VectorFieldB.GetReference());
+			TestEqual(TEXT("a vector request declares the vector binding state"),
+				static_cast<int32>(Actual.bHasVectorTexture), 1);
+			TestEqual(TEXT("a compatible vector pair activates temporal blending"),
+				static_cast<int32>(Actual.bBlendActive), 1);
+			TestEqual(TEXT("the vector request retains display alpha"),
+				Actual.BlendAlpha, InteriorAlpha);
 		}
 	}
 

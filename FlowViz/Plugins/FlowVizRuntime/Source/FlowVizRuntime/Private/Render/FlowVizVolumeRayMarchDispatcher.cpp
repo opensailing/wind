@@ -89,16 +89,35 @@ namespace FlowVizVolumeRayMarchDispatcherLocal
 			&& Desc.Format == Layout.PixelFormat;
 	}
 
+	const FFlowVizVolumeLayout& GetFieldLayout(
+		const FFlowVizVolumeSlotTextures& Slot,
+		bool bVectorField)
+	{
+		return bVectorField ? Slot.VectorLayout : Slot.ScalarLayout;
+	}
+
+	const FTextureRHIRef& GetFieldTexture(
+		const FFlowVizVolumeSlotTextures& Slot,
+		bool bVectorField)
+	{
+		return bVectorField ? Slot.VectorTexture : Slot.ScalarTexture;
+	}
+
 	bool SlotsAreTemporallyCompatible(
 		const FFlowVizVolumeSlotTextures& A,
-		const FFlowVizVolumeSlotTextures& B)
+		const FFlowVizVolumeSlotTextures& B,
+		bool bVectorField)
 	{
+		const FFlowVizVolumeLayout& FieldLayoutA = GetFieldLayout(A, bVectorField);
+		const FFlowVizVolumeLayout& FieldLayoutB = GetFieldLayout(B, bVectorField);
+		const FTextureRHIRef& FieldTextureA = GetFieldTexture(A, bVectorField);
+		const FTextureRHIRef& FieldTextureB = GetFieldTexture(B, bVectorField);
 		const bool bStatusPresenceMatches =
 			A.StatusTexture.IsValid() == B.StatusTexture.IsValid();
 		return A.Association == B.Association
-			&& LayoutsMatch(A.ScalarLayout, B.ScalarLayout)
-			&& TextureMatchesLayout(A.ScalarTexture, A.ScalarLayout)
-			&& TextureMatchesLayout(B.ScalarTexture, B.ScalarLayout)
+			&& LayoutsMatch(FieldLayoutA, FieldLayoutB)
+			&& TextureMatchesLayout(FieldTextureA, FieldLayoutA)
+			&& TextureMatchesLayout(FieldTextureB, FieldLayoutB)
 			&& bStatusPresenceMatches
 			&& (!A.StatusTexture.IsValid()
 				|| (LayoutsMatch(A.StatusLayout, B.StatusLayout)
@@ -212,10 +231,17 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	FRequest Request;
 	Request.View = Context.View;
 	Request.ViewRect = ViewRect;
+	// Select from the CURRENT parameter block, not whichever persistent slot
+	// resource happens to be valid. Residency invalidation deliberately retains
+	// textures for reuse, so the inactive channel may contain an older field.
+	const bool bVectorField = Context.Parameters.ComponentCount > 1;
+	const FFlowVizVolumeLayout& FieldLayout =
+		FlowVizVolumeRayMarchDispatcherLocal::GetFieldLayout(*Context.SlotA, bVectorField);
 	// Held by reference for the life of the request. The raw pointers written
 	// into Parameters below are borrowed from a texture set a component owns,
 	// and a component can be destroyed between recording and draining.
-	Request.FieldTexture = Context.SlotA->ScalarTexture;
+	Request.FieldTexture =
+		FlowVizVolumeRayMarchDispatcherLocal::GetFieldTexture(*Context.SlotA, bVectorField);
 	Request.StatusTexture = Context.SlotA->StatusTexture;
 	if (!Request.FieldTexture.IsValid())
 	{
@@ -227,13 +253,14 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 		|| (Context.SlotB != nullptr && Context.Alpha > 0.0f);
 	const bool bCompatibleB = Context.SlotB != nullptr
 		&& FlowVizVolumeRayMarchDispatcherLocal::SlotsAreTemporallyCompatible(
-			*Context.SlotA, *Context.SlotB);
+			*Context.SlotA, *Context.SlotB, bVectorField);
 	const bool bBlendActive = bInterpolationRequested && bCompatibleB;
 	Request.bInterpolationDegraded =
 		Context.bInterpolationDegraded || (bInterpolationRequested && !bCompatibleB);
 	if (bBlendActive)
 	{
-		Request.FieldTextureB = Context.SlotB->ScalarTexture;
+		Request.FieldTextureB =
+			FlowVizVolumeRayMarchDispatcherLocal::GetFieldTexture(*Context.SlotB, bVectorField);
 		Request.StatusTextureB = Context.SlotB->StatusTexture;
 	}
 	else
@@ -310,7 +337,7 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 			Request.Parameters,
 			Request.FieldTexture.GetReference(),
 			Request.StatusTexture.GetReference(),
-			/*bHasVectorTexture=*/false,
+			bVectorField,
 			Request.FieldTextureB.GetReference(),
 			Request.StatusTextureB.GetReference(),
 			Context.Alpha,
@@ -322,7 +349,7 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	SetViewCamera(Request.Parameters, MakeViewCamera(*Context.View), Context.LocalToWorld, ViewRect.Size());
 
 	Request.bFieldIsUint =
-		FFlowVizVolumeRayMarchCS::IsUintFieldFormat(Context.SlotA->ScalarLayout.DataType);
+		FFlowVizVolumeRayMarchCS::IsUintFieldFormat(FieldLayout.DataType);
 
 	{
 		FScopeLock Lock(&RequestLock);
