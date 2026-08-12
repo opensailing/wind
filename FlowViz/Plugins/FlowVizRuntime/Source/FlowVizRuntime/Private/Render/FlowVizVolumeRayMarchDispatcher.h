@@ -121,6 +121,8 @@ namespace FlowVizVolumeRayMarchProduction
 		 */
 		FTextureRHIRef FieldTexture;
 		FTextureRHIRef StatusTexture;
+		FTextureRHIRef FieldTextureB;
+		FTextureRHIRef StatusTextureB;
 
 		/** Which shader permutation - a uint texture read through a float declaration is noise on Metal, not an error. */
 		bool bFieldIsUint = false;

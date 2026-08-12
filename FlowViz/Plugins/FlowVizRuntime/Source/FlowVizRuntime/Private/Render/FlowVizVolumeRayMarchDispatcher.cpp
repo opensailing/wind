@@ -58,6 +58,53 @@ namespace FlowVizVolumeRayMarchDispatcherLocal
 	{
 		return TStaticBlendState<CW_RGBA, BO_Add, BF_One, BF_InverseSourceAlpha, BO_Add, BF_One, BF_InverseSourceAlpha>::GetRHI();
 	}
+
+	bool LayoutsMatch(
+		const FFlowVizVolumeLayout& A,
+		const FFlowVizVolumeLayout& B)
+	{
+		return A.IsValid()
+			&& B.IsValid()
+			&& A.Extent == B.Extent
+			&& A.SourceComponentCount == B.SourceComponentCount
+			&& A.TextureComponentCount == B.TextureComponentCount
+			&& A.DataType == B.DataType
+			&& A.PixelFormat == B.PixelFormat;
+	}
+
+	bool TextureMatchesLayout(
+		const FTextureRHIRef& Texture,
+		const FFlowVizVolumeLayout& Layout)
+	{
+		if (!Texture.IsValid() || !Layout.IsValid())
+		{
+			return false;
+		}
+
+		const FRHITextureDesc& Desc = Texture->GetDesc();
+		return Desc.IsTexture3D()
+			&& Desc.Extent.X == Layout.Extent.X
+			&& Desc.Extent.Y == Layout.Extent.Y
+			&& static_cast<int32>(Desc.Depth) == Layout.Extent.Z
+			&& Desc.Format == Layout.PixelFormat;
+	}
+
+	bool SlotsAreTemporallyCompatible(
+		const FFlowVizVolumeSlotTextures& A,
+		const FFlowVizVolumeSlotTextures& B)
+	{
+		const bool bStatusPresenceMatches =
+			A.StatusTexture.IsValid() == B.StatusTexture.IsValid();
+		return A.Association == B.Association
+			&& LayoutsMatch(A.ScalarLayout, B.ScalarLayout)
+			&& TextureMatchesLayout(A.ScalarTexture, A.ScalarLayout)
+			&& TextureMatchesLayout(B.ScalarTexture, B.ScalarLayout)
+			&& bStatusPresenceMatches
+			&& (!A.StatusTexture.IsValid()
+				|| (LayoutsMatch(A.StatusLayout, B.StatusLayout)
+					&& TextureMatchesLayout(A.StatusTexture, A.StatusLayout)
+					&& TextureMatchesLayout(B.StatusTexture, B.StatusLayout)));
+	}
 }
 
 FFlowVizVolumeViewCamera FlowVizVolumeRayMarchProduction::MakeViewCamera(const FSceneView& View)
@@ -165,8 +212,6 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	FRequest Request;
 	Request.View = Context.View;
 	Request.ViewRect = ViewRect;
-	Request.bInterpolationDegraded = Context.bInterpolationDegraded;
-
 	// Held by reference for the life of the request. The raw pointers written
 	// into Parameters below are borrowed from a texture set a component owns,
 	// and a component can be destroyed between recording and draining.
@@ -175,6 +220,26 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 	if (!Request.FieldTexture.IsValid())
 	{
 		return;
+	}
+
+	const bool bInterpolationRequested =
+		Context.bInterpolationDegraded
+		|| (Context.SlotB != nullptr && Context.Alpha > 0.0f);
+	const bool bCompatibleB = Context.SlotB != nullptr
+		&& FlowVizVolumeRayMarchDispatcherLocal::SlotsAreTemporallyCompatible(
+			*Context.SlotA, *Context.SlotB);
+	const bool bBlendActive = bInterpolationRequested && bCompatibleB;
+	Request.bInterpolationDegraded =
+		Context.bInterpolationDegraded || (bInterpolationRequested && !bCompatibleB);
+	if (bBlendActive)
+	{
+		Request.FieldTextureB = Context.SlotB->ScalarTexture;
+		Request.StatusTextureB = Context.SlotB->StatusTexture;
+	}
+	else
+	{
+		Request.FieldTextureB = Request.FieldTexture;
+		Request.StatusTextureB = Request.StatusTexture;
 	}
 
 	FlowVizRayMarch::FillDefaults(Request.Parameters);
@@ -245,7 +310,11 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 			Request.Parameters,
 			Request.FieldTexture.GetReference(),
 			Request.StatusTexture.GetReference(),
-			/*bHasVectorTexture=*/false))
+			/*bHasVectorTexture=*/false,
+			Request.FieldTextureB.GetReference(),
+			Request.StatusTextureB.GetReference(),
+			Context.Alpha,
+			bBlendActive))
 	{
 		return;
 	}
@@ -266,7 +335,7 @@ void FlowVizVolumeRayMarchProduction::FDispatcher::DispatchVolumeRayMarch(
 		{
 			++InterpolationDegradedEpisodeCount;
 			UE_LOG(LogFlowViz, Warning,
-				TEXT("Volume ray-march: interpolation degraded - the second display frame is not resident, ")
+				TEXT("Volume ray-march: interpolation degraded - the second display frame is missing or incompatible, ")
 				TEXT("so this view is rendered from frame A alone and is NOT the interpolated frame that was requested."));
 		}
 		else if (!Request.bInterpolationDegraded && bInterpolationDegradedWarningLatched)

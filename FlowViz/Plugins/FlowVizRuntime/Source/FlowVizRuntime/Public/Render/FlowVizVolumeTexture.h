@@ -782,6 +782,9 @@ struct FFlowVizVolumeUpload
 	/** Which stored frame this is. INDEX_NONE is not uploadable. */
 	int32 FrameIndex = INDEX_NONE;
 
+	/** Cell or point association from the CVF header. Temporal pairs must agree. */
+	ECFDVizAssociation Association = ECFDVizAssociation::Cell;
+
 	/** Physical time in the manifest's time unit, carried through for the diagnostics panel. */
 	double SimulationTime = 0.0;
 
@@ -800,9 +803,9 @@ struct FFlowVizVolumeUpload
 	/**
 	 * Check the payload against its own layouts before anything is uploaded.
 	 *
-	 * Verifies: a frame index; at least one field present; each present buffer's
-	 * length equals its layout's texture byte count exactly; and every present
-	 * layout shares one extent. That last check is what catches a status texture
+	 * Verifies: a frame index; a cell/point association; at least one field present;
+	 * each present buffer's length equals its layout's texture byte count exactly;
+	 * and every present layout shares one extent. That last check is what catches a status texture
 	 * built for the cell count while the field used the value count - the two
 	 * differ by one voxel per axis and the resulting misalignment marks the wrong
 	 * cells invalid, which looks like noise in the data.
@@ -1031,6 +1034,9 @@ struct FFlowVizVolumeSlotTextures
 	FTextureRHIRef ScalarTexture;
 	FTextureRHIRef VectorTexture;
 	FTextureRHIRef StatusTexture;
+
+	/** Cell or point association of the resident field. Temporal pairs must agree. */
+	ECFDVizAssociation Association = ECFDVizAssociation::Cell;
 
 	FFlowVizVolumeLayout ScalarLayout;
 	FFlowVizVolumeLayout VectorLayout;

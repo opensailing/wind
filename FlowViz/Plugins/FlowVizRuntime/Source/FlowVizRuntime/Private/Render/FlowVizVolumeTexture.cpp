@@ -1013,6 +1013,13 @@ FCFDVizResult FlowVizVolumeBuild::BuildUpload(
 		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::InvalidHeader, TEXT("the field reader is not open"));
 	}
 
+	if (FieldReader.GetHeader().Association != ECFDVizAssociation::Cell
+		&& FieldReader.GetHeader().Association != ECFDVizAssociation::Point)
+	{
+		return FlowVizVolumeTextureLocal::MakeFailure(
+			ECFDVizError::InvalidHeader, TEXT("the field association is neither cell nor point"));
+	}
+
 	FFlowVizVolumeLayout FieldLayout;
 	TArray<uint8> TextureBytes;
 	const FCFDVizResult FieldResult =
@@ -1091,6 +1098,7 @@ FCFDVizResult FlowVizVolumeBuild::BuildUpload(
 	// one payload object cannot upload a half-built frame after an error.
 	FFlowVizVolumeUpload Upload;
 	Upload.FrameIndex = static_cast<int32>(FieldReader.GetHeader().FrameIndex);
+	Upload.Association = FieldReader.GetHeader().Association;
 	Upload.SimulationTime = FieldReader.GetHeader().SimulationTime;
 	if (bAsVector)
 	{
@@ -1124,6 +1132,12 @@ FCFDVizResult FFlowVizVolumeUpload::Validate() const
 	if (FrameIndex < 0)
 	{
 		return FlowVizVolumeTextureLocal::MakeFailure(ECFDVizError::IndexOutOfRange, TEXT("upload payload has no frame index"));
+	}
+	if (Association != ECFDVizAssociation::Cell
+		&& Association != ECFDVizAssociation::Point)
+	{
+		return FlowVizVolumeTextureLocal::MakeFailure(
+			ECFDVizError::InvalidHeader, TEXT("upload payload association is neither cell nor point"));
 	}
 
 	const bool bHasScalar = ScalarLayout.IsValid();
@@ -1786,6 +1800,7 @@ void FFlowVizVolumeTextureSet::UploadOnRenderThread(
 		}
 	}
 
+	Slot.Association = Upload.Association;
 	Slot.SimulationTime = Upload.SimulationTime;
 	SlotStates[SlotIndex].bUploadInFlight = false;
 
@@ -1829,6 +1844,7 @@ void FFlowVizVolumeTextureSet::ReleaseResources()
 				Slot.ScalarLayout = FFlowVizVolumeLayout();
 				Slot.VectorLayout = FFlowVizVolumeLayout();
 				Slot.StatusLayout = FFlowVizVolumeLayout();
+				Slot.Association = ECFDVizAssociation::Cell;
 				Slot.SimulationTime = 0.0;
 				Slot.bHasContent = false;
 			}

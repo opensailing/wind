@@ -791,6 +791,15 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("a complete payload validates"), Upload.Validate().IsOk());
 		TestEqual(TEXT("total bytes is 32 + 16"), Upload.GetTotalBytes(), (int64)48);
 
+		FFlowVizVolumeUpload InvalidAssociation = Upload;
+		InvalidAssociation.Association = static_cast<ECFDVizAssociation>(255);
+		const FCFDVizResult InvalidAssociationResult = InvalidAssociation.Validate();
+		TestFalse(TEXT("an upload with no cell/point association is rejected"),
+			InvalidAssociationResult.IsOk());
+		TestEqual(TEXT("an invalid upload association is an InvalidHeader"),
+			static_cast<int32>(InvalidAssociationResult.Error),
+			static_cast<int32>(ECFDVizError::InvalidHeader));
+
 		FFlowVizVolumeUpload NoFrame = MoveTemp(Upload);
 		NoFrame.FrameIndex = INDEX_NONE;
 		TestFalse(TEXT("a payload with no frame index is rejected"), NoFrame.Validate().IsOk());
@@ -1260,6 +1269,17 @@ bool FFlowVizVolumeTextureTest::RunTest(const FString& Parameters)
 				FMemory::Memcpy(&LastValue, PointBytes.GetData() + LastOffset, sizeof(float));
 				TestEqual(TEXT("...and holds 23.0, the corner the cell count would have dropped"),
 					LastValue, 23.0f);
+
+				FFlowVizVolumeUpload PointUpload;
+				if (TestTrue(TEXT("the point field assembles into a complete upload"),
+					FlowVizVolumeBuild::BuildUpload(
+						PointReader, nullptr, /*bAsVector=*/false, PointUpload).IsOk()))
+				{
+					TestEqual(TEXT("BuildUpload preserves point association provenance"),
+						static_cast<int32>(PointUpload.Association),
+						static_cast<int32>(ECFDVizAssociation::Point));
+					TestTrue(TEXT("the point-associated upload validates"), PointUpload.Validate().IsOk());
+				}
 			}
 		}
 	}
