@@ -158,6 +158,10 @@ float  DepthToSolver;        /* Unreal view units -> solver units */
 float4 DeviceZToViewZ;       /* the view's InvDeviceZToWorldZTransform */
 float2 ViewRectMin;          /* dispatch pixel -> scene texture pixel offset */
 
+/* Temporal field sampling. Appended after the established scene-depth tail. */
+float BlendAlpha;
+uint  bBlendActive;
+
 /* -------------------------------------------------------------------------- */
 /* Resources                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -167,11 +171,14 @@ float2 ViewRectMin;          /* dispatch pixel -> scene texture pixel offset */
 	// formats cannot be hardware filtered on any target this ships to, so these
 	// are point sampled and bFilterField is ignored.
 	Texture3D<uint4> FieldTexture;
+	Texture3D<uint4> FieldTextureB;
 #else
 	Texture3D<float4> FieldTexture;
+	Texture3D<float4> FieldTextureB;
 #endif
 
 Texture3D<uint4>  StatusTexture;
+Texture3D<uint4>  StatusTextureB;
 Texture2D<float4> TransferFunctionTexture;
 
 /** Opaque scene depth (P6). Valid only when bHasSceneDepth; see the clamp. */
@@ -202,8 +209,8 @@ int3 FlowVizUVWToTexel(float3 UVW)
 	return clamp(Texel, int3(0, 0, 0), VolumeDimensions - int3(1, 1, 1));
 }
 
-/** One raw voxel, point sampled, in whatever channels the texture carries. */
-float4 FlowVizLoadRaw(int3 Texel)
+/** One raw A voxel, point sampled, in whatever channels the texture carries. */
+float4 FlowVizLoadRawA(int3 Texel)
 {
 #if FLOWVIZ_FIELD_UINT
 	// The stored integer, converted here where the conversion is visible. A
@@ -214,17 +221,41 @@ float4 FlowVizLoadRaw(int3 Texel)
 #endif
 }
 
-/** One voxel, filtered when the format and the caller both allow it. */
-float4 FlowVizFetchRaw(float3 UVW)
+/** One raw B voxel through the SAME permutation as A. */
+float4 FlowVizLoadRawB(int3 Texel)
 {
 #if FLOWVIZ_FIELD_UINT
-	return FlowVizLoadRaw(FlowVizUVWToTexel(UVW));
+	return float4(FieldTextureB.Load(int4(Texel, 0)));
+#else
+	return FieldTextureB.Load(int4(Texel, 0));
+#endif
+}
+
+/** One A voxel, filtered when the format and the caller both allow it. */
+float4 FlowVizFetchRawA(float3 UVW)
+{
+#if FLOWVIZ_FIELD_UINT
+	return FlowVizLoadRawA(FlowVizUVWToTexel(UVW));
 #else
 	if (bFilterField != 0)
 	{
 		return FieldTexture.SampleLevel(FieldSampler, UVW, 0);
 	}
-	return FlowVizLoadRaw(FlowVizUVWToTexel(UVW));
+	return FlowVizLoadRawA(FlowVizUVWToTexel(UVW));
+#endif
+}
+
+/** One B voxel with filtering behaviour identical to A. */
+float4 FlowVizFetchRawB(float3 UVW)
+{
+#if FLOWVIZ_FIELD_UINT
+	return FlowVizLoadRawB(FlowVizUVWToTexel(UVW));
+#else
+	if (bFilterField != 0)
+	{
+		return FieldTextureB.SampleLevel(FieldSampler, UVW, 0);
+	}
+	return FlowVizLoadRawB(FlowVizUVWToTexel(UVW));
 #endif
 }
 
@@ -256,16 +287,22 @@ float FlowVizExtractScalar(float4 Raw)
 	return Raw.w;
 }
 
-/** The status byte of the texel containing UVW. Unknown when nothing is bound. */
-uint FlowVizLoadStatus(float3 UVW)
+/** One selected classification texel. Status is nearest-frame data, never blended. */
+uint FlowVizLoadSelectedStatus(int3 Texel)
 {
-	// FAIL CLOSED. No status texture means we cannot tell valid from invalid,
-	// and "cannot tell" is not "valid".
 	if (bHasStatusTexture == 0)
 	{
 		return 0u;
 	}
-	return StatusTexture.Load(int4(FlowVizUVWToTexel(UVW), 0)).x;
+	return (bBlendActive != 0 && BlendAlpha >= 0.5f)
+		? StatusTextureB.Load(int4(Texel, 0)).x
+		: StatusTexture.Load(int4(Texel, 0)).x;
+}
+
+/** The status byte of the texel containing UVW. Unknown when nothing is bound. */
+uint FlowVizLoadStatus(float3 UVW)
+{
+	return FlowVizLoadSelectedStatus(FlowVizUVWToTexel(UVW));
 }
 
 /** Status bits -> the reason a sample was refused. */
@@ -309,7 +346,7 @@ uint FlowVizStrictCornerReason(float3 UVW)
 	{
 		const int3 Offset = int3(Corner & 1, (Corner >> 1) & 1, (Corner >> 2) & 1);
 		const int3 Texel = clamp(Base + Offset, int3(0, 0, 0), VolumeDimensions - int3(1, 1, 1));
-		const uint Status = (bHasStatusTexture == 0) ? 0u : StatusTexture.Load(int4(Texel, 0)).x;
+		const uint Status = FlowVizLoadSelectedStatus(Texel);
 		const uint CornerReason = FlowVizStatusToReason(Status);
 		if (CornerReason != FLOWVIZ_REASON_VALID)
 		{
@@ -353,7 +390,12 @@ FFlowVizSample FlowVizSampleVolume(float3 LocalPos)
 		return Result;
 	}
 
-	const float Value = FlowVizExtractScalar(FlowVizFetchRaw(UVW));
+	const float4 RawA = FlowVizFetchRawA(UVW);
+	const float4 RawB = FlowVizFetchRawB(UVW);
+	const float4 Raw = (bBlendActive != 0)
+		? (1.0f - BlendAlpha) * RawA + BlendAlpha * RawB
+		: RawA;
+	const float Value = FlowVizExtractScalar(Raw);
 
 	// Belt and braces: the status volume already says this voxel is finite, but
 	// a filtered fetch can straddle one that is not, and an integer format

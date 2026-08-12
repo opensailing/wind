@@ -3,6 +3,7 @@
 #include "Render/FlowVizVolumeRayMarchShader.h"
 
 #include "DataDrivenShaderPlatformInfo.h"
+#include "GlobalRenderResources.h"
 #include "GlobalShader.h"
 #include "PixelFormat.h"
 #include "RHIStaticStates.h"
@@ -159,6 +160,12 @@ void FlowVizRayMarch::FillDefaults(FFlowVizVolumeRayMarchParameters& OutParamete
 	OutParameters.DeviceZToViewZ = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
 	OutParameters.ViewRectMin = FVector2f(0.0f, 0.0f);
 
+	// The B resources themselves are installed by SetVolumeTextures. The value
+	// fields still need deterministic defaults because a direct caller may reuse
+	// this struct after an interpolated dispatch.
+	OutParameters.BlendAlpha = 0.0f;
+	OutParameters.bBlendActive = 0;
+
 	// Clamped in one place so a caller cannot ask the GPU for an unbounded loop.
 	OutParameters.MaxSteps = FMath::Clamp(OutParameters.MaxSteps, 1u, MaxStepsLimit);
 }
@@ -200,21 +207,45 @@ bool FlowVizRayMarch::SetVolumeTextures(
 	FFlowVizVolumeRayMarchParameters& OutParameters,
 	FRHITexture* FieldTexture,
 	FRHITexture* StatusTexture,
-	bool bHasVectorTexture)
+	bool bHasVectorTexture,
+	FRHITexture* FieldTextureB,
+	FRHITexture* StatusTextureB,
+	float BlendAlpha,
+	bool bBlendActive)
 {
+	if (FieldTexture == nullptr)
+	{
+		return false;
+	}
+
+	// A declared shader resource may never be null, even while its policy flag
+	// says "do not read it". The uint fallback contains status 0 (Unknown), which
+	// preserves the fail-closed meaning of a missing status volume.
+	FRHITexture* const BoundStatusA = StatusTexture != nullptr
+		? StatusTexture
+		: GBlackUintVolumeTexture->TextureRHI.GetReference();
+	const bool bStatusPairMatches =
+		(StatusTexture == nullptr && StatusTextureB == nullptr)
+		|| (StatusTexture != nullptr && StatusTextureB != nullptr);
+	const bool bCanBlend = bBlendActive && FieldTextureB != nullptr && bStatusPairMatches;
+
 	OutParameters.FieldTexture = FieldTexture;
-	OutParameters.StatusTexture = StatusTexture;
+	OutParameters.FieldTextureB = bCanBlend ? FieldTextureB : FieldTexture;
+	OutParameters.StatusTexture = BoundStatusA;
+	OutParameters.StatusTextureB = bCanBlend && StatusTextureB != nullptr
+		? StatusTextureB
+		: BoundStatusA;
 	OutParameters.bHasVectorTexture = bHasVectorTexture ? 1u : 0u;
 
-	// FAIL CLOSED, AND FROM THE RESOURCE ITSELF. The flag cannot disagree with
-	// what is bound, because it is derived from what is bound. A null status
-	// texture leaves it 0, and the shader reads 0 as "reject every voxel" -
-	// see the member comment in FlowVizVolumeTexture.h. Reading it the other way
-	// renders a complete, plausible image, which is why it is asserted rather
-	// than reviewed.
+	// FAIL CLOSED, AND FROM THE SOURCE RESOURCE ITSELF. Binding the global fallback
+	// above satisfies shader validation; this flag still says whether real status
+	// provenance exists. Without it the fallback's zero byte could be mistaken for
+	// an intentionally bound status volume.
 	OutParameters.bHasStatusTexture = (StatusTexture != nullptr) ? 1u : 0u;
+	OutParameters.BlendAlpha = bCanBlend ? FMath::Clamp(BlendAlpha, 0.0f, 1.0f) : 0.0f;
+	OutParameters.bBlendActive = bCanBlend ? 1u : 0u;
 
-	return FieldTexture != nullptr;
+	return true;
 }
 
 void FlowVizRayMarch::SetLookAtCamera(

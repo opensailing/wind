@@ -304,6 +304,17 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFlowVizVolumeRayMarchParameters, FLOWVIZRUNTIME_A
 	SHADER_PARAMETER(FVector4f, DeviceZToViewZ)
 	SHADER_PARAMETER(FVector2f, ViewRectMin)
 
+	/* -- Temporal field sampling, appended after the existing tail -------- */
+	/** Raw A/B field interpolation alpha. Meaningful only while bBlendActive is 1. */
+	SHADER_PARAMETER(float, BlendAlpha)
+	/** One only when distinct, compatible A/B field and status resources are bound. */
+	SHADER_PARAMETER(uint32, bBlendActive)
+
+	/* Resource members live after the appended constants so they cannot move the
+	 * pre-existing scene-depth value tail in the generated parameter layout. */
+	SHADER_PARAMETER_TEXTURE(Texture3D, FieldTextureB)
+	SHADER_PARAMETER_TEXTURE(Texture3D<uint4>, StatusTextureB)
+
 	SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 	SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutValue)
 END_SHADER_PARAMETER_STRUCT()
@@ -375,21 +386,23 @@ namespace FlowVizRayMarch
 		FFlowVizVolumeRayMarchParameters& OutParameters);
 
 	/**
-	 * Bind the volume resources and set the two "is it bound" flags from what
-	 * was actually passed.
+	 * Bind one display frame and mirror it into the always-bound B resource slots.
 	 *
 	 * @param StatusTexture Null is legal and sets bHasStatusTexture = 0, which
-	 *                      makes the shader reject every voxel. That is the
-	 *                      intended, fail-closed behaviour: without a status
-	 *                      volume there is no way to tell invalid from zero, and
-	 *                      guessing renders a plausible lie.
+	 *                      makes the shader reject every voxel. A global uint
+	 *                      volume fallback is still bound so shader validation
+	 *                      never observes a null declared resource.
 	 * @return false when FieldTexture is null - there is nothing to march.
 	 */
 	FLOWVIZRUNTIME_API bool SetVolumeTextures(
 		FFlowVizVolumeRayMarchParameters& OutParameters,
 		FRHITexture* FieldTexture,
 		FRHITexture* StatusTexture,
-		bool bHasVectorTexture = false);
+		bool bHasVectorTexture = false,
+		FRHITexture* FieldTextureB = nullptr,
+		FRHITexture* StatusTextureB = nullptr,
+		float BlendAlpha = 0.0f,
+		bool bBlendActive = false);
 
 	/**
 	 * Place a camera looking at the volume's centre from a direction, in local space.
@@ -543,3 +556,9 @@ static_assert(
 static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, UnderRangeColor) == 512, "cbuffer row 32");
 static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, OverRangeColor) == 528, "cbuffer row 33");
 static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, bClampToRange) == 544, "cbuffer row 34");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, bHasSceneDepth) == 600, "cbuffer row 37");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, DepthToSolver) == 604, "cbuffer row 37");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, DeviceZToViewZ) == 608, "cbuffer row 38");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, ViewRectMin) == 624, "cbuffer row 39");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, BlendAlpha) == 632, "cbuffer row 39");
+static_assert(STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, bBlendActive) == 636, "cbuffer row 39");

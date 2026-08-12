@@ -8,6 +8,7 @@
 #include "Render/FlowVizVolumeTexture.h"
 
 #include "GlobalShader.h"
+#include "Misc/FileHelper.h"
 #include "RHI.h"
 #include "RHIGPUReadback.h"
 #include "RHIGlobals.h"
@@ -15,6 +16,7 @@
 #include "RenderGraphUtils.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
+#include "ShaderCore.h"
 #include "ShaderParameterMetadata.h"
 
 /**
@@ -198,6 +200,92 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	/* == Temporal parameter and source contract =============================== */
+	{
+		const FShaderParametersMetadata* Metadata =
+			FFlowVizVolumeRayMarchParameters::FTypeInfo::GetStructMetadata();
+		if (TestNotNull(TEXT("the temporal contract has shader metadata"), Metadata))
+		{
+			TMap<FString, uint32> ByName;
+			for (const FShaderParametersMetadata::FMember& Member : Metadata->GetMembers())
+			{
+				ByName.Add(FString(Member.GetName()), Member.GetOffset());
+			}
+
+			const uint32* BlendAlphaOffset = ByName.Find(TEXT("BlendAlpha"));
+			const uint32* BlendActiveOffset = ByName.Find(TEXT("bBlendActive"));
+			if (TestNotNull(TEXT("the shader metadata declares BlendAlpha after the scene-depth tail"),
+					(const void*)BlendAlphaOffset)
+				&& TestNotNull(TEXT("the shader metadata declares bBlendActive beside BlendAlpha"),
+					(const void*)BlendActiveOffset))
+			{
+				TestTrue(TEXT("the temporal constants are appended after ViewRectMin rather than moving the existing tail"),
+					*BlendAlphaOffset > static_cast<uint32>(
+						STRUCT_OFFSET(FFlowVizVolumeRayMarchParameters, ViewRectMin)));
+				TestEqual(TEXT("bBlendActive shares the appended temporal row with BlendAlpha"),
+					static_cast<int32>(*BlendActiveOffset), static_cast<int32>(*BlendAlphaOffset + sizeof(float)));
+			}
+
+			TestTrue(TEXT("the shader metadata declares the second field texture resource"),
+				ByName.Contains(TEXT("FieldTextureB")));
+			TestTrue(TEXT("the shader metadata declares the second status texture resource"),
+				ByName.Contains(TEXT("StatusTextureB")));
+		}
+
+		const FString ShaderPath = GetShaderSourceFilePath(
+			TEXT("/Plugin/FlowViz/FlowVizVolumeRayMarch.usf"));
+		FString Source;
+		if (TestFalse(TEXT("the temporal source-contract test resolved the shipped shader"),
+				ShaderPath.IsEmpty())
+			&& TestTrue(TEXT("the temporal source-contract test read the shipped shader"),
+				FFileHelper::LoadFileToString(Source, *ShaderPath)))
+		{
+			const int32 ResourceStart = Source.Find(TEXT("#if FLOWVIZ_FIELD_UINT"));
+			const int32 SamplingStart = Source.Find(TEXT("float3 FlowVizLocalToUVW"));
+			const int32 SampleStart = Source.Find(TEXT("FFlowVizSample FlowVizSampleVolume"));
+			const int32 GradientStart = Source.Find(TEXT("float3 FlowVizGradient"),
+				ESearchCase::CaseSensitive, ESearchDir::FromStart, SampleStart + 1);
+
+			if (TestTrue(TEXT("CONTROL: the shader resource block has a bounded source range"),
+					ResourceStart != INDEX_NONE && SamplingStart > ResourceStart))
+			{
+				const FString Resources = Source.Mid(ResourceStart, SamplingStart - ResourceStart);
+				TestTrue(TEXT("the uint permutation declares frame B with the same uint4 type as frame A"),
+					Resources.Contains(TEXT("Texture3D<uint4> FieldTextureB"), ESearchCase::CaseSensitive));
+				TestTrue(TEXT("the float permutation declares frame B with the same float4 type as frame A"),
+					Resources.Contains(TEXT("Texture3D<float4> FieldTextureB"), ESearchCase::CaseSensitive));
+				TestTrue(TEXT("the shader declares a distinct status resource for frame B"),
+					Resources.Contains(TEXT("Texture3D<uint4>  StatusTextureB"), ESearchCase::CaseSensitive)
+						|| Resources.Contains(TEXT("Texture3D<uint4> StatusTextureB"), ESearchCase::CaseSensitive));
+			}
+
+			if (TestTrue(TEXT("CONTROL: FlowVizSampleVolume has a bounded source range"),
+					SampleStart != INDEX_NONE && GradientStart > SampleStart))
+			{
+				const FString SampleBody = Source.Mid(SampleStart, GradientStart - SampleStart);
+				TestTrue(TEXT("raw frame A and B samples are blended before scalar or magnitude extraction"),
+					SampleBody.Contains(
+						TEXT("(1.0f - BlendAlpha) * RawA + BlendAlpha * RawB"),
+						ESearchCase::CaseSensitive));
+				TestTrue(TEXT("the shared sample primitive performs scalar extraction after temporal blending"),
+					SampleBody.Find(TEXT("FlowVizExtractScalar"), ESearchCase::CaseSensitive)
+						> SampleBody.Find(TEXT("RawB"), ESearchCase::CaseSensitive));
+				TestFalse(TEXT("the forbidden A + t*(B-A) temporal form is absent"),
+					SampleBody.Contains(TEXT("RawA + BlendAlpha * (RawB - RawA)"), ESearchCase::CaseSensitive));
+				TestFalse(TEXT("the shader does not hide temporal interpolation behind lerp"),
+					SampleBody.Contains(TEXT("lerp("), ESearchCase::IgnoreCase));
+				TestFalse(TEXT("the shader does not hide temporal interpolation behind mad"),
+					SampleBody.Contains(TEXT("mad("), ESearchCase::IgnoreCase));
+			}
+
+			TestTrue(TEXT("nearest status selection uses frame B at the exact midpoint"),
+				Source.Contains(TEXT("bBlendActive != 0 && BlendAlpha >= 0.5f"),
+					ESearchCase::CaseSensitive));
+			TestTrue(TEXT("strict-corner classification loads from the same selected status frame"),
+				Source.Contains(TEXT("FlowVizLoadSelectedStatus"), ESearchCase::CaseSensitive));
+		}
+	}
+
 	/* == Fail closed: no status texture means reject every voxel ============= */
 	/*
 	 * WHAT THIS BLOCK CATCHES THAT NOTHING ELSE DOES: the flag that decides
@@ -230,7 +318,13 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 			static_cast<int32>(VolumeParams.bHasStatusTexture), 0);
 
 		FFlowVizVolumeRayMarchParameters RayParams;
+		RayParams.BlendAlpha = -17.0f;
+		RayParams.bBlendActive = 71u;
 		FlowVizRayMarch::FillDefaults(RayParams);
+		TestEqual(TEXT("FillDefaults resets a previously active temporal alpha"),
+			RayParams.BlendAlpha, 0.0f);
+		TestEqual(TEXT("FillDefaults disables a previously active temporal blend"),
+			static_cast<int32>(RayParams.bBlendActive), 0);
 
 		// Poison both flags first. If FillFromVolumeParameters copied the
 		// placeholder through, this 1 becomes a 0 and the next assertion fails;
@@ -257,6 +351,8 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 		// Now the flag's real source. Null status texture -> 0, always.
 		FRHITexture* const FakeField = reinterpret_cast<FRHITexture*>(0x1);
 		FRHITexture* const FakeStatus = reinterpret_cast<FRHITexture*>(0x2);
+		FRHITexture* const FakeFieldB = reinterpret_cast<FRHITexture*>(0x3);
+		FRHITexture* const FakeStatusB = reinterpret_cast<FRHITexture*>(0x4);
 
 		RayParams.bHasStatusTexture = 1u;
 		TestTrue(TEXT("SetVolumeTextures accepts a field texture with no status texture"),
@@ -265,7 +361,14 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 					   "shader reads as 'reject every voxel'. This is the flag that decides "
 					   "whether 'cannot tell' renders as 'valid'."),
 			static_cast<int32>(RayParams.bHasStatusTexture), 0);
-
+		TestTrue(TEXT("single-frame binding mirrors A into the always-bound B field slot"),
+			RayParams.FieldTextureB == FakeField);
+		TestNotNull(TEXT("missing status still binds a fail-closed B status resource"),
+			RayParams.StatusTextureB);
+		TestEqual(TEXT("single-frame binding disables temporal blending"),
+			static_cast<int32>(RayParams.bBlendActive), 0);
+		TestEqual(TEXT("single-frame binding resets temporal alpha"),
+			RayParams.BlendAlpha, 0.0f);
 		// And the other direction, so the check cannot be satisfied by a
 		// function that hardcodes 0.
 		RayParams.bHasStatusTexture = 0u;
@@ -274,6 +377,48 @@ bool FFlowVizVolumeRayMarchShaderTest::RunTest(const FString& Parameters)
 			static_cast<int32>(RayParams.bHasStatusTexture), 1);
 		TestEqual(TEXT("and bHasVectorTexture follows its own argument"),
 			static_cast<int32>(RayParams.bHasVectorTexture), 1);
+		TestTrue(TEXT("single-frame binding mirrors A into the B status slot"),
+			RayParams.StatusTextureB == FakeStatus);
+
+		FlowVizRayMarch::SetVolumeTextures(
+			RayParams, FakeField, FakeStatus, true,
+			FakeFieldB, FakeStatusB, 0.25f, true);
+		TestTrue(TEXT("an active temporal binding retains the distinct B field"),
+			RayParams.FieldTextureB == FakeFieldB);
+		TestTrue(TEXT("an active temporal binding retains the distinct B status"),
+			RayParams.StatusTextureB == FakeStatusB);
+		TestEqual(TEXT("an active temporal binding enables blending"),
+			static_cast<int32>(RayParams.bBlendActive), 1);
+		TestEqual(TEXT("an active temporal binding retains its interior alpha"),
+			RayParams.BlendAlpha, 0.25f);
+
+		FlowVizRayMarch::SetVolumeTextures(
+			RayParams, FakeField, FakeStatus, true,
+			nullptr, FakeStatusB, 0.75f, true);
+		TestTrue(TEXT("a missing B field falls back to A"),
+			RayParams.FieldTextureB == FakeField);
+		TestTrue(TEXT("a missing B field also falls back to A status"),
+			RayParams.StatusTextureB == FakeStatus);
+		TestEqual(TEXT("a missing B field disables blending"),
+			static_cast<int32>(RayParams.bBlendActive), 0);
+		TestEqual(TEXT("a missing B field clears alpha"), RayParams.BlendAlpha, 0.0f);
+
+		FlowVizRayMarch::SetVolumeTextures(
+			RayParams, FakeField, FakeStatus, true,
+			FakeFieldB, nullptr, 0.75f, true);
+		TestTrue(TEXT("an incomplete status pair falls back to A field"),
+			RayParams.FieldTextureB == FakeField);
+		TestTrue(TEXT("an incomplete status pair falls back to A status"),
+			RayParams.StatusTextureB == FakeStatus);
+		TestEqual(TEXT("an incomplete status pair disables blending"),
+			static_cast<int32>(RayParams.bBlendActive), 0);
+		TestEqual(TEXT("an incomplete status pair clears alpha"), RayParams.BlendAlpha, 0.0f);
+
+		FlowVizRayMarch::SetVolumeTextures(
+			RayParams, FakeField, FakeStatus, true,
+			FakeFieldB, FakeStatusB, 4.0f, true);
+		TestEqual(TEXT("active temporal alpha is clamped to the B endpoint"),
+			RayParams.BlendAlpha, 1.0f);
 
 		// Nothing to march without a field texture, and saying so is the
 		// difference between an empty image and an unreported failure.
