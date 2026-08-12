@@ -1,0 +1,30 @@
+{
+  "archiveBytes": 357797615,
+  "archiveName": "FluidX3DSphereWake.cfdviz.release.tar.gz",
+  "archiveSha256": "ae3fa25bc1f9c744d48cefc80295e4a94f531a5194b110ac35bc28c55137cbcc",
+  "caseDirectory": "FluidX3DSphereWake.cfdviz",
+  "casePath": "case",
+  "publicationStatus": "release-ready locally; public URL intentionally unset pending FluidX3D license/use review and explicit publication approval",
+  "qualification": {
+    "maximumFeatureDisplacementCells": 2.0,
+    "minimumActiveDimensions": [
+      192,
+      96,
+      96
+    ],
+    "minimumFrames": 40,
+    "minimumSpanwiseGradientRatio": 0.005,
+    "minimumSpanwiseVelocityRatio": 0.005,
+    "minimumTemporalChangeRatio": 1e-05,
+    "solverName": "FluidX3D",
+    "solverRevision": "024e48c23256a31346cf458fba76deae4aca7869"
+  },
+  "releaseRoot": "FluidX3DSphereWake",
+  "schemaVersion": 1,
+  "solver": {
+    "name": "FluidX3D",
+    "revision": "024e48c23256a31346cf458fba76deae4aca7869"
+  },
+  "supportDirectory": "FluidX3DSphereWake.release",
+  "url": null
+}

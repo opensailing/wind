@@ -105,19 +105,29 @@ result must not be generalised past it.
 Six of six unmeasured. This table is the honest state of the project's
 performance knowledge and should be read as such.
 
-### The sample under test
+### The samples under test
 
-`Samples/MockCylinderWake.cfdviz` — 3.8 MiB on disk, 56×28×6 cells (from the
-manifest's `grids[0].dimensions`), 20 frames (`timeline.frameCount`), 160 `.cvf`
-field files. Small by design: it is the *correctness* fixture and the packaged
-application's low-resolution sample.
+`Samples/FluidX3DSphereWake.cfdviz` is the representative T4/performance
+fixture. It contains a genuine external FluidX3D sphere-wake solve:
 
-**It is not a performance fixture, and T4 measured against it would be
-misleading.** 9,408 cells will ray-march at a frame rate that says nothing about
-a production case three orders of magnitude larger. Whoever measures T4 must
-either generate a representative case or state plainly that the number describes
-the small sample only. Recorded here so the easy measurement is not mistaken for
-the meaningful one.
+- 192×96×96 lattice cells and 1,762,319 active cells;
+- 40 stored snapshots spanning solver steps 6000 through 6390;
+- imported velocity and flags sequences;
+- nonzero spanwise velocity and spanwise gradients;
+- measured changes between every adjacent velocity frame;
+- 406,364,515 bytes (387.54 MiB) in the converted case.
+
+`cfdviz qualify-representative` pins these claims to the exact solver revision,
+known-value bridge, minimum 3D extent, temporal cadence, and deterministic case
+SHA-256. Performance results for the primary demo must name this case and its
+hash. The read benchmark currently records conversion-tool decode throughput;
+it is not a renderer frame-rate result, so T4 remains **NOT MEASURED** above.
+
+`Samples/MockCylinderWake.cfdviz` is the 3.39 MiB, 56×28×6, 20-frame analytic
+correctness fixture. **It is not a performance fixture, and a T4 result measured
+against its 9,408 cells is invalid.** It remains committed only because format,
+known-value, and renderer tests need a small deterministic case in every fresh
+checkout.
 
 ---
 

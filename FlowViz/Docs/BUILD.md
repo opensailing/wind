@@ -513,8 +513,43 @@ deliberately not a dependency** — see
 
 ## Sample data
 
+### Representative external-solver fixture
+
+`FlowViz/Samples/FluidX3DSphereWake.cfdviz` is the primary demo and performance
+fixture: a genuine 192×96×96, 40-frame, fully 3D sphere wake produced by
+FluidX3D revision `024e48c23256a31346cf458fba76deae4aca7869`. It is generated
+on demand and gitignored because the converted case is about 388 MiB.
+
+From the repository root, generate it in an isolated clone of an existing
+FluidX3D Git checkout. The default source is the sibling path `../FluidX3D`; use
+`--source` when it lives elsewhere:
+
+```bash
+FlowViz/Tools/generate_fluidx3d_sample.sh \
+    --source /absolute/path/to/FluidX3D
+```
+
+The script never patches or builds in the source checkout. It converts the
+solver's velocity and flags sequences, runs full validation and known-value
+checks, qualifies spatial/temporal representativeness, benchmarks decoding, and
+creates `FluidX3DSphereWake.cfdviz.release.tar.gz`. The archive includes the
+complete altered FluidX3D source tree required by its license.
+
+Install an existing local archive through the same acceptance gates with:
+
+```bash
+FlowViz/Tools/download_demo_case.sh \
+    --archive FlowViz/Samples/FluidX3DSphereWake.cfdviz.release.tar.gz
+```
+
+The download descriptor's URL is intentionally unset pending FluidX3D
+license/use review and explicit publication approval. See
+`FlowViz/Tools/fluidx3d/README.md` before distributing the case or archive.
+
+### Deterministic correctness fixture
+
 `FlowViz/Samples/MockCylinderWake.cfdviz` is **committed** (3.39 MiB), so a
-fresh checkout has a case to load without running anything first. Regenerate it
+fresh checkout has a small case for format and renderer tests. Regenerate it
 byte-identically with:
 
 ```bash
@@ -522,14 +557,13 @@ PYTHONPATH=FlowViz/Tools/cfdviz/src python3 -m cfdviz generate-mock \
     --low-res --output FlowViz/Samples/MockCylinderWake.cfdviz
 ```
 
-`--low-res` is the small preset that fits in source control. Omit it for the
-full-resolution case (128 x 64 x 24, 90 frames), which is far too large to
-commit. Every generation parameter is exposed as a flag — see `--help` — and
-the output is deterministic: the same parameters always produce the same bytes,
-including the case UUID.
+`--low-res` is the small preset that fits in source control. Every generation
+parameter is exposed as a flag — see `--help` — and the output is deterministic:
+the same parameters always produce the same bytes, including the case UUID.
 
-The data is a closed-form analytic construction, **not a solved flow**. The
-manifest says so, in those words, and that wording is asserted by a test.
+The mock data is a closed-form analytic construction, **not a solved flow**. It
+must not be used for demo-quality or performance claims. The manifest says so,
+in those words, and that wording is asserted by a test.
 
 Validate any case with:
 
@@ -565,14 +599,11 @@ enforced mechanically rather than by inspection:
 2. The Unreal automation test `FlowViz.CFDViz.KnownValues` reads that file and
    asserts on the bit patterns via the C++ reader.
 
-Point that test at a case with:
-
-```bash
-FLOWVIZ_TEST_CASE=/path/to/case.cfdviz ./FlowViz/Tools/run_tests.sh FlowViz.CFDViz.KnownValues
-```
-
-It falls back to `FlowViz/Samples/`. If no case is present the test logs a skip
-rather than failing, so a fresh checkout is not blocked on generating data.
+`FlowViz.CFDViz.KnownValues` reads the committed
+`FlowViz/Samples/MockCylinderWake.cfdviz` fixture. That fixed path is deliberate:
+the test bridges Python and Unreal using pinned bit patterns and must not silently
+change fixtures. Representative cases are checked independently with
+`cfdviz known-values <case> --check` and `cfdviz qualify-representative <case>`.
 
 The same discipline applies to CRC-32C: `FlowViz.CFDViz.Crc32C` asserts the
 check value `0xE3069283` that Python's `crc32c.self_check()` asserts at import.

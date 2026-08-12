@@ -1,8 +1,9 @@
 #!/bin/bash
-# Generate the film-tier demo case (renderer overhaul P4).
+# Generate the high-resolution analytic renderer fixture (renderer overhaul P4).
+# This is deterministic test data, not representative external-solver CFD.
 #
 # 168x84x36 x 40 frames, ~400 MB -- deliberately NOT committed (gitignored);
-# run this once and point the app at the result:
+# run this once and point the app at the result for renderer correctness work:
 #   open Packaged/Mac/FlowViz.app --args -case="$PWD/Samples/MockCylinderWakeHiRes.cfdviz"
 set -euo pipefail
 cd "$(dirname "$0")/cfdviz"
