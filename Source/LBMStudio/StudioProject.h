@@ -8,6 +8,7 @@
 #include "StudioStreamlines.h"
 #include "StudioMonitor.h"
 #include "StudioComparison.h"
+#include "StudioPipelineOperations.h"
 
 /** All coordinates in the document are solver-space meters. */
 struct FStudioCameraState
@@ -71,9 +72,9 @@ struct FStudioCameraBookmark
     FStudioCameraState Camera;
 };
 
-/** Each side owns its source location as well as the exact original-frame pin.
+/** Each saved view owns its source location and exact original-frame pin.
  * An installed source needs no external reference. Paths rebase with the project. */
-struct FStudioSavedComparisonSide
+struct FStudioSavedFieldView
 {
     FString Title;
     FStudioFieldIdentity Identity;
@@ -86,13 +87,23 @@ struct FStudioSavedComparison
     FGuid Id=FGuid::NewGuid();
     FString Name,Scalar,Unit;
     FStudioComparisonAlignment Alignment;
-    FStudioSavedComparisonSide Primary,Secondary;
+    FStudioSavedFieldView Primary,Secondary;
     bool bSharedRange=true;
+};
+
+/** Saved recipe and independent camera. Evaluation/cache/results are session
+ * state; saving never serializes derived arrays or changes the Solve view. */
+struct FStudioSavedPipeline
+{
+    FGuid Id=FGuid::NewGuid();
+    FString Name;
+    FStudioSavedFieldView Source;
+    TArray<FStudioPipelineOperation> Operations;
 };
 
 struct FStudioProject
 {
-    static constexpr int32 CurrentVersion = 20;
+    static constexpr int32 CurrentVersion = 21;
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Airfoil SU2 009");
     FString Dataset = TEXT("MeshGraphNets_Airfoil_test009");
@@ -101,6 +112,7 @@ struct FStudioProject
     FStudioCameraState Camera;
     TArray<FStudioCameraBookmark> Cameras;
     TArray<FStudioSavedComparison> Comparisons;
+    TArray<FStudioSavedPipeline> Pipelines;
     FStudioCaseDraft Draft;
     FStudioMonitorSettings Monitor;
     FStudioResidualSettings Residual;

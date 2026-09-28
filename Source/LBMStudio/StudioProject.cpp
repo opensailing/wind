@@ -1,6 +1,7 @@
 #include "StudioProject.h"
 #include "StudioView.h"
 #include "StudioSavedComparison.h"
+#include "StudioPipeline.h"
 #include "StudioAssetPaths.h"
 #include "StudioFileDialog.h"
 #include "Dom/JsonObject.h"
@@ -241,6 +242,7 @@ FString StudioProjectIO::Serialize(const FStudioProject& P)
     }
     O->SetArrayField(TEXT("cameras"),Bookmarks);
     O->SetArrayField(TEXT("comparisons"),StudioSavedComparisons::ToJSON(P.Comparisons));
+    O->SetArrayField(TEXT("pipelines"),StudioPipelines::ToJSON(P.Pipelines));
     O->SetObjectField(TEXT("draft"),StudioCaseIO::ToJSON(P.Draft));
     O->SetObjectField(TEXT("monitor"),StudioMonitor::ToJSON(P.Monitor));
     O->SetObjectField(TEXT("residual"),StudioResidualSettings::ToJSON(P.Residual));
@@ -411,6 +413,13 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
         if(!O->TryGetArrayField(TEXT("comparisons"),Comparisons))
         {Error=TEXT("Saved comparisons are missing from the project.");return false;}
         if(!StudioSavedComparisons::FromJSON(*Comparisons,P.Comparisons,Error))return false;
+    }
+    if(Version>=21)
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Pipelines=nullptr;
+        if(!O->TryGetArrayField(TEXT("pipelines"),Pipelines))
+        {Error=TEXT("Saved pipelines are missing from the project.");return false;}
+        if(!StudioPipelines::FromJSON(*Pipelines,P.Pipelines,Error))return false;
     }
     if (P.Dataset.IsEmpty() || P.Dataset.Len()>256)
     { Error=TEXT("Project recording identity is missing or too long."); return false; }

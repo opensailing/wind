@@ -29,6 +29,13 @@ namespace
             if(!Map(Side->Reference->Path,Error))return false;
             if(Side->Reference->Reconstruction.IsSet()&&!Map(Side->Reference->Reconstruction->Path,Error))return false;
         }
+        for(auto& Pipeline:Project.Pipelines)
+        {
+            auto& Reference=Pipeline.Source.Reference;
+            if(!Reference.IsSet())continue;
+            if(!Map(Reference->Path,Error))return false;
+            if(Reference->Reconstruction.IsSet()&&!Map(Reference->Reconstruction->Path,Error))return false;
+        }
         if (!MapDraft(Project.Draft, Map, Error)) return false;
         for (auto& Run : Project.Runs)
         {

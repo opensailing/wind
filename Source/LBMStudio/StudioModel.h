@@ -369,6 +369,19 @@ public:
     uint64 ComparisonRevision=0;
     FString ComparisonNotice;
     bool bComparisonError=false;
+    /** Saved pipeline edits have their own bounded history and leave Solve untouched. */
+    const FStudioSavedPipeline* FindPipeline(const FGuid& Id) const;
+    bool AddPipeline(FStudioSavedPipeline Saved);
+    bool UpdatePipeline(const FGuid& Id,FStudioSavedPipeline Saved);
+    bool RenamePipeline(const FGuid& Id,const FString& Name);
+    bool DeletePipeline(const FGuid& Id);
+    bool UndoPipelines();
+    bool RedoPipelines();
+    bool CanUndoPipelines() const {return !PipelineUndo.IsEmpty();}
+    bool CanRedoPipelines() const {return !PipelineRedo.IsEmpty();}
+    uint64 PipelineRevision=0;
+    FString PipelineNotice;
+    bool bPipelineError=false;
     FStudioInspectionState InspectionState() const;
     FStudioInspectionSource InspectionSource() const;
     const FStudioInspectionObject* FindInspectionObject(const FGuid& Id) const;
@@ -484,8 +497,19 @@ private:
     bool ComparisonMessage(const FString& Message,bool bError=false);
     bool ApplyComparisonHistory(bool bRedo);
     void ClearComparisonHistory();
+    struct FPipelineCollectionEdit
+    {
+        FString Label;
+        TArray<FStudioSavedPipeline> Before,After;
+        int64 Bytes=0;
+    };
+    TArray<FPipelineCollectionEdit> PipelineUndo,PipelineRedo;
+    bool CommitPipelines(const FString& Label,TArray<FStudioSavedPipeline> Pipelines);
+    bool PipelineMessage(const FString& Message,bool bError=false);
+    bool ApplyPipelineHistory(bool bRedo);
+    void ClearPipelineHistory();
     void ClearViewHistory() { InvalidateMonitorSession(); InvalidateResidualSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();ClearComparisonHistory();
-        SelectedInspectionObject.Invalidate();++InspectionObjectsRevision;++InspectionSelectionRevision;InspectionNotice.Empty();bInspectionError=false; }
+        ClearPipelineHistory();SelectedInspectionObject.Invalidate();++InspectionObjectsRevision;++InspectionSelectionRevision;InspectionNotice.Empty();bInspectionError=false; }
     bool CommitInspectionObjects(const FString& Label,FStudioInspectionObjects Objects,bool bContinueGesture=false,bool bUseSavedSeeds=false);
     bool PrepareInspectionObject(FStudioInspectionObject& Object,const TCHAR* BaseName);
     FString UniqueInspectionName(const FString& Base) const;
