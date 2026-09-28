@@ -53,6 +53,17 @@ public:
     virtual TSharedPtr<const IStudioField,ESPMode::ThreadSafe> LoadScalarSnapshot(const FString& FieldId,
         const FStudioLoadCancellation& Cancellation,FString& Error) const
     { Error=TEXT("This field snapshot cannot load additional scalar arrays.");return {}; }
+    /** Exact original rows, independent of display reconstruction and sampling.
+     * Positions use source XYZ meters (2D has Z=0). IDs retain the original
+     * point identifier, or the source node ordinal when no IDs were supplied.
+     * Failed queries never imply an available zero. Connectivity indexes these
+     * rows; reconstructed display triangles are excluded. */
+    virtual int32 OriginalPointCount() const { return 0; }
+    virtual bool OriginalPoint(int32 Index,int64& Id,FVector& Position) const { return false; }
+    virtual bool OriginalScalar(int32 Index,const FString& FieldId,double& Value) const { return false; }
+    virtual FString ScalarExpression(const FString& FieldId) const { return {}; }
+    virtual int32 OriginalTriangleCount() const { return 0; }
+    virtual bool OriginalTriangle(int32 Index,FIntVector& Triangle) const { return false; }
     /** Legacy complete U/V/pressure/density tuple. Optional-field readers use
      * the individual queries below, rather than inventing members of this tuple.
      */

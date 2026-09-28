@@ -18,6 +18,19 @@ public:
         TSharedRef<FStudioPointRecording,ESPMode::ThreadSafe> InRecording)
         : Frame(MoveTemp(InFrame)), Surface(MoveTemp(InSurface)), Volume(MoveTemp(InVolume)), Recording(MoveTemp(InRecording)) {}
     bool IsValid() const override { return Frame.IsValid(); }
+    int32 OriginalPointCount() const override {return Frame?Frame->Geometry->Positions.Num():0;}
+    bool OriginalPoint(int32 Index,int64& Id,FVector& Position) const override
+    {
+        if(!Frame||!Frame->Geometry->Positions.IsValidIndex(Index)||!Frame->Geometry->PointIds.IsValidIndex(Index))return false;
+        Id=Frame->Geometry->PointIds[Index];Position=Frame->Geometry->Positions[Index];return true;
+    }
+    bool OriginalScalar(int32 Index,const FString& Id,double& Value) const override
+    {
+        const auto* Values=Frame?Frame->FindValues(Id):nullptr;if(!Values||!Values->IsValidIndex(Index))return false;
+        Value=(*Values)[Index];return FMath::IsFinite(Value);
+    }
+    FString ScalarExpression(const FString& Id) const override
+    {const auto* S=Frame?Frame->Descriptor->FindField(Id):nullptr;return S?S->Expression:FString();}
     TOptional<FStudioFieldIdentity> Identity() const override
     {
         if(!Frame||!Frame->Descriptor->Frames.IsValidIndex(Frame->Ordinal))return {};

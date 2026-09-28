@@ -44,7 +44,10 @@ struct FRecordedFlowData
     struct FCacheEntry { TSharedPtr<const FFrame,ESPMode::ThreadSafe> Frame; uint64 Use=0; };
     FStudioRecordingDescriptor Meta;
     FString Path;
-    TArray<FVector2D> Nodes, Outline;
+    // Keep source coordinates before translation; subtracting the offset from
+    // a displayed double cannot recover every original bit. Bounded by the
+    // existing four-million-node limit (64 MB additional fixed geometry).
+    TArray<FVector2D> Nodes, SourceNodes, Outline;
     TArray<FIntVector> Triangles;
     TArray<FIntVector> BoundaryCaps;
     TArray<int64> Offsets;
@@ -231,6 +234,39 @@ public:
         const FStudioLoadCancellation& Cancellation = {},FString* AnalysisError = nullptr)
         : Data(InData),Frame(Data->ReadFrame(InFrame,Cancellation,AnalysisError)),Ordinal(InFrame) {}
     bool IsValid() const override { return Frame.IsValid(); }
+    FRecordedField(TSharedPtr<const FRecordedFlowData,ESPMode::ThreadSafe> InData,
+        TSharedPtr<const FRecordedFlowData::FFrame,ESPMode::ThreadSafe> InFrame,int32 InOrdinal)
+        :Data(MoveTemp(InData)),Frame(MoveTemp(InFrame)),Ordinal(InOrdinal) {}
+    int32 OriginalPointCount() const override { return Frame?Data->SourceNodes.Num():0; }
+    bool OriginalPoint(int32 Index,int64& Id,FVector& Position) const override
+    {
+        if(!Frame||!Data->SourceNodes.IsValidIndex(Index))return false;
+        Id=Index;const auto P=Data->SourceNodes[Index];Position=FVector(P.X,P.Y,0);return true;
+    }
+    bool OriginalScalar(int32 Index,const FString& Id,double& Value) const override
+    {
+        if(!Frame||!Frame->Values.IsValidIndex(Index))return false;
+        const auto V=Frame->Values[Index];
+        if(Id==TEXT("velocity_magnitude"))Value=FVector2D(V.U,V.V).Size();
+        else if(Id==TEXT("velocity_x"))Value=V.U;
+        else if(Id==TEXT("velocity_y"))Value=V.V;
+        else if(Id==TEXT("pressure"))Value=V.Pressure;
+        else if(Id==TEXT("density"))Value=V.Density;
+        else return false;
+        return FMath::IsFinite(Value);
+    }
+    FString ScalarExpression(const FString& Id) const override
+    {return Id==TEXT("velocity_magnitude")?TEXT("sqrt(velocity_x^2 + velocity_y^2)"):FString();}
+    int32 OriginalTriangleCount() const override {return Frame?Data->Triangles.Num():0;}
+    bool OriginalTriangle(int32 Index,FIntVector& Triangle) const override
+    {if(!Frame||!Data->Triangles.IsValidIndex(Index))return false;Triangle=Data->Triangles[Index];return true;}
+    TSharedPtr<const IStudioField,ESPMode::ThreadSafe> LoadScalarSnapshot(const FString& Id,
+        const FStudioLoadCancellation& Cancellation,FString& OutError) const override
+    {
+        if(Cancellation&&Cancellation->load()){OutError=TEXT("Original-field read cancelled.");return {};}
+        if(!Frame||!Scalar(Id)){OutError=TEXT("This original frame does not supply the requested scalar.");return {};}
+        OutError.Empty();return MakeShared<FRecordedField,ESPMode::ThreadSafe>(Data,Frame,Ordinal);
+    }
     TOptional<FStudioFieldIdentity> Identity() const override
     {
         if(!Frame||!Data->Meta.Frames.IsValidIndex(Ordinal))return {};
@@ -344,12 +380,14 @@ FRecordedSolver::FRecordedSolver(const FString& Path,int64 CacheBudgetBytes,cons
     if(Reader->IsError()||MeshCRC!=Mutable->MeshChecksum) { Error=TEXT("Recording mesh failed integrity validation. Reimport the dataset."); return; }
     Reader->Seek(24);
     Mutable->Meta.NodeCount=Nodes; Mutable->Meta.TriangleCount=Triangles;
-    Mutable->Nodes.SetNum(Nodes);
-    for(auto& P:Mutable->Nodes)
+    Mutable->Nodes.SetNum(Nodes);Mutable->SourceNodes.SetNum(Nodes);
+    for(int32 I=0;I<Nodes;++I)
     {
+        auto& P=Mutable->Nodes[I];
         if(Cancelled()) return;
         *Reader<<P.X<<P.Y;
         if(!FMath::IsFinite(P.X)||!FMath::IsFinite(P.Y)||FMath::Abs(P.X)>1e9||FMath::Abs(P.Y)>1e9) { Error=TEXT("Invalid source mesh coordinates."); return; }
+        Mutable->SourceNodes[I]=P;
         P.X+=Mutable->Meta.SourceOffset.X; P.Y+=Mutable->Meta.SourceOffset.Z;
     }
     Mutable->Triangles.SetNum(Triangles);
