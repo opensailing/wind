@@ -152,7 +152,8 @@ bool StudioSavedComparisons::IsValid(const TArray<FStudioSavedComparison>& Saved
     for(const auto& S:Saved)
     {
         if(!IsValid(S,Error))return false;
-        if(Ids.Contains(S.Id)||Names.Contains(S.Name.ToLower())){Error=TEXT("Saved comparisons need distinct names and identities.");return false;}
+        if(Ids.Contains(S.Id)){Error=TEXT("The saved comparison list contains duplicate entries. Reopen a valid project copy.");return false;}
+        if(Names.Contains(S.Name.ToLower())){Error=TEXT("A comparison already has that name. Choose a different name.");return false;}
         Ids.Add(S.Id);Names.Add(S.Name.ToLower());
     }
     Error.Empty();return true;

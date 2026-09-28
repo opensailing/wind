@@ -21,6 +21,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SEditableTextBox.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Engine/World.h"
 #include "Async/Async.h"
@@ -72,7 +73,7 @@ private:TWeakObjectPtr<AStudioScene> Scene;
 };
 }
 
-bool SStudioComparisonWorkspace::Busy() const{return PendingSource.IsValid()||Task.IsBusy();}
+bool SStudioComparisonWorkspace::Busy() const{return PendingSource.IsValid()||Task.IsBusy()||RestoreTask.IsBusy();}
 bool SStudioComparisonWorkspace::Visible() const{return M&&M->Project.Id==ProjectId&&M->Workspace==EStudioWorkspace::Results;}
 bool SStudioComparisonWorkspace::Current() const
 {return Pair.IsSet()&&Pair->Matches(Request())&&Scenes[0].IsValid()&&Scenes[1].IsValid()&&Scenes[0]->HasCurrentFrame()&&Scenes[1]->HasCurrentFrame();}
@@ -127,15 +128,22 @@ void SStudioComparisonWorkspace::Construct(const FArguments& Args)
     Apply->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !Busy()&&Sources[0]&&Sources[1]&&!Scalar.IsEmpty()&&Alignment.Mode!=EStudioTimeAlignment::Unset&&!M->IsProjectOpenPending();}));
     auto CancelButton=ComparisonButton(TEXT("CompareCancel"),TEXT("Cancel read"),[this]{Cancel();});
     CancelButton->SetVisibility(TAttribute<EVisibility>::CreateLambda([this]{return Busy()?EVisibility::Visible:EVisibility::Collapsed;}));
+    auto Save=ComparisonMenu(TEXT("CompareSaveMenu"),[]{return TEXT("Save comparison…");},[this]{return SaveMenu();});
+    Save->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Current()&&!Busy()&&!M->IsProjectOpenPending();}));
+    auto Saved=ComparisonMenu(TEXT("CompareSavedMenu"),[this]{return FString::Printf(TEXT("Saved comparisons (%d)…"),M->Project.Comparisons.Num());},[this]{return SavedMenu();});
+    Saved->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !Busy()&&!M->IsProjectOpenPending();}));
     ChildSlot[SNew(SBorder).BorderImage(&PanelBrush).Padding(20)[SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1)[Label(TEXT("Compare recordings"),18,Text,true)]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[Save]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[Saved]
             +SHorizontalBox::Slot().AutoWidth()[ComparisonButton(TEXT("CompareBack"),TEXT("Back to Results"),[Action=Back]{Action.ExecuteIfBound();})]]
         +SVerticalBox::Slot().AutoHeight()[Controls]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Apply]
             +SHorizontalBox::Slot().AutoWidth().Padding(8,0)[CancelButton]
             +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(12,0)[SNew(SCheckBox).Tag(TEXT("CompareCommonRange"))
+                .IsEnabled_Lambda([this]{return !Busy();})
                 .IsChecked_Lambda([this]{return bCommonRange?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
                 .OnCheckStateChanged_Lambda([this](ECheckBoxState S){bCommonRange=S==ECheckBoxState::Checked;SetRanges();})[Label(TEXT("Shared color range"),10)]]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[SNew(STextBlock).Tag(TEXT("CompareNotice")).Font(Font(10)).AutoWrapText(true)
@@ -153,7 +161,7 @@ void SStudioComparisonWorkspace::Construct(const FArguments& Args)
 }
 
 SStudioComparisonWorkspace::~SStudioComparisonWorkspace()
-{Cancel();Task.Shutdown();if(PendingSource.IsValid()){PendingSource.Wait();PendingSource={};}CloseViews();}
+{Cancel();Task.Shutdown();RestoreTask.Shutdown();if(PendingSource.IsValid()){PendingSource.Wait();PendingSource={};}CloseViews();}
 void SStudioComparisonWorkspace::CloseViews()
 {
     for(int32 I=0;I<2;++I)
@@ -167,7 +175,7 @@ void SStudioComparisonWorkspace::CloseViews()
 void SStudioComparisonWorkspace::InvalidatePair()
 {CloseViews();bError=false;Notice=TEXT("Settings changed. Compare frames to inspect the new pair.");}
 void SStudioComparisonWorkspace::Cancel()
-{Task.Cancel();if(SourceCancellation)SourceCancellation->store(true);}
+{Task.Cancel();RestoreTask.Cancel();if(SourceCancellation)SourceCancellation->store(true);}
 void SStudioComparisonWorkspace::OpenSource(int32 Side,const FString& Id)
 {
     if(Busy()||!Visible())return;InvalidatePair();LoadingSide=Side;
@@ -195,7 +203,7 @@ void SStudioComparisonWorkspace::Tick(const FGeometry& G,double Time,float Delta
         auto R=PendingSource.Consume();const bool Cancelled=SourceCancellation->load();SourceCancellation.Reset();
         if(Cancelled){Notice=TEXT("Recording read cancelled. Previous selection retained.");bError=false;}
         else if(!R.Source){Notice=R.Error;bError=true;}
-        else{Sources[LoadingSide]=MoveTemp(R.Source);Cameras[LoadingSide].Reset();if(!LoadingSide)Ordinal=0;RefreshScalar();Notice=TEXT("Choose an alignment and compare the original frames.");bError=false;}
+        else{Sources[LoadingSide]=MoveTemp(R.Source);SourceReferences[LoadingSide]=MoveTemp(R.Reference);Cameras[LoadingSide].Reset();if(!LoadingSide)Ordinal=0;RefreshScalar();Notice=TEXT("Choose an alignment and compare the original frames.");bError=false;}
         LoadingSide=INDEX_NONE;
     }
     if(auto Result=Task.Poll())
@@ -208,6 +216,20 @@ void SStudioComparisonWorkspace::Tick(const FGeometry& G,double Time,float Delta
                 Notice+=TEXT("\nChoose a compatible Frame A, recording or time alignment, then select Compare frames again.");
             bError=Result->Frames.Status!=EStudioComparisonStatus::Cancelled;
         }
+    }
+    if(auto Restored=RestoreTask.Poll())
+    {
+        const auto* Saved=M->FindComparison(Restored->Saved.Id);
+        if(!M->IsProjectOpenPending()&&Saved&&Restored->Matches(M->Project.Id,*Saved))
+        {
+            CloseViews();Sources[0]=MoveTemp(Restored->PrimarySource);Sources[1]=MoveTemp(Restored->SecondarySource);
+            SourceReferences[0]=Restored->Saved.Primary.Reference;SourceReferences[1]=Restored->Saved.Secondary.Reference;
+            Cameras[0]=Restored->Saved.Primary.Camera;Cameras[1]=Restored->Saved.Secondary.Camera;
+            Ordinal=Restored->Saved.Primary.Identity.Ordinal;Scalar=Restored->Saved.Scalar;Alignment=Restored->Saved.Alignment;bCommonRange=Restored->Saved.bSharedRange;
+            Present(MoveTemp(*Restored->Pair));Notice=TEXT("Opened ")+Restored->Saved.Name+TEXT(". ")+Notice;
+        }
+        else
+        {Notice=Restored->Error.IsEmpty()?TEXT("The project or saved comparison changed while opening. Current comparison kept; open the saved comparison again."):Restored->Error;bError=!Restored->bCancelled;}
     }
 }
 void SStudioComparisonWorkspace::Compare()
@@ -280,7 +302,8 @@ TSharedRef<SWidget> SStudioComparisonWorkspace::View(int32 Side)
 {
     using namespace StudioUI;auto* Scene=Scenes[Side].Get();const auto Data=Side?Pair->Secondary:Pair->Primary;
     const TCHAR* Letter=Side?TEXT("B"):TEXT("A");const int32 Index=Data.Identity.Ordinal;
-    return SNew(SVerticalBox).Visibility_Lambda([this]{return Current()?EVisibility::Visible:EVisibility::Hidden;})
+    return SNew(SVerticalBox).IsEnabled_Lambda([this]{return !RestoreTask.IsBusy();})
+        .Visibility_Lambda([this]{return Current()?EVisibility::Visible:EVisibility::Hidden;})
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[SNew(SBox).MinDesiredHeight(36)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(0,0,8,0)[SNew(STextBlock).Font(Font(11,true)).ColorAndOpacity(Text).AutoWrapText(true).Text(FText::FromString(FString(Letter)+TEXT(" · ")+Data.Title))]
             +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[ComparisonButton(Side?TEXT("CompareFitB"):TEXT("CompareFitA"),TEXT("Fit"),[this,Side]{if(Scenes[Side].IsValid())Scenes[Side]->FitCamera();})]
@@ -317,4 +340,95 @@ TSharedRef<SWidget> SStudioComparisonWorkspace::CameraMenu(int32 Side)
                 Scenes[Side]->RestoreCamera(C,TEXT("Comparison projection"));}})
         [Label(TEXT("Orthographic projection"),10)]];
     return ComparisonChoices(Rows);
+}
+
+bool SStudioComparisonWorkspace::CaptureSaved(const FString& Name,FStudioSavedComparison& Out)
+{
+    if(!Current()||Busy()||M->IsProjectOpenPending())
+    {EditNotice=TEXT("Wait for both original frames to appear before saving this comparison.");bEditError=true;return false;}
+    auto References=M->Project.Recordings;for(const auto& Reference:SourceReferences)if(Reference.IsSet())References.Add(*Reference);
+    const bool Good=StudioSavedComparisons::Create(Name,*Pair,Scenes[0]->SavedCameraState(),Scenes[1]->SavedCameraState(),bCommonRange,References,Out,EditNotice);
+    bEditError=!Good;return Good;
+}
+void SStudioComparisonWorkspace::CollectionResult(bool Success)
+{
+    EditNotice=M->ComparisonNotice;bEditError=!Success;Notice=EditNotice;bError=bEditError;
+    if(Success){FSlateApplication::Get().DismissAllMenus();FSlateApplication::Get().SetKeyboardFocus(SharedThis(this),EFocusCause::SetDirectly);}
+}
+void SStudioComparisonWorkspace::SaveCurrent()
+{
+    FStudioSavedComparison Saved;if(!CaptureSaved(SaveName,Saved))return;
+    const bool Success=M->AddComparison(MoveTemp(Saved));if(Success)bSaveDraftStarted=false;CollectionResult(Success);
+}
+void SStudioComparisonWorkspace::UpdateSaved(const FGuid& Id)
+{
+    const auto* Existing=M->FindComparison(Id);
+    if(!Existing){EditNotice=Notice=TEXT("This comparison is no longer saved. Save it as a new comparison.");bEditError=bError=true;return;}
+    FStudioSavedComparison Saved;if(!CaptureSaved(Existing->Name,Saved))return;CollectionResult(M->UpdateComparison(Id,MoveTemp(Saved)));
+}
+void SStudioComparisonWorkspace::RenameSaved(const FGuid& Id)
+{
+    const bool Success=M->RenameComparison(Id,RenameDrafts.FindRef(Id));if(Success)RenameDrafts.Remove(Id);CollectionResult(Success);
+}
+void SStudioComparisonWorkspace::OpenSaved(const FGuid& Id)
+{
+    if(Busy()||!Visible()||M->IsProjectOpenPending())return;const auto* Saved=M->FindComparison(Id);
+    if(!Saved){Notice=TEXT("This comparison is no longer saved. Choose another saved comparison.");bError=true;return;}
+    if(!RestoreTask.Start(M->Project.Id,*Saved,M->Project.Recordings,Notice)){bError=true;return;}
+    Notice=TEXT("Opening ")+Saved->Name+TEXT(". Current comparison stays visible until both original frames are verified.");bError=false;
+}
+TSharedRef<SWidget> SStudioComparisonWorkspace::SaveMenu()
+{
+    using namespace StudioUI;auto Rows=SNew(SVerticalBox);EditNotice.Empty();bEditError=false;
+    if(!bSaveDraftStarted)
+    {
+        for(int32 I=1;I<=StudioSavedComparisons::MaxEntries+1;++I)
+        {SaveName=FString::Printf(TEXT("Comparison %d"),I);if(!M->Project.Comparisons.ContainsByPredicate([this](const auto& S){return S.Name.Equals(SaveName,ESearchCase::IgnoreCase);}))break;}
+        bSaveDraftStarted=true;
+    }
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Comparison name"),10)];
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SEditableTextBox).Tag(TEXT("CompareSaveName")).Style(&InputStyle()).Font(Font(10)).ClearKeyboardFocusOnCommit(false)
+        .Text(FText::FromString(SaveName)).OnTextChanged_Lambda([this](const FText& T){SaveName=T.ToString();})
+        .OnTextCommitted_Lambda([this](const FText&,ETextCommit::Type Commit){if(Commit==ETextCommit::OnEnter)SaveCurrent();})];
+    Rows->AddSlot().AutoHeight()[ComparisonButton(TEXT("CompareSaveSubmit"),TEXT("Save comparison"),[this]{SaveCurrent();})];
+    Rows->AddSlot().AutoHeight().Padding(0,8)[ComparisonText([]{return TEXT("Keeps these original frames, alignment, scalar, ranges and both cameras in the project. Use Save to write the project file.");},9,Muted)];
+    Rows->AddSlot().AutoHeight()[ComparisonText([this]{return EditNotice;},10,Amber)];return ComparisonChoices(Rows);
+}
+TSharedRef<SWidget> SStudioComparisonWorkspace::RenameMenu(const FGuid& Id)
+{
+    using namespace StudioUI;auto Rows=SNew(SVerticalBox);EditNotice.Empty();bEditError=false;
+    const auto* Saved=M->FindComparison(Id);if(!Saved)return ComparisonChoices(Rows);
+    if(!RenameDrafts.Contains(Id))RenameDrafts.Add(Id,Saved->Name);
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Comparison name"),10)];
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SEditableTextBox).Tag(TEXT("CompareRenameName")).Style(&InputStyle()).Font(Font(10)).ClearKeyboardFocusOnCommit(false)
+        .Text(FText::FromString(RenameDrafts[Id])).OnTextChanged_Lambda([this,Id](const FText& T){RenameDrafts.Add(Id,T.ToString());})
+        .OnTextCommitted_Lambda([this,Id](const FText&,ETextCommit::Type Commit){if(Commit==ETextCommit::OnEnter)RenameSaved(Id);})];
+    Rows->AddSlot().AutoHeight()[ComparisonButton(TEXT("CompareRenameSubmit"),TEXT("Rename comparison"),[this,Id]{RenameSaved(Id);})];
+    Rows->AddSlot().AutoHeight().Padding(0,8)[ComparisonText([this]{return EditNotice;},10,Amber)];return ComparisonChoices(Rows);
+}
+TSharedRef<SWidget> SStudioComparisonWorkspace::SavedMenu()
+{
+    using namespace StudioUI;auto Rows=SNew(SVerticalBox);EditNotice.Empty();bEditError=false;
+    if(M->Project.Comparisons.IsEmpty())Rows->AddSlot().AutoHeight().Padding(0,0,0,10)
+        [ComparisonText([]{return TEXT("No saved comparisons. Compare two original frames, then choose Save comparison.");},10,Muted)];
+    for(const auto& Saved:M->Project.Comparisons)
+    {
+        const auto Id=Saved.Id;const FString Suffix=Id.ToString();
+        Rows->AddSlot().AutoHeight().Padding(0,4,0,5)[SNew(STextBlock).Font(Font(11,true)).ColorAndOpacity(Text).AutoWrapText(true).Text(FText::FromString(Saved.Name))];
+        Rows->AddSlot().AutoHeight()[ComparisonText([Saved]{return FString::Printf(TEXT("A · %s · frame %d\nB · %s · frame %d"),*Saved.Primary.Title,Saved.Primary.Identity.Ordinal+1,*Saved.Secondary.Title,Saved.Secondary.Identity.Ordinal+1);},9,Muted)];
+        auto Update=ComparisonButton(FName(TEXT("CompareUpdate_")+Suffix),TEXT("Update"),[this,Id]{UpdateSaved(Id);});
+        Update->SetToolTipText(FText::FromString(TEXT("Replace this saved comparison with the current original frames, alignment, ranges and cameras. Undo comparisons restores the previous setup.")));
+        Update->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Current()&&!Busy();}));
+        Rows->AddSlot().AutoHeight().Padding(0,7,0,14)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[ComparisonButton(FName(TEXT("CompareOpen_")+Suffix),TEXT("Open"),[this,Id]{FSlateApplication::Get().DismissAllMenus();OpenSaved(Id);})]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Update]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[ComparisonMenu(FName(TEXT("CompareRename_")+Suffix),[]{return TEXT("Rename…");},[this,Id]{return RenameMenu(Id);})]
+            +SHorizontalBox::Slot().AutoWidth()[ComparisonButton(FName(TEXT("CompareDelete_")+Suffix),TEXT("Delete"),[this,Id]{CollectionResult(M->DeleteComparison(Id));})]];
+    }
+    auto Undo=ComparisonButton(TEXT("CompareUndo"),TEXT("Undo comparisons"),[this]{CollectionResult(M->UndoComparisons());});
+    Undo->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanUndoComparisons();}));
+    auto Redo=ComparisonButton(TEXT("CompareRedo"),TEXT("Redo"),[this]{CollectionResult(M->RedoComparisons());});
+    Redo->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanRedoComparisons();}));
+    Rows->AddSlot().AutoHeight()[SNew(SHorizontalBox)+SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Undo]+SHorizontalBox::Slot().AutoWidth()[Redo]];
+    Rows->AddSlot().AutoHeight().Padding(0,8)[ComparisonText([this]{return EditNotice;},10,Amber)];return ComparisonChoices(Rows);
 }

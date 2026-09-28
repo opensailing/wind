@@ -2,6 +2,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "StudioComparison.h"
 #include "StudioProject.h"
+#include "StudioSavedComparison.h"
 
 class FStudioModel;
 class AStudioScene;
@@ -34,6 +35,12 @@ private:
     void Compare();
     void Present(FStudioComparisonResult Result);
     void SetRanges();
+    void OpenSaved(const FGuid& Id);
+    bool CaptureSaved(const FString& Name,FStudioSavedComparison& Out);
+    void SaveCurrent();
+    void UpdateSaved(const FGuid& Id);
+    void RenameSaved(const FGuid& Id);
+    void CollectionResult(bool bSuccess);
     void RefreshScalar();
     FStudioComparisonRequest Request() const;
     TSharedRef<SWidget> SourceMenu(int32 Side);
@@ -41,6 +48,9 @@ private:
     TSharedRef<SWidget> AlignmentMenu();
     TSharedRef<SWidget> MatchMenu();
     TSharedRef<SWidget> CameraMenu(int32 Side);
+    TSharedRef<SWidget> SaveMenu();
+    TSharedRef<SWidget> SavedMenu();
+    TSharedRef<SWidget> RenameMenu(const FGuid& Id);
     TSharedRef<SWidget> View(int32 Side);
     TSharedPtr<FStudioModel> M;
     TWeakObjectPtr<UWorld> World;
@@ -52,11 +62,16 @@ private:
     TOptional<FStudioCameraState> Cameras[2];
     TSharedPtr<SBox> Views[2];
     FStudioComparisonTask Task;
+    FStudioComparisonRestoreTask RestoreTask;
+    TOptional<FStudioRecordingReference> SourceReferences[2];
     TOptional<FStudioComparisonResult> Pair;
     TFuture<FStudioRecordingLoadResult> PendingSource;
     FStudioLoadCancellation SourceCancellation;
     int32 LoadingSide=INDEX_NONE,Ordinal=0;
     FString Scalar,Notice;
+    FString SaveName,EditNotice;
+    TMap<FGuid,FString> RenameDrafts;
+    bool bEditError=false,bSaveDraftStarted=false;
     FStudioComparisonAlignment Alignment;
     bool bCommonRange=true,bError=false;
 };
