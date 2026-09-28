@@ -187,6 +187,23 @@ python3 Tools/verify_field_sequence.py \
 
 `tmp/analysis/field-sequence-20260928/core-acceptance.json` records 233 clean model cases, including four sequence cases, and independent checks of nine exported frames / 960,339 original point rows with exact values. The audit parses PVD with ElementTree and reads every referenced VTP with VTK 9.7; it does not establish actual ParaView PVD-reader/GUI acceptance. Visible range controls, selected/all-frame CSV, native folder permissions, current integrated long-session testing and full-product acceptance remain open.
 
+### CSV field and sequence backend
+
+`StudioCSVExport` now shares exact-frame validation, scalar loading and provenance with VTK. This backend supports selected arrays and source or scene coordinates for one frame, or an inclusive range through `StudioFieldSequence`. The visible CSV action still uses its legacy implementation until the unified export controls land.
+
+Each UTF-8 CSV begins with `# LBMStudioMetadataUTF8 ` followed by single-line JSON containing original source hashes, ordinal/step/time, scalar labels/units/origins/expressions and coordinate operations. Skip that first comment when reading the table. The header and rows contain an integer point ID, three coordinates in meters and one column per selected scalar ID. Coordinate headers receive an underscore prefix if a scalar has the same name; metadata identifies the actual headers. Values use 17 significant digits and original Int64 IDs retain integer precision. CSV contains point rows without mesh connectivity; choose VTK for supplied triangles.
+
+The writer loads one additional scalar snapshot at a time, spools selected columns to private temporary files, and transposes them in 4,096-row blocks using at most 2 MiB for that block. Scratch space is `8 × points × selected scalars` bytes; it is removed after success, cancellation or failure. The output limit is 512 MiB per frame. Single-file publication uses native atomic replacement; sequences publish a new folder containing each frame and `frames.csv` with original ordinals, steps, times and relative filenames. The existing no-replacement and cancellation rules apply to sequences.
+
+After `Tools/test.sh`, run the independent CSV audit:
+
+```bash
+python3 Tools/verify_csv_field_export.py \
+  --report tmp/analysis/csv-field-export-audit.json
+```
+
+The audit uses Python's CSV parser and direct original binary arrays through the shared NumPy audit reader (whose module also requires VTK). `tmp/analysis/csv-field-export-20260928/core-acceptance.json` records 236 successful model cases (one existing Unreal helper warning), 13 independently checked CSV frames / 1,285,685 original point rows with zero observed value error, and 14 VTK regression files. Visible range/format controls, actual native picker/input and current integrated stability/release acceptance remain open.
+
 ## CFD sample provenance
 
 - **Source:** Pfaff, Fortunato, Sanchez-Gonzalez and Battaglia, *Learning Mesh-Based Simulation with Graph Networks*, ICLR 2021. The bundled data is SU2 ground truth from the official dataset, not model predictions.
