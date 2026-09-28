@@ -150,7 +150,7 @@ bool StudioFileDialog::Project(bool bSave, const FString& CurrentPath, const FSt
     return bAccepted;
 }
 
-bool StudioFileDialog::ProbeCSV(const FString& SuggestedName,FString& OutPath)
+bool StudioFileDialog::CSV(const FString& SuggestedName,FString& OutPath,const FString& Title,const FString& Description)
 {
 #if WITH_DEV_AUTOMATION_TESTS
     bool Automated=false;if(ConsumeProbeCSVForAutomation(OutPath,Automated))return Automated;
@@ -162,11 +162,12 @@ bool StudioFileDialog::ProbeCSV(const FString& SuggestedName,FString& OutPath)
     MacApplication->SystemModalMode(true);
     const bool Accepted=MainThreadReturn(^{
         SCOPED_AUTORELEASE_POOL;
-        NSSavePanel* Panel=[NSSavePanel savePanel];Panel.title=@"Export Probe Samples";
-        Panel.message=@"Exports the samples and source/frame identity captured when Export was clicked.";
+        NSSavePanel* Panel=[NSSavePanel savePanel];Panel.title=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*Title)];
+        Panel.message=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*Description)];
         Panel.canCreateDirectories=YES;
         UTType* CSVType=[UTType typeWithFilenameExtension:@"csv"];if(CSVType)Panel.allowedContentTypes=@[CSVType];
-        Panel.nameFieldStringValue=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*(SuggestedName+TEXT(".csv")))];
+        const FString Filename=SuggestedName.EndsWith(TEXT(".csv"))?SuggestedName:SuggestedName+TEXT(".csv");
+        Panel.nameFieldStringValue=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*Filename)];
         const bool OK=[Panel runModal]==NSModalResponseOK;
         if(OK)OutPath=UTF8_TO_TCHAR(Panel.URL.path.UTF8String);
         [Panel close];return OK;
@@ -176,6 +177,12 @@ bool StudioFileDialog::ProbeCSV(const FString& SuggestedName,FString& OutPath)
     FCoreDelegates::PostModal.Broadcast();
 #endif
     return Accepted;
+}
+
+bool StudioFileDialog::ProbeCSV(const FString& SuggestedName,FString& OutPath)
+{
+    return CSV(SuggestedName,OutPath,TEXT("Export Probe Samples"),
+        TEXT("Exports the samples and source/frame identity captured when Export was clicked."));
 }
 
 bool StudioFileDialog::Geometry(const FString& CurrentPath,FString& OutPath)

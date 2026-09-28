@@ -10,6 +10,8 @@ namespace StudioFileDialog
     bool RecordingFolder(const FString& CurrentPath,FString& OutPayloadPath);
     bool ReconstructionFolder(const FString& CurrentPath,FString& OutDescriptorPath);
     bool ProbeCSV(const FString& SuggestedName,FString& OutPath);
+    /** CSV destination with purpose-specific native panel copy. */
+    bool CSV(const FString& SuggestedName,FString& OutPath,const FString& Title,const FString& Description);
     bool SnapshotPNG(const FString& SuggestedName,FString& OutPath);
 #if WITH_DEV_AUTOMATION_TESTS
     /** Routed UI tests supply a one-shot panel result; never proves native picker access. */

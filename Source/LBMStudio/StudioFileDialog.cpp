@@ -57,6 +57,7 @@ bool StudioFileDialog::SnapshotPNG(const FString&,FString&) { return false; }
 bool StudioFileDialog::WriteAtomicBytes(const FString&,const TArray64<uint8>&,FString& Error)
 {Error=TEXT("Snapshot file export is not available on this platform.");return false;}
 bool StudioFileDialog::ProbeCSV(const FString&,FString&) { return false; }
+bool StudioFileDialog::CSV(const FString&,FString&,const FString&,const FString&) { return false; }
 bool StudioFileDialog::RecordingFolder(const FString&,FString&) { return false; }
 bool StudioFileDialog::ReconstructionFolder(const FString&,FString&) { return false; }
 bool StudioFileDialog::ImportGeometry(FString&) { return false; }

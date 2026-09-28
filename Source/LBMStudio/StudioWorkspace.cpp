@@ -22,6 +22,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioBoundaries.h"
 #include "StudioMonitorChart.h"
 #include "StudioMonitorExport.h"
+#include "StudioLogExport.h"
+#include "Widgets/Views/SListView.h"
+#include "Widgets/Input/SMultiLineEditableTextBox.h"
 #include "StudioBoundarySelection.h"
 #include "Widgets/Layout/SWrapBox.h"
 #include "Fonts/FontMeasure.h"
@@ -1055,6 +1058,21 @@ public:
     }
 };
 
+struct FStudioLogWorkspaceState
+{
+    FStudioLogView View;
+    FStudioLogQuery Query;
+    TArray<TSharedPtr<FStudioLogEntry>> Rows;
+    TWeakPtr<SListView<TSharedPtr<FStudioLogEntry>>> List;
+    TWeakPtr<SEditableTextBox> Search;
+    TWeakPtr<SButton> ExpandButton;
+    FStudioLogExportTask Export;
+    FString Preview,RecentActivity,Detail,ExportNotice,ExportPath;
+    FGuid Owner,Run,ExportOwner;
+    uint64 ShownSequence=MAX_uint64,SelectedSequence=0,RecentSequence=MAX_uint64;
+    bool bDirty=true,bAllProjects=false,bCurrentRun=false;
+};
+
 void SStudioWorkspace::Construct(const FArguments& A)
 {
     M=A._Model;Scene=A._Scene; SetCanTick(true);
@@ -1062,10 +1080,11 @@ void SStudioWorkspace::Construct(const FArguments& A)
     InspectionExport=MakeShared<FStudioProbeExportTask>();
     MonitorExport=MakeShared<FStudioMonitorExportTask>();
     SnapshotExport=MakeShared<FStudioSnapshotExportTask>();
+    LogState=MakeShared<FStudioLogWorkspaceState>();
     auto Restore=Button(TEXT("Restore"),TEXT("save"),[this]{if(ConfirmReplace(true)) M->RequestRecoveryOpen();});
     Restore->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !M->IsProjectOpenPending();}));
     // The sidebar is the sole workspace navigator; content starts directly below the header.
-    const auto SolveSurface=SNew(SHorizontalBox)
+    const auto SolveView=SNew(SHorizontalBox)
         +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,7,0)[Center()]
         +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(322)
             .Visibility_Lambda([this]{return M->bViewportExpanded&&!bInspectionOpen&&!M->CameraPlacement()?EVisibility::Collapsed:EVisibility::Visible;})
@@ -1073,6 +1092,9 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[Settings()]
                 +SWidgetSwitcher::Slot()[CameraPlacementControls()]
                 +SWidgetSwitcher::Slot()[InspectionControls()]]];
+    const auto SolveSurface=SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->bActivityLogExpanded?1:0;})
+        +SWidgetSwitcher::Slot()[SolveView]
+        +SWidgetSwitcher::Slot()[ActivityLogPanel()];
     const auto ProjectsSurface=Projects();
     const auto DashboardSurface=Dashboard();
     ChildSlot[SNew(SBorder).BorderImage(&Background).Padding(0)
@@ -1290,7 +1312,7 @@ TSharedRef<SWidget> SStudioWorkspace::Dashboard()
             +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("All projects"),TEXT("folder"),[this]{Navigate(EStudioWorkspace::Projects);})]]
         +SVerticalBox::Slot().AutoHeight()[SAssignNew(DashboardProjectRows,SVerticalBox)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,22,0,8)[Label(TEXT("Recent activity"),12,Text,true)]
-        +SVerticalBox::Slot().AutoHeight()[Live([this]{FString Activity;for(int32 I=FMath::Max(0,M->Log.Num()-5);I<M->Log.Num();++I){if(!Activity.IsEmpty())Activity+=TEXT("\n");Activity+=M->Log[I];}return Activity.IsEmpty()?TEXT("No activity in this session."):Activity;},10,Muted,true)]]];
+        +SVerticalBox::Slot().AutoHeight()[Live([this]{return LogState->RecentActivity;},10,Muted,true)]]];
 }
 TSharedRef<SWidget> SStudioWorkspace::RecentProjectRow(const FStudioProjectSummary& Item,bool bCompact)
 {
@@ -1397,6 +1419,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     RefreshLattice();
     RefreshRunSettings();
     RefreshMonitors();
+    RefreshActivityLog();
     if(DisplayMenuProject!=M->Project.Id||DisplayMenuSource.Pin()!=M->Solver||DisplayMenuScalar!=M->ActiveScalar().Id)
         DisplayMenuDrafts.Empty(); // Release prior recording closures even if no editor is reopened.
     if(bProjectListsDirty || LastCatalogRevision!=M->CatalogRevision || DashboardProjectId!=M->Project.Id || DashboardRunCount!=M->Project.Runs.Num()) RefreshProjectLists();
@@ -2122,10 +2145,12 @@ TSharedRef<SWidget> SStudioWorkspace::Monitors()
                 +SVerticalBox::Slot().FillHeight(1)[SNew(SStudioMonitorChart).Model(M).Compact(true)
                     .Series_Lambda([this]{return MonitorPreviewSeries;}).Tag(TEXT("MonitorPreviewChart"))]] )]
         +SHorizontalBox::Slot().FillWidth(1.03).Padding(0,0,6,0)[Card(TEXT("Activity log"),SNew(SVerticalBox)
-            +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Live([this]{FString T;const auto& Log=M->Project.bControlHarness?M->JobLog:M->Log;const int32 First=FMath::Max(0,Log.Num()-9);for(int32 I=First;I<Log.Num();++I) T+=Log[I]+TEXT("\n");return T;},8,Muted,true)]]
+            +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox)+SScrollBox::Slot()[Live([this]{return LogState->Preview;},9,Muted,true)]]
             +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
-                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Live([this]{return M->Project.bControlHarness?TEXT("Control harness"):TEXT("Recorded output");},9,Green)]
-                +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Clear"),TEXT("stop"),[this]{(M->Project.bControlHarness?M->JobLog:M->Log).Reset();})]])]
+                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Live([this]{return LogState->View.IsFollowing()?TEXT("Following · UTC"):TEXT("View paused");},8,Muted)]
+                +SHorizontalBox::Slot().AutoWidth()[SAssignNew(LogState->ExpandButton,SButton).Tag(TEXT("LogExpand"))
+                    .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,6)).OnClicked_Lambda([this]{ExpandActivityLog(true);return FReply::Handled();})
+                    [Label(TEXT("Open log"),9)]]])]
         +SHorizontalBox::Slot().FillWidth(.53)[Card(TEXT("Control status"),SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.bControlHarness?1:0;})
             +SWidgetSwitcher::Slot()[SNew(SJobProgress).Model(M)]
             +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
@@ -2141,6 +2166,190 @@ TSharedRef<SWidget> SStudioWorkspace::Monitors()
 // FIRST VIEWPORT: Large chart at left; source, units, series and provenance in one right inspector.
 // FORM: Local native extension; sidebar owns navigation, chart settings persist in the project.
 // FINISH: unreviewed and undocumented is unfinished; finish review, verdict and DESIGN.md follow.
+void SStudioWorkspace::ExpandActivityLog(bool bExpand)
+{
+    M->bActivityLogExpanded=bExpand;
+    const TSharedPtr<SWidget> Focus=bExpand?StaticCastSharedPtr<SWidget>(LogState->Search.Pin()):StaticCastSharedPtr<SWidget>(LogState->ExpandButton.Pin());
+    if(Focus)FSlateApplication::Get().SetKeyboardFocus(Focus,EFocusCause::Navigation);
+}
+void SStudioWorkspace::RefreshActivityLog()
+{
+    auto& S=*LogState;
+    if(const auto Result=S.Export.Poll())
+    {
+        if(S.ExportOwner==M->Project.Id)
+        {
+            S.ExportPath=Result->Path;
+            S.ExportNotice=Result->bSuccess?FString::Printf(TEXT("Exported %d %s · %s"),Result->Entries,Result->Entries==1?TEXT("entry"):TEXT("entries"),*FPaths::GetCleanFilename(Result->Path)):
+                TEXT("Export failed: ")+Result->Error;
+            M->AddLog(S.ExportNotice,Result->bSuccess?EStudioLogSeverity::Info:EStudioLogSeverity::Error);
+        }
+    }
+    if(S.Owner!=M->Project.Id)
+    {
+        S.Owner=M->Project.Id;S.bAllProjects=false;S.bCurrentRun=false;S.Query=FStudioLogQuery();
+        S.View.SetFollowing(true,M->ActivityLog());S.View.ShowRetained();S.ExportNotice.Empty();S.ExportPath.Empty();
+        S.bDirty=true;S.RecentSequence=MAX_uint64;M->bActivityLogExpanded=false;if(const auto Search=S.Search.Pin())Search->SetText(FText::GetEmpty());
+    }
+    const FGuid CurrentRun=M->Job().Run()?M->Job().Run()->GetId():FGuid();
+    if(S.Run!=CurrentRun){S.Run=CurrentRun;S.bDirty=true;if(!CurrentRun.IsValid())S.bCurrentRun=false;}
+    S.Query.ProjectId=S.bAllProjects?FGuid():M->Project.Id;
+    S.Query.RunId=S.bCurrentRun?CurrentRun:FGuid();
+    S.View.Refresh(M->ActivityLog());
+    if(S.bDirty||S.ShownSequence!=S.View.CapturedSequence())
+    {
+        S.bDirty=false;S.ShownSequence=S.View.CapturedSequence();
+        const auto Entries=S.View.Select(S.Query);S.Rows.Reset();S.Detail.Empty();
+        for(const auto& Entry:Entries)
+        {
+            S.Rows.Add(MakeShared<FStudioLogEntry>(Entry));
+            if(Entry.Sequence==S.SelectedSequence)
+                S.Detail=StudioLog::Line(Entry)+TEXT("\nObserved: ")+Entry.ObservedUTC.ToIso8601()+TEXT("\nProject: ")+Entry.ProjectId.ToString()+
+                    (Entry.RunId.IsValid()?TEXT("\nRun: ")+Entry.RunId.ToString():TEXT(""))+
+                    (Entry.SourceReference.IsEmpty()?TEXT(""):TEXT("\nSource: ")+Entry.SourceReference);
+        }
+        S.Preview.Empty();
+        for(int32 I=Entries.Num()-1;I>=FMath::Max(0,Entries.Num()-3);--I)
+            S.Preview+=StudioLog::Line(Entries[I])+TEXT("\n\n");
+        if(Entries.IsEmpty())S.Preview=TEXT("No visible entries. Open log to adjust filters or show retained entries.");
+        S.List.Pin()->RequestListRefresh();
+        if(S.View.IsFollowing()&&!S.Rows.IsEmpty())S.List.Pin()->RequestScrollIntoView(S.Rows.Last());
+    }
+    // Dashboard activity is a current-project summary, independent of log filters.
+    if(S.RecentSequence==M->ActivityLog().LastSequence())return;
+    S.RecentSequence=M->ActivityLog().LastSequence();
+    const auto Recent=M->ActivityLog().Snapshot();S.RecentActivity.Empty();int32 Count=0;
+    for(int32 I=Recent.Num()-1;I>=0&&Count<5;--I)if(Recent[I].ProjectId==M->Project.Id)
+    {if(Count++)S.RecentActivity+=TEXT("\n");S.RecentActivity+=Recent[I].Message;}
+    if(S.RecentActivity.IsEmpty())S.RecentActivity=TEXT("No activity for this project in this session.");
+}
+
+TSharedRef<SWidget> SStudioWorkspace::ActivityLogPanel()
+{
+    const auto S=LogState;
+    static const FTableRowStyle LogRowStyle=[]
+    {
+        auto Style=FCoreStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+        Style.SetEvenRowBackgroundBrush(FSlateColorBrush(BG)).SetOddRowBackgroundBrush(FSlateColorBrush(Panel))
+            .SetEvenRowBackgroundHoveredBrush(FSlateColorBrush(Raised)).SetOddRowBackgroundHoveredBrush(FSlateColorBrush(Raised))
+            .SetActiveBrush(FSlateColorBrush(Raised)).SetActiveHoveredBrush(FSlateColorBrush(Raised))
+            .SetInactiveBrush(FSlateColorBrush(Raised)).SetInactiveHoveredBrush(FSlateColorBrush(Raised))
+            .SetSelectorFocusedBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent,0.f,Cyan,1.f));
+        return Style;
+    }();
+    static const FEditableTextBoxStyle LogDetailStyle=[]
+    {
+        auto Style=InputStyle();Style.SetBackgroundImageReadOnly(FSlateRoundedBoxBrush(BG,3.f,Line,1.f));return Style;
+    }();
+    auto Choices=[](const TArray<FString>& Labels,const FString& Prefix,TFunction<void(int32)> Pick)->TSharedRef<SWidget>
+    {
+        auto Rows=SNew(SVerticalBox);
+        for(int32 I=0;I<Labels.Num();++I)
+            Rows->AddSlot().AutoHeight().Padding(0,2)[SNew(SButton).Tag(FName(Prefix+FString::FromInt(I)))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7)).HAlign(HAlign_Left)
+                .OnClicked_Lambda([Pick,I]{Pick(I);FSlateApplication::Get().DismissAllMenus();return FReply::Handled();})[Label(Labels[I],10)]];
+        return SNew(SBorder).BorderImage(&PanelBrush).Padding(7)[Rows];
+    };
+    return SNew(SBorder).BorderImage(&PanelBrush).Padding(18,16)
+    [SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Activity log"),18,Text,true)]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[SNew(SButton).Tag(TEXT("LogFollow"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(10,8))
+                .ToolTipText(FText::FromString(TEXT("Pause freezes this view while collection continues. Follow latest resumes from the retained session entries.")))
+                .OnClicked_Lambda([this,S]{S->View.SetFollowing(!S->View.IsFollowing(),M->ActivityLog());S->bDirty=true;RefreshActivityLog();return FReply::Handled();})
+                [Live([S]{return S->View.IsFollowing()?TEXT("Pause view"):TEXT("Follow latest");},10,Cyan)]]
+            +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("LogRestore"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(10,8)).OnClicked_Lambda([this]{ExpandActivityLog(false);return FReply::Handled();})
+                [Label(TEXT("Restore Solve"),10)]]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[Label(TEXT("Observed UTC · Application, playback and control events from this session"),10,Muted)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,8,0)[SAssignNew(S->Search,SProjectFilterBox).Tag(TEXT("LogSearch"))
+                .Style(&InputStyle()).Font(Font(10)).ForegroundColor(Text).HintText(FText::FromString(TEXT("Search messages, sources or IDs")))
+                .OnTextChanged_Lambda([S](const FText& Value){S->Query.Search=Value.ToString().Left(256);S->bDirty=true;if(Value.ToString().Len()>256)S->Search.Pin()->SetText(FText::FromString(S->Query.Search));})]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[SNew(SBox).WidthOverride(164)
+                [SNew(SStudioMenuButton).Tag(TEXT("LogSource")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7))
+                    .OnGetMenuContent_Lambda([S,Choices]{return Choices({TEXT("All sources"),TEXT("Application"),TEXT("Playback"),TEXT("Control harness")},TEXT("LogSource_"),[S](int32 I)
+                        {S->Query.Source=I?TOptional<EStudioLogSource>(EStudioLogSource(I-1)):TOptional<EStudioLogSource>();S->bDirty=true;});})
+                    .ButtonContent()[Live([S]{return S->Query.Source?FString(StudioLog::SourceName(*S->Query.Source)):TEXT("All sources");})]]]
+            +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(170)
+                [SNew(SStudioMenuButton).Tag(TEXT("LogSeverity")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7))
+                    .OnGetMenuContent_Lambda([S,Choices]{return Choices({TEXT("All severities"),TEXT("Warnings + errors"),TEXT("Errors only")},TEXT("LogSeverity_"),[S](int32 I)
+                        {S->Query.MinimumSeverity=EStudioLogSeverity(I);S->bDirty=true;});})
+                    .ButtonContent()[Live([S]{return S->Query.MinimumSeverity==EStudioLogSeverity::Info?TEXT("All severities"):
+                        S->Query.MinimumSeverity==EStudioLogSeverity::Warning?TEXT("Warnings + errors"):TEXT("Errors only");})]]]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)[SNew(SStudioMenuButton).Tag(TEXT("LogScope"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7))
+                .OnGetMenuContent_Lambda([S,Choices]{return Choices({TEXT("Current project"),TEXT("All session projects")},TEXT("LogScope_"),[S](int32 I)
+                    {S->bAllProjects=I!=0;if(S->bAllProjects)S->bCurrentRun=false;S->bDirty=true;});})
+                .ButtonContent()[Live([S]{return S->bAllProjects?TEXT("All session projects"):TEXT("Current project");})]]
+            +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[SNew(SCheckBox).Tag(TEXT("LogCurrentRun"))
+                .IsEnabled_Lambda([S]{return !S->bAllProjects&&S->Run.IsValid();})
+                .IsChecked_Lambda([S]{return S->bCurrentRun?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+                .OnCheckStateChanged_Lambda([S](ECheckBoxState State){S->bCurrentRun=State==ECheckBoxState::Checked;S->bDirty=true;})
+                .ToolTipText(FText::FromString(TEXT("Show entries belonging to the current control run. Available after submitting a control job.")))
+                [Label(TEXT("Current control run"),10)]]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[SNew(SButton).Tag(TEXT("LogClear"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7)).IsEnabled_Lambda([S]{return !S->Rows.IsEmpty();})
+                .ToolTipText(FText::FromString(TEXT("Hide entries through the current snapshot. Retained entries are recoverable with Show retained.")))
+                .OnClicked_Lambda([S]{S->View.ClearView();S->SelectedSequence=0;S->bDirty=true;return FReply::Handled();})[Label(TEXT("Clear view"),10)]]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[SNew(SButton).Tag(TEXT("LogShowRetained"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7)).IsEnabled_Lambda([S]{return S->View.HiddenSequence()!=0;})
+                .OnClicked_Lambda([S]{S->View.ShowRetained();S->bDirty=true;return FReply::Handled();})[Label(TEXT("Show retained"),10)]]
+            +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("LogExport"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7)).IsEnabled_Lambda([S]{return !S->Rows.IsEmpty()&&!S->Export.IsBusy();})
+                .ToolTipText(FText::FromString(TEXT("Export the visible filtered snapshot, including paused rows, to CSV. Messages and context are copied before choosing a file.")))
+                .OnClicked_Lambda([this,S]
+                {
+                    RefreshActivityLog();auto Entries=S->View.Select(S->Query);const FGuid Owner=M->Project.Id;
+                    FString Path;if(!StudioFileDialog::CSV(TEXT("activity-")+FDateTime::UtcNow().ToString(TEXT("%Y%m%d-%H%M%S")),Path,
+                        TEXT("Export Activity Log"),TEXT("Exports the visible snapshot with UTC observation times, severity and project/run context.")))return FReply::Handled();
+                    if(S->Export.Start(MoveTemp(Entries),Path)){S->ExportOwner=Owner;S->ExportNotice=TEXT("Exporting visible entries…");S->ExportPath=Path;}
+                    return FReply::Handled();
+                })[Label(TEXT("Export CSV…"),10)]]]
+        +SVerticalBox::Slot().FillHeight(1)[SNew(SBorder).BorderImage(&LineBrush).Padding(1)
+            [SNew(SOverlay)
+                +SOverlay::Slot()[SNew(SBorder).BorderImage(&Background).Padding(0)
+                    [SAssignNew(S->List,SListView<TSharedPtr<FStudioLogEntry>>).Tag(TEXT("LogList"))
+                        .ListItemsSource(&S->Rows).SelectionMode(ESelectionMode::Single)
+                        .OnGenerateRow_Lambda([](TSharedPtr<FStudioLogEntry> Entry,const TSharedRef<STableViewBase>& Owner)
+                        {
+                            const auto Color=Entry->Severity==EStudioLogSeverity::Error?FLinearColor(1,.28,.23):Entry->Severity==EStudioLogSeverity::Warning?Amber:Muted;
+                            const FString Context=Entry->ObservedUTC.ToString(TEXT("%H:%M:%S"))+TEXT(" UTC  ·  ")+StudioLog::SeverityName(Entry->Severity)+TEXT("  ·  ")+StudioLog::SourceName(Entry->Source);
+                            return SNew(STableRow<TSharedPtr<FStudioLogEntry>>,Owner).Style(&LogRowStyle).Padding(FMargin(10,7)).ToolTipText(FText::FromString(StudioLog::Line(*Entry)))
+                                [SNew(SVerticalBox)
+                                    +SVerticalBox::Slot().AutoHeight()[Label(Context,9,Color)]
+                                    +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,0)[SNew(STextBlock).Font(Font(10)).ColorAndOpacity(Text)
+                                        .Text(FText::FromString(Entry->Message.Replace(TEXT("\r"),TEXT(" ")).Replace(TEXT("\n"),TEXT(" "))+(Entry->bTruncated?TEXT(" [truncated]"):TEXT(""))))
+                                        .OverflowPolicy(ETextOverflowPolicy::Ellipsis)]];
+                        })
+                        .OnSelectionChanged_Lambda([S](TSharedPtr<FStudioLogEntry> Entry,ESelectInfo::Type)
+                        {
+                            S->SelectedSequence=Entry?Entry->Sequence:0;
+                            S->Detail=Entry?StudioLog::Line(*Entry)+TEXT("\nObserved: ")+Entry->ObservedUTC.ToIso8601()+TEXT("\nProject: ")+Entry->ProjectId.ToString()+
+                                (Entry->RunId.IsValid()?TEXT("\nRun: ")+Entry->RunId.ToString():TEXT(""))+
+                                (Entry->SourceReference.IsEmpty()?TEXT(""):TEXT("\nSource: ")+Entry->SourceReference):FString();
+                        })]]
+                +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)[SNew(STextBlock).Font(Font(11)).ColorAndOpacity(Muted)
+                    .Visibility_Lambda([S]{return S->Rows.IsEmpty()?EVisibility::HitTestInvisible:EVisibility::Collapsed;})
+                    .Text_Lambda([S]{return FText::FromString(S->View.HiddenSequence()?TEXT("View cleared. Show retained restores available entries."):
+                        TEXT("No matching entries. Adjust search or filters."));})]]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[SNew(SBox).HeightOverride(108)
+            .Visibility_Lambda([S]{return S->Detail.IsEmpty()?EVisibility::Collapsed:EVisibility::Visible;})
+            [SNew(SMultiLineEditableTextBox).Tag(TEXT("LogDetail")).Style(&LogDetailStyle).Font(Font(10)).ForegroundColor(Text).ReadOnlyForegroundColor(Text)
+                .IsReadOnly(true).AutoWrapText(true).Text_Lambda([S]{return FText::FromString(S->Detail);})]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,9,0,0)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1)[Live([this,S]
+            {
+                return FString::Printf(TEXT("%d visible · %d retained · %llu older dropped  |  %s"),S->Rows.Num(),M->ActivityLog().Num(),
+                    static_cast<unsigned long long>(M->ActivityLog().EvictedCount()),S->View.IsFollowing()?TEXT("Following latest"):TEXT("View paused"))+
+                    (S->View.IsFollowing()?TEXT(""):FString::Printf(TEXT(" · %llu new %s"),static_cast<unsigned long long>(S->View.PendingCount(M->ActivityLog())),S->View.PendingCount(M->ActivityLog())==1?TEXT("event"):TEXT("events")));
+            },9,Muted)]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[SNew(STextBlock).Tag(TEXT("LogExportNotice")).Font(Font(9)).ColorAndOpacity(Cyan).AutoWrapText(true)
+            .Text_Lambda([S]{return FText::FromString(S->ExportNotice);}).ToolTipText_Lambda([S]{return FText::FromString(S->ExportPath);})]];
+}
+
 TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
 {
     auto Source=SNew(SStudioMenuButton).Tag(TEXT("MonitorSource")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,7))

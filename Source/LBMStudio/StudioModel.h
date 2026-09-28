@@ -175,7 +175,7 @@ public:
     static constexpr double ColorMax = 400.0; // Fixed velocity legend across all source frames.
     TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> Solver;
     TArray<FStudioFrame> Frames;
-    TArray<FString> Log;
+    bool bActivityLogExpanded=false; // Session-only Solve panel state.
     const FStudioLogJournal& ActivityLog() const { return Journal; }
     EStudioRunState State = EStudioRunState::Ready;
     int32 SelectedFrame = 0;
@@ -253,7 +253,6 @@ public:
     const FStudioJobController& Job() const { return *JobController; }
     FString RunStatus(const FGuid& Id) const;
     const FStudioJobHistory* CurrentJobHistory() const;
-    TArray<FString> JobLog;
     // Explicit development actions, never claims about the recorded CFD.
     bool SimulateJobEvent(EStudioJobState State);
     bool CanSimulateJobEvent(EStudioJobState State) const;

@@ -24,6 +24,7 @@ struct FStudioBoundaryWorkspaceState;
 struct FStudioLatticeWorkspaceState;
 struct FStudioGeometryWorkspaceState;
 struct FStudioRunSettingsState;
+struct FStudioLogWorkspaceState;
 class SStudioWorkspace : public SCompoundWidget
 {
 public:
@@ -100,6 +101,7 @@ private:
     FString MonitorExportNotice;
     FString MonitorExportPath,MonitorExportSeries;
     FString MonitorPreviewSeries;
+    TSharedPtr<FStudioLogWorkspaceState> LogState;
     FGuid MonitorExportProject;
     TWeakPtr<const FStudioHistory,ESPMode::ThreadSafe> MonitorExportHistory;
     TSharedPtr<const FStudioProbeProfile> InspectionProfile;
@@ -169,6 +171,9 @@ private:
     TSharedRef<SWidget> Monitors();
     TSharedRef<SWidget> MonitorWorkspace();
     void RefreshMonitors();
+    TSharedRef<SWidget> ActivityLogPanel();
+    void RefreshActivityLog();
+    void ExpandActivityLog(bool bExpand);
     TSharedRef<SWidget> ProjectMenu();
     TSharedRef<SWidget> CameraMenu();
     TSharedRef<SWidget> CameraClippingControls();

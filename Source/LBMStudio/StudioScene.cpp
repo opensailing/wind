@@ -726,7 +726,7 @@ void AStudioScene::Tick(float Delta)
     const bool WantsDomain=Model->Workspace==EStudioWorkspace::Domain||WantsBoundary||WantsLattice;
     const bool WantsGeometry=Model->Workspace==EStudioWorkspace::Geometry||WantsDomain;
     const int32 WantedPreviewRevision=WantsDomain?Model->DomainPreviewRevision:Model->GeometryRevision;
-    const bool WantsFlow=Model->Workspace==EStudioWorkspace::Solve&&!bMinimized;
+    const bool WantsFlow=Model->Workspace==EStudioWorkspace::Solve&&!Model->bActivityLogExpanded&&!bMinimized;
     if(bBuilding&&(!WantsFlow||!IsGeometryRequestCurrent()))CancelBuild(GeometryCancellation);
     if(PendingPreview.IsValid()&&(!WantsGeometry||bMinimized||BuildingPreviewRevision!=WantedPreviewRevision||bBuildingDomainPreview!=WantsDomain||bBuildingBoundaryPreview!=WantsBoundary||bBuildingLatticePreview!=WantsLattice||BuildingPreviewProjectId!=Model->Project.Id))CancelBuild(PreviewCancellation);
     if(WantsGeometry!=bGeometryView||WantsDomain!=bDomainView||WantsBoundary!=bBoundaryView||WantsLattice!=bLatticeView)

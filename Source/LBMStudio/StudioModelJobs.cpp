@@ -4,7 +4,7 @@ void FStudioModel::ResetJobSession()
 {
     auto Adapter=MakeUnique<FStudioControlHarness>(); ControlHarness=Adapter.Get();
     JobController=MakeUnique<FStudioJobController>(MoveTemp(Adapter));
-    JobClock=JobStartedAt=0;LastJobState=EStudioJobState::Idle;LastJobNotice.Empty();JobLog.Reset();LastLoggedJobSequence=0;
+    JobClock=JobStartedAt=0;LastJobState=EStudioJobState::Idle;LastJobNotice.Empty();LastLoggedJobSequence=0;
 }
 bool FStudioModel::HasActiveJob() const
 {return JobController&&JobController->Run().IsSet()&&!FStudioJobController::IsTerminal(JobController->State());}
@@ -81,7 +81,7 @@ bool FStudioModel::Control(EStudioJobCommand Command)
         {
             Project.Runs.Add(Job().Run().GetValue());
             FStudioJobHistory H;H.RunId=Job().Run()->GetId();Project.JobHistory.Add(H);
-            JobStartedAt=JobClock;LastJobNotice.Empty();JobLog.Reset();LastLoggedJobSequence=0;++CatalogRevision;
+            JobStartedAt=JobClock;LastJobNotice.Empty();LastLoggedJobSequence=0;++CatalogRevision;
         }
     }
     else OK=JobController->Command(Command,JobClock);
@@ -116,8 +116,6 @@ void FStudioModel::SyncJob()
             AddLog(StudioJobs::StateName(H->LastState)+TEXT(" · ")+H->Notice,Severity,
                 EStudioLogSource::ControlHarness,H->RunId,Job().Capabilities().BackendId);
         }
-        JobLog.Add(StudioJobs::StateName(H->LastState)+TEXT(" · ")+H->Notice);
-        if(JobLog.Num()>120)JobLog.RemoveAt(0,JobLog.Num()-120,EAllowShrinking::No);
         LastJobState=H->LastState;LastJobNotice=H->Notice;bDirty=true;
     }
 }

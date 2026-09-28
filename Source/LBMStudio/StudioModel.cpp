@@ -30,8 +30,6 @@ void FStudioModel::AddLog(const FString& M,EStudioLogSeverity Severity,EStudioLo
 {
     Journal.Append(M,Severity,Source,Project.Id,RunId,
         SourceReference.IsEmpty()&&Source==EStudioLogSource::Playback?Project.Dataset:SourceReference);
-    if(Source==EStudioLogSource::ControlHarness)return;
-    Log.Add(M); if(Log.Num()>120) Log.RemoveAt(0);
 }
 void FStudioModel::BeginRun()
 {
