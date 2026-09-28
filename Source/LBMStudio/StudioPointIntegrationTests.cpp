@@ -25,17 +25,17 @@ struct FPointCaseFiles
         return true;
     }
 };
-bool Finish(FStudioModel& M)
+bool FinishPointIntegration(FStudioModel& M)
 {
     const double Deadline=FPlatformTime::Seconds()+20;
     while((M.IsRecordingLoadPending()||M.IsProjectOpenPending())&&FPlatformTime::Seconds()<Deadline)
     {M.Tick(0);FPlatformProcess::Sleep(.001f);}
     return !M.IsRecordingLoadPending()&&!M.IsProjectOpenPending();
 }
-constexpr auto Flags=EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter;
+constexpr auto PointIntegrationFlags=EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioPointAdapter,"Studio.PointIntegration.OptionalFieldsAndExport",Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioPointAdapter,"Studio.PointIntegration.OptionalFieldsAndExport",PointIntegrationFlags)
 bool FStudioPointAdapter::RunTest(const FString&)
 {
     FPointCaseFiles Files;if(!TestTrue(TEXT("Copy original CFD test snapshots"),Files.Copy(TEXT("source"))))return false;
@@ -68,7 +68,7 @@ bool FStudioPointAdapter::RunTest(const FString&)
     return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioPointProject,"Studio.PointIntegration.ProjectSelectionReopenAndRepair",Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioPointProject,"Studio.PointIntegration.ProjectSelectionReopenAndRepair",PointIntegrationFlags)
 bool FStudioPointProject::RunTest(const FString&)
 {
     FPointCaseFiles Files;
@@ -77,10 +77,10 @@ bool FStudioPointProject::RunTest(const FString&)
     const auto Camera=M.Project.Camera;const FString Draft=StudioCaseIO::Serialize(M.Project.Draft);
     const auto Before=StudioProjectIO::Serialize(M.SnapshotProject());
     TestTrue(TEXT("Point import starts"),M.RequestExternalRecording(Files.Root/TEXT("source/recording.json")));
-    M.CancelRecording();TestTrue(TEXT("Cancelled point verifier drains"),Finish(M));
+    M.CancelRecording();TestTrue(TEXT("Cancelled point verifier drains"),FinishPointIntegration(M));
     TestEqual(TEXT("Cancellation retains entire document"),StudioProjectIO::Serialize(M.SnapshotProject()),Before);
     TestTrue(TEXT("Point import retries"),M.RequestExternalRecording(Files.Root/TEXT("source/recording.json")));
-    TestTrue(TEXT("Point import finishes"),Finish(M));
+    TestTrue(TEXT("Point import finishes"),FinishPointIntegration(M));
     if(!TestTrue(*M.Notice,M.Solver->Descriptor().bSourcePoints))return false;
     const FString Id=M.Project.Dataset;
     TestTrue(TEXT("Camera independent from source change"),StudioView::CameraEquals(Camera,M.Project.Camera));
@@ -99,28 +99,28 @@ bool FStudioPointProject::RunTest(const FString&)
     TestTrue(TEXT("Save As into another directory"),M.SaveProject(Files.Root/TEXT("elsewhere/case.lbms")));
     FStudioProject Rebased;TestTrue(TEXT("Rebased project resolves"),StudioProjectIO::Load(M.ProjectPath,Rebased,Error));
     TestTrue(TEXT("Same descriptor after Save As"),FPaths::IsSamePath(Rebased.Recordings[0].Path,Files.Root/TEXT("source/recording.json")));
-    TestTrue(TEXT("Switch to existing source"),M.RequestRecording(TEXT("MeshGraphNets_Airfoil_test009")));TestTrue(TEXT("Old reader remains usable"),Finish(M));
+    TestTrue(TEXT("Switch to existing source"),M.RequestRecording(TEXT("MeshGraphNets_Airfoil_test009")));TestTrue(TEXT("Old reader remains usable"),FinishPointIntegration(M));
     TestEqual(TEXT("Available pressure selection is retained"),M.ActiveScalar().Id,FString(TEXT("pressure")));
     M.EditView(TEXT("Unavailable field"),[](auto& S){S.Display.ScalarField=TEXT("missing_field");});
     TestEqual(TEXT("Unsupported selection uses actual available scalar"),M.ActiveScalar().Id,FString(TEXT("velocity_magnitude")));
-    TestTrue(TEXT("Open saved point project"),M.RequestProjectOpen(File));TestTrue(TEXT("Point reopen finishes"),Finish(M));
+    TestTrue(TEXT("Open saved point project"),M.RequestProjectOpen(File));TestTrue(TEXT("Point reopen finishes"),FinishPointIntegration(M));
     TestEqual(TEXT("Source restored"),M.Project.Dataset,Id);TestEqual(TEXT("Frame ordinal restored"),M.SelectedFrame,1);
     TestEqual(TEXT("Scalar restored"),M.ActiveScalar().Id,FString(TEXT("pressure")));
     TestEqual(TEXT("Point size restored"),M.PointSize,1.5);TestFalse(TEXT("Point visibility restored"),M.bSourcePoints);
     TestTrue(TEXT("Camera restored exactly"),StudioView::CameraEquals(M.Project.Camera,Camera));
     TestTrue(TEXT("Remove only owned source folder"),IFileManager::Get().DeleteDirectory(*(Files.Root/TEXT("source")),false,true));
     const auto Saved=StudioProjectIO::Serialize(M.SnapshotProject());
-    TestTrue(TEXT("Missing source open starts"),M.RequestProjectOpen(File));TestTrue(TEXT("Missing source detection finishes"),Finish(M));
+    TestTrue(TEXT("Missing source open starts"),M.RequestProjectOpen(File));TestTrue(TEXT("Missing source detection finishes"),FinishPointIntegration(M));
     TestTrue(TEXT("Repair offered"),M.RecordingRepair.IsSet());
     TestEqual(TEXT("Missing source keeps current project"),StudioProjectIO::Serialize(M.SnapshotProject()),Saved);
     TestTrue(TEXT("Repair matching descriptor and members"),M.RetryRecordingRepair(Files.Root/TEXT("moved/recording.json")));
-    TestTrue(TEXT("Repair finishes"),Finish(M));TestFalse(TEXT("Repair clears prompt"),M.RecordingRepair.IsSet());
+    TestTrue(TEXT("Repair finishes"),FinishPointIntegration(M));TestFalse(TEXT("Repair clears prompt"),M.RecordingRepair.IsSet());
     TestTrue(TEXT("Verified new location applied"),FPaths::IsSamePath(M.Project.Recordings[0].Path,Files.Root/TEXT("moved/recording.json")));
     TestEqual(TEXT("Repair keeps scalar selection"),M.ActiveScalar().Id,FString(TEXT("pressure")));
     return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioPointSchema,"Studio.PointIntegration.SchemaMigrationAndPinnedIdentity",Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioPointSchema,"Studio.PointIntegration.SchemaMigrationAndPinnedIdentity",PointIntegrationFlags)
 bool FStudioPointSchema::RunTest(const FString&)
 {
     FStudioProject P,Out;FString Error;
