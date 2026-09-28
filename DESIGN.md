@@ -325,6 +325,14 @@ This documentation pass read source, review and recorded evidence and verified a
 
 `native-picker-acceptance.json` in that folder records actual NSOpenPanel import and NSSavePanel project saving, followed by a new application process showing the same 20,000-sample source. Native Tab/Return and OS-panel accessibility controls supplied that interaction; mouse/chord activation was unreliable. A temporary launcher finalizer raised `TypeError` after application exit, so no launcher exit-code manifest exists for that sequence. Recorded normal application shutdown and the empty final process inventory remain narrower evidence. This documentation pass read native source, the contract, review, acceptance records and three manifests; it ran no application, build or tests and performed no new visual review. Broad physical pointer/keyboard reliability, tooltip appearance, accessibility, live backend transport, current long-session/release gates and the full plan remain unaccepted. The scoped verdict does not accept overall studio/reference fidelity.
 
+**Solve performance inspector — 2026-09-28.** UI commit `0141b20` extends the existing right inspector in the native macOS UE5 Slate Operate workspace. The single **View performance** action in Control status keeps the flow visible and retains the case, recording, selected frame and camera. The original dense dark reference, incumbent palette/type and sidebar-only workspace navigation remain authoritative. The adapter telemetry contract in `c83c478` and the application sampler have separate measurement ownership; the control harness supplies no numerical solver telemetry. Project schema remains 19.
+
+`tmp/analysis/performance-20260928/finish-review.md` gives **ship for the bounded Solve performance inspector and actual application measurements**, with no material fixes. Its `ui-acceptance.json` pins package `3388837fcd439dd6659d67949f0970a5002eb4045c7bd05d90ef7849ff4545a3` and 14 source/tool hashes. Recorded verification includes a successful editor build, **196 successful model cases** (195 clean and one with the unrelated bundled Unreal iOS `idevice_id` CPU-architecture warning), **12 passing runner tests**, and **two clean native cases** at 1280 × 720 and 1320 × 740. Both native cases exited 0 with no remaining owned processes, using the `explicit-tracking` startup profile and `-LLM`.
+
+The finish reviewer opened all **14 final captures** under `tmp/debug/performance-final-{1280-20260928T164520809295Z,1320-20260928T164602840847Z}/captures/`: solve, live, paused, paused-camera, resumed, solver-unavailable and closed at each size. The native cases exercise End, Escape, focus/settings restoration and continued camera captures with frozen readings at a fixed recorded frame. Active replay advancing during a readings pause is source-reviewed only: the panel copies its display state while root collection continues independently. Home/PageUp/PageDown and the Close button's shared close handler are also source-reviewed. The earlier 1280 frame-isolation failure remains recorded; the later passes do not establish its cause or broad input reliability.
+
+This documentation pass read the implementation and recorded evidence, verified the 14 source/tool pins and both native manifests/reports, and checked the model/runner totals. It launched no application, build or tests and performed no new visual review. The disposition excludes numerical solver transport and native acceptance of future current/stale/disconnected/final numeric solver states, GPU timing/utilization, physical OS-input reliability, full keyboard/accessibility acceptance, active-replay freeze testing, long-session/release gates, unrelated field/reference fidelity and full five-milestone plan completion. No HTML/browser detector applies; iOS and Android are outside this native desktop scope.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -349,6 +357,8 @@ This documentation pass read source, review and recorded evidence and verified a
 - Residuals retain original-log time/value lines, separate saved settings and a bounded three-trace Solve preview beside force history.
 - Activity log keeps UTC observation/source identity, stable paused snapshots, recoverable clear and frozen-context export within Solve.
 - Command input keeps exact replay/control targets, guarded sending, bounded session recall and local responses inside the expanded log.
+
+- Performance keeps measured application activity, source-attributed flow work and unavailable solver telemetry together in one inspector with a frozen UTC view.
 
 ## Colors
 
@@ -400,6 +410,8 @@ Activity log reuses CoreStyle with an 18-point Bold title, 10-point controls/mes
 
 Command input reuses 10-point CoreStyle for the field, actions and wrapping response, with a bold 10-point label and muted 9-point keyboard/suggestion text. Result and Sent responses use Cyan; Cannot send and oversized-input recovery use Amber.
 
+Performance reuses CoreStyle with a 15-point Bold title, 11-point Bold section headings, 9-point label/value rows and actions, and 8-point chart/source/status text. Muted labels align with Text values; Cyan traces use visible units and measured time spans.
+
 ## Layout
 
 Measurements describe Slate layout units at application scale; frontmatter px values are portable representations. The earlier D05–D08 floating Display overlay was 180 units wide with 11-unit padding; D11/S01 supersedes that placement with Display inside the 322-unit right inspector. Vectors retains one row: checkbox at the left, a compact settings button at the right. Its muted, wrapping length key sits 5 units below and collapses when vectors are hidden.
@@ -437,6 +449,8 @@ M01 keeps this chart/inspector arrangement and gives Choose history a 440-unit m
 Activity log uses the existing Solve content area with 18-unit horizontal and 16-unit vertical padding. Title, Pause view / Follow latest and Restore Solve lead; search/source/severity form one row, followed by project/run scope and clear/recovery/export actions. The virtualized list fills remaining height; selected details occupy a 108-unit read-only field above counts and export feedback. Source and severity menus are 164 and 170 units wide. Alternating Background/Panel rows use 10 × 7-unit padding, Raised hover/selection and a fine Cyan focus outline. The compact card shows the latest three visible entries with a separate Open log action. Accepted window sizes remain evidence sizes, not breakpoints or a new navigation surface.
 
 The command block sits 12 units below the log list and optional selected details, above the counts/export feedback. A flexible field precedes Send and Commands… with 8-unit gaps; keyboard guidance stays beside the label. Suggestions wrap below the field, and responses scroll within a 100-unit maximum desired height. The menu requests 450 units of width and a 360-unit maximum desired height with a scrolling list. These local dimensions reuse the existing native layout and add no breakpoint or workspace route.
+
+Performance occupies the existing 322-unit right inspector with a 12-unit inset. Its title/Close row and Live or Paused status/Pause or Resume row remain fixed above the scrolling Application, Flow rendering and Solver job sections. Charts are 76 units high; label/value rows have 3-unit vertical padding, and sections start with 12 units above and 5 below their heading. The active performance inspector remains visible when the Solve viewport is expanded. The reviewed 1280 × 720 and 1320 × 740 sizes establish this local layout only; they add no breakpoint or workspace route.
 
 ## Elevation & Depth
 
@@ -748,6 +762,20 @@ Success clears input; errors retain it with wrapped local recovery. Responses re
 
 Source authority is `StudioCommands.h/.cpp`, `SStudioCommandInput.h/.cpp`, shared styles declared in `StudioTheme.h` and the `StudioWorkspace.cpp` handlers. `Tools/test-commands.sh [width height]` runs the packaged `Studio.CommandUI.` case. Native implementation and recorded evidence define behavior; existing portable snippets retain their original scope.
 
+### Solve performance readings and frozen inspection
+
+**View performance** in Control status opens the existing right inspector and transfers focus after layout. Its action is disabled during camera or inspection placement. The header remains visible while application, flow and solver details scroll. Escape or Close restores the prior settings category and returns focus to View performance; Home/End and PageUp/PageDown navigate the focused inspector. Opening and closing retain authored case, source, selected frame and camera. The sidebar remains the sole workspace navigator.
+
+The Application section reports this LBM Studio process: macOS `phys_footprint` in MiB (1,048,576 bytes), user-plus-system CPU usage with **100% per core**, mean root-workspace tick cadence in ms, and mean CPU update work in ms. Update work excludes the measurement read, Slate paint and GPU rendering. Platform reads occur at most once per second and retain **120 samples**. Invalid observations are rejected; a tick gap above two seconds resets rate baselines. Missing counters remain unavailable. Cyan cadence and footprint charts show their units and actual elapsed span within the latest 120 seconds; missing values and gaps above 2.5 seconds break the trace.
+
+Flow rendering reports on-demand scene captures per second, the last CPU capture-submit duration and presented field-build duration in ms, active geometry-worker count, allocated procedural mesh buffers in MiB, and engine-reported render-target/scalar-texture allocations in MiB. The last field build retains its presented source and frame identity. A stationary scene may correctly show zero captures per second. CPU submit/build durations do not measure GPU execution; buffer/texture allocations do not establish total process memory or device residency. The render device is named and **GPU time / utilization: unavailable** remains explicit.
+
+**Pause readings** copies the retained application history, solver telemetry view and source state, and labels the frozen display `Paused · HH:MM:SS UTC`. Camera interaction and collection remain independent; Resume readings returns to the current retained history, including measurements collected while the display was frozen. Pausing readings does not issue playback or job commands. The panel and its histories are session state; this feature adds no project schema.
+
+Solver job values come only from the separate `StudioJobTelemetry` view, with producer/run/host/device/sample age attribution when supplied. Physical time, wall time and ETA use seconds, throughput uses steps per second, progress/utilization use percent, and resource memory uses MiB. Current, stale, disconnected and final states have explicit labels. In the available control-harness state, the source says **No solver measurements. Recorded playback is independent.** Absent metrics remain **Unavailable**, and stop-limit progress is **Indeterminate**. Playback percentage, requested case limits, command acknowledgements and application memory cannot become measured solver progress or resources. Future numeric solver states are wired and model-tested but are outside this native visual acceptance.
+
+Source authority is `StudioPerformance.h/.cpp`, `SStudioPerformancePanel.h/.cpp`, the timing/resource hooks in `StudioScene.h/.cpp`, and the root sampler/inspector ownership in `StudioWorkspace.cpp`. `Tools/test-performance.sh [width height]` runs the packaged `ScientificAcceptance.PerformanceUI.MeasurePauseCameraAndRestore` case. The recorded evidence and input/replay limits in Overview bound its acceptance; existing portable snippets do not simulate native performance measurements.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -781,6 +809,8 @@ Source authority is `StudioCommands.h/.cpp`, `SStudioCommandInput.h/.cpp`, share
 
 - Do keep command discovery and recall separate from sending, preserve recoverable input, and show job dispatch separately from observed state.
 
+- Do keep performance units, measurement ownership, missing values and frozen UTC state explicit while the flow remains available in the existing Solve inspector.
+
 ### Don't:
 
 - Don’t add a second persistent workspace navigation path.
@@ -805,3 +835,4 @@ Source authority is `StudioCommands.h/.cpp`, `SStudioCommandInput.h/.cpp`, share
 - Don’t infer residual convergence, physical time units or redistribution rights, or treat the M01 ship verdict and native picker observations as broad physical-input, stability or full-plan acceptance.
 - Don’t treat session observations or the M05 log verdict as scientific history, live solver transport, physical input/clipboard/dialog acceptance or long-session/full-plan completion.
 - Don’t bypass command mode/state or shared save/run guards, or treat M06 acceptance as real backend transport, physical input or full-plan completion.
+- Don’t treat application CPU timings or allocation bytes as GPU workload/residency, or extend the performance verdict to active-replay freeze testing, full keyboard/accessibility, long-session or full-plan acceptance.
