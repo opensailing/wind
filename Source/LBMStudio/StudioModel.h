@@ -75,6 +75,12 @@ public:
     virtual int32 MeshTriangleCount() const;
     virtual bool MeshTriangle(int32 Index,FVector (&PositionsMeters)[3]) const;
 };
+/** Independent analysis read: failure belongs to this request, never the viewport. */
+struct FStudioFieldReadResult
+{
+    TSharedPtr<const IStudioField,ESPMode::ThreadSafe> Field;
+    FString Error;
+};
 /** Replaceable backend contract. Recorded CFD has no configurable physics. */
 class IStudioSolver
 {
@@ -85,6 +91,11 @@ public:
     virtual TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureField(int32 Ordinal) const = 0;
     virtual TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureViewField(int32 Ordinal,
         const FString& ScalarId, bool bVectors, const FStudioLoadCancellation& Cancellation = {}) const { return CaptureField(Ordinal); }
+    /** Worker-only, exact scalar/frame read for analysis. No fallback scalar,
+     * playback mutation or change to LoadError(). The default is unsupported. */
+    virtual FStudioFieldReadResult ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
+        const FStudioLoadCancellation& Cancellation = {}) const
+    { return {{},TEXT("This source does not support independent recorded-frame analysis.")}; }
     virtual bool ExportField(int32 Ordinal, const FString& Path) const = 0;
     virtual FString LoadError() const = 0;
     virtual const FStudioRecordingDescriptor& Descriptor() const = 0;
@@ -104,6 +115,8 @@ public:
     TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureField(int32 Ordinal) const override;
     TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureViewField(int32 Ordinal, const FString& ScalarId,
         bool bVectors, const FStudioLoadCancellation& Cancellation = {}) const override;
+    FStudioFieldReadResult ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
+        const FStudioLoadCancellation& Cancellation = {}) const override;
     bool ExportField(int32 Ordinal, const FString& Path) const override;
     FString LoadError() const override;
     const FStudioRecordingDescriptor& Descriptor() const override;
@@ -126,6 +139,8 @@ public:
     TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureField(int32 Ordinal) const override;
     TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureViewField(int32 Ordinal, const FString& ScalarId,
         bool bVectors, const FStudioLoadCancellation& Cancellation = {}) const override;
+    FStudioFieldReadResult ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
+        const FStudioLoadCancellation& Cancellation = {}) const override;
     bool ExportField(int32 Ordinal, const FString& Path) const override;
     FString LoadError() const override;
     const FStudioRecordingDescriptor& Descriptor() const override { return Meta; }

@@ -76,10 +76,16 @@ struct FRecordedFlowData
         }
         return true;
     }
-    TSharedPtr<const FFrame,ESPMode::ThreadSafe> ReadFrame(int32 Ordinal, const FStudioLoadCancellation& Cancellation = {}) const
+    TSharedPtr<const FFrame,ESPMode::ThreadSafe> ReadFrame(int32 Ordinal, const FStudioLoadCancellation& Cancellation = {},FString* AnalysisError = nullptr) const
     {
+        if(AnalysisError)AnalysisError->Empty();
+        auto Fail=[&](const FString& Message)
+        {
+            if(AnalysisError)*AnalysisError=Message;
+            else {FScopeLock Lock(&Mutex);ReadError=Message;}
+        };
         if(Cancellation && Cancellation->load()) return nullptr;
-        if(!Offsets.IsValidIndex(Ordinal)) return nullptr;
+        if(!Offsets.IsValidIndex(Ordinal)){if(AnalysisError)*AnalysisError=TEXT("Frame ordinal is outside the recording.");return nullptr;}
         {
             FScopeLock Lock(&Mutex);
             if(auto* Entry=Cache.Find(Ordinal)) { Entry->Use=++Clock; ++Hits; return Entry->Frame; }
@@ -88,7 +94,7 @@ struct FRecordedFlowData
         // frame is shared with the renderer. No file parsing occurs in Sample.
         FStudioFileAccess Access(Path);
         TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*Path));
-        if(!Reader) { FScopeLock Lock(&Mutex); ReadError=TEXT("Recording file is unavailable. Relink or reopen the dataset."); return nullptr; }
+        if(!Reader) { Fail(TEXT("Recording file is unavailable. Relink or reopen the dataset.")); return nullptr; }
         Reader->Seek(Offsets[Ordinal]);
         auto Frame=MakeShared<FFrame,ESPMode::ThreadSafe>(Nodes.Num());
         uint32 CRC=0;
@@ -118,8 +124,8 @@ struct FRecordedFlowData
             }
         }
         if(Cancellation && Cancellation->load()) return nullptr;
+        if(!Valid) { Fail(FString::Printf(TEXT("Source frame %d failed integrity/value validation. Reimport the recording."),Meta.Frames[Ordinal].Index)); return nullptr; }
         FScopeLock Lock(&Mutex);
-        if(!Valid) { ReadError=FString::Printf(TEXT("Source frame %d failed integrity/value validation. Reimport the recording."),Meta.Frames[Ordinal].Index); return nullptr; }
         if(auto* Existing=Cache.Find(Ordinal)) { Existing->Use=++Clock; ++Hits; return Existing->Frame; }
         while((Cache.Num()+1)*FrameBytes()>Budget)
         {
@@ -128,7 +134,7 @@ struct FRecordedFlowData
             if(Oldest==INDEX_NONE) break;
             Cache.Remove(Oldest);
         }
-        ++Loads; ReadError.Empty(); Cache.Add(Ordinal,{Frame,++Clock}); return Frame;
+        ++Loads; if(!AnalysisError)ReadError.Empty(); Cache.Add(Ordinal,{Frame,++Clock}); return Frame;
     }
 };
 namespace
@@ -222,7 +228,8 @@ class FRecordedField final : public IStudioField
 {
 public:
     FRecordedField(TSharedPtr<const FRecordedFlowData,ESPMode::ThreadSafe> InData,int32 InFrame,
-        const FStudioLoadCancellation& Cancellation = {}) : Data(InData),Frame(Data->ReadFrame(InFrame,Cancellation)),Ordinal(InFrame) {}
+        const FStudioLoadCancellation& Cancellation = {},FString* AnalysisError = nullptr)
+        : Data(InData),Frame(Data->ReadFrame(InFrame,Cancellation,AnalysisError)),Ordinal(InFrame) {}
     bool IsValid() const override { return Frame.IsValid(); }
     TOptional<FStudioFieldIdentity> Identity() const override
     {
@@ -392,6 +399,19 @@ TSharedRef<const IStudioField,ESPMode::ThreadSafe> FRecordedSolver::CaptureField
 TSharedRef<const IStudioField,ESPMode::ThreadSafe> FRecordedSolver::CaptureViewField(int32 Ordinal,const FString& ScalarId,
     bool bVectors,const FStudioLoadCancellation& Cancellation) const
 { return MakeShared<FRecordedField,ESPMode::ThreadSafe>(Data,Ordinal,Cancellation); }
+FStudioFieldReadResult FRecordedSolver::ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
+    const FStudioLoadCancellation& Cancellation) const
+{
+    FStudioFieldReadResult Out;
+    if(!Data->Meta.Frames.IsValidIndex(Ordinal)||!Data->Meta.Scalars.ContainsByPredicate([&](const auto& S){return S.Id==ScalarId;}))
+    {Out.Error=TEXT("The exact requested frame or scalar is not supplied by this recording.");return Out;}
+    if(!Error.IsEmpty()){Out.Error=Error;return Out;}
+    auto Field=MakeShared<FRecordedField,ESPMode::ThreadSafe>(Data,Ordinal,Cancellation,&Out.Error);
+    if(Cancellation&&Cancellation->load())Out.Error=TEXT("Recorded-frame analysis cancelled.");
+    else if(Field->IsValid())Out.Field=MoveTemp(Field);
+    else if(Out.Error.IsEmpty())Out.Error=TEXT("Could not read the requested recorded frame.");
+    return Out;
+}
 const FStudioRecordingDescriptor& FRecordedSolver::Descriptor() const { return Data->Meta; }
 FString FRecordedSolver::LoadError() const
 { if(!Error.IsEmpty()) return Error; FScopeLock Lock(&Data->Mutex); return Data->ReadError; }
