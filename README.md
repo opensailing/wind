@@ -134,6 +134,22 @@ The initial runtime importer supports ASCII/binary STL and polygon OBJ, includin
 
 Export CSV writes the selected snapshot's original nodes, derived velocity, pressure and density in source coordinates; Snapshot writes the viewport PNG. Both reveal `Saved/Exports` in Finder.
 
+### VTK export backend
+
+The original-field VTK writer is implemented; its Export-menu controls are still pending. It writes one frozen frame as XML PolyData (`.vtp`), preserving every original point ID, coordinate, selected scalar value and supplied triangle. Point-only recordings receive vertex cells; reconstructed display grids and extruded geometry are excluded. Source coordinates are the default. The optional scene transform maps source XYZ to scene XZY and adds the recording's display offset, in meters; scalar components retain their original basis.
+
+`LBMStudioMetadataUTF8` stores UTF-8 JSON in a UInt8 FieldData array: source hashes, original ordinal/step/time, units, scalar origins/expressions, coordinate transform, processing history and the separately identified view reconstruction. `TimeValue` carries source seconds. Points and scalars use Float64, and original IDs use Int64. The SU2 recording's Float32 values are promoted without changing their values; its declared speed is derived from the stored velocity components. Supplied NACA/cylinder speed remains the supplied array.
+
+`StudioFieldExportTask` owns one worker and no queue. It streams a private staging file, accepts cancellation until native atomic replacement begins, and removes staging files on success, failure or cancellation. Shutdown cancels/joins and releases its frozen field. Encoding uses approximately 32 KiB text chunks with a 512 MiB output limit; final native publication maps the completed file, so this is not a constant-RSS claim. The limits are 4 million source points, 8 million original triangles and 1–64 scalar arrays. Additional scalar reads must match the frozen source identity and point order.
+
+After `Tools/test.sh`, an environment with NumPy and VTK can independently check all five exported reference files:
+
+```bash
+python3 Tools/verify_vtk_export.py --report tmp/analysis/vtk-export-audit.json
+```
+
+The verifier reads original binary payloads directly and compares every exported coordinate, ID, supplied scalar and cell using VTK's reader. Only the explicitly derived SU2 speed allows a two-ULP arithmetic difference. Export-menu integration, frame sequences and whole-product stability acceptance remain open.
+
 ## CFD sample provenance
 
 - **Source:** Pfaff, Fortunato, Sanchez-Gonzalez and Battaglia, *Learning Mesh-Based Simulation with Graph Networks*, ICLR 2021. The bundled data is SU2 ground truth from the official dataset, not model predictions.
