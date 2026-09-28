@@ -1,0 +1,51 @@
+{
+  "title": "MeshGraphNets Airfoil \u2014 SU2 ground-truth test trajectory 010",
+  "authors": [
+    "Tobias Pfaff",
+    "Meire Fortunato",
+    "Alvaro Sanchez-Gonzalez",
+    "Peter W. Battaglia"
+  ],
+  "citation": "Learning Mesh-Based Simulation with Graph Networks, ICLR 2021, arXiv:2010.03409",
+  "repository": "https://github.com/google-deepmind/deepmind-research/tree/master/meshgraphnets",
+  "repository_commit": "34b2486902f082ad3a58bffebdc499c84c93d31c",
+  "source_url": "https://storage.googleapis.com/dm-meshgraphnets/airfoil/test.tfrecord?generation=1622065904170801",
+  "source_generation": "1622065904170801",
+  "source_etag": "b8f06e1c40f6ad3a3e5b5900150a58cf",
+  "source_byte_range_inclusive": [
+    505061020,
+    555567121
+  ],
+  "trajectory_ordinal_zero_based": 10,
+  "source_frames": 601,
+  "source_nodes": 5233,
+  "source_triangles": 10216,
+  "time_step_s": 0.0002,
+  "elapsed_time_s": 0.12,
+  "time_note": "Elapsed time is frame ordinal times dt from the distributed meta.json. Absolute simulation start is not supplied. The paper appendix lists 0.008 s, which differs from the downloadable metadata; this importer follows the actual download and records the discrepancy.",
+  "field_note": "The paper section4 defines the Airfoil state as momentum and density; footnote3 defines displayed velocity as momentum/density. Accordingly the vector stored under the generic key velocity is divided by density for visualization/export. Pressure and density are copied unchanged. This is a solver ground-truth trajectory, not a learned model rollout.",
+  "license_note": "The associated source repository has an Apache-2.0 license (retained). The downloadable dataset does not include a separate license statement; no separate data-license grant is asserted.",
+  "transformations": [
+    "Exactly one complete original TFRecord was downloaded by HTTP byte range; both TFRecord CRC32C checksums are verified.",
+    "All 601 original snapshots and 5233 nodes are retained. Momentum/density yields displayed velocity; no temporal interpolation, solver run, model prediction or invented frames.",
+    "Original triangle connectivity is retained; the exact airfoil boundary is recovered from boundary edges.",
+    "Source (x,y) maps to scene (X=x-0.5,Z=y). Scene Y repeats the 2D field for viewing and has no spanwise variation.",
+    "Spatial values inside triangles use barycentric interpolation. The scene box crops the much larger source domain.",
+    "Playback at 20 snapshots/s takes 30 seconds; playback speed is separate from source time."
+  ],
+  "missing": [
+    "Residual history",
+    "Lift/drag history",
+    "Reynolds number",
+    "Per-trajectory Mach number metadata",
+    "Absolute simulation start time",
+    "3D spanwise flow"
+  ],
+  "sha256": {
+    "dataset-README.md": "992a012f18015ad5b28cb660cf0311f89bd05c4700a756c8a044886c508d2abe",
+    "meta.json": "48441775d99fc82290f1d00c0f6c38b8288a9fea6f7c3cace781aede1aeb47d1",
+    "repository-LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "test-trajectory-010.tfrecord": "47446af91fbeb71e8b1ae2620ecebe7ee0f66f66ff01f1c35f7d5ca9fd87db28"
+  },
+  "field_reference": "https://arxiv.org/html/2010.03409v4#S4"
+}

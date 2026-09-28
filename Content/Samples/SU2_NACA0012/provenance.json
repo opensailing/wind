@@ -1,0 +1,46 @@
+{
+  "title": "SU2 Unsteady NACA0012 tutorial restart output",
+  "tutorial": "https://su2code.github.io/tutorials/Unsteady_NACA0012/",
+  "repository": "https://github.com/su2code/Tutorials",
+  "commit": "74095b3464b16a1c0ba2db0aeea4132edb66c175",
+  "directory": "compressible_flow/Unsteady_NACA0012",
+  "license": "LGPL-2.1 (upstream repository LICENSE retained in source/)",
+  "conditions": {
+    "mach": 0.3,
+    "angle_degrees": 17,
+    "reynolds": 1000,
+    "reference_length_m": 1,
+    "temperature_K": 293
+  },
+  "source_frames": [
+    497,
+    498,
+    499
+  ],
+  "time_step_s": 0.0005,
+  "time_note": "Times derived as source index * TIME_STEP using SU2 7.0.2 output convention; binary restarts have no embedded timestamp or producer revision.",
+  "time_reference": "https://github.com/su2code/SU2/blob/v7.0.2/SU2_CFD/src/output/filewriter/CTecplotFileWriter.cpp#L99",
+  "transformations": [
+    "No solver was run. No synthetic fields or frames added.",
+    "Velocity computed as momentum / density at original nodes. Pressure and density copied unchanged.",
+    "Source quadrilaterals split along diagonal 0-2 for barycentric interpolation.",
+    "Runtime maps source (x,y) to Unreal (X=x-0.5,Z=y); Y is an extruded display dimension with no CFD variation.",
+    "Source mesh airfoil boundary is extruded for visualization. Scene box crops the much larger source domain.",
+    "No interpolation in time. Playback holds each recorded snapshot for one wall-clock second."
+  ],
+  "missing": [
+    "Residual history",
+    "Lift/drag coefficient history",
+    "3D spanwise flow",
+    "Lattice Boltzmann output"
+  ],
+  "pressure_note": "Actual restart pressure is retained; do not substitute the config freestream pressure for the Reynolds-initialized field.",
+  "sha256": {
+    "LICENSE": "20c17d8b8c48a600800dfd14f95d5cb9ff47066a9641ddeab48dc54aec96e331",
+    "restart_flow_00497.dat": "dd3351369677bc8b7bcde6ddd49e8577260d9ed85cee435aba5efa03c5cc9366",
+    "restart_flow_00498.dat": "0da7309382a7c10e3e3efca1ae0fa9d54d6632a4b1282652fe2393ea0518c696",
+    "restart_flow_00499.dat": "09434c8be8970deefb35e67c573b207d4ba49f2938ce3218d1f2288aba632e21",
+    "unsteady_naca0012.cfg": "261ff97815812757f117a942b24e7bac3eb9eb197d1a7893228e25e00288e112",
+    "unsteady_naca0012_mesh.su2": "20dfc96875b1d1a8377c2e64248b6ee42a1ecf525c50d822fb5f539d06d68d15"
+  }
+}

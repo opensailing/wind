@@ -1,0 +1,13 @@
+{
+  "sourceURL": "https://zenodo.org/records/20586598",
+  "license": "CC-BY-4.0",
+  "originalMemberSHA256": "53f46fa7a858cd66acdf881ecfcb0d7740339d40b15779c749a821ff5846137a",
+  "sourceOrdinals": [
+    0,
+    2950,
+    5900
+  ],
+  "arrayAuditSHA256": "5e9f912bc4d5b755af5a5618343dee32ce23f1b0f4dc3386fa58fc1c53aaa807",
+  "extractorSHA256": "37449b342cf8e1735b07814f2ea6418d5c2f458c80c2984e8d2fe5becf9fe47f",
+  "changes": "Three unchanged original snapshots, all supplied rows; no temporal interpolation. Test fixture only."
+}

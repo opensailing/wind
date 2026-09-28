@@ -1,0 +1,18 @@
+{
+  "sourceURL": "https://zenodo.org/records/20582405",
+  "originalMemberSHA256": "513e30f370ecdd30c5a49dfcc7b9b0caf39204b6dec08ee513a53afeba657237",
+  "parentDescriptorSHA256": "1ce4f9f4a7d71f060e60e62ecd0aa52de78e7f7d0328930ef0cdc952cd852a67",
+  "sourceOrdinals": [
+    0,
+    4000,
+    7999
+  ],
+  "sourceSteps": [
+    1001,
+    5001,
+    9000
+  ],
+  "changes": "Three original snapshots retained, original point order/precision unchanged.",
+  "extractorSHA256": "fed7371dec9740c549b3d7e07fd7ffc4089a0237d0cc4564b389ddffd9ca64f2",
+  "goldenReader": "pandas HDFStore public row selection"
+}

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "kind": "volume_reconstruction",
+  "origin": "derived",
+  "layout": "x_fastest_node_grid",
+  "title": "Cylinder wake \u00b7 derived 3D display grid",
+  "sourceMetadataSHA256": "2cb791df8c6697c7709ab99bd0e9ae93fa03cdaf49522d7bd5edffa144907fc1",
+  "dimensions": [
+    256,
+    128,
+    32
+  ],
+  "minimum": [
+    -0.01995532587170601,
+    -0.03991502523422241,
+    0.003999999724328518
+  ],
+  "maximum": [
+    0.1499989628791809,
+    0.03991502895951271,
+    0.07599999755620956
+  ],
+  "method": "3D Delaunay barycentric interpolation; tetrahedra crossing the analytic cylinder, exceeding maximum support length or with unstable transforms excluded.",
+  "rows": {
+    "path": "rows.u32",
+    "dtype": "uint32",
+    "byteOrder": "little",
+    "byteLength": 16777216,
+    "sha256": "0b5111946475dad80e3a6a84022dcff1313762f54f710b132b6ebb27703639df"
+  },
+  "weights": {
+    "path": "weights.f64",
+    "dtype": "float64",
+    "byteOrder": "little",
+    "byteLength": 33554432,
+    "sha256": "4deef4208c7398f24d14f186bd038b593ba40cd08962fea95b2381963b34b842"
+  },
+  "classification": {
+    "path": "classification.u8",
+    "dtype": "uint8",
+    "byteOrder": "little",
+    "byteLength": 1048576,
+    "sha256": "17b31a2933a3cee4d7a8e325187d86f413bbaf2282eb9a61cab28ee918deda68"
+  },
+  "solid": {
+    "kind": "cylinder_z",
+    "centerXY": [
+      0,
+      0
+    ],
+    "radiusMeters": 0.005,
+    "origin": "Author setup geometry; grid classification is derived."
+  },
+  "limitations": [
+    "Derived display topology; original Fluent connectivity was not supplied.",
+    "Author preprocessing already cropped and downsampled the original mesh.",
+    "Tetrahedra crossing the cylinder or exceeding support limits are excluded; unsupported regions remain empty.",
+    "Original rows inside the documented analytic cylinder are preserved for export but excluded from volume interpolation; original wall connectivity was not supplied.",
+    "Volume uses grid interpolation; original float64 rows remain available for quantitative export.",
+    "This converter alone does not accept native import, rendering or stability."
+  ]
+}

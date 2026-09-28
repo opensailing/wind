@@ -1,0 +1,18 @@
+{
+  "source": "https://zenodo.org/api/records/20586598/files/flow3d_dataset.zip/content",
+  "record_doi": "10.5281/zenodo.20586598",
+  "license": "CC-BY-4.0",
+  "archive_size": 30164107516,
+  "published_archive_md5_verified": "95ae813b52fe6b188e930d9c699e6a3e",
+  "member": {
+    "name": "flow3d_dataset/cylinder_3d_re300_ds.h5",
+    "offset": 77,
+    "compressed": 30164073523,
+    "size": 34997404796,
+    "crc32": 794270303,
+    "method": 8
+  },
+  "member_sha256": "53f46fa7a858cd66acdf881ecfcb0d7740339d40b15779c749a821ff5846137a",
+  "member_crc32_verified": true,
+  "acceptance": "Original bytes acquired and checked. Scientific arrays, time, units, topology and rendering still require inspection."
+}

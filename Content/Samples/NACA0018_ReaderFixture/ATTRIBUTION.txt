@@ -1,0 +1,8 @@
+PID-GraphVAE: 2D CFD datasets, trained models, and identification records for 'From compression to discovery'
+Creators: Liu, Ao; Wu, Pin; Yao, Yuan; Zhang, Yifan
+Source: https://doi.org/10.5281/zenodo.20582405
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: transposed original float64 arrays into frame-major binary files; stored time-invariant cell_volume once; derived physical timestamps from original step labels and the author time interval. No generated CFD values, spatial reconstruction or temporal interpolation. Attribution does not imply endorsement.
+
+Reader test fixture: retained original source ordinals 0, 4000 and 7999 only. This sparse fixture is not the full animation recording.

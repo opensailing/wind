@@ -1,0 +1,5 @@
+PID-GraphVAE: 3-D cylinder-wake (Re = 300) CFD dataset for "From compression to discovery"
+Creators: Liu, Ao; Wu, Pin; Yao, Yuan; Zhang, Yifan
+Source: https://doi.org/10.5281/zenodo.20586598
+License: CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/
+Changes: three unchanged original snapshots selected for automated tests, exact widening to float64 and frame-major layout. All original points retained. Not the full animation recording; no generated flow or original mesh claim.

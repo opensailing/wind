@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "kind": "spatial_reconstruction",
+  "title": "NACA 0018 \u00b7 reconstructed 2D display surface",
+  "source": {
+    "recordingId": "NACA0018_ReaderFixture_3OriginalFrames",
+    "descriptorSHA256": "167de165cd16034c8a9dc8b908b5dc17b3b79601e70e583f6bd13effca4bc7e2",
+    "originalHDF5SHA256": "513e30f370ecdd30c5a49dfcc7b9b0caf39204b6dec08ee513a53afeba657237",
+    "coordinatesSHA256": "656bd7a475294918e45f2e944cfe779d3fdcf306d06394bc3be274d35d56512b",
+    "pointIdsSHA256": "8af5657fbbfd606198fae8d9719101d52a0bdc71cfa661e4cfaa216ac25d4452",
+    "sourceURL": "https://zenodo.org/records/20582405",
+    "pointCount": 18706,
+    "frameCount": 3
+  },
+  "spatialDimensions": 2,
+  "coordinateUnit": "m",
+  "association": "original_source_row",
+  "origin": "reconstructed",
+  "method": "Delaunay with verified stationary-sample hole; piecewise-linear field interpolation",
+  "boundaryOrigin": "Inferred loop through 56 original samples with zero velocity at all 8000 times; no original patch identity supplied",
+  "triangles": {
+    "path": "triangles.u32",
+    "dtype": "uint32",
+    "byteOrder": "little",
+    "shape": [
+      37188,
+      3
+    ],
+    "byteLength": 446256,
+    "sha256": "00c84ce67f2ea533058e05ed05beffcf78b7a20d71b98d51a08bd3e2654428cf"
+  },
+  "solidBoundary": {
+    "path": "solid-boundary.u32",
+    "dtype": "uint32",
+    "byteOrder": "little",
+    "shape": [
+      56
+    ],
+    "byteLength": 224,
+    "sha256": "f479de9ee981c3305fa8a3aec96566b56fe4f5b9e8c92e7d202449e5f7d138ff"
+  },
+  "checks": {
+    "sourcePointCount": 18706,
+    "triangleCount": 37188,
+    "boundaryPointCount": 56,
+    "removedSolidTriangles": 54,
+    "solidPolygonAreaM2": 0.0007854727876548335,
+    "removedTriangleAreaM2": 0.0007854727876548337,
+    "minimumTriangleAreaM2": 1.1112217710395043e-07,
+    "eulerCharacteristic": 0,
+    "originalPointsRetained": true,
+    "boundaryFluidNeighbours": 1,
+    "candidateAllFrameVelocity": {
+      "velocity_u": {
+        "checkedValues": 448000,
+        "nonzeroValues": 0
+      },
+      "velocity_v": {
+        "checkedValues": 448000,
+        "nonzeroValues": 0
+      },
+      "velocity_magnitude": {
+        "checkedValues": 448000,
+        "nonzeroValues": 0
+      }
+    }
+  },
+  "tool": {
+    "name": "reconstruct_naca0018_surface.py",
+    "sha256": "679e0ff15035bdbb3c1a655f9ee7813f298da93bb69aa9614a3bd0984fe67790",
+    "numpy": "2.5.3",
+    "matplotlib": "3.11.2"
+  },
+  "limitations": [
+    "Visualization topology is reconstructed, not the original CFD mesh.",
+    "Solid association is inferred from source coordinates and persistent zero-velocity samples.",
+    "Interpolation between source points is approximate; no extrapolation outside the reconstruction.",
+    "No spanwise field, density, force history or additional physical-time frames are supplied.",
+    "Test-only binding to three unchanged original frames; not an installed playback recording."
+  ],
+  "acceptance": "Converter output only; native reader, rendering and UI acceptance are separate.",
+  "parentReconstructionSHA256": "b9194cdcf7500163650c6a78d696aa8214a06988e245c4e5ea707fdcb511265d"
+}

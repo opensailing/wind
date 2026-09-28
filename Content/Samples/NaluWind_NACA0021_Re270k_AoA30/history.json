@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "kind": "scientific_history",
+  "id": "NaluWind_NACA0021_Re270k_AoA30",
+  "title": "NACA 0021 · Re 270,000 · 30° · IDDES force history",
+  "sourceURL": "https://data.nlr.gov/submissions/311",
+  "sourceDOI": "10.7799/3014033",
+  "origin": "published_recording",
+  "fieldRecordingId": null,
+  "payload": "history.csv",
+  "payloadSHA256": "738244f82f5bad97cf6f16e1f5e6b4c2316a5bad7b65b53100a144e9ab51061e",
+  "sourceSHA256": "f8faf9694f41ffc05f3a4662aa217414275e4850351b0262732cf3def6f4116e",
+  "provenanceSHA256": "20bee7f2d7f2db39382f9042277db8e90c56513e556a1bda955ec3504ad95ab8",
+  "licenseSHA256": "be238a4885ef46666b3ec36edcf5ff98122aa637f90bb30a7b5adab3cd7fbc45",
+  "sampleCount": 6967,
+  "timeColumn": "Time",
+  "firstTime": 0.4004,
+  "lastTime": 3.1868,
+  "timeNote": "Original solver time is retained. Simulation begins before this stored IDDES segment. Coefficients are not offset to a different recording.",
+  "columns": [
+    {
+      "id": "Time",
+      "label": "Solver time",
+      "unit": "s",
+      "role": "time"
+    },
+    {
+      "id": "Fpx",
+      "label": "Fpx",
+      "unit": "N",
+      "origin": "source"
+    },
+    {
+      "id": "Fpy",
+      "label": "Fpy",
+      "unit": "N",
+      "origin": "source"
+    },
+    {
+      "id": "Fpz",
+      "label": "Fpz",
+      "unit": "N",
+      "origin": "source"
+    },
+    {
+      "id": "Fvx",
+      "label": "Fvx",
+      "unit": "N",
+      "origin": "source"
+    },
+    {
+      "id": "Fvy",
+      "label": "Fvy",
+      "unit": "N",
+      "origin": "source"
+    },
+    {
+      "id": "Fvz",
+      "label": "Fvz",
+      "unit": "N",
+      "origin": "source"
+    },
+    {
+      "id": "Mtx",
+      "label": "Mtx",
+      "unit": "N m",
+      "origin": "source"
+    },
+    {
+      "id": "Mty",
+      "label": "Mty",
+      "unit": "N m",
+      "origin": "source"
+    },
+    {
+      "id": "Mtz",
+      "label": "Mtz",
+      "unit": "N m",
+      "origin": "source"
+    },
+    {
+      "id": "Y+min",
+      "label": "Y+min",
+      "unit": "1",
+      "origin": "source"
+    },
+    {
+      "id": "Y+max",
+      "label": "Y+max",
+      "unit": "1",
+      "origin": "source"
+    },
+    {
+      "id": "CL",
+      "label": "Lift coefficient",
+      "unit": "1",
+      "origin": "derived",
+      "expression": "(Fpy + Fvy) / (0.5 * 1.2 * 50^2 * 4)"
+    },
+    {
+      "id": "CD",
+      "label": "Drag coefficient",
+      "unit": "1",
+      "origin": "derived",
+      "expression": "(Fpx + Fvx) / (0.5 * 1.2 * 50^2 * 4)"
+    }
+  ],
+  "referenceValues": {
+    "density_kg_m3": 1.2,
+    "freestream_speed_m_s": 50,
+    "reference_area_m2": 4,
+    "denominator_N": 6000
+  },
+  "limitations": [
+    "Force history only: no mesh, flow frames, residuals or pressure field are supplied by this fixture.",
+    "Independent Nalu-Wind run; must not be attached to the bundled SU2 recordings.",
+    "Geometry has four-chord span; coefficients follow the authors normalization for this run."
+  ]
+}
