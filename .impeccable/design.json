@@ -1,0 +1,1204 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-28T06:09:23.826871Z",
+  "title": "Design System: LBM Solver Studio — Staged Recorded-Flow Controls",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Blue-black ground",
+        "tonalRamp": [
+          "oklch(15.000% 0.02823 249.034)",
+          "oklch(26.429% 0.02823 249.034)",
+          "oklch(37.857% 0.02823 249.034)",
+          "oklch(49.286% 0.02823 249.034)",
+          "oklch(60.714% 0.02823 249.034)",
+          "oklch(72.143% 0.02823 249.034)",
+          "oklch(83.571% 0.02823 249.034)",
+          "oklch(95.000% 0.02823 249.034)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Blue-black panel",
+        "tonalRamp": [
+          "oklch(15.000% 0.03200 247.610)",
+          "oklch(26.429% 0.03200 247.610)",
+          "oklch(37.857% 0.03200 247.610)",
+          "oklch(49.286% 0.03200 247.610)",
+          "oklch(60.714% 0.03200 247.610)",
+          "oklch(72.143% 0.03200 247.610)",
+          "oklch(83.571% 0.03200 247.610)",
+          "oklch(95.000% 0.03200 247.610)"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised blue-black",
+        "tonalRamp": [
+          "oklch(15.000% 0.03332 247.485)",
+          "oklch(26.429% 0.03332 247.485)",
+          "oklch(37.857% 0.03332 247.485)",
+          "oklch(49.286% 0.03332 247.485)",
+          "oklch(60.714% 0.03332 247.485)",
+          "oklch(72.143% 0.03332 247.485)",
+          "oklch(83.571% 0.03332 247.485)",
+          "oklch(95.000% 0.03332 247.485)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Slate line",
+        "tonalRamp": [
+          "oklch(15.000% 0.03533 247.266)",
+          "oklch(26.429% 0.03533 247.266)",
+          "oklch(37.857% 0.03533 247.266)",
+          "oklch(49.286% 0.03533 247.266)",
+          "oklch(60.714% 0.03533 247.266)",
+          "oklch(72.143% 0.03533 247.266)",
+          "oklch(83.571% 0.03533 247.266)",
+          "oklch(95.000% 0.03533 247.266)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Pale text",
+        "tonalRamp": [
+          "oklch(15.000% 0.01666 250.847)",
+          "oklch(26.429% 0.01666 250.847)",
+          "oklch(37.857% 0.01666 250.847)",
+          "oklch(49.286% 0.01666 250.847)",
+          "oklch(60.714% 0.01666 250.847)",
+          "oklch(72.143% 0.01666 250.847)",
+          "oklch(83.571% 0.01666 250.847)",
+          "oklch(95.000% 0.01666 250.847)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted blue-gray",
+        "tonalRamp": [
+          "oklch(15.000% 0.03480 248.299)",
+          "oklch(26.429% 0.03480 248.299)",
+          "oklch(37.857% 0.03480 248.299)",
+          "oklch(49.286% 0.03480 248.299)",
+          "oklch(60.714% 0.03480 248.299)",
+          "oklch(72.143% 0.03480 248.299)",
+          "oklch(83.571% 0.03480 248.299)",
+          "oklch(95.000% 0.03480 248.299)"
+        ]
+      },
+      "cyan": {
+        "role": "primary",
+        "displayName": "Cyan",
+        "tonalRamp": [
+          "oklch(15.000% 0.13711 216.947)",
+          "oklch(26.429% 0.13711 216.947)",
+          "oklch(37.857% 0.13711 216.947)",
+          "oklch(49.286% 0.13711 216.947)",
+          "oklch(60.714% 0.13711 216.947)",
+          "oklch(72.143% 0.13711 216.947)",
+          "oklch(83.571% 0.13711 216.947)",
+          "oklch(95.000% 0.13711 216.947)"
+        ]
+      },
+      "blue": {
+        "role": "primary",
+        "displayName": "Blue",
+        "tonalRamp": [
+          "oklch(15.000% 0.20599 258.750)",
+          "oklch(26.429% 0.20599 258.750)",
+          "oklch(37.857% 0.20599 258.750)",
+          "oklch(49.286% 0.20599 258.750)",
+          "oklch(60.714% 0.20599 258.750)",
+          "oklch(72.143% 0.20599 258.750)",
+          "oklch(83.571% 0.20599 258.750)",
+          "oklch(95.000% 0.20599 258.750)"
+        ]
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "Green",
+        "tonalRamp": [
+          "oklch(15.000% 0.17716 153.166)",
+          "oklch(26.429% 0.17716 153.166)",
+          "oklch(37.857% 0.17716 153.166)",
+          "oklch(49.286% 0.17716 153.166)",
+          "oklch(60.714% 0.17716 153.166)",
+          "oklch(72.143% 0.17716 153.166)",
+          "oklch(83.571% 0.17716 153.166)",
+          "oklch(95.000% 0.17716 153.166)"
+        ]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "Amber",
+        "tonalRamp": [
+          "oklch(15.000% 0.13868 80.343)",
+          "oklch(26.429% 0.13868 80.343)",
+          "oklch(37.857% 0.13868 80.343)",
+          "oklch(49.286% 0.13868 80.343)",
+          "oklch(60.714% 0.13868 80.343)",
+          "oklch(72.143% 0.13868 80.343)",
+          "oklch(83.571% 0.13868 80.343)",
+          "oklch(95.000% 0.13868 80.343)"
+        ]
+      },
+      "button-hover": {
+        "role": "neutral",
+        "displayName": "Linear blue hover",
+        "tonalRamp": [
+          "oklch(15.000% 0.05576 236.681)",
+          "oklch(26.429% 0.05576 236.681)",
+          "oklch(37.857% 0.05576 236.681)",
+          "oklch(49.286% 0.05576 236.681)",
+          "oklch(60.714% 0.05576 236.681)",
+          "oklch(72.143% 0.05576 236.681)",
+          "oklch(83.571% 0.05576 236.681)",
+          "oklch(95.000% 0.05576 236.681)"
+        ]
+      },
+      "button-pressed": {
+        "role": "neutral",
+        "displayName": "Linear blue pressed",
+        "tonalRamp": [
+          "oklch(15.000% 0.05518 230.356)",
+          "oklch(26.429% 0.05518 230.356)",
+          "oklch(37.857% 0.05518 230.356)",
+          "oklch(49.286% 0.05518 230.356)",
+          "oklch(60.714% 0.05518 230.356)",
+          "oklch(72.143% 0.05518 230.356)",
+          "oklch(83.571% 0.05518 230.356)",
+          "oklch(95.000% 0.05518 230.356)"
+        ]
+      },
+      "snapshot-amber": {
+        "role": "secondary",
+        "displayName": "Snapshot warning amber",
+        "purpose": "Authored export warning color, distinct from live UI Amber. Primitive lives in DESIGN.md frontmatter.",
+        "tonalRamp": [
+          "oklch(15.000% 0.13288 79.597)",
+          "oklch(26.429% 0.13288 79.597)",
+          "oklch(37.857% 0.13288 79.597)",
+          "oklch(49.286% 0.13288 79.597)",
+          "oklch(60.714% 0.13288 79.597)",
+          "oklch(72.143% 0.13288 79.597)",
+          "oklch(83.571% 0.13288 79.597)",
+          "oklch(95.000% 0.13288 79.597)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Local popover title",
+        "purpose": "Vector settings title, native CoreStyle Bold."
+      },
+      "body": {
+        "displayName": "Control and value",
+        "purpose": "Exact values, length choices, row labels, and popover key."
+      },
+      "section": {
+        "displayName": "Compact section",
+        "purpose": "Display and Arrow length headings."
+      },
+      "label": {
+        "displayName": "Supporting label",
+        "purpose": "Sampling copy, inline recovery, compact key and counts."
+      },
+      "seed-kind": {
+        "displayName": "Seed kind heading",
+        "purpose": "Inlet face, Rectangular plane, Line endpoints and Selected positions; native CoreStyle Bold."
+      },
+      "micro": {
+        "displayName": "Object kind suffix",
+        "purpose": "Seeds suffix in the shared inspection list; native CoreStyle Regular."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [],
+    "nativePreview": {
+      "platform": "macOS Unreal Slate",
+      "sourceOfTruth": "Native C++ tokens, layout, and accepted captures; frontmatter owns primitives.",
+      "fontTranslation": "Arial/sans-serif is a browser-only fallback, not a claim about native CoreStyle font identity.",
+      "behaviorTranslation": "Static appearance previews; Slate validation, sampling, view history and persistence are not implemented by these snippets. Browser focus outlines and range rendering are preview approximations; native button focus remains inherited from Slate.",
+      "tonalRamps": "Synthesized OKLCH preview strips at fixed hue/chroma and stepped lightness; not native palette tokens.",
+      "shadows": "No authored custom D05–D08 UI shadow vocabulary.",
+      "motion": "No authored custom D05–D08 transition vocabulary.",
+      "breakpoints": "No D05–D08 breakpoints; reviewed window sizes are evidence only.",
+      "streamlineTranslation": "Additional snippets translate native appearances only; they do not implement tracing, exact-number validation, seed placement, frozen capture or view history. Gray saved-seed slider is a browser approximation of inherited CoreStyle, not a new normative color."
+    },
+    "scope": {
+      "record": "Accumulating staged D05–D08 streamline/seed/vector controls, V10/D01 viewport toolbar/actual triangle mesh display, and D11/S01 Solve inspector category/ownership foundation, each retaining its evidence boundary.",
+      "artifactRoot": "/Users/bcardarella/projects/wind/tmp/inspection-workspace-20260927",
+      "visualAuthority": "/Users/bcardarella/projects/wind/DESIGN.md (read only); /Users/bcardarella/projects/wind/PRODUCT.md supplies canonical product context.",
+      "reviewScopes": [
+        "extensions.vectorControlsScope",
+        "extensions.streamlineControlsScope",
+        "extensions.viewportToolbarScope",
+        "extensions.solveInspectorScope"
+      ],
+      "open": [
+        "Guarded main integration",
+        "Physical OS input",
+        "Current integrated long-session acceptance",
+        "Overall renderer/reference fidelity",
+        "Full UI plan and application acceptance",
+        "Full accessibility",
+        "Protected main/schema-11 and scheduled-volume integration boundaries",
+        "M3–M5",
+        "Existing volume/stability gate and fresh integration guards before main integration",
+        "Full editable M3 Physics/BC authoring",
+        "Four final-client recording/reconstruction/job regressions behind the protected volume gate"
+      ],
+      "documenterActions": "Merged authorized D05–D07 into the existing staged D08 record. Read source, packet, review/verdict and recorded verification; opened all 26 streamline captures; checked document structure and token references. No build, runtime, test run, production-source edit, main DESIGN.md edit or PRODUCT.md edit.",
+      "viewportDocumentationActions": "Merged authorized V10/D01 from implementation, finish review and recorded verification. Opened four representative captures; checked preservation, source/evidence paths, hashes, JSON, frontmatter references and narrative alignment. No Unreal runtime, build, test, production-source edit, main DESIGN.md edit, PRODUCT.md edit or protected-volume write.",
+      "solveInspectorDocumentationActions": "Merged the authorized D11/S01 foundation from canonical PRODUCT.md, the source contract, native implementation, finish review and recorded evidence. Opened eight representative captures across all eight states; validated all 16 capture hashes/dimensions, staged source hashes, document syntax, token references and preservation. No context regeneration, builds, tests, apps, native controls, production-source changes, main document writes or protected-volume access."
+    },
+    "vectorControlsScope": {
+      "record": "Staged D08 vector controls and immediate incumbent native context only.",
+      "artifactRoot": "/Users/bcardarella/projects/wind/tmp/inspection-workspace-20260927",
+      "packageSha256": "2751570ac6ad32c1877d431c68e33bd65b916e5acef234d766182cdfafcaaad8",
+      "finishDisposition": "F1 resolved; ship for that finding only.",
+      "review": "../implementation/vector-controls-finish-review.md",
+      "verdict": "../implementation/vector-controls-finish-verdict.md",
+      "verification": "../debug/vector-controls-verification-20260928.json",
+      "captures": [
+        ".impeccable/review/vector-controls/1320x740-pressure.png",
+        ".impeccable/review/vector-controls/1320x740-vector-3d.png",
+        ".impeccable/review/vector-controls/1320x740-vector-invalid.png",
+        ".impeccable/review/vector-controls/1320x740-vector-original-menu.png",
+        ".impeccable/review/vector-controls/1320x740-vector-proportional-menu.png",
+        ".impeccable/review/vector-controls/1320x740-vector-snapshot.png",
+        ".impeccable/review/vector-controls/1320x740-vector-uniform-menu.png",
+        ".impeccable/review/vector-controls/1280x720-pressure.png",
+        ".impeccable/review/vector-controls/1280x720-vector-3d.png",
+        ".impeccable/review/vector-controls/1280x720-vector-invalid.png",
+        ".impeccable/review/vector-controls/1280x720-vector-original-menu.png",
+        ".impeccable/review/vector-controls/1280x720-vector-proportional-menu.png",
+        ".impeccable/review/vector-controls/1280x720-vector-snapshot.png",
+        ".impeccable/review/vector-controls/1280x720-vector-uniform-menu.png"
+      ],
+      "recordedWindows": [
+        "1320x740",
+        "1280x720"
+      ],
+      "snapshotExport": "1280x720 in both originating window runs",
+      "open": [
+        "Guarded main integration",
+        "Physical OS input",
+        "Current integrated long-session acceptance",
+        "Overall renderer/reference fidelity",
+        "Full UI plan and application acceptance"
+      ],
+      "documenterActions": "Read source and existing results; opened all 14 accepted captures. No build, launch, runtime use, test run, source edit or main document edit."
+    },
+    "streamlineControlsScope": {
+      "record": "Staged D05–D07 streamline settings, source-bound saved seeds and scene placement, with captured interpretation.",
+      "packageSha256": "afedca302bc1061d9a7385ad6a1a99c0c997ae4766ba5582662d0fa266feee7c",
+      "finishDisposition": "Ship for F1 and F2 only; both resolved by the same reviewer. No fresh full-surface or whole-application acceptance.",
+      "findings": {
+        "F1": "Resolved: live derived-trace provenance and frozen export interpretation/work-limit annotation.",
+        "F2": "Resolved: All seed sets labels the aggregate; selected-set exception notices remain."
+      },
+      "packet": "../implementation/streamline-review-packet.md",
+      "review": "../implementation/streamline-controls-finish-review.md",
+      "verdict": "../implementation/streamline-controls-finish-verdict.md",
+      "verification": "tmp/debug/streamline-ui-verification-20260928.json",
+      "captures": [
+        ".impeccable/review/streamlines-1320x740-settings.png",
+        ".impeccable/review/streamlines-1320x740-invalid.png",
+        ".impeccable/review/streamlines-1320x740-budget.png",
+        ".impeccable/review/streamlines-1320x740-saved-empty.png",
+        ".impeccable/review/streamlines-1320x740-inlet.png",
+        ".impeccable/review/streamlines-1320x740-line.png",
+        ".impeccable/review/streamlines-1320x740-line-draft.png",
+        ".impeccable/review/streamlines-1320x740-plane.png",
+        ".impeccable/review/streamlines-1320x740-points.png",
+        ".impeccable/review/streamlines-1320x740-original-unavailable.png",
+        ".impeccable/review/streamlines-1320x740-surface.png",
+        ".impeccable/review/streamlines-1320x740-volume.png",
+        ".impeccable/review/streamlines-1320x740-snapshot.png",
+        ".impeccable/review/streamlines-1280x720-settings.png",
+        ".impeccable/review/streamlines-1280x720-invalid.png",
+        ".impeccable/review/streamlines-1280x720-budget.png",
+        ".impeccable/review/streamlines-1280x720-saved-empty.png",
+        ".impeccable/review/streamlines-1280x720-inlet.png",
+        ".impeccable/review/streamlines-1280x720-line.png",
+        ".impeccable/review/streamlines-1280x720-line-draft.png",
+        ".impeccable/review/streamlines-1280x720-plane.png",
+        ".impeccable/review/streamlines-1280x720-points.png",
+        ".impeccable/review/streamlines-1280x720-original-unavailable.png",
+        ".impeccable/review/streamlines-1280x720-surface.png",
+        ".impeccable/review/streamlines-1280x720-volume.png",
+        ".impeccable/review/streamlines-1280x720-snapshot.png"
+      ],
+      "recordedWindows": [
+        "1320x740",
+        "1280x720"
+      ],
+      "snapshotExport": "1280x720 in both originating window runs; application chrome intentionally omitted.",
+      "captureQualification": "Settings, invalid and budget contain incidental hover tooltips. F1/F2 scoring captures are unobstructed. All 26 were opened in this merge.",
+      "recordedVerification": {
+        "matchingSourceToolConfigHashes": 221,
+        "cleanNativeCases": 12,
+        "casesPerWindow": "1 Streamlines + 5 FieldDisplay",
+        "manifestCount": 4,
+        "exitCodes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "remainingOwnedProcesses": 0,
+        "model": {
+          "succeeded": 135,
+          "succeededWithWarnings": 1,
+          "failed": 0,
+          "notRun": 0,
+          "warning": "Unreal bundled iOS idevice_id architecture helper",
+          "qualification": "Earlier model run precedes presentation-only numeric formatting, header allocation, derived labels and snapshot annotations; backend/schema hashes unchanged. No fresh final-package model run."
+        }
+      },
+      "open": [
+        "Guarded main integration",
+        "Physical OS input",
+        "Current integrated long-session acceptance",
+        "Overall renderer/reference fidelity",
+        "Full UI plan and application acceptance",
+        "Full accessibility",
+        "Protected main/schema-11 and scheduled-volume integration boundaries"
+      ]
+    },
+    "nativeStreamlines": {
+      "directionContract": "Source/LBMStudio/StudioWorkspace.cpp immediately before CanShowStreamlines",
+      "sources": [
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioWorkspace.h",
+        "Source/LBMStudio/StudioStreamlines.cpp",
+        "Source/LBMStudio/StudioStreamlines.h",
+        "Source/LBMStudio/StudioInspectionObjects.cpp",
+        "Source/LBMStudio/StudioInspectionObjects.h",
+        "Source/LBMStudio/StudioModelInspection.cpp",
+        "Source/LBMStudio/StudioScene.cpp",
+        "Source/LBMStudio/StudioScene.h",
+        "Source/LBMStudio/StudioSnapshot.cpp",
+        "Source/LBMStudio/StudioSnapshot.h",
+        "Source/LBMStudio/SStudioSnapshotOverlay.cpp",
+        "Source/LBMStudio/StudioStreamlineRenderTests.cpp"
+      ],
+      "layout": {
+        "menuMaxDesiredHeight": "530 Slate units",
+        "menuScroll": "Instant focus scroll; 8-unit navigation padding",
+        "inspectionListMaxHeight": "138 Slate units",
+        "inspectionDetails": "Independent scroll; Undo view and Redo view remain outside at bottom"
+      },
+      "numbers": "Streamline and seed fields use shortest round-trip decimal at 17-digit mode, full applied-value tooltip, Enter to apply, retained invalid draft/prior setting, external revision synchronization. D08 vector fields retain eight-significant-digit display.",
+      "defaultsAndLimits": {
+        "automaticCount": {
+          "default": 84,
+          "range": [
+            1,
+            512
+          ]
+        },
+        "direction": {
+          "default": "Forward",
+          "choices": [
+            "Forward",
+            "Backward",
+            "Both"
+          ]
+        },
+        "widthFraction": {
+          "default": 0.00175,
+          "range": [
+            1e-06,
+            0.02
+          ],
+          "meaning": "Full tube diameter"
+        },
+        "stepFraction": {
+          "default": 0.00625,
+          "range": [
+            1e-05,
+            0.1
+          ]
+        },
+        "maximumLengthFraction": {
+          "default": 2,
+          "range": [
+            0.001,
+            100
+          ]
+        },
+        "stepsPerBranch": {
+          "default": 512,
+          "range": [
+            1,
+            4096
+          ]
+        },
+        "totalAttemptBudget": {
+          "default": 32768,
+          "range": [
+            1,
+            65536
+          ]
+        },
+        "savedSeedPositionsPerSet": 512,
+        "totalStoredSeedPositions": 4096,
+        "seedObjects": 128,
+        "distanceScale": "Longest side of trace domain; meters in UI, fractions persisted."
+      },
+      "ownership": "Stable ID and original dataset/metadata/payload identity; adding a saved seed also changes mode in one undo entry. All seed sets prefixes aggregates; exception notices remain per set.",
+      "placement": "Source plane for 2D; fixed camera-facing plane through current point for 3D. Saved coordinates change after final click in one undo entry; Escape/Cancel discards draft. No snapping of custom points.",
+      "meaning": "Immutable instantaneous recorded velocity; arc-length midpoint integration; no time integration or temporal pathlines. Full-segment coverage, identity, cancellation and bounds govern traces. Color follows captured viewport scalar.",
+      "colorRoles": {
+        "liveRecovery": "{colors.amber}",
+        "liveDerivedProvenance": "{colors.amber}",
+        "liveWorkLimitSummary": "{colors.text}",
+        "compactLimitedCount": "{colors.muted}",
+        "aggregate": "{colors.text}",
+        "draftAccepted": "{colors.amber}",
+        "draftPreview": "{colors.text}",
+        "savedSelected": "{colors.cyan}",
+        "savedUnselected": "{colors.muted}",
+        "exportInterpretation": "{colors.muted}",
+        "exportWarning": "{colors.snapshot-amber}"
+      },
+      "snapshot": {
+        "condition": "Annotations enabled and frozen Streams.Segments > 0",
+        "meaning": "Instantaneous velocity streamlines, plus derived 2D triangle or 3D grid interpolation from frozen Identity",
+        "limited": "Work limit reached · tracing incomplete from frozen Streams.bBudgetExhausted",
+        "independentOptions": "Trace annotation remains independent of legend and frame-info toggles",
+        "scale": "s = clamp(min(outputWidth/800, outputHeight/500), 0.25, 4)",
+        "font": "CoreStyle Regular max(6, round(10*s))",
+        "footer": "(12 + 20*rows)*s high; 12*s margin; 20*s row step",
+        "acceptedExample": {
+          "frame": 2200,
+          "timeSeconds": 22,
+          "seeds": 64,
+          "lines": 128,
+          "segments": 2048,
+          "interpolation": 3,
+          "workLimitReached": true,
+          "reconstructionSHA256": "25277f0fdcc3cd2196fe6efb147da1c24df4be332ac438d368fe948c234aefc8"
+        }
+      },
+      "persistence": "Staged project schema 15 streamlineSettings; inspection collection v2 seeds. Earlier D08 schema-14 change remains historically scoped. Exact line/plane/selected-position seed save/reopen precedes the separate inlet control case."
+    },
+    "viewportToolbarScope": {
+      "record": "Staged V10 bottom viewport toolbar and D01 actual original/verified-derived triangle mesh display.",
+      "artifactRoot": "/Users/bcardarella/projects/wind/tmp/inspection-workspace-20260927",
+      "packageSha256": "866d37a998d5242e080546f74e507a194b32d06d47cfc3f0f0f229d0c3419655",
+      "finishDisposition": "Ship; no material fixes required for V10/D01 at the two supplied window sizes.",
+      "review": "../implementation/viewport-toolbar-finish-review.md",
+      "verification": "../debug/viewport-toolbar-verification-20260928.json",
+      "verificationTiming": "Verification status predates the fresh finish review; its staged_verified_review_pending value is historical. The finish review supplies the ship disposition.",
+      "pngAudit": "tmp/debug/viewport-toolbar-png-audit.json",
+      "captures": [
+        ".impeccable/review/viewport-toolbar-1320x740-camera-settings.png",
+        ".impeccable/review/viewport-toolbar-1320x740-derived-overlay.png",
+        ".impeccable/review/viewport-toolbar-1320x740-edges.png",
+        ".impeccable/review/viewport-toolbar-1320x740-expanded.png",
+        ".impeccable/review/viewport-toolbar-1320x740-field.png",
+        ".impeccable/review/viewport-toolbar-1320x740-mesh-menu.png",
+        ".impeccable/review/viewport-toolbar-1320x740-mesh-snapshot.png",
+        ".impeccable/review/viewport-toolbar-1320x740-no-topology.png",
+        ".impeccable/review/viewport-toolbar-1320x740-overlay.png",
+        ".impeccable/review/viewport-toolbar-1320x740-projection.png",
+        ".impeccable/review/viewport-toolbar-1320x740-views.png",
+        ".impeccable/review/viewport-toolbar-1280x720-camera-settings.png",
+        ".impeccable/review/viewport-toolbar-1280x720-derived-overlay.png",
+        ".impeccable/review/viewport-toolbar-1280x720-edges.png",
+        ".impeccable/review/viewport-toolbar-1280x720-expanded.png",
+        ".impeccable/review/viewport-toolbar-1280x720-field.png",
+        ".impeccable/review/viewport-toolbar-1280x720-mesh-menu.png",
+        ".impeccable/review/viewport-toolbar-1280x720-mesh-snapshot.png",
+        ".impeccable/review/viewport-toolbar-1280x720-no-topology.png",
+        ".impeccable/review/viewport-toolbar-1280x720-overlay.png",
+        ".impeccable/review/viewport-toolbar-1280x720-projection.png",
+        ".impeccable/review/viewport-toolbar-1280x720-views.png",
+        ".impeccable/review/viewport-toolbar-1320x740-clipping-invalid.png",
+        ".impeccable/review/viewport-toolbar-1280x720-clipping-invalid.png"
+      ],
+      "recordedWindows": [
+        "1320x740",
+        "1280x720"
+      ],
+      "snapshotExport": "960x540 in both originating window runs; annotated export without application chrome.",
+      "captureQualification": "Finish reviewer opened and accepted all 24 captures: 22 native windows at stated dimensions and two intentional 960x540 exports. Incidental tooltips in some captures do not obscure the scoped evidence; no recapture is owed.",
+      "documenterCaptureSample": [
+        ".impeccable/review/viewport-toolbar-1320x740-overlay.png",
+        ".impeccable/review/viewport-toolbar-1280x720-camera-settings.png",
+        ".impeccable/review/viewport-toolbar-1280x720-no-topology.png",
+        ".impeccable/review/viewport-toolbar-1320x740-mesh-snapshot.png"
+      ],
+      "recordedVerification": {
+        "matchingSourceConfigToolMaterialHashes": 237,
+        "model": {
+          "succeeded": 138,
+          "succeededWithWarnings": 1,
+          "failed": 0,
+          "notRun": 0,
+          "warning": "Bundled idevice_id is the wrong CPU type; two LogHAL warnings in Studio.Colors.HistoryPersistenceAndSourceIsolation."
+        },
+        "cleanNativeSuites": 15,
+        "manifestCount": 5,
+        "suites": [
+          {
+            "suite": "Studio.ViewportToolbar.",
+            "count": 1,
+            "window": [
+              1320,
+              740
+            ]
+          },
+          {
+            "suite": "Studio.ViewportToolbar.",
+            "count": 1,
+            "window": [
+              1280,
+              720
+            ]
+          },
+          {
+            "suite": "Studio.CameraClipping.",
+            "count": 5,
+            "window": [
+              1320,
+              740
+            ]
+          },
+          {
+            "suite": "Studio.CameraClipping.",
+            "count": 5,
+            "window": [
+              1280,
+              720
+            ]
+          },
+          {
+            "suite": "Studio.Orientation.",
+            "count": 3,
+            "window": [
+              1280,
+              720
+            ]
+          }
+        ],
+        "exitCodes": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "remainingOwnedProcesses": 0,
+        "evidenceType": "Recorded routed Slate/native GPU checks; not rerun for documentation."
+      },
+      "protectedExecutablePins": {
+        "main": "56a73127ef526178300aafa7332d7d9ce49043253d53a137e7efe4adfb416b35",
+        "scheduled_volume": "516efec6b234f9203959f2c84c380f30b251cbe373278e3685d88cc8b370e84f"
+      },
+      "mainIntegration": "Pending existing volume/stability gate and fresh integration guards.",
+      "open": [
+        "Physical OS pointer/keyboard acceptance",
+        "Long-session stability",
+        "Full accessibility",
+        "Entire UI plan and full studio/reference acceptance",
+        "D11/S01 inspector consolidation",
+        "M3–M5"
+      ],
+      "documenterActions": "Read source, main PRODUCT.md and DESIGN.md, existing staged records, finish review, verification and PNG audit; opened four representative captures. No runtime, build or tests. Staged PRODUCT.md was absent; canonical product context was available."
+    },
+    "nativeViewportToolbar": {
+      "directionContract": "Source/LBMStudio/StudioWorkspace.cpp immediately above ViewToolbar",
+      "world": "Incumbent dense blue-black native macOS UE5 Slate Operate workspace, cyan selection, actual recorded CFD and arbitrary camera exploration.",
+      "navigation": "Sidebar only; no duplicate top workflow tabs. User navigation correction supersedes duplicate tabs in the supplied reference.",
+      "sources": [
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioMeshDisplay.h",
+        "Source/LBMStudio/StudioMeshDisplay.cpp",
+        "Source/LBMStudio/StudioField.cpp",
+        "Source/LBMStudio/StudioRecordedSolver.cpp",
+        "Source/LBMStudio/StudioScene.cpp",
+        "Source/LBMStudio/StudioScene.h",
+        "Source/LBMStudio/StudioProject.cpp",
+        "Source/LBMStudio/StudioProject.h",
+        "Source/LBMStudio/StudioModel.cpp",
+        "Source/LBMStudio/StudioModel.h",
+        "Source/LBMStudio/StudioView.cpp",
+        "Source/LBMStudio/StudioSnapshot.cpp",
+        "Source/LBMStudio/StudioSnapshot.h",
+        "Source/LBMStudio/SStudioSnapshotOverlay.cpp",
+        "Source/LBMStudio/SStudioSnapshotOverlay.h",
+        "Source/LBMStudio/StudioMeshDisplayTests.cpp",
+        "Source/LBMStudio/StudioViewportToolbarRenderTests.cpp",
+        "Source/LBMStudio/StudioCameraClippingRenderTests.cpp",
+        "Source/LBMStudio/StudioOrientationRenderTests.cpp",
+        "Tools/create_mesh_material.py"
+      ],
+      "order": [
+        "Views",
+        "Perspective / Orthographic",
+        "Field / Mesh overlay / Wireframe (No mesh when requested topology unavailable)",
+        "Fit",
+        "Expand / Restore",
+        "Viewport camera settings"
+      ],
+      "ownership": "Moved Views, Fit, camera transform/lens/depth controls into one toolbar/menu owner; removed old visible copies. Left Camera manager retains saved-camera management. Orientation cube remains.",
+      "layout": {
+        "bottomOffset": "12 Slate units",
+        "inputHintGap": "6 Slate units",
+        "toolbarInset": "5 Slate units",
+        "controlGap": "4 Slate units",
+        "buttonPadding": "8 horizontal, 4 vertical Slate units",
+        "label": "CoreStyle Regular 9pt",
+        "iconSize": "16 Slate units",
+        "meshMenu": "322 units wide, 14 inset",
+        "cameraMenu": "340 units wide, 14 inset, 530 maximum desired height, instant focus scrolling"
+      },
+      "camera": "Projection toggles only SavedCameraState.bOrthographic; exact transform, focus, distance, FOV and orthographic width remain. Lens fields read saved values. Shared view history and depth-clipping recovery carry forward. Standard directions preserve focus/distance; Fit is explicit with F shortcut.",
+      "exactProjectionExample": {
+        "fieldOfView": 48.123456789,
+        "orthoWidth": 6.123456789,
+        "evidence": "Studio.ViewportToolbar.ControlsAndTopology compares the complete expected saved camera."
+      },
+      "expansion": {
+        "hides": [
+          "Monitors",
+          "Idle Solve inspector, including selected Setup, Physics, BCs or Display category"
+        ],
+        "retains": [
+          "Sidebar",
+          "Viewport toolbar",
+          "Timeline",
+          "Active Inspection inspector",
+          "Camera-placement inspector"
+        ],
+        "persistence": "StudioSession.json viewportExpanded, independently of case/project and camera state; survives reopening.",
+        "isolation": "Does not change camera, case, replay, scientific document or field revision. In-app layout expansion, not OS fullscreen.",
+        "supersededLayout": "D11/S01 moves Display into the inspector. The historical V10/D01 display-controls-remain claim no longer describes current staged layout; Restore returns the chosen category and its Display controls when selected."
+      }
+    },
+    "nativeTriangleMesh": {
+      "modes": [
+        {
+          "value": 0,
+          "menuLabel": "Field display",
+          "toolbarLabel": "Field"
+        },
+        {
+          "value": 1,
+          "menuLabel": "Mesh edges over field",
+          "toolbarLabel": "Mesh overlay"
+        },
+        {
+          "value": 2,
+          "menuLabel": "Mesh edges only",
+          "toolbarLabel": "Wireframe"
+        }
+      ],
+      "fill": "Edges-only suppresses scalar/point fill only when usable triangles are present; selected scalar/legend remain. Streamlines, vectors and independent inspection objects retain separate visibility.",
+      "domainGrid": "Existing bMesh remains the independent Domain grid control.",
+      "topology": "Exact original CFD connectivity or explicitly attached verified reconstruction at original point positions. No implicit triangulation of original 2D/3D points.",
+      "acceptedExamples": {
+        "originalTriangles": 10216,
+        "derivedTriangles": 37188
+      },
+      "budget": {
+        "maximumFaces": 131072,
+        "behavior": "Over-budget, invalid or cancelled work publishes no partial mesh; edge choices disable when absent or over budget."
+      },
+      "unavailable": "No mesh toolbar state when an edge mode is requested without usable presented topology; field display retained. Menu explains missing topology or budget, suggests verified reconstruction for original points.",
+      "material": {
+        "asset": "/Game/Studio/M_MeshEdges",
+        "source": "Tools/create_mesh_material.py",
+        "method": "Per-triangle barycentric coordinates with local derivative-scaled opacity; exact triangle positions in a dedicated procedural section, not global wireframe.",
+        "edgeWidth": "1 - smoothstep(0.5, 1.1, minimum barycentric distance / fwidth)",
+        "emissiveLinearRGB": [
+          0.2,
+          0.42,
+          0.55
+        ],
+        "twoSided": true,
+        "unlit": true,
+        "translucent": true,
+        "depthTest": true,
+        "meaning": "Authored edge color identifies topology independently of the selected scalar palette."
+      },
+      "persistence": {
+        "schema": 16,
+        "field": "view.meshStyle",
+        "values": "Required integer 0–2; invalid input rejects without replacing current project.",
+        "migration": "Schema 15 migrates to Field display (0), retaining bMesh domain-grid state.",
+        "history": "Shared view undo/redo and exact save/reopen; retains camera, source frame and case."
+      },
+      "liveLegend": "PresentedMesh summary in a wrapping 166-unit Muted column: Original CFD mesh / Derived mesh, triangle count, Edges show topology, conditional field fill hidden; otherwise captured unavailable notice.",
+      "snapshot": {
+        "condition": "Annotations enabled and frozen Mesh.Triangles > 0",
+        "footer": "Frozen original/derived provenance, triangle count, edges show topology, conditional field fill hidden; separate row in reserved footer.",
+        "metadataKey": "triangle_mesh_display",
+        "metadataFields": [
+          "triangles",
+          "derived",
+          "notice",
+          "field_fill_hidden"
+        ],
+        "acceptedExports": {
+          "triangles": 10216,
+          "derived": false,
+          "notice": "Original CFD triangle mesh",
+          "field_fill_hidden": true,
+          "size": [
+            960,
+            540
+          ],
+          "crcAudit": "Both PNG chunk CRCs valid per recorded independent audit."
+        },
+        "isolation": "Later live state cannot alter captured interpretation."
+      }
+    },
+    "solveInspectorScope": {
+      "record": "Staged D11/S01 category/ownership foundation, captured retained drafts and supplied session/persistence/isolation evidence only.",
+      "artifactRoot": "/Users/bcardarella/projects/wind/tmp/inspection-workspace-20260927",
+      "packageSha256": "92bfe98b417dfcb4c56a31d777b7b5b2cadb217314f281b2a631f58adf0fbc2e",
+      "projectSchema": 16,
+      "finishDisposition": "Ship; no material fixes for the reviewed foundation. No whole UI acceptance or main integration authorization.",
+      "packet": "../implementation/solve-inspector-review-packet.md",
+      "review": "../implementation/solve-inspector-finish-review.md",
+      "verification": "../debug/solve-inspector-verification-20260928.json",
+      "verificationTiming": "The packet pending language and verification staged_verified_scoped_review_pending status predate the finish review; that review supplies the ship disposition.",
+      "captures": [
+        ".impeccable/review/solve-inspector-1320x740-boundaries.png",
+        ".impeccable/review/solve-inspector-1320x740-display.png",
+        ".impeccable/review/solve-inspector-1320x740-inspection.png",
+        ".impeccable/review/solve-inspector-1320x740-invalid.png",
+        ".impeccable/review/solve-inspector-1320x740-physics.png",
+        ".impeccable/review/solve-inspector-1320x740-retained-draft.png",
+        ".impeccable/review/solve-inspector-1320x740-setup.png",
+        ".impeccable/review/solve-inspector-1320x740-streamline-draft.png",
+        ".impeccable/review/solve-inspector-1280x720-boundaries.png",
+        ".impeccable/review/solve-inspector-1280x720-display.png",
+        ".impeccable/review/solve-inspector-1280x720-inspection.png",
+        ".impeccable/review/solve-inspector-1280x720-invalid.png",
+        ".impeccable/review/solve-inspector-1280x720-physics.png",
+        ".impeccable/review/solve-inspector-1280x720-retained-draft.png",
+        ".impeccable/review/solve-inspector-1280x720-setup.png",
+        ".impeccable/review/solve-inspector-1280x720-streamline-draft.png"
+      ],
+      "recordedWindows": [
+        "1320x740",
+        "1280x720"
+      ],
+      "captureQualification": "Finish reviewer opened all 16 whole-window captures, eight states at each size, confirmed dimensions/hashes and accepted readability. Tooltips were disabled only for capture and restored afterward.",
+      "documenterCaptureSample": [
+        ".impeccable/review/solve-inspector-1320x740-display.png",
+        ".impeccable/review/solve-inspector-1280x720-physics.png",
+        ".impeccable/review/solve-inspector-1280x720-boundaries.png",
+        ".impeccable/review/solve-inspector-1280x720-retained-draft.png",
+        ".impeccable/review/solve-inspector-1320x740-setup.png",
+        ".impeccable/review/solve-inspector-1320x740-invalid.png",
+        ".impeccable/review/solve-inspector-1320x740-inspection.png",
+        ".impeccable/review/solve-inspector-1320x740-streamline-draft.png"
+      ],
+      "recordedVerification": {
+        "matchingStagedHashes": 240,
+        "cleanNativeCases": 14,
+        "manifestCount": 6,
+        "suites": [
+          {
+            "suite": "Studio.Inspector.",
+            "count": 1,
+            "window": [
+              1320,
+              740
+            ],
+            "manifest": "tmp/debug/inspector-20260928T055800352066Z/manifest.json"
+          },
+          {
+            "suite": "Studio.Inspector.",
+            "count": 1,
+            "window": [
+              1280,
+              720
+            ],
+            "manifest": "tmp/debug/inspector-20260928T055810340045Z/manifest.json"
+          },
+          {
+            "suite": "Studio.Colors.",
+            "count": 5,
+            "window": [
+              1280,
+              720
+            ],
+            "manifest": "tmp/debug/colors-20260928T055922156486Z/manifest.json"
+          },
+          {
+            "suite": "Studio.FieldDisplay.",
+            "count": 5,
+            "window": [
+              1280,
+              720
+            ],
+            "manifest": "tmp/debug/field-display-20260928T055932149799Z/manifest.json"
+          },
+          {
+            "suite": "Studio.Streamlines.",
+            "count": 1,
+            "window": [
+              1280,
+              720
+            ],
+            "manifest": "tmp/debug/streamlines-20260928T055939956813Z/manifest.json"
+          },
+          {
+            "suite": "Studio.ViewportToolbar.",
+            "count": 1,
+            "window": [
+              1280,
+              720
+            ],
+            "manifest": "tmp/debug/viewport-toolbar-20260928T055948836860Z/manifest.json"
+          }
+        ],
+        "exitCodes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "warnings": 0,
+        "errors": 0,
+        "notRun": 0,
+        "remainingOwnedProcesses": 0,
+        "model": {
+          "report": "../debug/solve-inspector-model-report-20260928.json",
+          "createdOn": "2026.09.28-05.51.31",
+          "succeeded": 140,
+          "succeededWithWarnings": 0,
+          "failed": 0,
+          "notRun": 0,
+          "qualification": "All 140 model cases passed before the final UI-only retained-scroll correction and native-test formatting fix. Numerical model and persistence changes unchanged afterward; current native reports cover the final client. This is not a fresh final-client model run."
+        },
+        "evidenceType": "Recorded routed Slate/native GPU evidence; no tests rerun for documentation."
+      },
+      "mainIntegration": "pending existing volume/stability gate and fresh guards",
+      "pendingRegressions": [
+        "Studio.SurfaceControls.",
+        "Studio.VolumeControls.",
+        "Studio.Rendering.ExternalRecordingControlsAndBounds",
+        "Studio.Rendering.JobControlsAndCamera"
+      ],
+      "open": [
+        "Four pending regressions behind the protected volume run",
+        "Editable M3 Physics/BC authoring",
+        "Main integration after volume/stability gate and fresh guards",
+        "Physical OS input",
+        "Full accessibility",
+        "Extended integrated stability",
+        "Full studio/reference fidelity and wider M1–M5 UI goal"
+      ],
+      "protectedExecutablePins": {
+        "main": "56a73127ef526178300aafa7332d7d9ce49043253d53a137e7efe4adfb416b35",
+        "scheduled_volume": "516efec6b234f9203959f2c84c380f30b251cbe373278e3685d88cc8b370e84f"
+      },
+      "protectedBoundary": "Pins reproduced from recorded verification; this documentation pass did not access the protected volume workspace or either running app.",
+      "documenterActions": "Merged the authorized D11/S01 foundation from canonical PRODUCT.md, the source contract, native implementation, finish review and recorded evidence. Opened eight representative captures across all eight states; validated all 16 capture hashes/dimensions, staged source hashes, document syntax, token references and preservation. No context regeneration, builds, tests, apps, native controls, production-source changes, main document writes or protected-volume access."
+    },
+    "nativeSolveInspector": {
+      "directionContract": "Source/LBMStudio/StudioWorkspace.cpp immediately above CachedDisplayMenu",
+      "sources": [
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioWorkspace.h",
+        "Source/LBMStudio/StudioModel.cpp",
+        "Source/LBMStudio/StudioModel.h",
+        "Source/LBMStudio/StudioInspectorTests.cpp",
+        "Source/LBMStudio/StudioInspectorRenderTests.cpp"
+      ],
+      "world": "Local extension of native macOS UE5 Slate Operate; existing palette, type, fine separators and compact controls. No new comp or visual identity.",
+      "categoryOrder": [
+        "Setup",
+        "Physics",
+        "BCs",
+        "Display"
+      ],
+      "owners": {
+        "Setup": "Replay/control-harness toolbar mode, recording selection, reconstruction attachment, source disclosures, playback controls and status.",
+        "Physics": "Read-only source conditions and separate saved-case backend/collision/turbulence/thermal summaries.",
+        "BCs": "Read-only saved-case count, six domain-face assignments and surface-patch assignments/empty state; recording boundary conditions are unavailable.",
+        "Display": "One scalar selector, palette/range action, domain grid, applicable cut-plane/flow-layer controls, point/surface/volume presentation, vectors and streamlines. Camera/topology actions remain in viewport toolbar."
+      },
+      "authoringBoundary": "Saved-case BGK and velocity-inlet values in captures are explicit fixture settings. They are not computed CFD or source conditions. Full editable M3 forms remain open.",
+      "layout": {
+        "columnWidth": "322 Slate units",
+        "sceneGutter": "7 Slate units",
+        "panelPadding": "10 horizontal, 0 vertical Slate units",
+        "categoryWidth": "Four equal-width targets",
+        "categoryPadding": "2 horizontal, 12 vertical Slate units",
+        "categoryLabel": "CoreStyle Regular 10pt",
+        "activeState": "Cyan label and 2-unit underline; native focus outlines",
+        "inactiveState": "Muted label; inherited NavigationStyle",
+        "scrolling": "Separate retained category forms, instant focus scrolling, 12-unit navigation padding",
+        "displayBodyPadding": "2 horizontal, 10 vertical Slate units"
+      },
+      "precedence": [
+        "Camera placement",
+        "Active Inspection",
+        "Chosen Solve category"
+      ],
+      "inspectionClose": "Restores the chosen category. Expanded viewport retains active Inspection and placement but hides all idle categories, including Display.",
+      "session": {
+        "file": "StudioSession.json",
+        "field": "inspectorTab",
+        "default": 3,
+        "mapping": {
+          "0": "Setup",
+          "1": "Physics",
+          "2": "BCs",
+          "3": "Display"
+        },
+        "validation": "Finite whole numbers 0–3 only; missing/malformed values retain Display.",
+        "isolation": "Session preference only; no scientific document, camera, frame, case or render revision change."
+      },
+      "drafts": {
+        "lifetime": "Cached Color, Volume, Vector and Streamline editor widgets survive dismissal and category round trips within their identity; unfinished text is transient UI state.",
+        "identity": [
+          "Project ID",
+          "Solver instance",
+          "Scalar ID"
+        ],
+        "invalidation": "Any identity change clears cached forms; tick releases obsolete closures before the next menu open.",
+        "viewRevision": "Color/Volume rebuild on render-intent revision to refresh local range drafts. Vector/Streamline validated fields synchronize on valid edits and external view revision.",
+        "apply": "Enter applies; focus loss does not. Rejected text retains the prior applied value and one wrapped Amber recovery.",
+        "scrolling": "Drops queued focus targets outside the retained form on reopen.",
+        "reviewedExamples": [
+          "Vector Scale nan survives a category round trip",
+          "Seed count 1.5 survives a category round trip",
+          "Repaired Scale 1.625 applies, follows undo/redo and saves/reopens exactly",
+          "New project receives a fresh editor"
+        ]
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Vector settings action",
+      "kind": "button",
+      "refersTo": "vector-settings-button",
+      "description": "Native three-line settings glyph translated to inline SVG; opens the vector form in Slate.",
+      "html": "<button class=\"ds-settings\" aria-label=\"Vector settings: sample count, length mode and scale\"><svg class=\"ds-settings-icon\" viewBox=\"0 0 100 100\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" aria-hidden=\"true\"><path d=\"M10 25H90M10 50H90M10 75H90M30 12V37M70 38V63M40 63V88\"/></svg></button>",
+      "css": ".ds-settings{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:7px;font-size:10pt;font-family:Arial,sans-serif;padding:3px 5px;color:#99ACBF;display:inline-flex}.ds-settings:hover,.ds-settings:focus-visible{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC;outline:none}.ds-settings:active{background:color(srgb-linear 0.01 0.055 0.09);border-color:#00C8EC}"
+    },
+    {
+      "name": "Length mode",
+      "kind": "button",
+      "refersTo": "vector-mode",
+      "description": "Unselected length choice; shared native outlined button.",
+      "html": "<button class=\"ds-mode\" aria-pressed=\"false\">Equal length</button>",
+      "css": ".ds-mode{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:7px;font-size:10pt;font-family:Arial,sans-serif;}.ds-mode:hover,.ds-mode:focus-visible{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC;outline:none}.ds-mode:active{background:color(srgb-linear 0.01 0.055 0.09);border-color:#00C8EC}.ds-mode:disabled{background:#07121D;border-color:#304151}"
+    },
+    {
+      "name": "Selected length mode",
+      "kind": "button",
+      "refersTo": "vector-mode-selected",
+      "description": "Cyan text identifies the current length choice; hover/focus adds the border affordance.",
+      "html": "<button class=\"ds-mode ds-selected\" aria-pressed=\"true\">Proportional</button>",
+      "css": ".ds-mode{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:7px;font-size:10pt;font-family:Arial,sans-serif;}.ds-selected{color:#00C8EC}.ds-mode:hover,.ds-mode:focus-visible{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC;outline:none}.ds-mode:active{background:color(srgb-linear 0.01 0.055 0.09);border-color:#00C8EC}.ds-mode:disabled{background:#07121D;border-color:#304151}"
+    },
+    {
+      "name": "Exact vector value",
+      "kind": "input",
+      "refersTo": "vector-number",
+      "description": "Dark exact-value field; Enter-to-apply validation belongs to native Slate, not this preview.",
+      "html": "<label class=\"ds-field\">Scale <input class=\"ds-number\" type=\"text\" inputmode=\"decimal\" value=\"1.625\" aria-label=\"Scale\" title=\"Enter an exact value and press Enter to apply.\"></label>",
+      "css": ".ds-field{display:flex;align-items:center;gap:10px;color:#99ACBF;font-size:10pt;font-family:Arial,sans-serif;}.ds-number{background:#07121D;color:#E0E9F3;border:1px solid #304151;border-radius:3px;padding:5px 7px;width:114px;font-size:10pt;font-family:Arial,sans-serif;}.ds-number:hover{border-color:#99ACBF}.ds-number:focus-visible{border-color:#00C8EC;outline:none}"
+    },
+    {
+      "name": "Vector settings panel",
+      "kind": "card",
+      "refersTo": "vector-menu",
+      "description": "Scoped static translation of the 320-unit native popover; previews proportional mode and captured key.",
+      "html": "<section class=\"ds-panel\" aria-label=\"Vector settings\"><h3 class=\"ds-title\">Vector settings</h3><label class=\"ds-row\">Maximum samples <input class=\"ds-number\" type=\"text\" value=\"257\" aria-label=\"Maximum samples\"></label><p class=\"ds-help\">Evenly spaced samples on the 2D display plane. Solid and missing samples produce no arrow.</p><h4 class=\"ds-subtitle\">Arrow length</h4><div class=\"ds-modes\"><button class=\"ds-mode ds-selected\" aria-pressed=\"true\">Proportional</button><button class=\"ds-mode\" aria-pressed=\"false\">Equal length</button></div><label class=\"ds-row\">Scale <input class=\"ds-number\" type=\"text\" value=\"1.625\" aria-label=\"Scale\"></label><input class=\"ds-scale\" type=\"range\" min=\"0.2\" max=\"3\" step=\"0.001\" value=\"1.625\" aria-label=\"Vector scale\"><p class=\"ds-key\">Arrow: 0.2503 m<br>= 88.41 m/s (sample max)</p><p class=\"ds-count\">257 arrows / 257 samples · frame 0</p><p class=\"ds-meaning\">Lengths are proportional to speed and normalized to this sampled frame. Color follows the selected scalar.</p></section>",
+      "css": ".ds-panel{width:288px;max-height:418px;overflow:auto;padding:16px;background:#101E2B;color:#E0E9F3;font-family:Arial,sans-serif;}.ds-title{font-size:12pt;margin:0 0 14px;font-weight:700}.ds-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:10pt;color:#99ACBF;margin-bottom:8px}.ds-help{font-size:9pt;color:#99ACBF;margin:0 0 14px}.ds-subtitle{font-size:10pt;margin:0 0 6px}.ds-modes{display:flex;gap:4px;margin-bottom:10px}.ds-mode{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:7px;font-size:10pt;font-family:Arial,sans-serif;flex:1;text-align:left}.ds-selected{color:#00C8EC}.ds-mode:hover,.ds-mode:focus-visible{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC;outline:none}.ds-mode:active{background:color(srgb-linear 0.01 0.055 0.09);border-color:#00C8EC}.ds-mode:disabled{background:#07121D;border-color:#304151}.ds-number{background:#07121D;color:#E0E9F3;border:1px solid #304151;border-radius:3px;padding:5px 7px;width:114px;font-size:10pt;font-family:Arial,sans-serif;}.ds-number:hover{border-color:#99ACBF}.ds-number:focus-visible{border-color:#00C8EC;outline:none}.ds-scale{width:100%;margin:0 0 14px;accent-color:#2980FF}.ds-scale:focus-visible{outline:1px solid #00C8EC}.ds-scale::-webkit-slider-runnable-track{background:#304151;height:3px}.ds-scale::-moz-range-track{background:#304151;height:3px}.ds-key{font-size:10pt;margin:0 0 6px}.ds-count{font-size:9pt;color:#99ACBF;margin:0 0 12px}.ds-meaning{font-size:9pt;color:#99ACBF;margin:0}"
+    },
+    {
+      "name": "Captured vector key",
+      "kind": "custom",
+      "refersTo": "vector-key",
+      "description": "Length and sampled maximum from presented geometry; values shown are the accepted export example.",
+      "html": "<div class=\"ds-key-block\"><div class=\"ds-key-value\">Arrow: 0.2503 m<br>= 88.41 m/s (sample max)</div><p class=\"ds-key-count\">257 arrows / 257 samples · frame 0</p></div>",
+      "css": ".ds-key-block{background:#101E2B;color:#E0E9F3;font-size:10pt;font-family:Arial,sans-serif;}.ds-key-count{color:#99ACBF;font-size:9pt;margin:6px 0 0}"
+    },
+    {
+      "name": "Inline rejected scale recovery",
+      "kind": "custom",
+      "refersTo": "vector-recovery",
+      "description": "Latest wrapped recovery with rejected drafts; applied geometry remains at the prior setting in native Slate.",
+      "html": "<div class=\"ds-recovery\"><p class=\"ds-error\" role=\"status\">Scale: enter a number from 0.2 to 3. Previous setting retained.</p><label class=\"ds-recovery-row\">Maximum samples <input class=\"ds-number\" type=\"text\" value=\"4097\" aria-label=\"Maximum samples\"></label><label class=\"ds-recovery-row\">Scale <input class=\"ds-number\" type=\"text\" value=\"nan\" aria-label=\"Scale\"></label></div>",
+      "css": ".ds-recovery{width:288px;background:#101E2B;font-family:Arial,sans-serif;}.ds-error{margin:0 0 10px;color:#F0B74B;font-size:9pt;overflow-wrap:break-word}.ds-recovery-row{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#99ACBF;font-size:10pt;margin-bottom:8px}.ds-number{background:#07121D;color:#E0E9F3;border:1px solid #304151;border-radius:3px;padding:5px 7px;width:114px;font-size:10pt;font-family:Arial,sans-serif;}.ds-number:hover{border-color:#99ACBF}.ds-number:focus-visible{border-color:#00C8EC;outline:none}"
+    },
+    {
+      "name": "Incumbent active navigation row",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "Immediate sidebar context only; a second workspace navigation is not part of D08.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button class=\"ds-nav-row\" aria-current=\"page\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 20 20\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"#99ACBF\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"M5 3L16 10L5 17Z\"/></svg>Solver</button></nav>",
+      "css": ".ds-nav{width:172px;background:#07121D}.ds-nav-row{width:100%;height:45px;display:flex;align-items:center;gap:8px;border:0;padding:0 14px;background:#182735;color:#00C8EC;font-size:9pt;font-family:Arial,sans-serif;}.ds-nav-row:hover,.ds-nav-row:active{background:#182735}.ds-nav-row:focus-visible{outline:1px solid #00C8EC;outline-offset:-1px}"
+    },
+    {
+      "name": "Incumbent replay status badge",
+      "kind": "chip",
+      "refersTo": "presented-status",
+      "description": "Noninteractive replay state in the captured-frame strip; contextual to the vector display.",
+      "html": "<span class=\"ds-status\">Replay paused</span>",
+      "css": ".ds-status{display:inline-block;background:#182735;color:#43D981;font-size:9pt;font-family:Arial,sans-serif;}"
+    },
+    {
+      "name": "Streamline settings panel",
+      "kind": "card",
+      "refersTo": "streamline-menu",
+      "description": "Static translation of the 350-unit, 530-unit capped native form with accepted example settings. Native validation, focus scrolling and tracing remain authoritative.",
+      "html": "<section class=\"ds-sc ds-sc-menu\" aria-label=\"Streamline settings\"><h3>Streamline settings</h3><p class=\"ds-sc-help\">Flow field: recorded velocity (m/s)</p><div class=\"ds-sc-choices\"><button aria-pressed=\"true\">Automatic inlet</button><button aria-pressed=\"false\">Saved seed sets</button></div><label class=\"ds-sc-row\">Seed count<input type=\"text\" value=\"31\" aria-label=\"Seed count\"></label><input class=\"ds-sc-slider\" type=\"range\" min=\"1\" max=\"512\" value=\"31\" aria-label=\"Inlet seed density\"><h4>Direction</h4><div class=\"ds-sc-choices ds-sc-direction\"><button aria-pressed=\"false\">Forward</button><button aria-pressed=\"false\">Backward</button><button aria-pressed=\"true\">Both</button></div><label class=\"ds-sc-row\">Width (m)<input type=\"text\" value=\"0.0044\" aria-label=\"Width (m)\"></label><label class=\"ds-sc-row\">Step (m)<input type=\"text\" value=\"0.0176\" aria-label=\"Step (m)\"></label><label class=\"ds-sc-row\">Max length (m)<input type=\"text\" value=\"0.66\" aria-label=\"Max length (m)\"></label><label class=\"ds-sc-row\">Max steps / branch<input type=\"text\" value=\"35\" aria-label=\"Max steps / branch\"></label><label class=\"ds-sc-row\">Total step budget<input type=\"text\" value=\"2048\" aria-label=\"Total step budget\"></label><p class=\"ds-sc-count\">31 seeds · 31 traces · frame 0</p><p class=\"ds-sc-help\">Each direction has its own length/step limit. Distances scale with the domain when switching recordings. Traces stop at missing data and solids; color follows the viewport scalar.</p></section>",
+      "css": ".ds-sc-menu{width:318px;max-height:498px;overflow:auto;padding:16px;background:#101E2B;color:#E0E9F3;font:10pt Arial,sans-serif}.ds-sc h3{font-size:12pt;margin:0 0 12px}.ds-sc h4{font-size:10pt;margin:0 0 6px}.ds-sc-help{color:#99ACBF;font-size:9pt;margin:0 0 10px}.ds-sc-row{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#99ACBF;margin-bottom:8px}.ds-sc-choices{display:flex;gap:4px;margin-bottom:10px}.ds-sc-choices button{flex:1;text-align:left}.ds-sc-direction{margin-bottom:14px}.ds-sc-direction button{padding:7px 5px}.ds-sc-slider{width:100%;accent-color:#2980FF;margin:0 0 10px}.ds-sc-slider:focus-visible{outline:1px solid #00C8EC}.ds-sc-count{margin:12px 0 10px}.ds-sc button{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:7px 6px;font:10pt Arial,sans-serif}.ds-sc button[aria-pressed=\"true\"]{color:#00C8EC}.ds-sc button:hover,.ds-sc button:focus-visible{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC;outline:none}.ds-sc button:active{background:color(srgb-linear 0.01 0.055 0.09);border-color:#00C8EC}.ds-sc button:disabled{background:#07121D;color:#99ACBF;border-color:#304151;opacity:.5}.ds-sc input[type=\"text\"]{background:#07121D;color:#E0E9F3;border:1px solid #304151;border-radius:3px;padding:5px 7px;width:129px;font:10pt Arial,sans-serif}.ds-sc input[type=\"text\"]:hover{border-color:#99ACBF}.ds-sc input[type=\"text\"]:focus-visible{border-color:#00C8EC;outline:none}"
+    },
+    {
+      "name": "Saved inlet seed details",
+      "kind": "custom",
+      "refersTo": "seed-inspector",
+      "description": "Scoped native inspector detail translation showing aggregate ownership, selected count and 2D-disabled Y faces; this is not a second navigation surface.",
+      "html": "<section class=\"ds-sc ds-sc-seed\" aria-label=\"Saved inlet seed details\"><p class=\"ds-sc-total\">All seed sets:<br>23 seeds · 33 traces · frame 0</p><h3>Inlet face</h3><label class=\"ds-sc-seed-row\">Seed count<input type=\"text\" value=\"7\" aria-label=\"Saved seed count\"></label><input class=\"ds-sc-seed-slider\" type=\"range\" min=\"1\" max=\"512\" value=\"7\" aria-label=\"Saved seed density\"><div class=\"ds-sc-faces\"><button aria-pressed=\"false\">X minimum</button><button aria-pressed=\"true\">X maximum</button><button disabled>Y minimum</button><button disabled>Y maximum</button><button aria-pressed=\"false\">Z minimum</button><button aria-pressed=\"false\">Z maximum</button></div><p class=\"ds-sc-seed-help\">Seeds are inset 0.23% from this face. A 2D recording places them on its original X/Z plane.</p></section>",
+      "css": ".ds-sc-seed{padding:10px;background:#101E2B;color:#E0E9F3;font:10pt Arial,sans-serif;max-width:302px}.ds-sc-total{margin:0 0 10px}.ds-sc-seed h3{font-size:11pt;margin:0 0 10px}.ds-sc-seed-row{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#99ACBF;margin-bottom:7px}.ds-sc-seed-slider{width:100%;accent-color:#bfbfbf;margin:0 0 10px}.ds-sc-seed-slider:focus-visible{outline:1px solid #00C8EC}.ds-sc-faces{display:grid;grid-template-columns:1fr 1fr;gap:5px 4px}.ds-sc-faces button{font-size:9pt;text-align:left;padding:7px 4px}.ds-sc-seed-help{margin:6px 0 0;color:#99ACBF;font-size:9pt}.ds-sc button{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:7px 6px;font:10pt Arial,sans-serif}.ds-sc button[aria-pressed=\"true\"]{color:#00C8EC}.ds-sc button:hover,.ds-sc button:focus-visible{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC;outline:none}.ds-sc button:active{background:color(srgb-linear 0.01 0.055 0.09);border-color:#00C8EC}.ds-sc button:disabled{background:#07121D;color:#99ACBF;border-color:#304151;opacity:.5}.ds-sc input[type=\"text\"]{background:#07121D;color:#E0E9F3;border:1px solid #304151;border-radius:3px;padding:5px 7px;width:129px;font:10pt Arial,sans-serif}.ds-sc input[type=\"text\"]:hover{border-color:#99ACBF}.ds-sc input[type=\"text\"]:focus-visible{border-color:#00C8EC;outline:none}.ds-sc-seed input[type=\"text\"]{width:94px}"
+    },
+    {
+      "name": "Frozen streamline interpretation",
+      "kind": "custom",
+      "refersTo": "snapshot-streamline-warning",
+      "description": "Appearance translation of the accepted three-row export footer, using the distinct snapshot warning Amber. Content belongs to frozen Snapshot state in native code.",
+      "html": "<footer class=\"ds-stream-footer\"><p>Reader fixture · three original 3D cylinder snapshots · frame 2200 · 22 s</p><p class=\"ds-stream-meaning\">Instantaneous velocity streamlines · derived 3D grid interpolation</p><p class=\"ds-stream-warning\">Work limit reached · tracing incomplete</p></footer>",
+      "css": ".ds-stream-footer{background:#101E2B;color:#E0E9F3;padding:10px 17px;font:14pt Arial,sans-serif}.ds-stream-footer p{margin:0;line-height:29px}.ds-stream-meaning{color:#99ACBF}.ds-stream-warning{color:#F5BD59}"
+    },
+    {
+      "name": "Bottom viewport toolbar",
+      "kind": "custom",
+      "refersTo": "viewport-toolbar",
+      "description": "Appearance of the single bottom view-control owner below the input hint; source order, native camera/history behavior remains in Slate.",
+      "html": "<div class=\"ds-viewbar\" role=\"toolbar\" aria-label=\"Viewport\"><button>Views <span aria-hidden=\"true\">⌄</span></button><button>Perspective</button><button>Mesh overlay <span aria-hidden=\"true\">⌄</span></button><button aria-label=\"Fit the flow domain\"><svg viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4\"/></svg></button><button>Expand</button><button aria-label=\"Camera transform, lens and depth clipping\"><svg viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M1 4h14M1 8h14M1 12h14M5 2v4M11 6v4M6 10v4\"/></svg></button></div>",
+      "css": ".ds-viewbar{display:flex;align-items:center;gap:4px;padding:5px;background:#101E2B;width:max-content;font:12px Arial,sans-serif}.ds-viewbar button{display:inline-flex;align-items:center;gap:4px;background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:4px 8px;font:inherit}.ds-viewbar button:hover{background:color(srgb-linear .035 .10 .16);border-color:#00C8EC}.ds-viewbar button:focus-visible{outline:1px solid #00C8EC;outline-offset:1px}.ds-viewbar button:active{background:color(srgb-linear .01 .055 .09);border-color:#00C8EC}.ds-viewbar svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4}"
+    },
+    {
+      "name": "Unavailable triangle mesh menu",
+      "kind": "custom",
+      "refersTo": "triangle-mesh-menu",
+      "description": "Requested edge mode with no supplied topology; retain field display and explain explicit reconstruction. Preview only.",
+      "html": "<section class=\"ds-meshmenu\"><h3>Triangle mesh</h3><button>Field display</button><button disabled>Mesh edges over field</button><button disabled>Mesh edges only · unavailable</button><p>No triangle mesh supplied; field display retained. Attach a verified surface reconstruction to inspect its derived edges.</p><div class=\"ds-meshhistory\"><button>↶ Undo view</button><button disabled>↷ Redo view</button></div></section>",
+      "css": ".ds-meshmenu{width:294px;padding:14px;background:#101E2B;color:#E0E9F3;font:13px Arial,sans-serif}.ds-meshmenu h3{font-size:16px;margin:0 0 10px}.ds-meshmenu button{display:block;width:100%;text-align:left;margin:0 0 5px;padding:8px;background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;font:inherit}.ds-meshmenu button:hover:enabled{background:color(srgb-linear .035 .10 .16);border-color:#00C8EC}.ds-meshmenu button:focus-visible{outline:1px solid #00C8EC;outline-offset:1px}.ds-meshmenu button:active:enabled{background:color(srgb-linear .01 .055 .09);border-color:#00C8EC}.ds-meshmenu button:disabled{background:#07121D;color:#99ACBF;opacity:.5}.ds-meshmenu p{font-size:12px;color:#99ACBF;margin:12px 0 10px;line-height:1.3}.ds-meshhistory{display:flex;gap:5px}.ds-meshhistory button{flex:1;font-size:12px;padding:7px;white-space:nowrap}"
+    },
+    {
+      "name": "Solve inspector category strip",
+      "kind": "nav",
+      "refersTo": "solve-inspector",
+      "description": "Local Setup / Physics / BCs / Display strip in the right inspector, shown with Display active; native behavior remains in Slate.",
+      "html": "<div class=\"ds-solve-inspector\"><div class=\"ds-solve-tabs\" role=\"tablist\" aria-label=\"Solve inspector categories\"><button class=\"ds-solve-tab\" role=\"tab\" aria-selected=\"false\">Setup</button><button class=\"ds-solve-tab\" role=\"tab\" aria-selected=\"false\">Physics</button><button class=\"ds-solve-tab\" role=\"tab\" aria-selected=\"false\">BCs</button><button class=\"ds-solve-tab ds-solve-active\" role=\"tab\" aria-selected=\"true\">Display</button></div><div class=\"ds-solve-content\"><strong>Recorded field display</strong><p>Scalar, palette, vectors and streamlines</p></div></div>",
+      "css": ".ds-solve-inspector { width: 302px; padding: 0 10px; background: #101E2B; color: #E0E9F3; font: 10pt Arial, sans-serif; } .ds-solve-tabs { display: flex; } .ds-solve-tab { flex: 1; min-width: 0; padding: 12px 2px; border: 0; border-bottom: 2px solid #101E2B; background: transparent; color: #99ACBF; font: 10pt Arial, sans-serif; cursor: pointer; } .ds-solve-active { color: #00C8EC; border-bottom-color: #00C8EC; } .ds-solve-tab:hover, .ds-solve-tab:active { background: #182735; } .ds-solve-tab:focus-visible { outline: 1px solid #00C8EC; outline-offset: -2px; } .ds-solve-content { padding: 10px 2px; } .ds-solve-content p { color: #99ACBF; font-size: 9pt; margin: 8px 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Operate",
+    "overview": "The established “Operate” world is a dense native desktop workspace: blue-black surfaces, fine borders, compact controls, and a dominant CFD scene. D08 adds vector sampling and length controls; D05–D07 adds instantaneous recorded-velocity tracing, exact limits, and saved seed sets inside that world. Descriptive language and direction carry forward the user’s pinned appearance.\n\nThis is an accumulating scoped design record for `tmp/inspection-workspace-20260927`: D05–D08 streamline controls, saved seed editors and vectors, followed by V10/D01 viewport toolbar and actual triangle mesh display, and the D11/S01 Solve inspector category/ownership foundation. Each accepted feature retains its own evidence and limits. Main `DESIGN.md` remains the visual authority. Shared inspection infrastructure is described only where it serves these slices; other inspection features, the full application, and the wider renderer remain outside this record’s acceptance.\n\nThe six-line contract beside `SStudioWorkspace::VectorControls` makes density and length interpretable against the displayed CFD frame: sample limit, proportional or equal length, exact scale, and a current-frame key. Project/view history owns settings; captured geometry owns the key. Main `PRODUCT.md` and `DESIGN.md` were read as context only.\n\nThe D08 initial finish review and same-reviewer verdict live at `../implementation/vector-controls-finish-review.md` and `../implementation/vector-controls-finish-verdict.md`. The latter resolves **F1 only** with disposition **ship** for staged package `2751570ac6ad32c1877d431c68e33bd65b916e5acef234d766182cdfafcaaad8`. Its evidence is the 14 replacement captures in `.impeccable/review/vector-controls/` and two recorded five-suite workflows at 1320 × 740 and 1280 × 720, each with five successes, zero warnings/failures, exit 0, and no remaining owned processes. The prior D08 documentation pass inspected source, reports, and all 14 captures; it launched and tested nothing. The earlier 131-test model result predates the final UI-only correction and is not a fresh final-package model result.\n\nThe D05–D07 six-line contract immediately before `SStudioWorkspace::CanShowStreamlines` places one settings action beside Streamlines and owns saved seeds through the shared Inspection panel, scene placement, and view history. This is a local code-led extension in native macOS UE5 Slate using genuine published recorded fields. It retains unrestricted camera exploration and the sidebar as the sole persistent workspace navigator. No generated comp or new visual workshop applies.\n\nThe D05–D07 packet, initial review, and same-reviewer correction verdict are `../implementation/streamline-review-packet.md`, `../implementation/streamline-controls-finish-review.md`, and `../implementation/streamline-controls-finish-verdict.md`. The verdict is **ship for F1 and F2 only**, both resolved, on package `afedca302bc1061d9a7385ad6a1a99c0c997ae4766ba5582662d0fa266feee7c`. F1 adds visible derived-trace interpretation and frozen export work-limit text; F2 labels the shared aggregate “All seed sets:”. This correction verdict is not a fresh full-surface review. The D08 disposition and package above remain a separate historical scope.\n\nRecorded verification is `tmp/debug/streamline-ui-verification-20260928.json`: 221 matching source/tool/config hashes and 12 clean packaged cases, comprising one Streamlines case and five FieldDisplay cases at each accepted size. All four manifests pin the corrected package, exit 0, and record no remaining owned processes. The model run reports 135 clean successes plus one success with Unreal’s bundled iOS `idevice_id` architecture-helper warning, zero failures/not-run. It precedes presentation-only formatting, header allocation, and provenance/annotation changes; backend/schema hashes are unchanged, and no fresh final-package model run is claimed.\n\nThis merge inspected relevant native source, recorded results, and all 26 captures at `.impeccable/review/streamlines-{1320x740,1280x720}-{settings,invalid,budget,saved-empty,inlet,line,line-draft,plane,points,original-unavailable,surface,volume,snapshot}.png`. Settings, invalid, and budget include an incidental settings-button hover tooltip; the F1/F2 scoring captures are unobstructed. Both snapshots intentionally export at 1280 × 720 without application chrome. This documenter launched no runtime and performed no build or test run.\n\nMain integration, physical OS input, full accessibility, current integrated long-session acceptance, overall renderer/reference fidelity, and the rest of the full UI plan remain open. Protected main/schema-11 and scheduled-volume boundaries remain in force. Routed Slate events establish the supplied control workflow; the small authentic data fixtures do not establish full-source transport duration or extended stability. No browser/HTML detector applies to this native UI.\n\nThe V10/D01 direction contract immediately above `SStudioWorkspace::ViewToolbar` adds one compact owner for view direction, projection, topology and framing below the input hint. It inherits the dense blue-black Slate world, cyan selection and real recorded CFD. Views, Fit, and camera transform/lens/depth controls move to this owner; their previous visible copies are removed. The left Camera manager still manages saved views. The sidebar remains the sole workspace navigator, with no duplicate top workflow tabs, following the user’s explicit correction to the supplied reference.\n\n`../implementation/viewport-toolbar-finish-review.md` gives **ship**, with no material fixes, for staged V10/D01 package `866d37a998d5242e080546f74e507a194b32d06d47cfc3f0f0f229d0c3419655`. The recorded verification at `../debug/viewport-toolbar-verification-20260928.json` pins 237 source/config/tool/material hashes and 24 captures. It records 139 successful model cases: 138 clean and one with the bundled `idevice_id` wrong-CPU helper warning. Five native manifests record 15 clean suites: one toolbar and five clipping suites per window size, plus three orientation suites at 1280 × 720. All owned native apps exited 0 with empty remaining-process inventories.\n\nThe finish reviewer opened all 24 `.impeccable/review/viewport-toolbar-{1320x740,1280x720}-{field,overlay,edges,derived-overlay,expanded,camera-settings,mesh-menu,no-topology,views,projection,mesh-snapshot,clipping-invalid}.png` captures and found them valid. The 22 window captures have the stated dimensions; the two mesh snapshots intentionally export at 960 × 540. `tmp/debug/viewport-toolbar-png-audit.json` independently records valid PNG chunk CRCs and frozen mesh metadata for both exports. This documentation pass read the implementation and recorded evidence and opened four representative captures; it ran no Unreal runtime, build or test.\n\nV10/D01 acceptance covers routed Slate/native GPU behavior at those two sizes. It does not establish physical OS pointer/keyboard acceptance, long-session stability, full accessibility, the entire UI plan, or full studio/reference fidelity. Main integration waits for the existing volume/stability gate and fresh integration guards. The protected main `56a73127…` and scheduled-volume `516efec6…` executables remain unchanged by this staged work. At that V10/D01 verdict, D11/S01 inspector consolidation remained open; its later scoped foundation acceptance is recorded below. Full editable M3 authoring and M3–M5 completion remain open. Earlier inspection/camera acceptance remains in the canonical record with its original boundaries.\n\nThe D11/S01 six-line contract immediately above `SStudioWorkspace::CachedDisplayMenu` gives each Solve setting one visible owner without losing an unfinished edit. Setup, Physics, BCs and Display occupy the existing right inspector; the category tabs are local to Solve. The incumbent Operate palette, compact native macOS UE5 Slate controls, authentic recorded fields and sidebar-only workspace navigation remain the visual authority. This is a local code-led extension with no generated comp or new identity.\n\n`../implementation/solve-inspector-finish-review.md` gives **ship**, with no material fixes, only for the staged D11/S01 category/ownership foundation, captured retained drafts, and supplied persistence/isolation evidence on client `92bfe98b417dfcb4c56a31d777b7b5b2cadb217314f281b2a631f58adf0fbc2e`, project schema 16. The packet is `../implementation/solve-inspector-review-packet.md`. Its early pending language and verification status predate the review; the finish review supplies the disposition. This acceptance adds to the prior D05–D08 and V10/D01 records without widening their verdicts.\n\n`../debug/solve-inspector-verification-20260928.json` records 240 matching staged source/config/tool/material hashes and 14 clean final-client native cases in six manifests: one Inspector case at each of 1320 × 740 and 1280 × 720, plus five Colors, five FieldDisplay, one Streamlines and one ViewportToolbar case at 1280 × 720. All six report exit 0, zero warnings/errors/not-run cases and empty owned-process inventories. The model report records **140 clean successes** at `2026.09.28-05.51.31`, including `Studio.Inspector.SessionCategoryIsolation`, before the final retained-scroll UI correction and native-test formatting correction. Numerical model and persistence changes were unchanged afterward. This is not a fresh 140-case model run on the final client; the six native manifests cover that client.\n\nThe reviewer opened and accepted all 16 whole-window `.impeccable/review/solve-inspector-{1320x740,1280x720}-{display,setup,physics,boundaries,invalid,retained-draft,inspection,streamline-draft}.png` captures, eight at each stated size. They decode, match their recorded hashes and show the named states. This documentation pass opened eight representative captures spanning all eight states, validated all 16 capture hashes/dimensions and checked the source/evidence references. It ran no build, test, runtime, native control or context regeneration.\n\nFour additional final-client regressions remain pending behind the protected volume run: `Studio.SurfaceControls.`, `Studio.VolumeControls.`, `Studio.Rendering.ExternalRecordingControlsAndBounds`, and `Studio.Rendering.JobControlsAndCamera`. Main integration still requires the existing volume/stability gate and fresh guards. Editable M3 Physics/BC authoring, physical OS input, full accessibility, extended integrated stability, full reference fidelity and the wider M1–M5 UI goal remain open. This documentation does not accept those workflows or the whole UI, and does not touch main production files or the protected volume workspace.",
+    "keyCharacteristics": [
+      "One settings action beside Vectors in the existing Display panel.",
+      "Exact sample and scale inputs with reversible view edits.",
+      "Cyan selection and focus, amber inline recovery, flat dark surfaces.",
+      "Length meaning belongs to captured geometry and remains separate from scalar color.",
+      "Sidebar-only workspace navigation remains the incumbent context.",
+      "One Streamlines settings action controls exact physical dimensions, seed mode, direction, and bounded tracing.",
+      "Saved seeds share the source-bound inspector, atomic scene placement, and reversible view history.",
+      "Visible trace interpretation and work limits survive annotated export from frozen state.",
+      "One bottom toolbar owns direction, projection, actual topology, framing and camera settings.",
+      "Original, verified-derived and unavailable topology retain explicit meaning in the live legend and frozen export.",
+      "Expand/Restore is a saved session layout preference; active inspection and placement remain available.",
+      "Setup, Physics, BCs and Display have one local right-inspector owner with a session-only category preference.",
+      "Retained vector/streamline drafts stay with their project/source/scalar identity; source physics and saved case summaries remain explicit."
+    ],
+    "rules": [
+      {
+        "name": "The Independent Encodings Rule",
+        "body": "Vector color follows the selected scalar; vector direction and proportional length follow velocity. Selecting Pressure does not turn arrow length into pressure.",
+        "section": "colors"
+      },
+      {
+        "name": "The Single Recovery Rule",
+        "body": "Keep rejected drafts visible and the previous applied value active. Show the complete wrapped recovery message inside the popover without a duplicate default error popup.",
+        "section": "components"
+      },
+      {
+        "name": "The Captured Key Rule",
+        "body": "Show length, sampled maximum speed, arrow count, and frame identity from the geometry actually presented. Preserve that meaning in annotated export.",
+        "section": "components"
+      },
+      {
+        "name": "The Aggregate Ownership Rule",
+        "body": "Prefix combined seed and trace counts with “All seed sets:” in a selected seed editor. Do not present those totals as selected-object counts.",
+        "section": "components"
+      },
+      {
+        "name": "The Frozen Trace Meaning Rule",
+        "body": "Annotated export must identify instantaneous velocity streamlines, their derived interpolation when applicable, and captured work-limit exhaustion from the frozen snapshot identity and summary.",
+        "section": "components"
+      },
+      {
+        "name": "The Single View Owner Rule",
+        "body": "Keep direction, projection, triangle display, Fit, expansion and camera settings together below the input hint; retain sidebar-only workspace navigation and the separate saved-camera manager.",
+        "section": "components"
+      },
+      {
+        "name": "The Explicit Topology Rule",
+        "body": "Show exact supplied or verified-derived connectivity with its provenance; never substitute a fabricated lattice, partial mesh, or implicit point triangulation.",
+        "section": "components"
+      },
+      {
+        "name": "The Single Solve Owner Rule",
+        "body": "Keep Setup, Physics, BCs and Display inside one right inspector; category changes must preserve the scientific document, frame, camera and render revision. The sidebar remains the sole persistent workspace navigator.",
+        "section": "components"
+      },
+      {
+        "name": "The Draft Identity Rule",
+        "body": "Retain unfinished display-editor text only within its project, solver instance and selected scalar; discard cached forms when any of those identities changes.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do keep sample limits, length mode, exact scale, and the current-frame key together in the vector popover.",
+      "Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.",
+      "Do retain selected-scalar coloring independently of velocity direction and length.",
+      "Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.",
+      "Do keep this record and its acceptance claims scoped to staged D05–D08, V10/D01 and the D11/S01 foundation, retaining each review’s finding and package boundaries.",
+      "Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.",
+      "Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.",
+      "Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.",
+      "Do preserve original/derived topology, triangle count and hidden-fill meaning in the presented legend and frozen PNG metadata.",
+      "Do retain active inspection and placement when expanding, and persist expansion separately from the case and camera.",
+      "Do preserve session-only inspector selection and source-bound draft ownership while category changes leave scientific state intact.",
+      "Do label Physics and BCs as read-only source/saved-case summaries until editable M3 authoring is implemented and accepted."
+    ],
+    "donts": [
+      "Don’t add a second persistent workspace navigation path.",
+      "Don’t label requested sample limits as guaranteed arrow counts or sampled maxima as whole-source maxima.",
+      "Don’t infer missing velocity components, interpolate original-point vectors, or imply spanwise flow from a 2D source.",
+      "Don’t introduce decorative panel gradients, shadows, or a second clipped validation surface.",
+      "Don’t treat these captures, preview snippets, the D08 F1 verdict, or the D05–D07 F1/F2 verdict as main integration, physical OS input, long-session stability, or full-app acceptance.",
+      "Don’t fabricate interpolation for original points, snap unsupported custom seeds, or describe instantaneous traces as temporal pathlines.",
+      "Don’t merge the live UI and snapshot Amber tokens or imply that a seed count guarantees the same number of traces.",
+      "Don’t replace original points with implicit triangles, show a partial over-budget mesh, or confuse the domain grid with CFD connectivity.",
+      "Don’t treat edges-only as a global wireframe mode or allow it to hide independently controlled streamlines, vectors or inspection objects.",
+      "Don’t treat V10/D01’s ship verdict as main integration, physical OS input, stability, D11/S01, M3–M5 or whole-studio/reference acceptance.",
+      "Don’t treat D11/S01’s foundation verdict as acceptance of editable M3 authoring, the four queued regressions, main integration or the wider UI goal.",
+      "Don’t restore a floating Display duplicate, persist unfinished editor text as scientific state, or keep Display controls visible after the idle inspector is expanded away."
+    ]
+  }
+}
