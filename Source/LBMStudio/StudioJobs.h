@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "StudioCase.h"
+#include "StudioJobTelemetry.h"
 
 // Job control has no access to recorded fields, camera state or playback time.
 enum class EStudioJobState : uint8
@@ -31,7 +32,9 @@ struct FStudioJobCapabilities
     FString BackendId;
     bool bControlHarness = false;
     bool bPause = false, bStep = false, bCheckpoint = false, bReconnect = false;
+    bool bTelemetry = false;
     double AcknowledgementTimeout = 5., CompletionTimeout = 30.;
+    double TelemetryStaleSeconds = 5.;
 };
 struct FStudioJobRequest
 {
@@ -60,6 +63,9 @@ public:
     virtual FStudioJobCapabilities Capabilities() const = 0;
     virtual void Send(const FStudioJobRequest& Request, double Now) = 0;
     virtual void Poll(double Now, int32 MaxEvents, TArray<FStudioJobEvent>& Out) = 0;
+    // Optional independent stream: no command acknowledgements or log entries.
+    // Owner-thread, nonblocking, at most MaxSamples complete measurements.
+    virtual void PollTelemetry(double Now, int32 MaxSamples, TArray<FStudioJobMeasurement>& Out) {}
 };
 
 class FStudioJobController
@@ -79,18 +85,26 @@ public:
     uint64 PendingCommandId() const { return Pending.IsSet()?Pending->CommandId:0; }
     uint64 CompletedStepCommands() const { return Steps; }
     uint64 CompletedCheckpointCommands() const { return Checkpoints; }
+    FStudioJobTelemetryView Telemetry() const;
+    const TArray<FStudioJobTelemetryRecord>& TelemetryHistory() const { return Measurements; }
     static bool IsTerminal(EStudioJobState State);
 private:
     bool AdvanceClock(double Now);
     void Dispatch(FStudioJobRequest Request,double Now);
     bool Accept(const FStudioJobEvent& Event);
+    bool AcceptTelemetry(const FStudioJobMeasurement& Sample);
+    void BreakTelemetryRates();
     TUniquePtr<IStudioJobAdapter> Adapter;
     FStudioJobCapabilities Caps;
     TOptional<FStudioRunRecord> Record;
     TOptional<FStudioJobRequest> Pending;
     TArray<FStudioJobEvent> History;
+    TArray<FStudioJobTelemetryRecord> Measurements;
+    TOptional<int64> StepHighWater;
+    TOptional<double> PhysicalHighWater;
     EStudioJobState Current = EStudioJobState::Idle, BeforeCommand = EStudioJobState::Idle;
     uint64 NextCommand = 1, LastSequence = 0, Steps = 0, Checkpoints = 0;
+    uint64 StateSequence = 0, RateAfterSequence = 0;
     double LastClock = -1, Deadline = 0;
     FString Status;
 };

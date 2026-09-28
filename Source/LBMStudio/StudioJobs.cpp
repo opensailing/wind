@@ -18,6 +18,7 @@ FStudioJobController::FStudioJobController(TUniquePtr<IStudioJobAdapter> InAdapt
     check(Adapter); Caps=Adapter->Capabilities();
     if(!FMath::IsFinite(Caps.AcknowledgementTimeout)||Caps.AcknowledgementTimeout<=0)Caps.AcknowledgementTimeout=5.;
     if(!FMath::IsFinite(Caps.CompletionTimeout)||Caps.CompletionTimeout<=0)Caps.CompletionTimeout=30.;
+    if(!FMath::IsFinite(Caps.TelemetryStaleSeconds)||Caps.TelemetryStaleSeconds<=0)Caps.TelemetryStaleSeconds=5.;
     Status=Caps.bControlHarness?TEXT("Control harness ready. No CFD is computed."):TEXT("Solver adapter ready.");
 }
 bool FStudioJobController::IsTerminal(EStudioJobState S)
@@ -56,6 +57,7 @@ bool FStudioJobController::Submit(const FString& Name,const FStudioCaseDraft& Dr
     if(!AdvanceClock(Now))return false;
     Record=FStudioRunRecord::Capture(Name,Draft,Caps.bControlHarness?EStudioRunOrigin::ControlHarness:EStudioRunOrigin::Solver);
     History.Reset();LastSequence=Steps=Checkpoints=0;
+    Measurements.Reset();StepHighWater.Reset();PhysicalHighWater.Reset();StateSequence=RateAfterSequence=0;
     FStudioJobRequest R;R.RunId=Record->GetId();R.Command=EStudioJobCommand::Submit;R.Configuration=Draft;
     Dispatch(MoveTemp(R),Now);return true;
 }
@@ -73,6 +75,7 @@ void FStudioJobController::Dispatch(FStudioJobRequest R,double Now)
     if(R.Command==EStudioJobCommand::Submit)Current=EStudioJobState::Validating;
     else if(R.Command==EStudioJobCommand::Pause)Current=EStudioJobState::Pausing;
     else if(R.Command==EStudioJobCommand::Stop)Current=EStudioJobState::Stopping;
+    if(Current!=BeforeCommand)BreakTelemetryRates();
     Status=TEXT("Waiting for adapter confirmation.");Adapter->Send(R,Now);
 }
 bool FStudioJobController::Accept(const FStudioJobEvent& E)
@@ -89,6 +92,7 @@ bool FStudioJobController::Accept(const FStudioJobEvent& E)
     {
         if(!Matches)return false;
         Current=Pending->Command==EStudioJobCommand::Submit?EStudioJobState::Failed:BeforeCommand;Complete=true;
+        BreakTelemetryRates();
     }
     else if(E.Kind==EStudioJobEventKind::StepCompleted||E.Kind==EStudioJobEventKind::CheckpointCompleted)
     {
@@ -128,6 +132,7 @@ bool FStudioJobController::Accept(const FStudioJobEvent& E)
                 (E.State==EStudioJobState::Completed&&(Current==EStudioJobState::Running||Current==EStudioJobState::Pausing||
                     Current==EStudioJobState::Stopping||Current==EStudioJobState::Paused));
         if(!Allowed)return false;
+        BreakTelemetryRates();StateSequence=E.Sequence;
         Current=E.State;
         if(Matches)Deadline=LastClock+Caps.CompletionTimeout;
         Complete|=IsTerminal(Current)||Current==EStudioJobState::Disconnected;
@@ -144,9 +149,14 @@ void FStudioJobController::Tick(double Now)
     // A late acknowledgement is ambiguous: require an authoritative reconnect,
     // never silently repeat Start/Step or permit a second job after a timeout.
     if(Pending&&Now>Deadline)
-    {Current=EStudioJobState::Disconnected;Pending.Reset();Status=TEXT("Adapter confirmation timed out. Reconnect to determine job state.");}
+    {Current=EStudioJobState::Disconnected;BreakTelemetryRates();Pending.Reset();Status=TEXT("Adapter confirmation timed out. Reconnect to determine job state.");}
     TArray<FStudioJobEvent> Incoming;Adapter->Poll(Now,64,Incoming);
     for(int32 I=0;I<FMath::Min(64,Incoming.Num());++I)Accept(Incoming[I]);
+    if(Caps.bTelemetry&&!Caps.bControlHarness)
+    {
+        TArray<FStudioJobMeasurement> Samples;Adapter->PollTelemetry(Now,64,Samples);
+        for(int32 I=0;I<FMath::Min(64,Samples.Num());++I)AcceptTelemetry(Samples[I]);
+    }
 }
 
 FStudioJobCapabilities FStudioControlHarness::Capabilities() const
