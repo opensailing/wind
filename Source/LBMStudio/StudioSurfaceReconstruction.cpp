@@ -149,7 +149,7 @@ FStudioSurfaceLoadResult StudioSurfaceReconstructions::Load(const FString& Path,
         return Fail(TEXT("Reconstruction requires a matching verified two-dimensional point recording."));
     TArray<uint8> Bytes;FString Hash;
     if(!Read(Path,65536,Bytes,Hash,Cancel))return Fail(TEXT("Reconstruction descriptor is missing, inaccessible or too large."));
-    if(!ExpectedMetadata.IsEmpty()&&(!HashValid(ExpectedMetadata)||!Hash.Equals(ExpectedMetadata,ESearchCase::IgnoreCase)))
+    if(!ExpectedMetadata.IsEmpty()&&(!StudioSurfacePrivate::HashValid(ExpectedMetadata)||!Hash.Equals(ExpectedMetadata,ESearchCase::IgnoreCase)))
         return Fail(TEXT("Reconstruction contents differ from the saved interpretation. Locate its original files."));
     FString Text;FFileHelper::BufferToString(Text,Bytes.GetData(),Bytes.Num());TSharedPtr<FJsonObject> O;
     if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),O)||!O)return Fail(TEXT("Reconstruction descriptor is invalid JSON."));
