@@ -33,7 +33,7 @@ bool FStudioPipelineField::OriginalPoint(int32 Row,int64& Id,FVector& Position) 
 int32 FStudioPipelineField::OriginalPointCount() const {return IsValid()?Base().OriginalPointCount():0;}
 int32 FStudioPipelineField::OriginalTriangleCount() const {return IsValid()?Base().OriginalTriangleCount():0;}
 bool FStudioPipelineField::OriginalTriangle(int32 Index,FIntVector& Triangle) const {return IsValid()&&Base().OriginalTriangle(Index,Triangle);}
-bool FStudioPipelineField::Values(int32 Last,int32 Row,const FVector* Position,double* Out) const
+bool FStudioPipelineField::Values(int32 Last,int32 Row,const FVector* Position,double* Out,const FStudioVolumeStencil* Stencil) const
 {
     if(!Nodes.IsValidIndex(Last))return false;
     // Evaluate only the requested dependency closure, once per node. A preceding
@@ -45,7 +45,12 @@ bool FStudioPipelineField::Values(int32 Last,int32 Row,const FVector* Position,d
         if(!Needed[I])continue;const auto& N=Nodes[I];double V=0;
         if(N.Original)
         {
-            if(Position?!N.Original->SampleScalar(*Position,N.Scalar.Id,V):!N.Original->OriginalScalar(Row,N.Scalar.Id,V))return false;
+            if(Stencil)
+            {
+                for(int32 K=0;K<4;++K)
+                {double S;if(!N.Original->OriginalScalar(Stencil->Rows[K],N.Scalar.Id,S))return false;V+=Stencil->Weights[K]*S;}
+            }
+            else if(Position?!N.Original->SampleScalar(*Position,N.Scalar.Id,V):!N.Original->OriginalScalar(Row,N.Scalar.Id,V))return false;
         }
         else for(int32 C:N.Components)V=std::hypot(V,Out[C]);
         if(!FMath::IsFinite(V))return false;Out[I]=V;
@@ -69,11 +74,22 @@ bool FStudioPipelineField::Includes(const FVector& P) const
     }
     return true;
 }
+TSharedRef<const FStudioPipelineField,ESPMode::ThreadSafe> FStudioPipelineField::WithDomain(const FBox& Domain) const
+{auto Copy=MakeShared<FStudioPipelineField,ESPMode::ThreadSafe>(*this);Copy->Bounds=Domain;return Copy;}
 bool FStudioPipelineField::SampleScalar(const FVector& P,const FString& Id,double& Out) const
+{return IsValid()&&Includes(P)&&SampleUnderlyingScalar(P,Id,Out);}
+bool FStudioPipelineField::SampleUnderlyingScalar(const FVector& P,const FString& Id,double& Out) const
 {
     const int32 N=NodeIndex(Id);double Computed[StudioPipelineFields::MaxScalarNodes];
-    if(!IsValid()||!Includes(P)||!Values(N,0,&P,Computed))return false;
+    if(!IsValid()||P.ContainsNaN()||!Values(N,0,&P,Computed))return false;
     Out=Computed[N];return true;
+}
+bool FStudioPipelineField::SampleVolumeNode(int32 Index,const FString& Id,double& Out) const
+{
+    if(!IsValid())return false;const auto V=VolumeReconstruction();
+    if(!V||!V->Stencils.IsValidIndex(Index)||!V->Classification.IsValidIndex(Index)||V->Classification[Index]!=1)return false;
+    const int32 N=NodeIndex(Id);double Computed[StudioPipelineFields::MaxScalarNodes];
+    if(!Values(N,0,nullptr,Computed,&V->Stencils[Index]))return false;Out=Computed[N];return true;
 }
 bool FStudioPipelineField::IsSolid(const FVector& P) const {return IsValid()&&Base().IsSolid(P);}
 bool FStudioPipelineField::SupportsSegment(const FVector& A,const FVector& B,const FStudioLoadCancellation& C) const

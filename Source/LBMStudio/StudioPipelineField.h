@@ -2,6 +2,7 @@
 #include "StudioPipeline.h"
 #include "StudioModel.h"
 #include "Async/Future.h"
+struct FStudioVolumeStencil;
 
 /** One scalar node in the prepared graph. Original arrays retain source metadata;
  * derived arrays describe a Euclidean norm, with no implicit unit conversion. */
@@ -32,6 +33,11 @@ public:
     bool OriginalTriangle(int32 Index,FIntVector& Triangle) const override;
     bool OriginalScalar(int32 Row,const FString& FieldId,double& Out) const override;
     bool SampleScalar(const FVector& Position,const FString& FieldId,double& Out) const override;
+    /** Geometry construction queries original support before clipping. */
+    bool SampleUnderlyingScalar(const FVector& Position,const FString& FieldId,double& Out) const;
+    /** Verified grid-node stencil, interpolating components before magnitude.
+     * Caller still verifies full fluid-cell coverage before emitting geometry. */
+    bool SampleVolumeNode(int32 Index,const FString& FieldId,double& Out) const;
     bool Sample(const FVector&,FStudioFieldValue&) const override {return false;}
     bool SampleVelocity(const FVector&,FVector&) const override {return false;}
     bool IsSolid(const FVector& Position) const override;
@@ -47,6 +53,8 @@ public:
     const TArray<FStudioPipelineScalarNode>& Scalars() const {return Nodes;}
     const FBox& DomainBounds() const {return Bounds;}
     bool HasEmptyDomain() const {return !Bounds.IsValid;}
+    /** Share immutable inputs with the earlier domain of a geometry stage. */
+    TSharedRef<const FStudioPipelineField,ESPMode::ThreadSafe> WithDomain(const FBox& Domain) const;
     const TOptional<FStudioPipelineOperation>& Slice() const {return Plane;}
     /** Logical original scalar rows retained, excluding reader cache/geometry,
      * legacy packed-frame members and allocator overhead. */
@@ -61,7 +69,7 @@ private:
     int64 ValueBytes=0;
     const IStudioField& Base() const;
     int32 NodeIndex(const FString& FieldId) const;
-    bool Values(int32 Last,int32 Row,const FVector* Position,double* Out) const;
+    bool Values(int32 Last,int32 Row,const FVector* Position,double* Out,const FStudioVolumeStencil* Stencil=nullptr) const;
 };
 
 struct FStudioPipelinePrepareRequest
