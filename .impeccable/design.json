@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-28T18:38:15.249161+00:00",
+  "generatedAt": "2026-09-28T19:33:43.275935+00:00",
   "title": "Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring",
   "extensions": {
     "colorMeta": {
@@ -2641,7 +2641,7 @@
       "open": [
         "No actual native picker or physical OS input acceptance",
         "No current-build long-session or final release gate",
-        "Comparisons, time alignment, pipelines and bulk exports remain pending",
+        "At this historical browser checkpoint comparisons and time alignment were pending; the later comparisonScope record covers their bounded implementation. Pipelines and bulk exports remain open.",
         "No whole Solve renderer or overall screenshot fidelity acceptance",
         "Full five-milestone goal remains active; earlier review and package boundaries are preserved."
       ]
@@ -2662,6 +2662,87 @@
       "runInspection": "Immutable captured configuration or published/imported identity with explicit lifecycle/absence. No borrowed case settings or harness CFD output. Selecting a run changes inspection only; toolbar context names the active recording, and Show recording explicitly opens the saved source.",
       "testEntry": "bash Tools/test-results.sh --width 1320 --height 740 (also --width 1280 --height 720).",
       "persistence": "Project schema remains 19; local catalog filtering/category/run selection adds no document fields."
+    },
+    "comparisonScope": {
+      "record": "Session-only Results comparison of original recorded scalar frames in native macOS UE5.8 Slate.",
+      "commits": {
+        "alignmentCore": "7a95e5e194153c6d2e0955a0d8c8606d09f0b769",
+        "snapshotAdapter": "828480cdade7d32dcdef7782c54f9fb813c0d0c3",
+        "visibleUI": "3ee6e809e8004108360da21ae4988e99ca57f720"
+      },
+      "projectSchema": 19,
+      "verification": "tmp/analysis/comparison-ui-20260928/acceptance.json",
+      "review": "tmp/analysis/comparison-ui-20260928/finish-review.md",
+      "verdict": "tmp/analysis/comparison-ui-20260928/finish-verdict.md",
+      "finishDisposition": "Ship for F1 only: no-overlap recovery instruction. Retain the original comparison review scope; no whole-surface or application approval.",
+      "recordedVerification": {
+        "correctedPackageSha256": "e03a89fca94399c02fdc53077980757ae75e5b6e9db13b1ccec924516a6e2568",
+        "correctedCleanNativeCases": 2,
+        "correctedComposition": "Comparison at 1320 × 740 and 1280 × 720 after the copy-only correction.",
+        "preCorrectionPackageSha256": "872cecac4b7897b588a2e26e3b11f3d8561a6bfbb83fef403e358f2b25d9cff2",
+        "preCorrectionCleanNativeCases": 4,
+        "preCorrectionComposition": "Comparison at both sizes, then Results and Inspector at 1280 × 720.",
+        "successfulModelCasesBeforeCorrection": 220,
+        "cleanModelCasesBeforeCorrection": 218,
+        "modelWarningCasesBeforeCorrection": 2,
+        "modelWarning": "Existing Unreal idevice_id CPU-architecture helper warning.",
+        "timingLimit": "Model and Results/Inspector regressions were not rerun on the corrected package.",
+        "allSixNativeRuns": "Pass, exit 0, empty errors and owned-process inventories.",
+        "sourceToolPins": 13,
+        "captureCount": 27,
+        "input": "Routed Slate events and original reader fixtures; dialog choices injected."
+      },
+      "captureRoots": [
+        ".impeccable/review/comparison-ui/1320/",
+        ".impeccable/review/comparison-ui/1280/"
+      ],
+      "entryCapture": {
+        "path": ".impeccable/review/comparison-ui/results-entry.png",
+        "packageSha256": "872cecac4b7897b588a2e26e3b11f3d8561a6bfbb83fef403e358f2b25d9cff2"
+      },
+      "documenterActions": "Read incumbent docs, direction contract, native implementation, original review, F1 verdict and recorded evidence. Opened four representative captures; verified 13 source/tool pins, 27 capture hashes/dimensions, six native manifests and model totals. Merged only README.md, PRODUCT.md, DESIGN.md, this sidecar and the requested temporary report. No application/build/test launch, source edits, context rerun, HTML detector or commit.",
+      "open": [
+        "Comparison configuration persistence and comparison export",
+        "Pipelines and bulk workflows",
+        "Physical OS/native-picker and full accessibility acceptance",
+        "Full-source-duration, current 30-minute/RSS and release acceptance",
+        "Whole-renderer/reference fidelity and full five-milestone completion"
+      ]
+    },
+    "nativeComparison": {
+      "sources": [
+        "Source/LBMStudio/SStudioComparisonWorkspace.cpp",
+        "Source/LBMStudio/SStudioComparisonWorkspace.h",
+        "Source/LBMStudio/SStudioResultsWorkspace.cpp",
+        "Source/LBMStudio/SStudioResultsWorkspace.h",
+        "Source/LBMStudio/StudioComparison.cpp",
+        "Source/LBMStudio/StudioComparison.h",
+        "Source/LBMStudio/StudioSnapshotSource.cpp",
+        "Source/LBMStudio/StudioSnapshotSource.h",
+        "Source/LBMStudio/StudioScene.cpp",
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioComparisonRenderTests.cpp"
+      ],
+      "directionContract": "Six-line contract at the top of SStudioComparisonWorkspace.cpp; local extension of the incumbent Operate world.",
+      "ownership": "Results owns Compare recordings and local Back to Results; sidebar remains sole persistent navigator. Main Solve source, camera, cursor, scalar and project remain separate; footer names toolbar playback/export source.",
+      "layout": "20-unit inset, equal A/B source selectors and scene columns with 16-unit gap. Three equal alignment/matching/scalar columns, 96-unit Frame A, conditional 116-unit offset/tolerance. Menus 410 units wide with 360-unit maximum desired height and scrolling content. Existing 18/11-point bold titles, 10-point body and 9-point metadata; no new primitives or breakpoints.",
+      "alignment": {
+        "initial": "A uses active Solve source and selected frame; explicit B/alignment choices required.",
+        "recorded": "Compare supplied timestamp numbers; no common physical clock inferred.",
+        "elapsed": "Subtract each source’s first timestamp.",
+        "manual": "B source time + offset = A source time.",
+        "exact": "Equal represented timestamps, without hidden epsilon.",
+        "nearest": "Original B frame within explicit tolerance, earlier frame on exact tie; no extrapolation.",
+        "result": "Both original frame/step/time/dimension identities and aligned times with signed B − A seconds."
+      },
+      "scalarAndGeometry": "Require same supplied scalar ID and known matching unit. No unit conversion, temporal interpolation, field subtraction, inferred geometry registration or fabricated field data. Original points/source triangles/explicit reconstruction remains labeled.",
+      "colorRanges": "Shared defaults to union of source extrema; each-source range optional. Each legend follows the actual presented mapping and preserves its separate source range/units.",
+      "cameras": "Independent orbit, pan, free flight, Fit, numeric XYZ/pitch/yaw/roll and perspective/orthographic projection. Camera edits retained across frame/alignment changes and reset when that side successfully changes source.",
+      "states": "Explicit Compare frames; setting changes clear prior pair. One source-read or pair task. Cancellation/stale/partial results publish neither field; both views appear together when both rendered frames are current. Amber no-match notice retains reason and a compatible Frame A/recording/alignment recovery instruction.",
+      "lifecycle": "Hidden Results stops comparison scene captures. Closing/replacing views drains workers and releases futures, immutable snapshots/models, meshes, render targets and textures before GC; UObject retirement stays deferred. This is not long-session/RSS acceptance.",
+      "persistence": "Session-only; project schema unchanged, comparison saving/export and bulk workflows remain open.",
+      "testEntry": "bash Tools/test-comparison.sh --width 1320 --height 740 (also --width 1280 --height 720).",
+      "previewTranslation": "Existing native token provenance and portable snippets preserved; no simulated comparison HTML/CSS or invented token primitives."
     }
   },
   "components": [
@@ -2860,7 +2941,8 @@
       "Activity log keeps UTC observation/source identity, stable paused snapshots, recoverable clear and frozen-context export within Solve.",
       "Command input keeps exact replay/control targets, guarded sending, bounded session recall and local responses inside the expanded log.",
       "Performance keeps measured application activity, source-attributed flow work and unavailable solver telemetry together in one inspector with a frozen UTC view.",
-      "Recorded probe histories keep original frame/scalar/position identity through explicit generation, gap-aware charts, frame links and frozen CSV export."
+      "Recorded probe histories keep original frame/scalar/position identity through explicit generation, gap-aware charts, frame links and frozen CSV export.",
+      "Results comparison keeps equal original A/B views, explicit alignment and independent cameras within the sole sidebar navigation path."
     ],
     "rules": [
       {
@@ -2960,6 +3042,7 @@
       }
     ],
     "dos": [
+      "Do retain explicit A/B time interpretation, original frame identity, physical-unit legends and independent cameras when comparing recordings.",
       "Do keep sample limits, length mode, exact scale, and the current-frame key together in the vector popover.",
       "Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.",
       "Do retain selected-scalar coloring independently of velocity direction and length.",
@@ -2987,6 +3070,7 @@
       "Do keep recorded probe generation explicit, source/frame/scalar identity intact and gaps visible through chart inspection, exact-frame return and frozen CSV export."
     ],
     "donts": [
+      "Don’t treat equal scalar IDs/units or aligned timestamps as shared geometry, a shared physical clock, a derived difference field or persistence of a comparison.",
       "Don’t add a second persistent workspace navigation path.",
       "Don’t label requested sample limits as guaranteed arrow counts or sampled maxima as whole-source maxima.",
       "Don’t infer missing velocity components, interpolate original-point vectors, or imply spanwise flow from a 2D source.",
