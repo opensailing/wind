@@ -1,6 +1,6 @@
 ---
 name: "LBM Solver Studio — Recorded-Flow Controls and Case Authoring"
-description: "Accumulating scoped record of recorded-flow controls, the Solve inspector foundation, and Materials, Domain, Boundary Conditions and lattice-preview authoring in the incumbent Operate workspace."
+description: "Accumulating scoped record of recorded-flow controls, the Solve inspector foundation, and Geometry transforms, Materials, Domain, Boundary Conditions and lattice-preview authoring in the incumbent Operate workspace."
 colors:
   background: "#07121D"
   panel: "#101E2B"
@@ -228,6 +228,11 @@ components:
   authoring-recovery:
     textColor: "{colors.amber}"
     typography: "{typography.body}"
+  geometry-inspector:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.text}"
+    width: "304px"
+    padding: "14px"
 ---
 
 # Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring
@@ -284,6 +289,12 @@ The authoring documentation pass read the source, review and recorded verificati
 
 **Main authoring integration — 2026-09-28.** Source commit `7336661` integrates the reviewed authoring controls with schema 17. `tmp/analysis/authoring-integration-20260928/production-acceptance.json` records 161 clean model cases and 18 native cases on package `24ae10c2c7b0dedc73e1eca44e2b0e456a637568aec6c75fa5597cfb7d22c205`: 12 authoring cases at both window sizes and six shared scene, inspection, camera, volume and job regressions at 1280 × 720. One inspection snapshot-menu test required an unchanged-package retry; its initial failure is preserved and no menu fix is claimed. The Domain handle test now activates the app before pointer input, and both size runs observed that activation before passing. The production interaction code is unchanged by that test adjustment. All accepted native runs exited 0 without remaining owned processes. An additional editor build with adaptive unity disabled passed. These checks establish the integrated authoring scope; physical OS input, extended stability, solver preparation and the remaining UI milestones retain their open status.
 
+**Geometry object editing — 2026-09-28.** The six-line contract immediately above `SStudioWorkspace::GeometryObjectEditor` extends the existing Operate inspector with retained name, position, rotation and source-axis scale. Core transactions are committed in `874af51`; the reviewed UI and F1 correction are committed in `4ab3b88`. The object list, applied mesh and scrollable inspector retain their roles, with sidebar-only navigation and the existing native palette, type and focus treatment. This local extension introduces no replacement identity.
+
+`tmp/analysis/geometry-edit-20260928/finish-review.md` is the original bounded finding basis; `finish-verdict.md` in that folder gives **ship for F1 only**, closing truthful removed-object recovery and focus. `f1-verification.json` pins final package `dbc1084618a3f6f8a2fa6f626f7b97b79cc1952bde43f8f0080e823073172435`, two clean Geometry inspector cases at 1320 × 740 and 1280 × 720, and 16 final captures under `.impeccable/review/geometry-edit-f1/{1320,1280}/`. Both cases exited 0 with no remaining owned processes. The earlier four native cases and 164 successful model cases in `ui-acceptance.json` predate the final UI state/copy/focus correction; one passing model case has Unreal's bundled `idevice_id` CPU-architecture helper warning. `core-acceptance.json` separately records 164 clean model cases before the UI work. No fresh final-package model run is claimed, and the correction changes no core model behavior.
+
+The Geometry documentation pass read the native source and recorded evidence, opened four representative final captures including removal at both sizes, and checked all 16 capture hashes/dimensions, both manifest hashes/results and ten source pins. It ran no build, application or test. These structural geometry fixtures and routed Slate cases establish this inspector scope; full Geometry, connected solver readiness, physical OS input, broad accessibility, long-session stability, overall reference fidelity and whole-product completion remain open.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -302,6 +313,7 @@ The authoring documentation pass read the source, review and recorded verificati
 
 - Materials, Domain, Boundary Conditions and physical lattice counts have separate retained case editors with explicit Apply/Revert and save guards.
 - Preview labels describe applied state, renderable drafts, source verification and sampled occupancy without implying solver readiness.
+- Geometry retains exact object drafts beside the applied mesh, with explicit Apply/Revert and removal-specific Discard recovery.
 
 ## Colors
 
@@ -370,6 +382,8 @@ D11/S01 uses the existing 322-unit inspector column and 7-unit gutter from the s
 Materials uses an 18-unit workspace inset, a 210-unit list, a flexible retained properties form and a 280-unit assignments column. List-to-form and form-to-assignments gaps are 16 and 18 units. Domain and Meshing place a flexible 3D preview beside one 334-unit inspector, separated by 6 units; inspector padding is 14 units with instant focus scrolling and 12-unit navigation padding. Their header uses 14 × 10 horizontal/vertical padding and a 6-unit scene gap. The containment or classification strip remains adjacent to its preview.
 
 Boundary Conditions uses a 14-unit workspace inset, a 196-unit bounded target list, a flexible preview and one 310-unit inspector, with 12-unit gutters. Its Select/Orbit, Fit and projection actions are local preview controls. Lists and inspectors scroll independently; a clipped row at a scroll boundary is ordinary retained form content. The two accepted window sizes are evidence sizes, not new breakpoints. The authoring camera supports arbitrary observation independently of the saved Solve camera and recorded frame.
+
+Geometry keeps its 190-unit object list with 12-unit inset, flexible applied-mesh preview and 304-unit inspector, separated by 6-unit gutters. The retained inspector has 14-unit padding, instant focus scrolling and 10-unit navigation padding. Object name precedes Position, Rotation and Scale groups; each group has three equal-width fields with 6-unit gaps, labels 4 units above inputs and 12 units below the group. The source-axis/origin explanation sits above the adjacent Apply/Revert actions. Wrapped recovery and source diagnostics remain in the same scroll container; removal recovery appears above the disabled retained form. The two reviewed window sizes are evidence sizes, not new layout breakpoints.
 
 ## Elevation & Depth
 
@@ -595,6 +609,20 @@ The independent authoring camera, Fit view and perspective/orthographic control 
 
 Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the Materials, Domain, Boundaries and Lattice contracts, retained forms, save guards and full-opacity hints), `StudioModelMaterials.cpp`, `StudioModelDomain.cpp`, `StudioModelBoundaries.cpp`, `StudioModelLattice.cpp`, `StudioMaterials.*`, `StudioDomain.*`, `StudioBoundaries.*`, `StudioBoundarySelection.*`, `StudioLattice.*`, `StudioLatticePreview.cpp` and `StudioScene.*`. The package, source delta, two verification files, review and 34 captures in Overview bound this addition. Existing Solve authority and prior review limits remain unchanged; the F1–F3 ship verdict and these portable appearance snippets do not establish fresh main integration or full M3 completion.
 
+### Geometry object transforms and retained recovery
+
+The existing right inspector owns Object name, Position (m), Rotation (°) and Scale · source axes. Position is a case-coordinate offset; Roll · X, Pitch · Y and Yaw · Z expose the object's rotation in degrees. Original coordinates are converted by the retained import units, scaled along original mesh axes, rotated about the original source origin, then translated. The pivot is not the mesh center. This editor changes name and transform only; source bytes/hash, import units, patch identities and material assignments retain their ownership.
+
+Exact field formatting uses the shortest decimal that round-trips to the stored double. Long values remain in the native scrolling field and full-value tooltip. Rotation is stored as a quaternion: unchanged Euler values, including equivalent text formatting, preserve that quaternion exactly. Changed angles produce a normalized quaternion and may display a different equivalent Euler representation after Apply. Names require 1–120 characters and are trimmed when applied. Position accepts finite values within ±1e8 meters, rotation within ±360000 degrees, and scale finite positive factors up to 1e8; transformed bounds must also stay within the supported coordinate range. Invalid text stays visible with Amber recovery and focus on the invalid field.
+
+Drafts remain with their project/object across workspace and object switching. The list adds an asterisk for dirty or conflicting forms; the viewport says “Applied object · unapplied edits not shown.” Apply changes or Enter commits the valid name and transform in one case undo step after the selected original mesh is verified; typing and focus loss leave applied data unchanged. Revert edits reloads current applied values. An external change to the edited object retains local text and disables Apply until Revert; byte-identical relocation and material assignment do not conflict. Save/replacement guards return to the unresolved form, including when another object's source is being read. Applied transforms persist exactly, with recording/frame, saved Solve camera and frozen run configuration isolation.
+
+**The Available Recovery Rule.** When an object is removed, retain its unapplied text, state that no mesh is being previewed for it, and direct saving to the enabled Discard action. Never instruct the user to use disabled Apply/Revert controls.
+
+“Discard removed object's edits” sits above the retained disabled form. Save redirection focuses that action; discarding clears the matching save guard without restoring the object. Existing-object conflicts keep their Revert recovery. Cyan focus/selection, Amber recovery and the existing Background/Text inputs carry these states without new colors, shadows or motion.
+
+Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the contract/editor/guards in `StudioWorkspace.cpp`, and `StudioGeometryEditRenderTests.cpp`. `Tools/test-geometry-edit.sh [width height]` runs the single packaged `Studio.GeometryEditUI.` case, defaulting to 1320 × 740. The final package, two cases and F1-only verdict in Overview bound this addition; native routed input does not prove physical OS input or complete sequential Tab/screen-reader behavior. Portable snippets describe appearance only.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -603,7 +631,7 @@ Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the Materials, Domai
 - Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.
 - Do retain selected-scalar coloring independently of velocity direction and length.
 - Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.
-- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation and the authoring supplement, retaining each review’s finding and package boundaries.
+- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement and Geometry object editing, retaining each review’s finding and package boundaries.
 - Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.
 - Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.
 - Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.
@@ -616,6 +644,8 @@ Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the Materials, Domai
 - Do keep blank authoring values unknown, exact SI storage intact, and Apply/Revert/save guards adjacent to their retained forms.
 - Do make Domain layer labels follow renderability, with source-bound verification and applied-domain containment reported separately.
 - Do preserve stable boundary identities, atomic periodic pairs and sampled original-cell meaning.
+- Do preserve exact Geometry fields, original-axis scale, source-origin rotation and the applied mesh while drafts remain unresolved.
+- Do give removed Geometry drafts an enabled Discard recovery and focus that action when saving redirects to it.
 
 ### Don't:
 
@@ -634,3 +664,4 @@ Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the Materials, Domai
 - Don’t treat a visible draft, verified aggregate bounds or complete coverage count as an applied change, enclosed geometry or solver compatibility.
 - Don’t substitute larger cells or invented triangles for omitted preview data, or equate geometric occupancy with production meshing.
 - Don’t treat F1–F3 acceptance or the earlier 161 model cases as a fresh main build/model result, physical OS input, full M3, solver validation or whole-product approval.
+- Don’t treat the Geometry F1-only verdict or its two final native cases as full Geometry, solver readiness, physical OS input, broad accessibility, long-session or whole-product acceptance.
