@@ -57,6 +57,7 @@ Builds, packaged apps, logs, temporary plans, captures and Python caches stay ou
 | Compare original frames | Results → Compare recordings → choose Recording A/B, time alignment, frame matching and supplied scalar → Compare frames |
 | Save a comparison | Compare recordings → Save comparison… → name the pair; toolbar Save writes the project file |
 | Manage saved comparisons | Compare recordings → Saved comparisons → Open / Update / Rename / Delete; Undo comparisons / Redo affect the saved collection |
+| Export original field data | Header Export → VTK XML · original field… for a frozen frame and selected arrays, or CSV · current frame for the existing CSV export |
 | Choose toolbar behavior | Inspector → Toolbar controls → Replay or Control harness |
 | Edit next-run requests | Solve inspector → Setup → Run parameters; Apply parameters / Revert edits, Undo case / Redo case |
 | Exercise job control | Control harness → Run, Pause/Resume, Step, Stop; Checkpoint test and Reconnect in the inspector |
@@ -132,11 +133,15 @@ To edit an existing object, select it in **Geometry** and wait for its original 
 
 The initial runtime importer supports ASCII/binary STL and polygon OBJ, including negative indices, vertex/texture/normal face notation, groups and planar concave polygons. Appearance materials are excluded; source normals do not override geometric preview shading. Files are limited to 64 MiB, 500,000 triangles, 1,500,000 vertices and 256 vertices per polygon. Source coordinates are retained. Boundary edges, nonmanifold edges, inconsistent winding and duplicate faces are reported without automatic repair; these diagnostics do not establish solver readiness. OBJ freeform/line/point geometry, weighted/colored vertices and nonplanar polygons require a polygon export or source repair. Large inputs parse on a worker, and obsolete/cancelled results cannot replace the current project. Only the selected case object is previewed in this initial Geometry workspace; general scene editing and meshing remain in progress.
 
-Export CSV writes the selected snapshot's original nodes, derived velocity, pressure and density in source coordinates; Snapshot writes the viewport PNG. Both reveal `Saved/Exports` in Finder.
+The header's single **Export** menu offers **VTK XML · original field…** and **CSV · current frame**. The CSV action retains the existing original-field export in source coordinates to `Saved/Exports` and reveals that folder in Finder. Viewport Snapshot has its own image-export controls.
 
-### VTK export backend
+### Original-field VTK export
 
-The original-field VTK writer is implemented; its Export-menu controls are still pending. It writes one frozen frame as XML PolyData (`.vtp`), preserving every original point ID, coordinate, selected scalar value and supplied triangle. Point-only recordings receive vertex cells; reconstructed display grids and extruded geometry are excluded. Source coordinates are the default. The optional scene transform maps source XYZ to scene XZY and adds the recording's display offset, in meters; scalar components retain their original basis.
+Open **Export → VTK XML · original field…** once the displayed frame is ready. The panel freezes that original frame and names its source, one-based frame, original solver step/time and triangle or point count. Camera and playback/review changes do not change this request. Select scalar arrays with their supplied units and derived labels; the displayed scalar is selected initially, and All/None changes the selection. At least one array is required.
+
+**Source XYZ** is the default. **Scene XZY** maps source XYZ to scene XZY and adds the recording's display offset, in meters; scalar components retain their original source basis. **Choose destination and save VTK…** opens the native macOS save panel. It writes one frozen frame as XML PolyData (`.vtp`), preserving every original point ID, coordinate, selected scalar value and supplied triangle. Point-only recordings receive vertex cells; reconstructed display grids and extruded geometry are excluded.
+
+The header says **Exporting…** while the single background writer is pending. Reopen the VTK panel for progress and **Cancel VTK export**; dismissal leaves the task running and a second VTK write is disabled. Cancellation before publication preserves the destination. Errors stay visible with the save action available for another attempt; a reopened idle panel captures the then-displayed frame, so check its frozen identity before retrying. Success names the saved file, source, step and time and offers **Show saved file in Finder**. Replacing the project invalidates an unsubmitted draft. Drafts and task state are session-only.
 
 `LBMStudioMetadataUTF8` stores UTF-8 JSON in a UInt8 FieldData array: source hashes, original ordinal/step/time, units, scalar origins/expressions, coordinate transform, processing history and the separately identified view reconstruction. `TimeValue` carries source seconds. Points and scalars use Float64, and original IDs use Int64. The SU2 recording's Float32 values are promoted without changing their values; its declared speed is derived from the stored velocity components. Supplied NACA/cylinder speed remains the supplied array.
 
@@ -148,7 +153,24 @@ After `Tools/test.sh`, an environment with NumPy and VTK can independently check
 python3 Tools/verify_vtk_export.py --report tmp/analysis/vtk-export-audit.json
 ```
 
-The verifier reads original binary payloads directly and compares every exported coordinate, ID, supplied scalar and cell using VTK's reader. Only the explicitly derived SU2 speed allows a two-ULP arithmetic difference. Export-menu integration, frame sequences and whole-product stability acceptance remain open.
+The verifier reads original binary payloads directly and compares every exported coordinate, ID, supplied scalar and cell using VTK's reader. Only the explicitly derived SU2 speed allows a two-ULP arithmetic difference.
+
+Run the packaged UI case serially at both accepted desktop sizes:
+
+```bash
+Tools/test-field-export.sh --width 1320 --height 740
+Tools/test-field-export.sh --width 1280 --height 720
+```
+
+Each run copies its field-export outputs into the reported `tmp/debug/field-export-<timestamp>/captures` directory. Independently verify each run by replacing `<timestamp>` below with the timestamp from that run's directory:
+
+```bash
+python3 Tools/verify_vtk_export.py --ui \
+  --exports "tmp/debug/field-export-<timestamp>/captures" \
+  --report tmp/analysis/vtk-field-ui-audit.json
+```
+
+The scoped ship review in `tmp/analysis/field-export-ui-20260928/{ui-acceptance.json,finish-review.md}` records 229 successful model cases (two with existing Unreal helper warnings), two clean native cases, and 20 reviewed captures on package `c6b0508d…`. Each independent VTK 9.7 audit verifies two files and 301,407 original point rows: selected SU2 pressure/density at ordinal 420 in scene coordinates and all six cylinder arrays at ordinal 2 in source coordinates. Native tests use routed Slate keys and injected destinations; physical input, actual save-panel permissions, Finder reveal and accessibility remain unproven. Time-range/bulk and comparison exports, pipelines, full scientific rendering and current long-session/release gates remain open.
 
 ## CFD sample provenance
 
