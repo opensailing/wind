@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-28T17:41:13.530675+00:00",
+  "generatedAt": "2026-09-28T18:38:15.249161+00:00",
   "title": "Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring",
   "extensions": {
     "colorMeta": {
@@ -932,7 +932,7 @@
         "Display"
       ],
       "owners": {
-        "Setup": "Next-run maximum steps/optional physical seconds, output interval and checkpoint request/interval with Apply/Revert and shared case history; replay/control-harness toolbar mode, recording selection, reconstruction attachment, source disclosures, playback controls and status.",
+        "Setup": "Next-run maximum steps/optional physical seconds, output interval and checkpoint request/interval with Apply/Revert and shared case history; replay/control-harness toolbar mode, read-only current recording, reconstruction attachment, source disclosures, playback controls and status. Results owns recording selection, import, Locate and source references.",
         "Physics": "Read-only source conditions and separate saved-case backend/collision/turbulence/thermal summaries.",
         "BCs": "Read-only saved-case count, six domain-face assignments and surface-patch assignments/empty state; recording boundary conditions are unavailable.",
         "Display": "One scalar selector, palette/range action, domain grid, applicable cut-plane/flow-layer controls, point/surface/volume presentation, vectors and streamlines. Camera/topology actions remain in viewport toolbar."
@@ -2604,6 +2604,64 @@
       "testEntry": "Tools/test-probe-history.sh; minimum size: Tools/test-probe-history.sh --width 1280 --height 720",
       "previewTranslation": "Native C++ and scoped evidence remain authoritative. Existing browser snippets are preserved; no new simulated chart or interaction snippet is introduced.",
       "sampling": "Exact original-point probes retain supplied point IDs; spatial probes use the recording’s available interpolation with explicit source/reconstruction attribution. No temporal interpolation or fabricated fields."
+    },
+    "resultsBrowserScope": {
+      "record": "Results recording catalog, original metadata, exact-frame review and immutable run inspection in native macOS UE5 Slate.",
+      "sourceCommit": "6b28b69e634198ff74930c0dd162d617b0cda5ed",
+      "packageSha256": "7beb59e53e926a379cd907b49048503bc2415c6404dd04e9adc632567ea8f9a5",
+      "projectSchema": 19,
+      "verification": "tmp/analysis/results-20260928/ui-acceptance.json",
+      "review": "tmp/analysis/results-20260928/finish-review.md",
+      "verdict": "tmp/analysis/results-20260928/finish-verdict.md",
+      "finishDisposition": "Ship for F1/F2 only: full-opacity search hints and corrected documentation ownership. Original Results review scope remains the finding basis; no whole-surface or full-application acceptance.",
+      "recordedVerification": {
+        "successfulModelCases": 209,
+        "cleanModelCases": 208,
+        "modelWarningCases": 1,
+        "modelWarning": "Existing bundled Unreal idevice_id CPU-architecture helper warning.",
+        "cleanNativeCases": 4,
+        "composition": "Results at 1320 × 740 and 1280 × 720; external recording import/relocation at 1320 × 740 and Solve inspector at 1280 × 720.",
+        "nativeExitCodes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ownedProcessesAfter": {},
+        "sourcePinCount": 10,
+        "reviewerOpenedReplacementCaptures": 12,
+        "hintContrastRatio": 14.36,
+        "input": "Routed Slate events and injected recording-folder choice."
+      },
+      "captureRoots": [
+        "tmp/debug/results-20260928T183116029436Z/captures/",
+        "tmp/debug/results-20260928T183126875785Z/captures/"
+      ],
+      "documenterActions": "Read current implementation, direction contract, integration diff, native cases and final reviews/evidence. Opened five representative final captures at both sizes; verified 10 source/tool pins, 12 capture hashes/dimensions, four native reports/manifests and model totals. No app/build/test launch or source edits.",
+      "open": [
+        "No actual native picker or physical OS input acceptance",
+        "No current-build long-session or final release gate",
+        "Comparisons, time alignment, pipelines and bulk exports remain pending",
+        "No whole Solve renderer or overall screenshot fidelity acceptance",
+        "Full five-milestone goal remains active; earlier review and package boundaries are preserved."
+      ]
+    },
+    "nativeResultsBrowser": {
+      "sources": [
+        "Source/LBMStudio/SStudioResultsWorkspace.cpp",
+        "Source/LBMStudio/SStudioResultsWorkspace.h",
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioResultsRenderTests.cpp"
+      ],
+      "directionContract": "Six-line contract at the top of SStudioResultsWorkspace.cpp.",
+      "ownership": "Sidebar Results owns searchable Recordings and Run history categories, recording import/Locate and source-reference access. Solve retains source summary/replay/reconstruction settings; Dashboard summarizes run count.",
+      "layout": "20-unit inset; 280-unit catalog; 20-unit gutter; independent catalog/detail scrolling with 12-unit focus navigation padding; 145-unit property labels and 100-unit frame input. Existing CoreStyle, panel/input/button styles, Cyan selected labels/focus and full-opacity hints.",
+      "sourceIdentity": "Actual dimensions/connectivity, original frame/time range and note, supplied scalar ranges/units/origins, source reference, copyable location/hashes, display translation and reconstruction status.",
+      "transactions": "Selection/import/exact Locate retains current source until verification succeeds; failure or footer cancellation retains source, camera and case.",
+      "frameReview": "One-based ordinal is separate from original source step/time. Review retains playback position; Inspect in Solve retains the camera/case; Follow playback restores the independent cursor.",
+      "runInspection": "Immutable captured configuration or published/imported identity with explicit lifecycle/absence. No borrowed case settings or harness CFD output. Selecting a run changes inspection only; toolbar context names the active recording, and Show recording explicitly opens the saved source.",
+      "testEntry": "bash Tools/test-results.sh --width 1320 --height 740 (also --width 1280 --height 720).",
+      "persistence": "Project schema remains 19; local catalog filtering/category/run selection adds no document fields."
     }
   },
   "components": [
