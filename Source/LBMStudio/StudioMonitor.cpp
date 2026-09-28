@@ -69,11 +69,18 @@ bool StudioMonitor::ValidateSource(const FStudioMonitorSettings& S,const FStudio
     if(!Validate(S,Error))return false;
     Error=TEXT("Monitor settings do not match this verified history.");
     if(S.HistoryId!=H.Id||!S.MetadataSHA256.Equals(H.MetadataSHA256,ESearchCase::IgnoreCase)||H.Times.IsEmpty())return false;
+    if(H.bResiduals)
+    {
+        if(H.TimeSourceLines.Num()!=H.Times.Num()||H.TimeSourceLines.ContainsByPredicate([](int32 Line){return Line<=0;}))
+        {Error=TEXT("Residual history is missing original time-line references.");return false;}
+    }
     FString Unit;
     for(const auto& Id:S.Series)
     {
         const auto* C=H.FindColumn(Id);
         if(!C||C->Values.Num()!=H.Times.Num())return false;
+        if(H.bResiduals&&(C->SourceLines.Num()!=H.Times.Num()||C->SourceLines.ContainsByPredicate([](int32 Line){return Line<=0;})))
+        {Error=TEXT("Residual series is missing original source-line references.");return false;}
         if(!Unit.IsEmpty()&&Unit!=C->Unit){Error=TEXT("Choose series with the same unit for one value axis.");return false;}
         Unit=C->Unit;
     }

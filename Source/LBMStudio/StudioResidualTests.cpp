@@ -1,6 +1,7 @@
 #include "StudioResiduals.h"
 #include "StudioMonitor.h"
 #include "StudioModel.h"
+#include "StudioMonitorExport.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CommandLine.h"
@@ -132,6 +133,11 @@ bool FStudioPublishedResiduals::RunTest(const FString&)
         Audit+=FString::Printf(TEXT("%.17g,%d,%s,%d,%.17g\n"),H.Times[I],H.TimeSourceLines[I],*C.Id,C.SourceLines[I],C.Values[I]);
     const FString Folder=FPaths::ProjectSavedDir()/TEXT("Automation/ResidualAudit");IFileManager::Get().MakeDirectory(*Folder,true);
     TestTrue(TEXT("Write independent audit input"),FFileHelper::SaveStringToFile(Audit,*(Folder/TEXT("native-selected.csv")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
+    auto ExportSettings=StudioMonitor::Defaults(H);ExportSettings.Series.Reset();for(const auto& C:H.Columns)ExportSettings.Series.Add(C.Id);
+    FString CSV,ExportError;int32 ExportRows=0;
+    TestTrue(TEXT("Export every actual selected residual with original lines"),StudioMonitorExport::CSV(H,ExportSettings,CSV,ExportRows,ExportError));
+    TestEqual(TEXT("CSV contains all original times"),ExportRows,20000);
+    TestTrue(TEXT("Write full original residual export"),FFileHelper::SaveStringToFile(CSV,*(Folder/TEXT("residual-export.csv")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
     const auto S=StudioMonitor::Defaults(H);const auto P=StudioMonitor::BuildPlot(H,S,1280);
     TestTrue(TEXT("Original residuals produce a logarithmic chart"),P.Error.IsEmpty()&&P.bLogY&&P.Traces.Num()==3);
     for(const auto& T:P.Traces)TestTrue(TEXT("Retained original samples are bounded by chart width"),T.Samples.Num()<=8*1280);
@@ -165,6 +171,30 @@ bool FStudioPublishedResiduals::RunTest(const FString&)
         TestTrue(TEXT("Reopen also preserves force history"),Model.MonitorHistory().IsValid());
     }
     IFileManager::Get().DeleteDirectory(*Work,false,true);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioResidualCSV,"Studio.Residuals.CSVOriginalLinesAndMissingReferenceRejection",
+    EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FStudioResidualCSV::RunTest(const FString&)
+{
+    using namespace StudioResidualTestPrivate;
+    FFixture Fixture;Fixture.Write(Snippet);const auto R=StudioResiduals::Load(Fixture.Path());
+    if(!TestTrue(TEXT("Structural residual source loaded"),R.History.IsValid()))return false;
+    const auto& H=*R.History;auto S=StudioMonitor::Defaults(H);S.Series={TEXT("Ux.FinalLast")};
+    FString CSV,Error;int32 Rows=0;
+    TestTrue(TEXT("Residual source exports"),StudioMonitorExport::CSV(H,S,CSV,Rows,Error));
+    TestEqual(TEXT("Log display does not drop zero source values"),Rows,2);
+    TestTrue(TEXT("Source and interpretation identify original bytes"),CSV.Contains(H.SourceSHA256)&&CSV.Contains(H.MetadataSHA256));
+    TestTrue(TEXT("Original time and residual lines accompany zero"),CSV.Contains(TEXT("0,1.25,2,0,7\n")));
+    TestTrue(TEXT("Selection definition preserved"),CSV.Contains(TEXT("first initial and last final")));
+    TestTrue(TEXT("Column identifies original source line"),CSV.Contains(TEXT("\"Ux.FinalLast.source_line\"")));
+    S.bManualTime=true;S.TimeMinimum=1.3;S.TimeMaximum=1.375;
+    TestTrue(TEXT("Frozen time window exports"),StudioMonitorExport::CSV(H,S,CSV,Rows,Error));TestEqual(TEXT("One selected original time"),Rows,1);
+    FStudioHistory Bad=H;Bad.TimeSourceLines.Reset();
+    TestFalse(TEXT("Missing time references rejected"),StudioMonitorExport::CSV(Bad,S,CSV,Rows,Error));
+    Bad=H;Bad.Columns[1].SourceLines[1]=0;
+    TestFalse(TEXT("Missing value references rejected"),StudioMonitorExport::CSV(Bad,S,CSV,Rows,Error));
     return true;
 }
 #endif
