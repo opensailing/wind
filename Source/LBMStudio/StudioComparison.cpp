@@ -1,7 +1,6 @@
 #include "StudioComparison.h"
 #include "StudioModel.h"
-#include "StudioSurfaceReconstruction.h"
-#include "StudioVolume.h"
+#include "StudioSnapshotSource.h"
 #include "Async/Async.h"
 
 namespace
@@ -51,23 +50,6 @@ bool ComparisonKnownUnit(const FString& Unit)
         !Trimmed.Equals(TEXT("unknown"),ESearchCase::IgnoreCase);
 }
 
-bool ComparisonFieldMatches(const IStudioSolver& Source,int32 Ordinal,
-    const FStudioScalarDescriptor& Scalar,const IStudioField& Field)
-{
-    const auto Identity=Field.Identity();const auto Actual=Field.Scalar(Scalar.Id);const auto& D=Source.Descriptor();
-    if(!Field.IsValid()||!Identity.IsSet()||!Actual.IsSet())return false;
-    FString Reconstruction;auto Interpolation=D.bSourcePoints?EStudioFieldInterpolation::None:EStudioFieldInterpolation::SourceTriangles;
-    if(const auto Surface=Source.Reconstruction())
-    {Reconstruction=Surface->MetadataSHA256;Interpolation=EStudioFieldInterpolation::ReconstructedTriangles;}
-    if(const auto Volume=Source.VolumeReconstruction())
-    {Reconstruction=Volume->MetadataSHA256;Interpolation=EStudioFieldInterpolation::ReconstructedGrid;}
-    return Identity->Dataset==D.Id&&Identity->MetadataSHA256==D.MetadataSHA256&&Identity->PayloadSHA256==D.PayloadSHA256&&
-        Identity->Ordinal==Ordinal&&Identity->Frame.Index==D.Frames[Ordinal].Index&&Identity->Frame.Time==D.Frames[Ordinal].Time&&
-        Identity->SpatialDimensions==D.SpatialDimensions&&Identity->SourceOffset==D.SourceOffset&&
-        Identity->ReconstructionSHA256==Reconstruction&&Identity->Interpolation==Interpolation&&
-        Actual->Id==Scalar.Id&&Actual->Label==Scalar.Label&&Actual->Unit==Scalar.Unit&&Actual->Origin==Scalar.Origin&&
-        Actual->Minimum==Scalar.Minimum&&Actual->Maximum==Scalar.Maximum;
-}
 }
 
 bool FStudioComparisonAlignment::operator==(const FStudioComparisonAlignment& Other) const
@@ -78,7 +60,7 @@ bool FStudioComparisonAlignment::operator==(const FStudioComparisonAlignment& Ot
 
 bool FStudioComparisonResult::Matches(const FStudioComparisonRequest& Current) const
 {
-    return Frames.Status==EStudioComparisonStatus::Ready&&Primary.Field&&Secondary.Field&&ProjectId==Current.ProjectId&&Scalar==Current.Scalar&&
+    return Frames.Status==EStudioComparisonStatus::Ready&&Primary.Field&&Secondary.Field&&Primary.Snapshot&&Secondary.Snapshot&&ProjectId==Current.ProjectId&&Scalar==Current.Scalar&&
         Frames.PrimaryOrdinal==Current.PrimaryOrdinal&&Alignment==Current.Alignment&&
         Current.Primary&&Current.Secondary&&PrimarySource.Pin()==Current.Primary&&SecondarySource.Pin()==Current.Secondary;
 }
@@ -145,10 +127,12 @@ FStudioComparisonResult StudioComparison::Evaluate(const FStudioComparisonReques
         if(ComparisonCancelled(C))return Fail(EStudioComparisonStatus::Cancelled,TEXT("Comparison cancelled."));
         if(!Read.Field||!Read.Error.IsEmpty())return Fail(EStudioComparisonStatus::ReadFailed,
             (bSecondary?TEXT("Second recording: "):TEXT("First recording: "))+(Read.Error.IsEmpty()?TEXT("The original scalar frame is unavailable."):Read.Error));
-        if(!ComparisonFieldMatches(*Source,Ordinal,Scalar,*Read.Field))
+        FString SnapshotError;
+        auto Snapshot=FStudioSnapshotSource::Create(*Source,Ordinal,Scalar,Read.Field,SnapshotError);
+        if(!Snapshot)
             return Fail(EStudioComparisonStatus::IdentityMismatch,TEXT("A comparison snapshot does not match its original source, frame, scalar or reconstruction. No pair published."));
         auto& Side=bSecondary?Out.Secondary:Out.Primary;Side.Title=D.Title;Side.SourceURL=D.SourceURL;Side.TimeNote=D.TimeNote;
-        Side.Scalar=Scalar;Side.Identity=*Read.Field->Identity();Side.Field=Read.Field;
+        Side.Scalar=Scalar;Side.Identity=*Read.Field->Identity();Side.Field=Read.Field;Side.Snapshot=MoveTemp(Snapshot);
     }
     if(ComparisonCancelled(C))return Fail(EStudioComparisonStatus::Cancelled,TEXT("Comparison cancelled."));
     return Out;

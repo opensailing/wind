@@ -183,6 +183,11 @@ class FStudioModel : public FStudioViewSettings, public TSharedFromThis<FStudioM
 {
 public:
     explicit FStudioModel(const FString& SessionDirectory=FString());
+    /** Independent renderer/camera state for a verified frozen snapshot. No
+     * default recording read, playback, project replacement or persistence.
+     * The owner uses only the camera/display APIs and controls scene visibility. */
+    explicit FStudioModel(TSharedRef<class FStudioSnapshotSource,ESPMode::ThreadSafe> Snapshot);
+    bool IsSnapshotView() const { return bSnapshotView; }
     ~FStudioModel() { if(AssetCancellation) *AssetCancellation=true; if(MeshCancellation) *MeshCancellation=true;
         if(DomainCancellation) *DomainCancellation=true; if(LatticeCancellation) *LatticeCancellation=true; if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true;
         if(MonitorCancellation)*MonitorCancellation=true; if(ResidualCancellation)*ResidualCancellation=true; }
@@ -422,6 +427,7 @@ public:
     FString RedoCaseLabel() const { return CaseRedo.IsEmpty()?FString():CaseRedo.Last().Label; }
     bool ExportField(const FString& Path) const { return Solver->ExportField(SelectedFrame,Path); }
 private:
+    bool bSnapshotView=false;
     FString StorageDirectory;
     FString SavedSnapshot;
     double AutosaveSeconds = 0;

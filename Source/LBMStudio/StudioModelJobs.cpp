@@ -10,6 +10,7 @@ bool FStudioModel::HasActiveJob() const
 {return JobController&&JobController->Run().IsSet()&&!FStudioJobController::IsTerminal(JobController->State());}
 bool FStudioModel::CanReplaceProject()
 {
+    if(bSnapshotView){Notice=TEXT("Snapshot inspection views retain their original frame.");return false;}
     if(!HasActiveJob())return true;
     Notice=JobController->State()==EStudioJobState::Disconnected?
         TEXT("Reconnect the control job and stop it before closing or replacing this project."):
@@ -18,6 +19,7 @@ bool FStudioModel::CanReplaceProject()
 }
 bool FStudioModel::SetControlHarness(bool bEnabled)
 {
+    if(bSnapshotView)return false;
     if(HasActiveJob()&&bEnabled!=Project.bControlHarness)
     {Notice=TEXT("Stop the control job before changing control mode. The recording can still be inspected.");return false;}
     if(IsProjectOpenPending()) {Notice=TEXT("Finish or cancel project opening before changing control mode.");return false;}
@@ -33,6 +35,7 @@ bool FStudioModel::SetControlHarness(bool bEnabled)
 }
 bool FStudioModel::CanControl(EStudioJobCommand Command) const
 {
+    if(bSnapshotView)return false;
     if(Project.bControlHarness)
     {
         if(Command==EStudioJobCommand::Submit)

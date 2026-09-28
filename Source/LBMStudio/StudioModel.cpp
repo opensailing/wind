@@ -1,4 +1,5 @@
 #include "StudioModel.h"
+#include "StudioSnapshotSource.h"
 #include "StudioAssetPaths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
@@ -25,6 +26,23 @@ FStudioModel::FStudioModel(const FString& SessionDirectory) : Solver(MakeShared<
         AddLog(TEXT("Residual and force histories are not supplied."),EStudioLogSeverity::Info,EStudioLogSource::Playback);
     }
 }
+FStudioModel::FStudioModel(TSharedRef<FStudioSnapshotSource,ESPMode::ThreadSafe> Snapshot)
+    : Solver(Snapshot),bSnapshotView(true)
+{
+    ResetJobSession();
+    const auto& D=Snapshot->Descriptor();
+    Frames=D.Frames;SelectedFrame=PlaybackFrame=Snapshot->Ordinal();
+    Project.Name=D.Title;Project.Dataset=D.Id;Project.Runs.Reset();
+    Project.SelectedFrame=SelectedFrame;
+    ScalarField=Snapshot->ScalarId();bStreamlines=false;bVectors=false;
+    bSourcePoints=D.bSourcePoints;
+    bReconstructedSurface=Snapshot->Reconstruction().IsValid();
+    bVolume=Snapshot->VolumeReconstruction().IsValid()||!D.bSourcePoints;
+    SlicePosition=D.DisplayBounds.GetCenter()[SliceAxis];
+    Project.Camera=StudioView::FitBounds(Project.Camera,D.DisplayBounds,4./3.,.01);
+    Project.View=static_cast<const FStudioViewSettings&>(*this);
+    SavedSnapshot=StudioProjectIO::Serialize(SnapshotProject());
+}
 void FStudioModel::AddLog(const FString& M,EStudioLogSeverity Severity,EStudioLogSource Source,
     const FGuid& RunId,const FString& SourceReference)
 {
@@ -38,6 +56,7 @@ void FStudioModel::BeginRun()
 }
 void FStudioModel::Run()
 {
+    if(bSnapshotView)return;
     if(Solver->FrameCount()==0) { Notice=Solver->LoadError(); return; }
     if(State==EStudioRunState::Running) return;
     if(bReviewing) { PlaybackFrame=SelectedFrame; bReviewing=false; Accumulator=0; }
@@ -46,11 +65,13 @@ void FStudioModel::Run()
 }
 void FStudioModel::Pause()
 {
+    if(bSnapshotView)return;
     if(State==EStudioRunState::Running) { State=EStudioRunState::Paused; DisplayChanged(); AddLog(TEXT("Playback paused; camera remains live."),EStudioLogSeverity::Info,EStudioLogSource::Playback); }
     else if(State==EStudioRunState::Paused) Run();
 }
 void FStudioModel::Stop()
 {
+    if(bSnapshotView)return;
     if(State==EStudioRunState::Ready||State==EStudioRunState::Stopped) return;
     State=EStudioRunState::Stopped; DisplayChanged(); AddLog(TEXT("Playback stopped. Run restarts at source frame 0."),EStudioLogSeverity::Info,EStudioLogSource::Playback);
 }
@@ -70,6 +91,7 @@ void FStudioModel::Advance()
 }
 void FStudioModel::Step()
 {
+    if(bSnapshotView)return;
     if(Solver->FrameCount()==0||State==EStudioRunState::Running||State==EStudioRunState::Complete) return;
     if(bReviewing) { PlaybackFrame=SelectedFrame; bReviewing=false; }
     else if(State==EStudioRunState::Ready||State==EStudioRunState::Stopped) BeginRun();
@@ -77,6 +99,7 @@ void FStudioModel::Step()
 }
 void FStudioModel::Tick(double Delta)
 {
+    if(bSnapshotView)return;
     if(!FMath::IsFinite(Delta)||Delta<0)return;
     TickJob(Delta);
     PollProjectOpen();
@@ -97,6 +120,7 @@ void FStudioModel::Tick(double Delta)
 }
 bool FStudioModel::ReviewRecordedFrame(int32 Ordinal)
 {
+    if(bSnapshotView)return Ordinal==SelectedFrame;
     if(!Solver||Ordinal<0||Ordinal>=Solver->FrameCount()||!Frames.IsValidIndex(Ordinal))
     {Notice=TEXT("The requested recording frame is unavailable. Current view retained.");return false;}
     bReviewing=true;SelectedFrame=Ordinal;DisplayChanged();return true;
@@ -107,7 +131,7 @@ void FStudioModel::Scrub(double Fraction)
     ReviewRecordedFrame(FMath::RoundToInt(FMath::Clamp(Fraction,0.,1.)*(Frames.Num()-1)));
 }
 void FStudioModel::ReturnToLive() { bReviewing=false; SelectedFrame=PlaybackFrame; DisplayChanged(); }
-void FStudioModel::Reset() { State=EStudioRunState::Ready; BeginRun(); }
+void FStudioModel::Reset() { if(bSnapshotView)return; State=EStudioRunState::Ready; BeginRun(); }
 const FStudioFrame& FStudioModel::DisplayFrame() const { return Frames[FMath::Clamp(SelectedFrame,0,Frames.Num()-1)]; }
 FString FStudioModel::StatusText() const
 {
@@ -121,7 +145,7 @@ FStudioProject FStudioModel::SnapshotProject() const
     return P;
 }
 bool FStudioModel::HasUnsavedChanges() const
-{ return StudioProjectIO::Serialize(SnapshotProject())!=SavedSnapshot; }
+{ return !bSnapshotView&&StudioProjectIO::Serialize(SnapshotProject())!=SavedSnapshot; }
 void FStudioModel::NewProject(const FString& Name)
 {
     if(!CanReplaceProject())return;
@@ -134,6 +158,7 @@ void FStudioModel::NewProject(const FString& Name)
 }
 bool FStudioModel::SaveProject(const FString& Path)
 {
+    if(bSnapshotView){Notice=TEXT("Snapshot inspection views are not project documents.");return false;}
     EndViewEdit();
     auto P=SnapshotProject(); FString Error;
     if(!StudioAssetPaths::Resolve(P,Project.AssetBaseDirectory,Error)) { Notice=Error; return false; }
@@ -173,11 +198,13 @@ void FStudioModel::ApplyInspection(const FStudioInspectionState& S)
         if(SelectedInspectionObject.IsValid()&&!FindInspectionObject(SelectedInspectionObject))
         {SelectedInspectionObject.Invalidate();++InspectionSelectionRevision;}
     }
-    bDirty=true;
+    bDirty=!bSnapshotView;
 }
 bool FStudioModel::EditView(const FString& Label,TFunctionRef<void(FStudioInspectionState&)> Edit)
 {
     const auto Before=InspectionState(); auto After=Before; Edit(After);
+    if(bSnapshotView&&(After.Display.ScalarField!=Before.Display.ScalarField||After.Display.bVectors||After.Display.bStreamlines))
+    {Notice=TEXT("This view contains one scalar snapshot. Select a new comparison to change its field.");return false;}
     // Physical scalar controls cannot carry values across fields with different units.
     if(After.Display.ScalarField!=Before.Display.ScalarField)
     {
@@ -212,6 +239,7 @@ void FStudioModel::RememberProject()
 }
 void FStudioModel::SaveSession()
 {
+    if(bSnapshotView)return;
     auto O=MakeShared<FJsonObject>(); O->SetStringField(TEXT("lastProject"),ProjectPath);
     O->SetBoolField(TEXT("sidebarCollapsed"),bSidebarCollapsed);
     O->SetBoolField(TEXT("viewportExpanded"),bViewportExpanded);
@@ -224,6 +252,7 @@ void FStudioModel::SaveSession()
 }
 void FStudioModel::OpenSession()
 {
+    if(bSnapshotView)return;
     FString Text; TSharedPtr<FJsonObject> O;
     if(FFileHelper::LoadFileToString(Text,*(StorageDirectory/TEXT("StudioSession.json"))) &&
         FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),O) && O)
@@ -248,6 +277,7 @@ void FStudioModel::OpenSession()
 }
 void FStudioModel::WriteRecovery()
 {
+    if(bSnapshotView)return;
     if(SuppressRecoveryOnClose || !HasUnsavedChanges() || !PendingRecovery.IsEmpty()) return;
     auto P=SnapshotProject(); P.RecoverySource=ProjectPath;
     FString Error;
@@ -268,6 +298,7 @@ bool FStudioModel::RestoreRecovery()
 }
 void FStudioModel::DiscardRecovery()
 {
+    if(bSnapshotView)return;
     if(RecordingRepair.IsSet()&&RecordingRepair->bRecovery)RecordingRepair.Reset();
     if(bOpeningRecovery&&IsProjectOpenPending()) CancelProjectOpen(false);
     IFileManager::Get().Delete(*(StorageDirectory/TEXT("Recovery/StudioRecovery.lbms")),false,true);
@@ -286,6 +317,7 @@ namespace
 }
 bool FStudioModel::EditCase(const FString& Label, TFunctionRef<void(FStudioCaseDraft&)> Edit)
 {
+    if(bSnapshotView){Notice=TEXT("Snapshot inspection views do not edit case settings.");return false;}
     FStudioCaseDraft Candidate=Project.Draft;
     Edit(Candidate);
     if(Candidate.Id!=Project.Draft.Id) { Notice=TEXT("An edit cannot replace the case identity."); return false; }
@@ -522,6 +554,7 @@ void FStudioModel::ForgetRecentProject(const FString& Path)
 }
 bool FStudioModel::SetProjectFavorite(const FString& Path,bool bFavorite)
 {
+    if(bSnapshotView)return false;
     if((Path.IsEmpty() && ProjectPath.IsEmpty()) || (!Path.IsEmpty() && !ProjectPath.IsEmpty() && FPaths::IsSamePath(Path,ProjectPath)))
     { Project.bFavorite=bFavorite; bDirty=true; ++CatalogRevision; return true; }
     FStudioProject Candidate; FString Error;
@@ -593,6 +626,7 @@ bool FStudioModel::RemoveReconstruction()
 {return StartRecordingRequest(Project.Dataset,FString(),ERecordingChange::RemoveSurface);}
 bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal)
 {
+    if(bSnapshotView){Notice=TEXT("Snapshot inspection views retain their original source.");return false;}
     const bool bImport=Change==ERecordingChange::Import;
     const bool bSurface=Change==ERecordingChange::ImportSurface||Change==ERecordingChange::RelinkSurface||Change==ERecordingChange::RemoveSurface;
     const bool bRelink=Change==ERecordingChange::Relink||bSurface;

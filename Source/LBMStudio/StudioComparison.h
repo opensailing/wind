@@ -5,6 +5,7 @@
 
 class IStudioSolver;
 class IStudioField;
+class FStudioSnapshotSource;
 
 enum class EStudioTimeAlignment : uint8 { Unset, RecordedTime, ElapsedFromStart, ManualOffset };
 enum class EStudioTimeMatch : uint8 { Exact, Nearest };
@@ -54,6 +55,8 @@ struct FStudioComparisonSide
     FStudioScalarDescriptor Scalar;
     FStudioFieldIdentity Identity;
     TSharedPtr<const IStudioField,ESPMode::ThreadSafe> Field;
+    /** Renderer adapter made on the read worker, with no subsequent source IO. */
+    TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> Snapshot;
 };
 
 struct FStudioComparisonResult
