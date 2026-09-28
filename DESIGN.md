@@ -295,6 +295,12 @@ The authoring documentation pass read the source, review and recorded verificati
 
 The Geometry documentation pass read the native source and recorded evidence, opened four representative final captures including removal at both sizes, and checked all 16 capture hashes/dimensions, both manifest hashes/results and ten source pins. It ran no build, application or test. These structural geometry fixtures and routed Slate cases establish this inspector scope; full Geometry, connected solver readiness, physical OS input, broad accessibility, long-session stability, overall reference fidelity and whole-product completion remain open.
 
+**Setup run parameters — 2026-09-28.** The six-line contract immediately above `SStudioWorkspace::RunSettingsControls` extends the native Operate inspector with exact retained requests for the next run. Core transactions are committed in `0b580d1`; the UI is committed in `cb35759`. Run parameters leads Setup within the existing right column, reusing compact CoreStyle type, blue-black fields, Cyan actions/focus and Amber recovery. The sidebar remains the sole persistent workspace navigator; the published flow and frozen active-run configuration retain their ownership. Project schema 17 is unchanged.
+
+`tmp/analysis/run-settings-20260928/finish-review.md` gives **ship**, with no material fixes, for the bounded form and reviewed guards. `ui-acceptance.json` in that folder pins package `c83d4a60829eee3b6980f8455da5a4dd0d2d58f88b2439137ca6f511a7c08624`, four source/tool files and 10 clean native cases: one RunSettingsUI case at each of 1320 × 740 and 1280 × 720, one Inspector regression at 1280 × 720 and seven Jobs cases at 1320 × 740. All four manifests report exit 0, no errors and no remaining owned processes. The 16 captures under `.impeccable/review/run-settings/{1320,1280}/` cover applied defaults, retained draft, invalid count, save guard, applied parameters, conflict, active run and reopened parameters; the finish reviewer opened all 16. `core-acceptance.json` records 167 successful model cases before the UI work, 166 clean and one with Unreal's bundled `idevice_id` CPU-architecture helper warning. No final-package model rerun is claimed. The two earlier failed native timing runs remain recorded in `ui-acceptance.json`.
+
+The run-parameter documentation pass read source, review and recorded evidence, opened four representative captures across both sizes, verified ten source pins and four manifest/report results, and checked all 16 PNG payloads and dimensions. It ran no application, build or test. This acceptance covers retained parameter authoring, guarded submission and frozen-run/recording isolation. Backend stopping, output selection and disk estimates, restart compatibility and full S13–S15 remain open, as do physical OS input, full accessibility, long-session stability, whole-renderer and overall reference fidelity. No numerical backend enforces these requests or produces scheduled output/restart files.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -314,6 +320,7 @@ The Geometry documentation pass read the native source and recorded evidence, op
 - Materials, Domain, Boundary Conditions and physical lattice counts have separate retained case editors with explicit Apply/Revert and save guards.
 - Preview labels describe applied state, renderable drafts, source verification and sampled occupancy without implying solver readiness.
 - Geometry retains exact object drafts beside the applied mesh, with explicit Apply/Revert and removal-specific Discard recovery.
+- Setup retains next-run stop/output/checkpoint requests with Apply/Revert, shared case history and visible backend limits.
 
 ## Colors
 
@@ -378,6 +385,8 @@ V10 centers its toolbar 12 units above the viewport bottom, below the input hint
 Expand now hides the monitors and idle Solve inspector, including whichever of Setup, Physics, BCs or Display is selected. An active Inspection or camera-placement inspector remains available. The sidebar, viewport toolbar and timeline remain; Display controls return with the inspector on Restore. This supersedes the earlier V10/D01 layout claim that Display controls stayed visible while expanded. Restore returns the chosen category and working layout. This is an in-app layout preference saved in `StudioSession.json`, independent of case/project content and camera state; it is not OS fullscreen. The accepted V10/D01 window sizes remain evidence sizes, and its 960 × 540 annotated exports are separate from the earlier D05–D08 export dimensions.
 
 D11/S01 uses the existing 322-unit inspector column and 7-unit gutter from the scene. The Panel container has 10-unit horizontal padding. Four equal-width category buttons use CoreStyle Regular 10-point labels, 2-unit horizontal and 12-unit vertical padding, Muted inactive text, Cyan active text and a 2-unit Cyan underline. Each category has its own retained scrolling body with instant focus scrolling and 12-unit navigation padding. The Display body adds 2-unit horizontal and 10-unit vertical padding. Section separators and compact label/value rows reuse the incumbent vocabulary; Setup’s lower content is deliberately reachable through its scroll boundary.
+
+Run parameters leads Setup in one aligned column: next-run context, maximum steps, optional physical seconds, output interval, checkpoint request and interval, Apply/Revert, inline recovery, case Undo/Redo, then backend qualification. Labels and fields use the existing 10-point role; wrapping context and recovery use 9-point type. Labels sit 5 units above inputs, fields have 10 units below, and the equal-width Apply/Revert actions share a 6-unit gap. The whole new form is visible at both reviewed sizes; later Setup sections remain within the retained category scroll container. These are evidence sizes, not new breakpoints.
 
 Materials uses an 18-unit workspace inset, a 210-unit list, a flexible retained properties form and a 280-unit assignments column. List-to-form and form-to-assignments gaps are 16 and 18 units. Domain and Meshing place a flexible 3D preview beside one 334-unit inspector, separated by 6 units; inspector padding is 14 units with instant focus scrolling and 12-unit navigation padding. Their header uses 14 × 10 horizontal/vertical padding and a 6-unit scene gap. The containment or classification strip remains adjacent to its preview.
 
@@ -530,7 +539,7 @@ The source authority for this addition is `Source/LBMStudio/StudioWorkspace.cpp`
 
 | Category | Owned content and limit |
 | --- | --- |
-| Setup | Replay/control-harness toolbar choice; recording selection and applicable reconstruction attachment; source sample/frame/duration disclosures, replay speed/loop, source link and playback status. Reconstruction display toggles belong to Display. |
+| Setup | Next-run maximum steps/optional physical seconds, output interval and checkpoint request/interval with Apply/Revert and case history; replay/control-harness toolbar choice; recording selection and applicable reconstruction attachment; source sample/frame/duration disclosures, replay speed/loop, source link and playback status. Reconstruction display toggles belong to Display. |
 | Physics | Read-only source conditions and coordinates, separately labeled saved-case backend, collision, turbulence and thermal settings. Missing source conditions say “Not supplied” or “See source reference”; saved choices do not alter recorded physics. |
 | BCs | Read-only saved-case condition count, six domain-face assignments and imported surface-patch assignments/empty state. Recording boundary conditions are explicitly unavailable from this adapter. |
 | Display | The single visible scalar selector and palette/range action, domain grid, applicable cut-plane/flow-layer controls, source-point/surface/volume presentation, and adjacent streamline/vector settings. The viewport toolbar retains camera and triangle-topology actions. |
@@ -552,6 +561,18 @@ Vector and streamline popovers retain the same editor objects when dismissed and
 `InspectorTab` defaults to Display (3), with Setup (0), Physics (1), and BCs (2). `StudioSession.json` stores `inspectorTab`; only finite whole numbers from 0 through 3 are accepted. Missing or malformed values retain the Display default. It is a session-only preference, independent of the schema-16 scientific project and the shared view-history values. `Studio.Inspector.SessionCategoryIsolation` covers all four fresh-reader choices, malformed values, unchanged serialized scientific document and unchanged render revision, subject to the model timing qualification in Overview.
 
 Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the six-line contract, `CachedDisplayMenu`, `Settings`, `DisplayTools`, `SRetainedFormScrollBox`, workspace tick and inspector switcher), `StudioWorkspace.h`, `StudioModel.cpp/.h`, `StudioInspectorTests.cpp`, and `StudioInspectorRenderTests.cpp`. The packet, finish review, verification, six native manifests and 16 captures named in Overview bound D11/S01 to this staged foundation. Current recording/reconstruction/job regressions and main integration remain pending. Portable previews express appearance only; they do not supply Slate behavior, scientific validation, persistence or runtime evidence.
+
+### Setup run parameters and retained requests
+
+Setup owns maximum solver steps, optional maximum physical time in seconds, output interval in solver steps, the scheduled-checkpoint request and its interval. Counts accept exact whole-number digits from 1 through 1,000,000,000,000. Physical time accepts a finite value above 0 and no larger than 1e12 seconds, or blank for no limit. Loaded seconds use the shortest decimal that round-trips to the stored double; long values remain available through native field scrolling and full-value tooltips. Turning checkpoints off retains the interval, which stays editable and validated. The checkbox says “Request scheduled checkpoints”; its helper states the request or retained-off meaning.
+
+Apply parameters or Enter validates all fields and copies only these five owned settings into one case transaction, preserving unrelated setup edits. Typing and focus loss leave applied data unchanged. A rejected value stays in the field with wrapped Amber recovery and focus on that field. Revert edits loads the latest applied settings. Apply is disabled for a clean or conflicting form; Revert remains available for dirty, invalid or conflicting state. Pending project or recording loading disables the form and its actions.
+
+Retained text survives inspector-category and sidebar round trips within the project/case identity. An external edit to the owned settings preserves dirty text and disables Apply until Revert; unrelated case edits do not conflict. Clean fields synchronize after case Undo/Redo or another applied change. Changing project or case identity resets the form. Applied settings participate in shared case history and schema-17 persistence; unfinished text is transient UI state.
+
+Save, project replacement, duplication and a new control-harness submission expose unresolved parameters in Setup and focus the form. Pending camera placement is preserved and must be resolved before that redirect. Existing harness resume and recorded playback retain their separate behavior. Editing next-run requests leaves the active run's submitted configuration, recording, selected source frame, render intent and observing camera unchanged. The form identifies active-run ownership and states that the disconnected numerical backend/control harness does not enforce limits, write flow output or create scheduled restart files. Backend stopping, disk estimates/output selection and restart compatibility remain unfinished S13–S15 work.
+
+Source authority is `StudioRunSettings.h/.cpp`, `StudioModelRunSettings.cpp`, `StudioWorkspace.cpp` (`RunSettingsControls`, `RefreshRunSettings`, `EnsureRunSettingsResolved`, Header Run and save/replacement guards), `StudioWorkspace.h`, `StudioRunSettingsTests.cpp` and `StudioRunSettingsRenderTests.cpp`. `Tools/test-run-settings.sh [width height]` runs one packaged `Studio.RunSettingsUI.` case, defaulting to 1320 × 740. The package, full bounded form review, prior model timing, four manifests and 16 captures in Overview define this addition's evidence scope. New-run and save behavior have routed assertions; project-replacement wiring was reviewed in source. Reused portable input/action previews describe appearance only.
 
 ### Case authoring ownership and exact drafts
 
@@ -631,7 +652,7 @@ Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the 
 - Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.
 - Do retain selected-scalar coloring independently of velocity direction and length.
 - Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.
-- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement and Geometry object editing, retaining each review’s finding and package boundaries.
+- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing and Setup run parameters, retaining each review’s finding and package boundaries.
 - Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.
 - Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.
 - Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.
@@ -646,6 +667,7 @@ Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the 
 - Do preserve stable boundary identities, atomic periodic pairs and sampled original-cell meaning.
 - Do preserve exact Geometry fields, original-axis scale, source-origin rotation and the applied mesh while drafts remain unresolved.
 - Do give removed Geometry drafts an enabled Discard recovery and focus that action when saving redirects to it.
+- Do retain exact next-run requests, explicit Apply/Revert, conflict recovery and shared case history while the active run keeps its submitted settings.
 
 ### Don't:
 
@@ -665,3 +687,4 @@ Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the 
 - Don’t substitute larger cells or invented triangles for omitted preview data, or equate geometric occupancy with production meshing.
 - Don’t treat F1–F3 acceptance or the earlier 161 model cases as a fresh main build/model result, physical OS input, full M3, solver validation or whole-product approval.
 - Don’t treat the Geometry F1-only verdict or its two final native cases as full Geometry, solver readiness, physical OS input, broad accessibility, long-session or whole-product acceptance.
+- Don’t describe retained run requests or their scoped review as enforced stopping, generated flow/restart files, full S13–S15 or whole-product acceptance.
