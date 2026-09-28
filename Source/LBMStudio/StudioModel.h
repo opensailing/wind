@@ -10,6 +10,7 @@
 #include "StudioRunSettings.h"
 #include "StudioDomain.h"
 #include "StudioLattice.h"
+#include "StudioLog.h"
 #include "Async/Future.h"
 
 enum class EStudioWorkspace : uint8
@@ -175,6 +176,7 @@ public:
     TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> Solver;
     TArray<FStudioFrame> Frames;
     TArray<FString> Log;
+    const FStudioLogJournal& ActivityLog() const { return Journal; }
     EStudioRunState State = EStudioRunState::Ready;
     int32 SelectedFrame = 0;
     int32 PlaybackFrame = 0;
@@ -256,7 +258,8 @@ public:
     bool SimulateJobEvent(EStudioJobState State);
     bool CanSimulateJobEvent(EStudioJobState State) const;
     void Scrub(double Fraction); void ReturnToLive(); void Reset();
-    void AddLog(const FString& Message);
+    void AddLog(const FString& Message,EStudioLogSeverity Severity=EStudioLogSeverity::Info,
+        EStudioLogSource Source=EStudioLogSource::Application,const FGuid& RunId={},const FString& SourceReference={});
     void DisplayChanged() { ++Revision; ++RenderIntentRevision; }
     const FStudioFrame& DisplayFrame() const;
     const FStudioScalarDescriptor& ActiveScalar() const;
@@ -500,4 +503,6 @@ private:
     double JobStartedAt = 0;
     EStudioJobState LastJobState = EStudioJobState::Idle;
     FString LastJobNotice;
+    uint64 LastLoggedJobSequence=0;
+    FStudioLogJournal Journal;
 };

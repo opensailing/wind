@@ -183,7 +183,7 @@ void FStudioModel::PollProjectOpen()
     { Notice=TEXT("The recovery selection changed while opening. Current project kept."); return; }
     if(!Result.Error.IsEmpty()||!Result.Source)
     {
-        Notice=Result.Error.IsEmpty()?TEXT("Project opening failed. Current project kept."):Result.Error; AddLog(Notice);
+        Notice=Result.Error.IsEmpty()?TEXT("Project opening failed. Current project kept."):Result.Error; AddLog(Notice,EStudioLogSeverity::Error);
         if(Result.bRecordingFailed)
         {
             const auto* Ref=Result.Project.Recordings.FindByPredicate([&](const auto& R){return R.Id==Result.Project.Dataset;});

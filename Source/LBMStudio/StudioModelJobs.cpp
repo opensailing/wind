@@ -4,7 +4,7 @@ void FStudioModel::ResetJobSession()
 {
     auto Adapter=MakeUnique<FStudioControlHarness>(); ControlHarness=Adapter.Get();
     JobController=MakeUnique<FStudioJobController>(MoveTemp(Adapter));
-    JobClock=JobStartedAt=0;LastJobState=EStudioJobState::Idle;LastJobNotice.Empty();JobLog.Reset();
+    JobClock=JobStartedAt=0;LastJobState=EStudioJobState::Idle;LastJobNotice.Empty();JobLog.Reset();LastLoggedJobSequence=0;
 }
 bool FStudioModel::HasActiveJob() const
 {return JobController&&JobController->Run().IsSet()&&!FStudioJobController::IsTerminal(JobController->State());}
@@ -81,7 +81,7 @@ bool FStudioModel::Control(EStudioJobCommand Command)
         {
             Project.Runs.Add(Job().Run().GetValue());
             FStudioJobHistory H;H.RunId=Job().Run()->GetId();Project.JobHistory.Add(H);
-            JobStartedAt=JobClock;LastJobNotice.Empty();JobLog.Reset();++CatalogRevision;
+            JobStartedAt=JobClock;LastJobNotice.Empty();JobLog.Reset();LastLoggedJobSequence=0;++CatalogRevision;
         }
     }
     else OK=JobController->Command(Command,JobClock);
@@ -94,9 +94,28 @@ void FStudioModel::SyncJob()
     if(!H)return;
     H->LastState=Job().State();H->StepCommands=Job().CompletedStepCommands();
     H->CheckpointCommands=Job().CompletedCheckpointCommands();H->Notice=Job().Notice();
+    bool bLoggedCurrentNotice=false;
+    // Drain every accepted event, even when a single tick observes several
+    // transitions. Sequence filtering excludes duplicates and rejected owners.
+    for(const auto& Event:Job().Events())
+    {
+        if(Event.Sequence<=LastLoggedJobSequence)continue;
+        const auto Severity=Event.Kind==EStudioJobEventKind::Rejected||Event.State==EStudioJobState::Failed?
+            EStudioLogSeverity::Error:Event.State==EStudioJobState::Disconnected?EStudioLogSeverity::Warning:EStudioLogSeverity::Info;
+        AddLog(StudioJobs::StateName(Event.State)+TEXT(" · ")+Event.Message,Severity,
+            EStudioLogSource::ControlHarness,Event.RunId,Job().Capabilities().BackendId);
+        LastLoggedJobSequence=Event.Sequence;bLoggedCurrentNotice=Event.Message==H->Notice;
+    }
     if(LastJobState!=H->LastState||LastJobNotice!=H->Notice)
     {
         if(Notice==LastJobNotice)Notice=H->Notice;
+        if(!bLoggedCurrentNotice)
+        {
+            const auto Severity=H->LastState==EStudioJobState::Failed?EStudioLogSeverity::Error:
+                H->LastState==EStudioJobState::Disconnected?EStudioLogSeverity::Warning:EStudioLogSeverity::Info;
+            AddLog(StudioJobs::StateName(H->LastState)+TEXT(" · ")+H->Notice,Severity,
+                EStudioLogSource::ControlHarness,H->RunId,Job().Capabilities().BackendId);
+        }
         JobLog.Add(StudioJobs::StateName(H->LastState)+TEXT(" · ")+H->Notice);
         if(JobLog.Num()>120)JobLog.RemoveAt(0,JobLog.Num()-120,EAllowShrinking::No);
         LastJobState=H->LastState;LastJobNotice=H->Notice;bDirty=true;

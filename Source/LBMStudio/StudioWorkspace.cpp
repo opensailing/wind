@@ -1384,7 +1384,8 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     {
         SnapshotNotice=Result->bSuccess?FString::Printf(TEXT("Saved PNG · frame %d · %.9g s"),Result->Frame.Index,Result->Frame.Time):
             Result->bCancelled?TEXT("Snapshot export cancelled."):TEXT("Snapshot export failed: ")+Result->Error;
-        M->Notice=SnapshotNotice;M->AddLog(SnapshotNotice+(Result->bSuccess?TEXT(" · ")+Result->Path:FString()));
+        M->Notice=SnapshotNotice;M->AddLog(SnapshotNotice+(Result->bSuccess?TEXT(" · ")+Result->Path:FString()),
+            Result->bSuccess||Result->bCancelled?EStudioLogSeverity::Info:EStudioLogSeverity::Error);
     }
     if(LastAssetRevision!=M->AssetRevision) RefreshAssetRows();
     if(LastCameraCollectionRevision!=M->CameraCollectionRevision||CameraRowsProjectId!=M->Project.Id) RefreshCameraRows();
@@ -2987,7 +2988,7 @@ void SStudioWorkspace::Export()
     { M->Notice=TEXT("The requested frame is still rendering. Pause or wait for the view, then export."); return; }
     const FString Dir=FPaths::ProjectSavedDir()/TEXT("Exports");IFileManager::Get().MakeDirectory(*Dir,true);
     const FString Path=Dir/(TEXT("su2-field-")+FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))+TEXT(".csv"));
-    const bool OK=M->ExportField(Path);M->Notice=OK?TEXT("Source field CSV exported to Saved/Exports."):TEXT("Could not write source field CSV.");M->AddLog(M->Notice);
+    const bool OK=M->ExportField(Path);M->Notice=OK?TEXT("Source field CSV exported to Saved/Exports."):TEXT("Could not write source field CSV.");M->AddLog(M->Notice,OK?EStudioLogSeverity::Info:EStudioLogSeverity::Error);
     if(OK)FPlatformProcess::ExploreFolder(*FPaths::ConvertRelativePathToFull(Dir));
 }
 FIntPoint SStudioWorkspace::SnapshotOutputSize() const

@@ -16,17 +16,21 @@ FStudioModel::FStudioModel(const FString& SessionDirectory) : Solver(MakeShared<
     if(Frames.IsEmpty()) Frames.Add(FStudioFrame());
     SavedSnapshot=StudioProjectIO::Serialize(SnapshotProject());
     Notice=Solver->LoadError();
-    if(!Notice.IsEmpty()) AddLog(Notice);
+    if(!Notice.IsEmpty()) AddLog(Notice,EStudioLogSeverity::Error,EStudioLogSource::Playback);
     else
     {
-        AddLog(FString::Printf(TEXT("Loaded %s: %d published snapshots."),*Solver->Descriptor().Title,Solver->FrameCount()));
-        AddLog(TEXT("Published 2D fields; display extrusion adds no spanwise flow."));
-        AddLog(FString::Printf(TEXT("Source time: %.4f–%.4f s. Playback: %.1f s at 20 snapshots/s."),Frames[0].Time,Frames.Last().Time,(Frames.Num()-1)*PlaybackInterval));
-        AddLog(TEXT("Residual and force histories are not supplied."));
+        AddLog(FString::Printf(TEXT("Loaded %s: %d published snapshots."),*Solver->Descriptor().Title,Solver->FrameCount()),EStudioLogSeverity::Info,EStudioLogSource::Playback);
+        AddLog(TEXT("Published 2D fields; display extrusion adds no spanwise flow."),EStudioLogSeverity::Info,EStudioLogSource::Playback);
+        AddLog(FString::Printf(TEXT("Source time: %.4f–%.4f s. Playback: %.1f s at 20 snapshots/s."),Frames[0].Time,Frames.Last().Time,(Frames.Num()-1)*PlaybackInterval),EStudioLogSeverity::Info,EStudioLogSource::Playback);
+        AddLog(TEXT("Residual and force histories are not supplied."),EStudioLogSeverity::Info,EStudioLogSource::Playback);
     }
 }
-void FStudioModel::AddLog(const FString& M)
+void FStudioModel::AddLog(const FString& M,EStudioLogSeverity Severity,EStudioLogSource Source,
+    const FGuid& RunId,const FString& SourceReference)
 {
+    Journal.Append(M,Severity,Source,Project.Id,RunId,
+        SourceReference.IsEmpty()&&Source==EStudioLogSource::Playback?Project.Dataset:SourceReference);
+    if(Source==EStudioLogSource::ControlHarness)return;
     Log.Add(M); if(Log.Num()>120) Log.RemoveAt(0);
 }
 void FStudioModel::BeginRun()
@@ -40,31 +44,31 @@ void FStudioModel::Run()
     if(State==EStudioRunState::Running) return;
     if(bReviewing) { PlaybackFrame=SelectedFrame; bReviewing=false; Accumulator=0; }
     else if(State!=EStudioRunState::Paused) BeginRun();
-    State=EStudioRunState::Running; AddLog(TEXT("Recorded CFD playback started."));
+    State=EStudioRunState::Running; AddLog(TEXT("Recorded CFD playback started."),EStudioLogSeverity::Info,EStudioLogSource::Playback);
 }
 void FStudioModel::Pause()
 {
-    if(State==EStudioRunState::Running) { State=EStudioRunState::Paused; DisplayChanged(); AddLog(TEXT("Playback paused; camera remains live.")); }
+    if(State==EStudioRunState::Running) { State=EStudioRunState::Paused; DisplayChanged(); AddLog(TEXT("Playback paused; camera remains live."),EStudioLogSeverity::Info,EStudioLogSource::Playback); }
     else if(State==EStudioRunState::Paused) Run();
 }
 void FStudioModel::Stop()
 {
     if(State==EStudioRunState::Ready||State==EStudioRunState::Stopped) return;
-    State=EStudioRunState::Stopped; DisplayChanged(); AddLog(TEXT("Playback stopped. Run restarts at source frame 0."));
+    State=EStudioRunState::Stopped; DisplayChanged(); AddLog(TEXT("Playback stopped. Run restarts at source frame 0."),EStudioLogSeverity::Info,EStudioLogSource::Playback);
 }
 void FStudioModel::Advance()
 {
     if(PlaybackFrame+1>=Solver->FrameCount())
     {
         if(bLoopPlayback && State==EStudioRunState::Running)
-        { PlaybackFrame=0; AddLog(TEXT("Replay loop restarted at source frame 0.")); }
+        { PlaybackFrame=0; AddLog(TEXT("Replay loop restarted at source frame 0."),EStudioLogSeverity::Info,EStudioLogSource::Playback); }
         else { State=EStudioRunState::Complete; return; }
     }
     else ++PlaybackFrame;
     if(!bReviewing) { SelectedFrame=PlaybackFrame; ++Revision; }
-    if(PlaybackFrame%100==0) AddLog(FString::Printf(TEXT("Source frame %d · elapsed time %.4f s"),Frames[PlaybackFrame].Index,Frames[PlaybackFrame].Time));
+    if(PlaybackFrame%100==0) AddLog(FString::Printf(TEXT("Source frame %d · elapsed time %.4f s"),Frames[PlaybackFrame].Index,Frames[PlaybackFrame].Time),EStudioLogSeverity::Info,EStudioLogSource::Playback);
     if(PlaybackFrame+1==Solver->FrameCount()&&!bLoopPlayback)
-    { State=EStudioRunState::Complete; AddLog(FString::Printf(TEXT("All %d source snapshots replayed."),Solver->FrameCount())); }
+    { State=EStudioRunState::Complete; AddLog(FString::Printf(TEXT("All %d source snapshots replayed."),Solver->FrameCount()),EStudioLogSeverity::Info,EStudioLogSource::Playback); }
 }
 void FStudioModel::Step()
 {
@@ -125,7 +129,7 @@ bool FStudioModel::SaveProject(const FString& Path)
     EndViewEdit();
     auto P=SnapshotProject(); FString Error;
     if(!StudioAssetPaths::Resolve(P,Project.AssetBaseDirectory,Error)) { Notice=Error; return false; }
-    if(!StudioProjectIO::Save(Path,P,Error)) { Notice=Error; AddLog(Error); return false; }
+    if(!StudioProjectIO::Save(Path,P,Error)) { Notice=Error; AddLog(Error,EStudioLogSeverity::Error); return false; }
     ProjectPath=FPaths::ConvertRelativePathToFull(Path);
     Project.Draft=P.Draft; Project.Runs=P.Runs; Project.Recordings=P.Recordings;
     Project.AssetBaseDirectory=FPaths::GetPath(ProjectPath);
@@ -207,7 +211,7 @@ void FStudioModel::SaveSession()
     for(const auto& P:RecentProjects) Paths.Add(MakeShared<FJsonValueString>(P));
     O->SetArrayField(TEXT("recentProjects"),Paths);
     FString Text,Error; FJsonSerializer::Serialize(O,TJsonWriterFactory<>::Create(&Text));
-    if(!StudioProjectIO::WriteAtomic(StorageDirectory/TEXT("StudioSession.json"),Text,Error)) AddLog(Error);
+    if(!StudioProjectIO::WriteAtomic(StorageDirectory/TEXT("StudioSession.json"),Text,Error)) AddLog(Error,EStudioLogSeverity::Error);
 }
 void FStudioModel::OpenSession()
 {
@@ -239,9 +243,9 @@ void FStudioModel::WriteRecovery()
     auto P=SnapshotProject(); P.RecoverySource=ProjectPath;
     FString Error;
     if(!StudioAssetPaths::Resolve(P,Project.AssetBaseDirectory,Error))
-    { Notice=TEXT("Recovery save failed: ")+Error; AddLog(Notice); return; }
+    { Notice=TEXT("Recovery save failed: ")+Error; AddLog(Notice,EStudioLogSeverity::Error); return; }
     if(!StudioProjectIO::WriteAtomic(StorageDirectory/TEXT("Recovery/StudioRecovery.lbms"),StudioProjectIO::Serialize(P),Error))
-    { Notice=TEXT("Recovery save failed: ")+Error; AddLog(Notice); }
+    { Notice=TEXT("Recovery save failed: ")+Error; AddLog(Notice,EStudioLogSeverity::Error); }
 }
 bool FStudioModel::RestoreRecovery()
 {
@@ -650,7 +654,7 @@ void FStudioModel::PollRecording()
     auto Source=MoveTemp(Result.Source);
     if(!Source||Source->FrameCount()==0||!Source->LoadError().IsEmpty()||
         (!RequestedId.IsEmpty()&&Source->Descriptor().Id!=RequestedId))
-    {Notice=Result.Error.IsEmpty()?TEXT("Recording validation failed; current view retained."):Result.Error;AddLog(Notice);return;}
+    {Notice=Result.Error.IsEmpty()?TEXT("Recording validation failed; current view retained."):Result.Error;AddLog(Notice,EStudioLogSeverity::Error,EStudioLogSource::Playback);return;}
     const FString Id=Source->Descriptor().Id;
     auto Candidate=SnapshotProject();
     if(Result.Reference.IsSet())

@@ -707,7 +707,7 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
     RenderedDataset=G.Error.IsEmpty()?G.Dataset:FString(); RenderedTitle=G.Title; GeometryFrame=G.Frame;GeometryScalar=G.Scalar;GeometryColorMapping=G.ColorMapping;
     GeometryVectors=G.Vectors;GeometryStreams=G.Streams;GeometryMesh=G.Mesh;
     RenderedField=G.Error.IsEmpty()?G.Field:nullptr;
-    if(!G.Error.IsEmpty()&&Model->Notice!=G.Error) { Model->Notice=G.Error; Model->AddLog(G.Error); }
+    if(!G.Error.IsEmpty()&&Model->Notice!=G.Error) { Model->Notice=G.Error; Model->AddLog(G.Error,EStudioLogSeverity::Error); }
     // Captures are on demand, so there may be no later frame to retire an
     // occlusion result from the previous mesh or the empty Geometry preview.
     // Replacing the scene invalidates that history even at an unchanged camera.
