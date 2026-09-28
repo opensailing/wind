@@ -309,6 +309,10 @@ The run-parameter documentation pass read source, review and recorded evidence, 
 
 The same reviewer opened all 30 final captures under `.impeccable/review/monitors/{1320,1280}/` and found them valid. This documentation pass read source and recorded evidence, opened four representative captures and verified all 30 PNG signatures, chunk CRCs, compressed payloads and dimensions, all 15 source pins and all three accepted native manifests. It ran no build, application or tests. Original-sample hover, tooltip appearance, native Save panels and lower provenance content are not established by these captures. Physical OS input, broad accessibility, installed residuals, external-history import/portable paths, probe histories, live metrics/log/performance scope and current long-session/release gates remain open. Prior source-reader/provenance evidence and all earlier design scopes retain their boundaries. The context helper's desktop-platform fallback does not make this a web surface; no HTML/CSS detector applies.
 
+**Activity log — 2026-09-28.** M05 expands the existing Solve log card inside the native macOS UE5 Slate Operate world. Journal commit `df2373e`, frozen export commit `dff1cab` and viewer commit `6defb25` retain the existing palette, type, focus treatment and sidebar navigation. The viewer owns session observations and transient filters/expansion; project schema remains 18. `PRODUCT.md` and the established visual world are unchanged.
+
+`tmp/analysis/activity-log-20260928/finish-review.md` gives **ship for the scoped M05 Activity log addition**, with no material fixes. Its `ui-acceptance.json` pins package `55b65787383448bbb9a0549b1b1075de9b1a08398189a8edc80531fb5e01b858`, 17 source hashes and 22 captures under `.impeccable/review/activity-log/{1320,1280}/`. Two clean `Studio.LogUI.` cases at 1320 × 740 and 1280 × 720 and a clean `Studio.MonitorUI.` regression at 1280 × 720 use that same package; all exited 0 with no remaining owned processes. The final editor model report records 176 clean passes. The finish reviewer opened all 22 captures after two self-visual rounds; this documentation pass opened four representative captures and verified source pins, PNG payloads/dimensions and all three native manifests without launching builds, tests or applications. Physical OS input, clipboard delivery, native save-panel interaction, tooltip appearance, live solver log transport and current long-session/release gates remain unverified. The full UI plan and whole-product acceptance remain open.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -330,6 +334,7 @@ The same reviewer opened all 30 final captures under `.impeccable/review/monitor
 - Geometry retains exact object drafts beside the applied mesh, with explicit Apply/Revert and removal-specific Discard recovery.
 - Setup retains next-run stop/output/checkpoint requests with Apply/Revert, shared case history and visible backend limits.
 - Monitors preserves independent published source/time/units, exact-row export and a named single-series Solve preview.
+- Activity log keeps UTC observation/source identity, stable paused snapshots, recoverable clear and frozen-context export within Solve.
 
 ## Colors
 
@@ -377,6 +382,8 @@ Authoring uses the existing CoreStyle hierarchy and the recurring authoring-titl
 
 Monitors uses a 22-point Bold workspace title, 12-point Bold source/series/provenance headings, 10-point controls and wrapping 9-point explanations. The compact source, series/count and scale labels use 8-point type. Main time/value ticks use 9-point type, compact ticks use 8-point, and exact hover values retain 17 significant digits. Tick precision increases until adjacent labels differ; measured native text bounds the count before endpoint labels use separate rows at constrained widths.
 
+Activity log reuses CoreStyle with an 18-point Bold title, 10-point controls/messages/details and 9-point row context/counts/export status. Severity is written as Info, Warning or Error beside UTC time and source; color reinforces that text.
+
 ## Layout
 
 Measurements describe Slate layout units at application scale; frontmatter px values are portable representations. The earlier D05–D08 floating Display overlay was 180 units wide with 11-unit padding; D11/S01 supersedes that placement with Display inside the 322-unit right inspector. Vectors retains one row: checkbox at the left, a compact settings button at the right. Its muted, wrapping length key sits 5 units below and collapses when vectors are hidden.
@@ -408,6 +415,8 @@ Boundary Conditions uses a 14-unit workspace inset, a 196-unit bounded target li
 Geometry keeps its 190-unit object list with 12-unit inset, flexible applied-mesh preview and 304-unit inspector, separated by 6-unit gutters. The retained inspector has 14-unit padding, instant focus scrolling and 10-unit navigation padding. Object name precedes Position, Rotation and Scale groups; each group has three equal-width fields with 6-unit gaps, labels 4 units above inputs and 12 units below the group. The source-axis/origin explanation sits above the adjacent Apply/Revert actions. Wrapped recovery and source diagnostics remain in the same scroll container; removal recovery appears above the disabled retained form. The two reviewed window sizes are evidence sizes, not new layout breakpoints.
 
 Monitors uses an 18-unit workspace inset with the title/actions above the source/sample count and export status. A flexible left chart has 12-unit panel padding; the right source inspector is 326 units wide, separated by a 14-unit gutter, with 14-unit padding and instant focus scrolling with 12-unit navigation padding. Expand / Restore collapses only this source inspector and retains chart controls and selections. This local in-memory expansion differs from the existing saved Solve expansion preference. The compact Solve card retains its existing row allocation and adds source identity, a single-series picker/count and adjacent Linear/Log label above the chart. The reviewed 1320 × 740 and 1280 × 720 windows are evidence sizes, not breakpoints.
+
+Activity log uses the existing Solve content area with 18-unit horizontal and 16-unit vertical padding. Title, Pause view / Follow latest and Restore Solve lead; search/source/severity form one row, followed by project/run scope and clear/recovery/export actions. The virtualized list fills remaining height; selected details occupy a 108-unit read-only field above counts and export feedback. Source and severity menus are 164 and 170 units wide. Alternating Background/Panel rows use 10 × 7-unit padding, Raised hover/selection and a fine Cyan focus outline. The compact card shows the latest three visible entries with a separate Open log action. Accepted window sizes remain evidence sizes, not breakpoints or a new navigation surface.
 
 ## Elevation & Depth
 
@@ -679,6 +688,18 @@ Export history freezes immutable history, selected series and time settings befo
 
 Source authority is `StudioMonitor.h/.cpp`, `StudioModelMonitor.cpp`, `StudioMonitorChart.h/.cpp`, `StudioMonitorExport.h/.cpp`, schema 18 in `StudioProject.h/.cpp`, and `Monitors`, `MonitorWorkspace` and `RefreshMonitors` in `StudioWorkspace.cpp`. `Tools/test-monitors.sh [width height]` runs one packaged `Studio.MonitorUI.` case, default 1320 × 740. Recorded evidence and the F1–F3 verdict in Overview bound this addition. Existing portable snippets remain appearance previews; they supply no native chart, history, export or acceptance behavior.
 
+### Activity log observations and frozen export
+
+**The Observation Identity Rule.** Keep UTC application observation time, severity and source explicit. A log entry never acquires solver time, scientific-history meaning or an unrelated project/run identity.
+
+Open log expands locally from the Solve activity card; Restore Solve returns keyboard focus to that action and retains the case, camera, selected frame and render intent. Expanded log hides flow rendering while playback remains independent. Source choices are Application, Playback and Control harness; severity choices are All severities, Warnings + errors and Errors only. A case-insensitive literal search is bounded to 256 characters. All session projects clears and disables Current control run; changing project resets filters, following and expansion.
+
+Pause view freezes a bounded snapshot while collection continues, including when filters change. Follow latest resumes from the retained journal. Clear view hides sequences through the captured boundary without deleting journal entries; Show retained removes that boundary within the current snapshot. Visible/retained/dropped and paused new-event counts keep the limit visible. The journal retains 2,048 entries, 2,048-character messages and 256-character references, with explicit truncation. All log state is session only; no schema or durable-history claim is added.
+
+Rows show a single-line message preview; selection exposes the complete retained message and ISO UTC/project/run/source context in a selectable, wrapping, read-only field. Export CSV… copies the visible filtered snapshot before the destination picker and performs one atomic background write. CSV columns are `observation_sequence`, `observed_at_utc`, `severity`, `source`, `project_id`, `run_id`, `source_reference`, `truncated` and `message`; quoting retains multiline content and sequence order survives wall-clock changes. Empty/busy export is disabled, clear/no-match states name recovery, and export feedback reports entry count and filename for its owning project.
+
+Source authority is `StudioLog.h/.cpp`, `StudioLogExport.h/.cpp`, `StudioModelJobs.cpp`, the log card/`ActivityLogPanel`/`RefreshActivityLog`/`ExpandActivityLog` in `StudioWorkspace.cpp`, and the hidden-flow gate in `StudioScene.cpp`. `Tools/test-activity-log.sh [width height]` runs one packaged `Studio.LogUI.` case. The recorded scope in Overview bounds acceptance; existing portable snippets provide no native log behavior.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -687,7 +708,7 @@ Source authority is `StudioMonitor.h/.cpp`, `StudioModelMonitor.cpp`, `StudioMon
 - Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.
 - Do retain selected-scalar coloring independently of velocity direction and length.
 - Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.
-- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing, Setup run parameters and published-history Monitors, retaining each review’s finding and package boundaries.
+- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing, Setup run parameters, published-history Monitors and the M05 Activity log addition, retaining each review’s finding and package boundaries.
 - Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.
 - Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.
 - Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.
@@ -706,6 +727,8 @@ Source authority is `StudioMonitor.h/.cpp`, `StudioModelMonitor.cpp`, `StudioMon
 
 - Do preserve original history rows/time/units, one-unit axis selection, visible log gaps and frozen exact-row CSV provenance.
 - Do name the compact trace, unit, position/count and scale while retaining the complete project selection.
+
+- Do keep log observation/source context, paused snapshot identity, reversible clear and frozen CSV provenance visible within the existing Solve owner.
 
 ### Don't:
 
@@ -728,3 +751,4 @@ Source authority is `StudioMonitor.h/.cpp`, `StudioModelMonitor.cpp`, `StudioMon
 - Don’t describe retained run requests or their scoped review as enforced stopping, generated flow/restart files, full S13–S15 or whole-product acceptance.
 - Don’t synchronize independent Nalu-Wind history to SU2 playback, invent residuals, or export reduced/log-filtered rows as the original history.
 - Don’t treat the Monitors F1–F3 correction verdict as physical hover/dialog acceptance, a final-package model rerun, current long-session/release acceptance or completion of live backend/history tooling.
+- Don’t treat session observations or the M05 log verdict as scientific history, live solver transport, physical input/clipboard/dialog acceptance or long-session/full-plan completion.

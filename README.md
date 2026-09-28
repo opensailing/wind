@@ -61,6 +61,7 @@ Builds, packaged apps, logs, temporary plans, captures and Python caches stay ou
 | Fit or expand a history chart | Fit time restores the source extent; Expand / Restore hides or restores the source inspector |
 | Export selected history rows | Monitors → Export history; saves original rows in the selected time window as CSV |
 | Choose the compact history preview | Solve → Selected history → series picker; one named series, unit, selection count and Linear/Log scale |
+| Inspect session activity | Solve → Activity log → Open log; search/filter, pause, select details, clear/restore retained entries or Export CSV…; Restore Solve returns to the scene |
 
 In Replay mode, Run plays each bundled 601-snapshot recording at 20 snapshots/second: **30 seconds of playback** at 1×. Replay speed ranges from 0.25× to 4×; optional looping restarts the same recording. The timeline exposes every frame immediately. Pause retains the current frame; Step advances one recorded snapshot; Run after reviewing starts from that selection. Follow replay returns to the playback cursor. Camera and supported display controls remain interactive throughout. The 8,000-frame NACA source plays for 399.95 seconds at 1× (about 100 seconds at 4×); its 19.9975-second source duration is shown separately.
 
@@ -133,7 +134,8 @@ The exact source airfoil boundary and 2D field are extruded into a 3D view. Sour
 - `StudioPointRecording` / `StudioPointSolver`: checksum-pinned optional source arrays, bounded immutable snapshots, original-point rendering and original-coordinate CSV export; no inferred connectivity.
 - `StudioJobs` / `StudioModelJobs`: independent command/event controller, deterministic control harness, explicit toolbar routing and persisted lifecycle summaries. Commands carry run and command identities; replies are ordered and correlated, settings freeze at submission, and acknowledgement/completion timeouts require reconnect before another launch. Stop can interrupt preparation. The harness simulates control acknowledgements only: it produces no CFD, physical time, scientific telemetry or restart files. Active jobs protect project replacement and close.
 - `StudioScene`: Unreal scene capture, source-mesh airfoil extrusion, field planes, integrated streamlines and vectors. Geometry builds on one shared flow/preview worker using an immutable field snapshot. Explicit scrub/display/project/source changes cancel obsolete reads and geometry; publication checks project, source instance and render intent. Ordinary playback lets an in-flight frame complete so slow reads cannot starve presentation. Hidden/minimized work drains without GPU upload; camera captures remain independent. The flow texture redraws only when geometry, camera or viewport size changes; the covered game-world view is disabled.
-- `StudioWorkspace`: native Slate shell, settings, camera controls, timeline and monitors.
+- `StudioWorkspace`: native Slate shell, settings, camera controls, timeline, monitors and Activity log.
+- `StudioLog` / `StudioLogExport`: bounded session observations, stable paused views, recoverable sequence filtering and frozen-context CSV export.
 - `StudioMonitor`, `StudioModelMonitor`, `StudioMonitorChart`, `StudioMonitorExport`: verified history selection, project settings, original-sample charts and frozen original-row CSV export.
 
 For the legacy SU2 sources, translucent layers repeat the 2D field across the viewing span; this version does not contain a volume ray marcher. The production adapter can implement `IStudioSolver` and `IStudioField` independently of Slate, with live solver configuration added when its API is available.
@@ -155,6 +157,8 @@ Tools/test-run-settings.sh 1280 720 # Run parameters at the minimum target size
 Tools/test-histories.sh    # Published force values, integrity, cancellation and malformed samples
 Tools/test-monitors.sh     # Published history selection, chart controls, original-row export and reopen
 Tools/test-monitors.sh 1280 720 # Monitors and shared Solve preview at the minimum target size
+Tools/test-activity-log.sh # Search/source/severity/context filters, pause, recovery, details, frozen export and Solve isolation
+Tools/test-activity-log.sh 1280 720 # Activity log at the minimum target size
 Tools/test-point-recordings.sh # Five reader suites plus three point/project integration suites
 Tools/test-colors.sh       # Palette/range controls, original-value preservation and exact persistence
 Tools/test-colors.sh 1280 720 # Color controls at the minimum target size
@@ -180,6 +184,8 @@ The Setup run-parameter form has a bounded **ship** review with no material fixe
 
 The Monitors correction verdict is **ship for F1–F3 only** in `tmp/analysis/monitors-20260928/finish-verdict.md`, following the initial bounded `finish-review.md`. `ui-acceptance.json` pins package `274d5cb8…`, 15 current source hashes, 30 final captures and three clean native cases: Monitors at 1320 × 740 and 1280 × 720, plus the shared Inspector regression at 1280 × 720. Each accepted native run exited 0 with no remaining owned processes. The earlier model report records 172 successful cases (171 clean and one with Unreal's bundled `idevice_id` CPU-architecture helper warning); it predates the final UI-only corrections and is not a final-package model rerun. The final captures show named compact series/counts, Linear/Log labels and distinct deep-zoom time ticks. Physical OS pointer/hover, tooltip appearance, native Save panels, broad accessibility and current-package long-session/release acceptance remain open; the captures do not establish the lower provenance content. Earlier source-reader/provenance evidence retains its separate scope.
 
+The Activity log has a scoped **ship** review with no material fixes in `tmp/analysis/activity-log-20260928/finish-review.md`. Its `ui-acceptance.json` pins package `55b65787…`, 17 source hashes and 22 captures at 1320 × 740 and 1280 × 720. Both `Studio.LogUI.` runs and the 1280 × 720 `Studio.MonitorUI.` regression passed on that package with exit 0 and no remaining owned processes. The final editor model report records 176 clean passes. Routed Slate controls and an injected CSV destination establish the reviewed M05 viewer behavior; physical OS input, clipboard delivery, native save-panel interaction, tooltip appearance, live solver log transport and current long-session/release acceptance remain open. This verdict does not accept the full UI plan.
+
 The dedicated mixed-use runner records the exact binary/source hashes, process inventory and ten-second resource samples in a timestamped `tmp/debug/stability-*` directory. It measures macOS physical footprint, cached and pinned frame allocations, reader/worker counts, retained mesh buffers, render-target size and Metal device allocations. Engine RHI object counts may be unavailable on Metal; zero is recorded as unavailable, never as zero GPU use. Short rehearsals validate the test driver and are not hour-long acceptance. The idle phase spends half its time visible and half actually minimized, including background playback; minimized views retain their texture and stop flow builds/captures. The runner restores and reopens the saved inspection state and cleans up only processes it launched. The baseline archived at `tmp/debug/stability-20260927T075811Z/` passed one clean 3,602.227-second suite on binary `fc888c07…`: 40 source switches, 598 scrub/display actions, no idle/minimized captures, exact saved-state restoration, bounded resources and clean shutdown. This evidence applies to that build and machine, does not establish a fix for the preceding system Metal fault, and does not replace the two-hour release gate.
 
 ## Reference environment
@@ -198,6 +204,16 @@ The recording selector loads a candidate asynchronously and retains the current 
 
 Both current trajectories cover 0.12 seconds of source time using the distributed metadata. They are independent recordings, not consecutive pieces of a longer simulation. Neither contains residual/force histories or genuine spanwise flow. The external NACA source below supplies longer physical evolution; genuine 3D field support remains unfinished.
 
+## Activity log
+
+Open **Solve → Activity log → Open log** to inspect application, playback and control-harness observations from this session. Search is a case-insensitive literal match across messages, sources, timestamps and IDs. Source and severity filters combine with **Current project** or **All session projects**; **Current control run** is available only for the current project with a submitted control job. Rows label observation time in UTC, severity and source. Select a row for its full retained message, ISO UTC timestamp, project/run IDs and source reference in a selectable, read-only detail field.
+
+**Pause view** freezes the entries being inspected while collection continues; filters still operate on that snapshot and the footer counts new events. **Follow latest** resumes from retained entries. **Clear view** hides sequences through the captured snapshot; **Show retained** reverses that hiding for entries still available to the view. The journal retains up to 2,048 entries, with 2,048-character messages and 256-character source references; truncation and dropped-entry counts are explicit. Project changes reset the viewer to the current project. Journal and viewer state are session only; project schema remains 18.
+
+The viewer’s **Export CSV…** freezes the visible filtered entries before opening the destination panel, including a paused selection. Its atomic background write preserves observation order, ISO UTC time, severity, source, project/run IDs, source reference, truncation flag and quoted multiline messages. **Restore Solve** returns to the retained scene and camera; the hidden flow viewport stops captures while playback can continue. The sidebar remains the sole persistent workspace navigation.
+
+UTC is application observation time. These entries do not supply scientific histories, residuals or live numerical-solver transport. Published scientific histories remain in Monitors.
+
 ## Published scientific histories and Monitors
 
 `Content/Samples/NaluWind_NACA0021_Re270k_AoA30` retains 6,967 original Nalu-Wind force/moment samples from the [NLR dataset](https://data.nlr.gov/submissions/311), spanning solver time 0.4004–3.1868 s. Its original file is byte-identical to the authors' NACA 0021, 240×257×121 benchmark output. Provenance records the source archive/member hashes, paper, exact benchmark revision, full source notice and coefficient normalization. This is an independent run with no spatial field; it does not supply the SU2 recordings' missing histories or extend their animation.
@@ -214,7 +230,7 @@ The Solve **Selected history** card labels the independent source and displays o
 
 **Export history** freezes the verified source, selected series and time window before opening the destination panel. Its UTF-8 CSV contains every original row within the inclusive window, with zero-based `source_sample`, `solver_time (s)` and selected series columns. Times and values use 17 significant digits for double round trips. Comment records carry source identity/title/URL, metadata/payload/original-source hashes, declared field association, time note, column labels/units/origins/expressions and normalization references. Display reduction and logarithmic gaps do not remove exported rows or values. The bounded background write replaces its destination atomically and reports original-row count, series and filename.
 
-The Nalu-Wind run remains independent of SU2 field playback and active control jobs. No residual history is installed; the Solve residual card remains **Not supplied**. Probe histories, live backend metrics, expanded log/performance tooling, external-history import and portable history paths remain unfinished.
+The Nalu-Wind run remains independent of SU2 field playback and active control jobs. No residual history is installed; the Solve residual card remains **Not supplied**. Probe histories, live backend metrics/log transport, performance tooling, external-history import and portable history paths remain unfinished.
 
 ### External OpenFOAM residual extraction
 
