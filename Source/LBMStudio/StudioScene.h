@@ -83,6 +83,8 @@ public:
     FString PresentedSliceNotice(const FGuid& Id) const { const auto* Notice=CapturedSliceNotices.Find(Id);return Notice?*Notice:FString(); }
     UTextureRenderTarget2D* GetRenderTarget() const { return RenderTarget; }
     uint64 GetCaptureCount() const { return CaptureCount; }
+    TOptional<double> LastCaptureSubmitMilliseconds() const { return CaptureSubmitMs; }
+    double PresentedBuildMilliseconds() const { return CapturedBuildMs; }
     FBox GetRenderedFlowBounds() const { return RenderedFlowBounds; }
     FStudioSceneResourceStats ResourceStats() const;
     TSharedPtr<FStudioModel> Model;
@@ -90,6 +92,8 @@ public:
     bool bBuilding=false;
     double RenderMilliseconds=0;
 private:
+    TOptional<double> CaptureSubmitMs;
+    double CapturedBuildMs=0;
     UPROPERTY() TObjectPtr<UProceduralMeshComponent> Mesh;
     UPROPERTY() TObjectPtr<UStudioVolumeComponent> VolumeComponent;
     UPROPERTY() TObjectPtr<USceneCaptureComponent2D> Capture;

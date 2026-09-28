@@ -790,7 +790,10 @@ void AStudioScene::CaptureIfChanged()
         Capture->bOverride_CustomNearClippingPlane?Capture->CustomNearClippingPlane:GNearClippingPlane);
     // CaptureScene flushes deferred component changes before rendering. Deferred
     // captures depend on a main world view, which this Slate application omits.
+    const double CaptureStart=FPlatformTime::Seconds();
     Capture->CaptureScene();
+    CaptureSubmitMs=(FPlatformTime::Seconds()-CaptureStart)*1000.;
+    CapturedBuildMs=RenderMilliseconds;
     PresentedDataset=RenderedDataset; PresentedTitle=RenderedTitle; CapturedFrame=GeometryFrame;CapturedScalar=GeometryScalar;CapturedColorMapping=GeometryColorMapping;
     CapturedVectors=GeometryVectors;CapturedStreams=GeometryStreams;CapturedMesh=GeometryMesh;
     CapturedField=RenderedField;CapturedSliceNotices=GeometrySliceNotices;

@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 report=json.loads(Path('tmp/debug/automation/index.json').read_text(encoding='utf-8-sig'))
 passed=report['succeeded']+report.get('succeededWithWarnings',0)
-if passed < 194 or report['failed'] or report.get('notRun', 0):
+if passed < 196 or report['failed'] or report.get('notRun', 0):
     for test in report.get('tests', []):
         if test.get('state') not in ('Success', 'NotRun'):
             print(test.get('fullTestPath'), test.get('state'))

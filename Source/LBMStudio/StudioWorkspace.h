@@ -12,6 +12,8 @@ class SBox;
 class SScrollBox;
 class SButton;
 class SStudioMenuButton;
+class SStudioPerformancePanel;
+class FStudioPerformanceHistory;
 class SEditableTextBox;
 class FStudioProbeScheduler;
 class FStudioProbeMarkerScheduler;
@@ -43,6 +45,13 @@ private:
     enum class ECommand { NewProject, OpenProject, Save, SaveAs, DuplicateProject, FitCamera, RestartPlayback, UndoView, RedoView };
     TSharedPtr<FStudioModel> M;
     TWeakObjectPtr<AStudioScene> Scene;
+    TSharedPtr<FStudioPerformanceHistory> PerformanceHistory;
+    TSharedPtr<SStudioPerformancePanel> PerformancePanel;
+    TWeakPtr<SButton> PerformanceButton;
+    FGuid PerformanceProject;
+    bool bPerformanceOpen=false;
+    bool bPerformanceFocusPending=false;
+    void OpenPerformance(bool bOpen);
     // Menus retain in-progress text across inspector category changes.
     TMap<FName,TSharedPtr<SWidget>> DisplayMenuDrafts;
     FGuid DisplayMenuProject;

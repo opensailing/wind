@@ -32,7 +32,7 @@ class PackagedProcessOwnership(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_fixture(self, child=False, active=False, point_recording=False, application_default=False, startup_log=True,
-                    surface_reconstruction=False, volume=False, missing_volume=False):
+                    surface_reconstruction=False, volume=False, missing_volume=False, performance=False):
         program = '''import json, pathlib, subprocess, sys, time
 pathlib.Path(__file__).with_suffix('.args.json').write_text(json.dumps(sys.argv))
 report = pathlib.Path(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('-ReportExportPath=')))
@@ -47,6 +47,8 @@ print('LLM enabled CsvWriter: off TraceWriter: off')''' if application_default a
         self.binary.write_text(f'#!{sys.executable}\n'+program)
         self.binary.chmod(0o755)
         arguments = ['run_packaged_suite.py', '--suite', 'Studio.Fixture.', '--count', '1', '--name', 'fixture']
+        if performance:
+            arguments[2] = 'ScientificAcceptance.PerformanceUI.MeasurePauseCameraAndRestore'
         if application_default:
             arguments += ['--startup-profile', 'application-default']
         if point_recording:
@@ -93,6 +95,12 @@ print('LLM enabled CsvWriter: off TraceWriter: off')''' if application_default a
         self.assertEqual(len(report['binary_sha256']), 64)
         self.assertEqual(report['startup_arguments'], ['-LLM'])
         self.assertIn('-LLM', json.loads(self.binary.with_suffix('.args.json').read_text()))
+
+    def test_performance_ui_needs_no_external_source_argument(self):
+        code, report = self.run_fixture(performance=True)
+        self.assertEqual(code, 0)
+        self.assertTrue(report['passed'])
+        self.assertEqual(report['owned_processes_after'], {})
 
     def test_reparented_child_is_cleaned_and_fails_acceptance(self):
         code, report = self.run_fixture(child=True)

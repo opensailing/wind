@@ -9,6 +9,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioWorkspace.h"
 #include "StudioTheme.h"
 #include "SStudioCommandInput.h"
+#include "SStudioPerformancePanel.h"
 #include "StudioScene.h"
 #include "StudioOrientation.h"
 #include "StudioSurfaceReconstruction.h"
@@ -1032,7 +1033,7 @@ public:
     virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& O,int32 L,const FWidgetStyle&,bool) const override
     {
         const FVector2D Size=G.GetLocalSize(),Center(Size.X*.5,Size.Y*.43);
-        const double R=FMath::Max(1.,FMath::Min(Size.X*.5-8.,48.));
+        const double R=FMath::Max(1.,FMath::Min(Size.X*.5-8.,FMath::Min(48.,Size.Y*.34)));
         const double Fraction=M->Progress();
         for(int Pass=0;Pass<2;++Pass){TArray<FVector2D>P;const int N=Pass?FMath::RoundToInt(80*Fraction):80;for(int I=0;I<=N;++I){const double A=-PI/2.+2.*PI*I/80.;P.Add(Center+FVector2D(FMath::Cos(A),FMath::Sin(A))*R);} if(N>0)FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Pass?Green:Line,true,7.);}
         const auto Measure=FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
@@ -1078,6 +1079,7 @@ struct FStudioLogWorkspaceState
 void SStudioWorkspace::Construct(const FArguments& A)
 {
     M=A._Model;Scene=A._Scene; SetCanTick(true);
+    PerformanceHistory=MakeShared<FStudioPerformanceHistory>();PerformanceProject=M->Project.Id;
     InspectionMarkers=MakeShared<FStudioProbeMarkerScheduler>();
     InspectionExport=MakeShared<FStudioProbeExportTask>();
     MonitorExport=MakeShared<FStudioMonitorExportTask>();
@@ -1089,11 +1091,13 @@ void SStudioWorkspace::Construct(const FArguments& A)
     const auto SolveView=SNew(SHorizontalBox)
         +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,7,0)[Center()]
         +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(322)
-            .Visibility_Lambda([this]{return M->bViewportExpanded&&!bInspectionOpen&&!M->CameraPlacement()?EVisibility::Collapsed:EVisibility::Visible;})
-            [SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->CameraPlacement()?1:bInspectionOpen?2:0;})
+            .Visibility_Lambda([this]{return M->bViewportExpanded&&!bInspectionOpen&&!M->CameraPlacement()&&!bPerformanceOpen?EVisibility::Collapsed:EVisibility::Visible;})
+            [SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->CameraPlacement()?1:bInspectionOpen?2:bPerformanceOpen?3:0;})
                 +SWidgetSwitcher::Slot()[Settings()]
                 +SWidgetSwitcher::Slot()[CameraPlacementControls()]
-                +SWidgetSwitcher::Slot()[InspectionControls()]]];
+                +SWidgetSwitcher::Slot()[InspectionControls()]
+                +SWidgetSwitcher::Slot()[SAssignNew(PerformancePanel,SStudioPerformancePanel).Tag(TEXT("PerformancePanel"))
+                    .Model(M).History(PerformanceHistory).OnClose_Lambda([this]{OpenPerformance(false);})]]];
     const auto SolveSurface=SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->bActivityLogExpanded?1:0;})
         +SWidgetSwitcher::Slot()[SolveView]
         +SWidgetSwitcher::Slot()[ActivityLogPanel()];
@@ -1401,7 +1405,15 @@ void SStudioWorkspace::RefreshProjectLists()
 }
 void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
 {
+    const double UpdateStart=FPlatformTime::Seconds();
     SCompoundWidget::Tick(Geometry,Time,Delta);
+    if(PerformanceProject!=M->Project.Id)
+    {PerformanceProject=M->Project.Id;bPerformanceOpen=bPerformanceFocusPending=false;PerformancePanel->ResumeReadings();}
+    if(bPerformanceFocusPending&&bPerformanceOpen&&PerformancePanel->GetCachedGeometry().GetLocalSize().X>0)
+    {
+        FSlateApplication::Get().SetKeyboardFocus(PerformancePanel,EFocusCause::Navigation);
+        bPerformanceFocusPending=!PerformancePanel->HasKeyboardFocus();
+    }
     TickInspection();
     if(const auto Result=SnapshotExport->Poll();Result.IsSet())
     {
@@ -1424,6 +1436,17 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     if(DisplayMenuProject!=M->Project.Id||DisplayMenuSource.Pin()!=M->Solver||DisplayMenuScalar!=M->ActiveScalar().Id)
         DisplayMenuDrafts.Empty(); // Release prior recording closures even if no editor is reopened.
     if(bProjectListsDirty || LastCatalogRevision!=M->CatalogRevision || DashboardProjectId!=M->Project.Id || DashboardRunCount!=M->Project.Runs.Num()) RefreshProjectLists();
+    const double UpdateEnd=FPlatformTime::Seconds();
+    PerformanceHistory->Observe(UpdateEnd,(UpdateEnd-UpdateStart)*1000.,[this]{return StudioPerformance::ReadCounters(Scene.Get());});
+}
+void SStudioWorkspace::OpenPerformance(bool bOpen)
+{
+    bPerformanceOpen=bOpen;bPerformanceFocusPending=bOpen;
+    if(bOpen)
+    {
+        bInspectionOpen=false;
+    }
+    else if(const auto Button=PerformanceButton.Pin())FSlateApplication::Get().SetKeyboardFocus(Button,EFocusCause::Navigation);
 }
 void SStudioWorkspace::Navigate(EStudioWorkspace Destination)
 {
@@ -2165,13 +2188,18 @@ TSharedRef<SWidget> SStudioWorkspace::Monitors()
                 +SHorizontalBox::Slot().AutoWidth()[SAssignNew(LogState->ExpandButton,SButton).Tag(TEXT("LogExpand"))
                     .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,6)).OnClicked_Lambda([this]{ExpandActivityLog(true);return FReply::Handled();})
                     [Label(TEXT("Open log"),9)]]])]
-        +SHorizontalBox::Slot().FillWidth(.53)[Card(TEXT("Control status"),SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.bControlHarness?1:0;})
+        +SHorizontalBox::Slot().FillWidth(.53)[Card(TEXT("Control status"),SNew(SVerticalBox)
+            +SVerticalBox::Slot().FillHeight(1)[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.bControlHarness?1:0;})
             +SWidgetSwitcher::Slot()[SNew(SJobProgress).Model(M)]
             +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
                 +SVerticalBox::Slot().FillHeight(1)[SNew(SSpacer)]
                 +SVerticalBox::Slot().AutoHeight()[Live([this]{return StudioJobs::StateName(M->Job().State());},11,Cyan)]
                 +SVerticalBox::Slot().AutoHeight().Padding(0,8)[SNew(STextBlock).Text(FText::FromString(TEXT("Control test\nNo CFD output"))).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)]
-                +SVerticalBox::Slot().FillHeight(1)[SNew(SSpacer)]])];
+                +SVerticalBox::Slot().FillHeight(1)[SNew(SSpacer)]]]
+            +SVerticalBox::Slot().AutoHeight()[SAssignNew(PerformanceButton,SButton).Tag(TEXT("ViewPerformance"))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,6))
+                .IsEnabled_Lambda([this]{return !M->CameraPlacement()&&!InspectionPlacement;})
+                .OnClicked_Lambda([this]{OpenPerformance(true);return FReply::Handled();})[Label(TEXT("View performance"),8)]] )];
 }
 
 // THESIS: Inspect published histories without assigning them to an unrelated flow recording.
@@ -2726,7 +2754,7 @@ bool SStudioWorkspace::EnsureRunSettingsResolved()
     if(!RunSettingsState||(!RunSettingsState->bConflict&&!RunSettingsState->Edit.IsDirty()))return true;
     if(!EnsurePlacementResolved())return false;
     RunSettingsState->Notice=M->Notice=RunSettingsSaveGuard;
-    bInspectionOpen=false;CancelInspectionPlacement();M->bViewportExpanded=false;M->bActivityLogExpanded=false;M->InspectorTab=0;
+    bInspectionOpen=false;bPerformanceOpen=false;CancelInspectionPlacement();M->bViewportExpanded=false;M->bActivityLogExpanded=false;M->InspectorTab=0;
     Navigate(EStudioWorkspace::Solve);RunSettingsState->Focus();return false;
 }
 

@@ -46,7 +46,8 @@ def main():
                                     'ScientificAcceptance.PointRecording.ViewportControls'} or full_surface_gate
     residual_gate = args.suite in {'ScientificAcceptance.Residuals.PublishedFullLog',
                                   'ScientificAcceptance.ResidualUI.SourceChartExportAndReopen'}
-    if (not args.suite.startswith('Studio.') and not full_point_gate and not residual_gate) or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._' for c in args.suite):
+    performance_gate = args.suite == 'ScientificAcceptance.PerformanceUI.MeasurePauseCameraAndRestore'
+    if (not args.suite.startswith('Studio.') and not full_point_gate and not residual_gate and not performance_gate) or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._' for c in args.suite):
         parser.error('Use one Studio automation suite prefix.')
     extra = []
     if residual_gate != bool(args.residual_log):
