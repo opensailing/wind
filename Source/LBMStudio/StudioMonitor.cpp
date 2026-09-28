@@ -86,7 +86,12 @@ FStudioMonitorSettings StudioMonitor::Defaults(const FStudioHistory& H)
     FStudioMonitorSettings S;S.HistoryId=H.Id;S.MetadataSHA256=H.MetadataSHA256;
     // Prefer explicitly supplied coefficient columns, never calculate absent coefficients.
     const auto* CL=H.FindColumn(TEXT("CL"));const auto* CD=H.FindColumn(TEXT("CD"));
-    if(CL&&CD&&CL->Unit==CD->Unit)S.Series={CL->Id,CD->Id};
+    if(H.bResiduals)
+    {
+        S.bLogY=true;
+        for(const auto& C:H.Columns)if(C.Id.EndsWith(TEXT(".InitialFirst"))&&S.Series.Num()<16)S.Series.Add(C.Id);
+    }
+    else if(CL&&CD&&CL->Unit==CD->Unit)S.Series={CL->Id,CD->Id};
     else if(!H.Columns.IsEmpty())S.Series={H.Columns[0].Id};
     return S;
 }

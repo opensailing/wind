@@ -8,6 +8,8 @@ struct FStudioHistoryColumn
 {
     FString Id, Label, Unit, Origin, Expression;
     TArray<double> Values;
+    /** Optional one-based original log lines for each selected value. */
+    TArray<int32> SourceLines;
 };
 
 /** Immutable after publication. A history may have no associated spatial recording. */
@@ -21,6 +23,11 @@ struct FStudioHistory
     TArray<FStudioHistoryColumn> Columns;
     TMap<FString,double> ReferenceValues;
     TArray<FString> Limitations;
+    /** External residual logs retain source identity without a spatial association. */
+    bool bResiduals = false;
+    FString SourcePath;
+    TArray<int32> TimeSourceLines;
+    int64 SourceRecordCount = 0;
     const FStudioHistoryColumn* FindColumn(const FString& ColumnId) const;
 };
 

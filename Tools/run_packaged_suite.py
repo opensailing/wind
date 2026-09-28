@@ -37,14 +37,23 @@ def main():
     parser.add_argument('--volume-recording', type=Path)
     parser.add_argument('--volume-reconstruction', type=Path)
     parser.add_argument('--volume-phase-seconds', type=int, default=1200)
+    parser.add_argument('--residual-log', type=Path,
+                        help='Original published OpenFOAM log for the complete residual reader audit')
     args = parser.parse_args()
     full_surface_gate = args.suite in {'ScientificAcceptance.Surface.FullSequence', 'ScientificAcceptance.Inspection.FullSequence'}
     full_point_gate = args.suite in {'ScientificAcceptance.PointRecording.FullSequence',
                                     'ScientificAcceptance.PointRecording.ViewportFullSequence',
                                     'ScientificAcceptance.PointRecording.ViewportControls'} or full_surface_gate
-    if (not args.suite.startswith('Studio.') and not full_point_gate) or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._' for c in args.suite):
+    residual_gate = args.suite == 'ScientificAcceptance.Residuals.PublishedFullLog'
+    if (not args.suite.startswith('Studio.') and not full_point_gate and not residual_gate) or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._' for c in args.suite):
         parser.error('Use one Studio automation suite prefix.')
     extra = []
+    if residual_gate != bool(args.residual_log):
+        parser.error('The published residual audit requires --residual-log; other suites do not accept it.')
+    if args.residual_log:
+        args.residual_log = args.residual_log.expanduser().resolve()
+        if not args.residual_log.is_file() or any(ord(c)<32 or c=='"' for c in str(args.residual_log)):
+            parser.error('Choose an existing original log with a plain local path.')
     volume_gate = args.suite == 'Studio.VolumeStability.MixedUse'
     if volume_gate != bool(args.volume_recording and args.volume_reconstruction):
         parser.error('Volume stability requires both original recording and reconstruction paths.')
@@ -102,6 +111,7 @@ def main():
     output = root/'tmp/debug'/f'{args.name}-{stamp}'
     output.mkdir(parents=True)
     report = saved/'Automation'/f'{args.name}-{stamp}'
+    residual_input = None
     startup_arguments = ['-LLM'] if args.startup_profile == 'explicit-tracking' else []
     manifest = {'suite': args.suite, 'expected_count': args.count, 'viewport': [args.width, args.height],
                 'binary_sha256': hashlib.file_digest(binary.open('rb'), 'sha256').hexdigest(),
@@ -116,6 +126,26 @@ def main():
         with args.point_recording.open('rb') as source:
             manifest['point_recording'] = {'path': str(args.point_recording),
                                           'metadata_sha256': hashlib.file_digest(source, 'sha256').hexdigest()}
+    if args.residual_log:
+        with args.residual_log.open('rb') as source:
+            manifest['residual_log'] = {'path': str(args.residual_log),
+                                        'source_sha256': hashlib.file_digest(source, 'sha256').hexdigest()}
+        # Reader acceptance stages an exact copy inside its sandbox. This does
+        # not claim native picker/security-bookmark acceptance for source import.
+        if not 0 < args.residual_log.stat().st_size <= 256 * 1024 * 1024:
+            parser.error('The residual audit source must be nonempty and at most 256 MiB.')
+        residual_input = saved/'Automation'/f'residual-input-{stamp}'
+        residual_input.mkdir(parents=True)
+        staged_log = residual_input/'source.log'
+        shutil.copyfile(args.residual_log, staged_log)
+        with staged_log.open('rb') as source:
+            staged_hash = hashlib.file_digest(source, 'sha256').hexdigest()
+        if staged_hash != manifest['residual_log']['source_sha256']:
+            shutil.rmtree(residual_input)
+            parser.error('Residual source changed while staging.')
+        manifest['residual_log']['staged_sha256'] = staged_hash
+        manifest['residual_log']['access_scope'] = 'Exact copy in owned sandbox directory; native import picker not exercised'
+        extra.append(f'-StudioResidualLog={staged_log}')
     if args.surface_reconstruction:
         with args.surface_reconstruction.open('rb') as source:
             manifest['surface_reconstruction'] = {'path': str(args.surface_reconstruction),
@@ -211,6 +241,8 @@ def main():
                     shutil.copy2(source, target/source.name)
         manifest['passed'] = not manifest['errors']
         (output/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
+        if residual_input is not None:
+            shutil.rmtree(residual_input)
     print(json.dumps({'passed': manifest['passed'], 'report': str(output), 'errors': manifest['errors']}, indent=2), flush=True)
     return 0 if manifest['passed'] else 1
 
