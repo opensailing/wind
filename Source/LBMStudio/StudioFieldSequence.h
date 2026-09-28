@@ -11,6 +11,7 @@ struct FStudioFieldSequenceRequest
     int32 FirstOrdinal=0,LastOrdinal=0;
     TArray<FString> Scalars;
     EStudioExportCoordinates Coordinates=EStudioExportCoordinates::Source;
+    EStudioFieldExportFormat Format=EStudioFieldExportFormat::VTK;
 };
 struct FStudioFieldSequenceResult
 {
@@ -33,7 +34,9 @@ namespace StudioFieldSequence
     /** Worker-only. Directory must be caller-owned private staging. A failed
      * call leaves partial staging for its owner to discard, never to publish.
      * Retains one frame plus at most one additional scalar snapshot at a time.
-     * Writes frame_<original ordinal>.vtp and a relative flow.pvd collection. */
+     * Writes frame_<original ordinal>.vtp and a relative flow.pvd collection,
+     * or .csv frames and frames.csv containing original ordinals/steps/times.
+     * CSV temporarily spools columns; output and private scratch are bounded. */
     FStudioFieldSequenceResult Write(const FStudioFieldSequenceRequest& Request,const FString& Directory,
         const FStudioLoadCancellation& Cancellation={},TFunction<void(int32,int64,int64)> Progress={});
 }

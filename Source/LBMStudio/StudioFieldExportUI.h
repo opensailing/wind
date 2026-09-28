@@ -22,7 +22,7 @@ public:
 private:
     void Save(const TSharedRef<FStudioModel>& Model);
     FStudioFieldExportTask Task;
-    FStudioVTKExportRequest Draft;
+    FStudioFieldExportRequest Draft;
     TArray<FStudioScalarDescriptor> Scalars;
     FGuid Project;
     FString Dataset,Title,FrameLabel,Topology,Notice,Path;

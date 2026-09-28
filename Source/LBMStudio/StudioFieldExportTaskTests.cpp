@@ -29,7 +29,7 @@ bool FStudioFieldExportLifecycle::RunTest(const FString&)
         const double Deadline=FPlatformTime::Seconds()+5.;
         while(FPlatformTime::Seconds()<Deadline)
         {auto Result=Task.Poll();if(Result.IsSet())return Result;FPlatformProcess::SleepNoStats(.001f);}
-        return TOptional<FStudioVTKExportResult>();
+        return TOptional<FStudioFieldExportResult>();
     };
     struct FPublishGate
     {
@@ -39,7 +39,7 @@ bool FStudioFieldExportLifecycle::RunTest(const FString&)
     };
     FRecordedSolver Source;auto Read=Source.ReadScalarFrame(420,TEXT("pressure"));
     if(!TestTrue(*Read.Error,Read.Field.IsValid()))return false;
-    FStudioVTKExportRequest Request{Read.Field,{TEXT("pressure")}};
+    FStudioFieldExportRequest Request{Read.Field,{TEXT("pressure")}};
     FStudioFieldExportTask Task;auto Gate=MakeShared<FPublishGate,ESPMode::ThreadSafe>();
     Task.BeforePublishForAutomation=[Gate]{Gate->Reached->Trigger();Gate->Release->Wait(5000);};
     TestTrue(TEXT("Start export"),Task.Start(Request,Path));

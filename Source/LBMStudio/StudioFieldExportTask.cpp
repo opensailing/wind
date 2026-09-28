@@ -1,4 +1,5 @@
 #include "StudioFieldExportTask.h"
+#include "StudioCSVExport.h"
 #include "StudioFileDialog.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
@@ -12,9 +13,10 @@ struct FStudioFieldExportWork
     FStudioLoadCancellation Cancellation=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
 };
 FStudioFieldExportTask::~FStudioFieldExportTask(){Shutdown();}
-bool FStudioFieldExportTask::Start(FStudioVTKExportRequest Request,const FString& Path)
+bool FStudioFieldExportTask::Start(FStudioFieldExportRequest Request,const FString& Path)
 {
-    if(bShutdown||Pending.IsValid()||!Request.Field||Path.IsEmpty())return false;
+    if(bShutdown||Pending.IsValid()||!Request.Field||Path.IsEmpty()||
+        (Request.Format!=EStudioFieldExportFormat::VTK&&Request.Format!=EStudioFieldExportFormat::CSV))return false;
     Work=MakeShared<FStudioFieldExportWork,ESPMode::ThreadSafe>();
     Pending=Async(EAsyncExecution::ThreadPool,[Request=MoveTemp(Request),Path,State=Work
 #if WITH_DEV_AUTOMATION_TESTS
@@ -23,8 +25,8 @@ bool FStudioFieldExportTask::Start(FStudioVTKExportRequest Request,const FString
     ]() mutable
     {
         const FString Directory=FPaths::ProjectSavedDir()/TEXT("ExportStaging");
-        const FString Staged=Directory/(FGuid::NewGuid().ToString(EGuidFormats::Digits)+TEXT(".vtp.partial"));
-        FStudioVTKExportResult Result;Result.Path=Path;
+        const FString Staged=Directory/(FGuid::NewGuid().ToString(EGuidFormats::Digits)+TEXT(".field.partial"));
+        FStudioFieldExportResult Result;Result.Path=Path;
         ON_SCOPE_EXIT{IFileManager::Get().Delete(*Staged,false,true);Request.Field.Reset();};
         auto FinishFailure=[&]()
         {
@@ -38,8 +40,9 @@ bool FStudioFieldExportTask::Start(FStudioVTKExportRequest Request,const FString
         {Result.Error=TEXT("Could not create the field-export staging directory. Check application storage access.");return FinishFailure();}
         TUniquePtr<FArchive> Archive(IFileManager::Get().CreateFileWriter(*Staged,FILEWRITE_NoReplaceExisting));
         if(!Archive){Result.Error=TEXT("Could not open the field-export staging file. Check free space and application storage access.");return FinishFailure();}
-        Result=StudioVTKExport::Write(Request,*Archive,State->Cancellation,[State](int64 Done,int64 Total)
-            {State->Total.store(Total);State->Completed.store(Done);});Result.Path=Path;
+        auto Progress=[State](int64 Done,int64 Total){State->Total.store(Total);State->Completed.store(Done);};
+        Result=Request.Format==EStudioFieldExportFormat::CSV?StudioCSVExport::Write(Request,*Archive,State->Cancellation,Progress):
+            StudioVTKExport::Write(Request,*Archive,State->Cancellation,Progress);Result.Path=Path;
         const bool Closed=Archive->Close()&&!Archive->IsError();Archive.Reset();
         if(!Closed){Result.bSuccess=false;Result.Error=TEXT("Could not close the staged field export. Check free space.");}
         if(!Result.bSuccess)return FinishFailure();
@@ -67,5 +70,5 @@ FStudioFieldExportProgress FStudioFieldExportTask::Progress() const
     if(!Work)return {};
     FStudioFieldExportProgress Out;Out.State=Work->State.load();Out.Total=Work->Total.load();Out.Completed=FMath::Min(Work->Completed.load(),Out.Total);return Out;
 }
-TOptional<FStudioVTKExportResult> FStudioFieldExportTask::Poll()
+TOptional<FStudioFieldExportResult> FStudioFieldExportTask::Poll()
 {if(!Pending.IsValid()||!Pending.IsReady())return {};return Pending.Consume();}

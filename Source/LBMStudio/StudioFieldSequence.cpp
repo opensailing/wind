@@ -1,4 +1,5 @@
 #include "StudioFieldSequence.h"
+#include "StudioCSVExport.h"
 #include "StudioModel.h"
 #include "StudioInspectionObjects.h"
 #include "StudioFileDialog.h"
@@ -30,7 +31,8 @@ bool StudioFieldSequence::Validate(const FStudioFieldSequenceRequest& R,FString&
     const auto& D=R.Source->Descriptor();
     if(!StudioInspectionObjects::IsValid(FStudioInspectionSource{D.Id,D.MetadataSHA256,D.PayloadSHA256})||
         D.SourceOffset.ContainsNaN()||(D.SpatialDimensions!=2&&D.SpatialDimensions!=3)||
-        (R.Coordinates!=EStudioExportCoordinates::Source&&R.Coordinates!=EStudioExportCoordinates::Scene))return false;
+        (R.Coordinates!=EStudioExportCoordinates::Source&&R.Coordinates!=EStudioExportCoordinates::Scene)||
+        (R.Format!=EStudioFieldExportFormat::VTK&&R.Format!=EStudioFieldExportFormat::CSV))return false;
     if(R.Source->FrameCount()!=D.Frames.Num()||R.FirstOrdinal<0||R.LastOrdinal<R.FirstOrdinal||
         !D.Frames.IsValidIndex(R.LastOrdinal)||int64(R.LastOrdinal)-R.FirstOrdinal+1>MaximumFrames)
     {Error=TEXT("Choose an inclusive range of at most 100,000 original frames inside the recording.");return false;}
@@ -62,9 +64,11 @@ FStudioFieldSequenceResult StudioFieldSequence::Write(const FStudioFieldSequence
         Out.FailedOrdinal=Ordinal;return MoveTemp(Out);};
     if(Cancelled()||!Validate(R,Out.Error))return Fail(Out.Error);
     const auto& D=R.Source->Descriptor();
-    TUniquePtr<FArchive> Collection(IFileManager::Get().CreateFileWriter(*(Directory/TEXT("flow.pvd")),FILEWRITE_NoReplaceExisting));
+    const bool CSV=R.Format==EStudioFieldExportFormat::CSV;
+    TUniquePtr<FArchive> Collection(IFileManager::Get().CreateFileWriter(*(Directory/(CSV?TEXT("frames.csv"):TEXT("flow.pvd"))),FILEWRITE_NoReplaceExisting));
     if(!Collection)return Fail(TEXT("Could not create the staged frame collection. Check directory access and free space."));
-    if(!SequenceText(*Collection,TEXT("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n<Collection>\n"),Out.Bytes))
+    if(!SequenceText(*Collection,CSV?TEXT("frame_ordinal,source_step,source_time_s,file\n"):
+        TEXT("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">\n<Collection>\n"),Out.Bytes))
         return Fail(TEXT("Could not write the frame collection."));
     TArray<FString> Expressions;
     for(int32 Ordinal=R.FirstOrdinal;Ordinal<=R.LastOrdinal;++Ordinal)
@@ -91,23 +95,27 @@ FStudioFieldSequenceResult StudioFieldSequence::Write(const FStudioFieldSequence
                     return Fail(TEXT("A frame changed the selected scalar meaning. No sequence published."),Ordinal);
                 if(!Out.FirstIdentity)Expressions.Add(Read.Field->ScalarExpression(R.Scalars[K]));
             }
-            const FString Name=FString::Printf(TEXT("frame_%06d.vtp"),Ordinal);
+            const FString Name=FString::Printf(TEXT("frame_%06d.%s"),Ordinal,CSV?TEXT("csv"):TEXT("vtp"));
             TUniquePtr<FArchive> File(IFileManager::Get().CreateFileWriter(*(Directory/Name),FILEWRITE_NoReplaceExisting));
             if(!File)return Fail(TEXT("Could not create a staged frame. Check free space and directory access."),Ordinal);
-            const auto Result=StudioVTKExport::Write({Read.Field,R.Scalars,R.Coordinates},*File,Cancellation,
-                [&](int64 Done,int64 Total){if(Progress)Progress(Out.CompletedFrames,Done,Total);});
+            const FStudioFieldExportRequest FrameRequest{Read.Field,R.Scalars,R.Coordinates,R.Format};
+            auto FrameProgress=[&](int64 Done,int64 Total){if(Progress)Progress(Out.CompletedFrames,Done,Total);};
+            const auto Result=CSV?StudioCSVExport::Write(FrameRequest,*File,Cancellation,FrameProgress):
+                StudioVTKExport::Write(FrameRequest,*File,Cancellation,FrameProgress);
             const bool Closed=File->Close()&&!File->IsError();File.Reset();
             if(!Result.bSuccess)return Fail(Result.Error,Ordinal);
             if(!Closed)return Fail(TEXT("Could not close a staged frame. Check free space."),Ordinal);
             Out.Bytes+=Result.Bytes;
-            if(!SequenceText(*Collection,FString::Printf(TEXT("<DataSet timestep=\"%.17g\" group=\"\" part=\"0\" file=\"%s\"/>\n"),F.Time,*Name),Out.Bytes))
+            const FString Entry=CSV?FString::Printf(TEXT("%d,%d,%.17g,%s\n"),Ordinal,F.Index,F.Time,*Name):
+                FString::Printf(TEXT("<DataSet timestep=\"%.17g\" group=\"\" part=\"0\" file=\"%s\"/>\n"),F.Time,*Name);
+            if(!SequenceText(*Collection,Entry,Out.Bytes))
                 return Fail(TEXT("Could not write the frame collection. Check free space."),Ordinal);
             if(!Out.FirstIdentity)Out.FirstIdentity=*I;Out.LastIdentity=*I;
         } // Release the original and additional scalar snapshots before the next read.
         ++Out.CompletedFrames;if(Progress)Progress(Out.CompletedFrames,0,0);
     }
     if(Cancelled())return Fail(FString());
-    const bool Wrote=SequenceText(*Collection,TEXT("</Collection>\n</VTKFile>\n"),Out.Bytes);
+    const bool Wrote=CSV||SequenceText(*Collection,TEXT("</Collection>\n</VTKFile>\n"),Out.Bytes);
     const bool Closed=Collection->Close()&&!Collection->IsError();Collection.Reset();
     if(!Wrote||!Closed)return Fail(TEXT("Could not finish the frame collection. Check free space."));
     if(Cancelled())return Fail(FString());

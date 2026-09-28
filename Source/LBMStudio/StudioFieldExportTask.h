@@ -18,17 +18,17 @@ class FStudioFieldExportTask
 {
 public:
     ~FStudioFieldExportTask();
-    bool Start(FStudioVTKExportRequest Request,const FString& Path);
+    bool Start(FStudioFieldExportRequest Request,const FString& Path);
     bool Cancel();
     void Shutdown();
     bool IsBusy() const{return Pending.IsValid();}
     FStudioFieldExportProgress Progress() const;
-    TOptional<FStudioVTKExportResult> Poll();
+    TOptional<FStudioFieldExportResult> Poll();
 #if WITH_DEV_AUTOMATION_TESTS
     TFunction<void()> BeforePublishForAutomation;
 #endif
 private:
     TSharedPtr<FStudioFieldExportWork,ESPMode::ThreadSafe> Work;
-    TFuture<FStudioVTKExportResult> Pending;
+    TFuture<FStudioFieldExportResult> Pending;
     bool bShutdown=false;
 };

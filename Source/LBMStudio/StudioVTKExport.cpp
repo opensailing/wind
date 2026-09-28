@@ -1,29 +1,17 @@
 #include "StudioVTKExport.h"
 #include "StudioModel.h"
-#include "StudioInspectionObjects.h"
-#include "Serialization/JsonSerializer.h"
-#include "Serialization/JsonWriter.h"
 
 namespace
 {
-bool SameVTKFrame(const FStudioFieldIdentity& A,const FStudioFieldIdentity& B)
-{
-    return A.Dataset==B.Dataset&&A.MetadataSHA256==B.MetadataSHA256&&A.PayloadSHA256==B.PayloadSHA256&&
-        A.ReconstructionSHA256==B.ReconstructionSHA256&&A.Ordinal==B.Ordinal&&A.Frame.Index==B.Frame.Index&&
-        A.Frame.Time==B.Frame.Time&&A.SpatialDimensions==B.SpatialDimensions&&A.SourceOffset==B.SourceOffset&&A.Interpolation==B.Interpolation;
-}
 FString VTKAttribute(FString S)
 {
     S.ReplaceInline(TEXT("&"),TEXT("&amp;"));S.ReplaceInline(TEXT("<"),TEXT("&lt;"));S.ReplaceInline(TEXT(">"),TEXT("&gt;"));
     S.ReplaceInline(TEXT("\""),TEXT("&quot;"));S.ReplaceInline(TEXT("'"),TEXT("&apos;"));return S;
 }
-bool VTKName(const FString& S)
-{if(S.IsEmpty()||S.Len()>256)return false;for(const TCHAR C:S)if(C<32)return false;return true;}
-
 class FVTKStream
 {
 public:
-    FVTKStream(FArchive& In,FStudioVTKExportResult& Out,FStudioLoadCancellation Cancel,
+    FVTKStream(FArchive& In,FStudioFieldExportResult& Out,FStudioLoadCancellation Cancel,
         TFunction<void(int64,int64)> InProgress,int64 InTotal)
         :Archive(In),Result(Out),Cancellation(MoveTemp(Cancel)),Progress(MoveTemp(InProgress)),Total(InTotal){}
     bool Check()
@@ -53,66 +41,27 @@ public:
     }
     bool EndArray(){return Append(TEXT("\n</DataArray>\n"));}
 private:
-    FArchive& Archive;FStudioVTKExportResult& Result;FStudioLoadCancellation Cancellation;
+    FArchive& Archive;FStudioFieldExportResult& Result;FStudioLoadCancellation Cancellation;
     TFunction<void(int64,int64)> Progress;int64 Done=0,Total=0;FString Buffer;
 };
 
-FString VTKMetadata(const FStudioVTKExportRequest& R,const FStudioFieldIdentity& I,int32 Triangles,const FString& PointIdName)
-{
-    auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("format"),TEXT("LBMStudio.OriginalField"));J->SetNumberField(TEXT("version"),1);
-    J->SetStringField(TEXT("dataset"),I.Dataset);J->SetStringField(TEXT("metadata_sha256"),I.MetadataSHA256);
-    J->SetStringField(TEXT("payload_sha256"),I.PayloadSHA256);J->SetStringField(TEXT("view_reconstruction_sha256"),I.ReconstructionSHA256);
-    J->SetNumberField(TEXT("frame_ordinal"),I.Ordinal);J->SetNumberField(TEXT("source_step"),I.Frame.Index);J->SetNumberField(TEXT("source_time_seconds"),I.Frame.Time);
-    J->SetNumberField(TEXT("spatial_dimensions"),I.SpatialDimensions);J->SetStringField(TEXT("coordinate_unit"),TEXT("m"));
-    J->SetStringField(TEXT("coordinate_system"),R.Coordinates==EStudioExportCoordinates::Source?TEXT("source_xyz"):TEXT("scene_xzy_plus_offset"));
-    TArray<TSharedPtr<FJsonValue>> Offset;for(int32 A=0;A<3;++A)Offset.Add(MakeShared<FJsonValueNumber>(I.SourceOffset[A]));
-    J->SetArrayField(TEXT("source_to_scene_offset_meters"),Offset);J->SetStringField(TEXT("point_id_array"),PointIdName);
-    J->SetStringField(TEXT("topology"),Triangles?TEXT("original_source_triangles"):TEXT("original_points_as_vertex_cells"));
-    J->SetStringField(TEXT("scalar_basis"),TEXT("Original source components; coordinate selection does not rotate scalar values."));
-    J->SetBoolField(TEXT("display_reconstruction_applied"),false);
-    TArray<TSharedPtr<FJsonValue>> Operations;Operations.Add(MakeShared<FJsonValueString>(TEXT("Read exact original rows; no interpolation, extrusion, clipping or resampling.")));
-    if(R.Coordinates==EStudioExportCoordinates::Scene)Operations.Add(MakeShared<FJsonValueString>(TEXT("Map source XYZ to scene XZY and add the recorded display offset, in meters.")));
-    J->SetArrayField(TEXT("operations"),Operations);
-    TArray<TSharedPtr<FJsonValue>> Scalars;
-    for(const auto& Id:R.Scalars)
-    {
-        const auto S=*R.Field->Scalar(Id);auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("id"),S.Id);A->SetStringField(TEXT("vtk_array"),S.Id);
-        A->SetStringField(TEXT("label"),S.Label);A->SetStringField(TEXT("unit"),S.Unit);A->SetStringField(TEXT("origin"),S.Origin);
-        A->SetStringField(TEXT("expression"),R.Field->ScalarExpression(Id));Scalars.Add(MakeShared<FJsonValueObject>(A));
-    }
-    J->SetArrayField(TEXT("scalars"),Scalars);FString Text;FJsonSerializer::Serialize(J,TJsonWriterFactory<>::Create(&Text));return Text;
-}
+
 }
 
-FStudioVTKExportResult StudioVTKExport::Write(const FStudioVTKExportRequest& R,FArchive& Archive,
+FStudioFieldExportResult StudioVTKExport::Write(const FStudioFieldExportRequest& Request,FArchive& Archive,
     const FStudioLoadCancellation& Cancellation,TFunction<void(int64,int64)> Progress)
 {
-    FStudioVTKExportResult Out;
-    if(Cancellation&&Cancellation->load()){Out.bCancelled=true;Out.Error=TEXT("Field export cancelled.");return Out;}
-    const auto Identity=R.Field?R.Field->Identity():TOptional<FStudioFieldIdentity>();
-    if(!R.Field||!R.Field->IsValid()||!Identity||!Archive.IsSaving()||
-        !StudioInspectionObjects::IsValid(FStudioInspectionSource{Identity->Dataset,Identity->MetadataSHA256,Identity->PayloadSHA256})||
-        Identity->Ordinal<0||Identity->Frame.Index<0||!FMath::IsFinite(Identity->Frame.Time)||Identity->SourceOffset.ContainsNaN()||
-        (Identity->SpatialDimensions!=2&&Identity->SpatialDimensions!=3)||
-        (R.Coordinates!=EStudioExportCoordinates::Source&&R.Coordinates!=EStudioExportCoordinates::Scene))
-    {Out.Error=TEXT("A verified original frame and writable staging file are required.");return Out;}
-    Out.Identity=*Identity;Out.Points=R.Field->OriginalPointCount();Out.Triangles=R.Field->OriginalTriangleCount();
-    if(Out.Points<=0||Out.Points>4000000||Out.Triangles<0||Out.Triangles>8000000||R.Scalars.IsEmpty()||R.Scalars.Num()>64)
-    {Out.Error=TEXT("Original point/connectivity access and 1–64 selected scalar arrays are required.");return Out;}
-    TSet<FString> Names;
-    for(const auto& Id:R.Scalars)
-    {
-        const auto S=R.Field->Scalar(Id);
-        if(!VTKName(Id)||Names.Contains(Id)||!S||S->Id!=Id)
-        {Out.Error=TEXT("Select distinct scalar arrays supplied by this original recording.");return Out;}
-        Names.Add(Id);
-    }
+    auto R=Request;R.Format=EStudioFieldExportFormat::VTK;
+    FStudioFieldExportResult Out;
+    if(!StudioFieldExport::Validate(R,Archive,Cancellation,Out))return Out;
+    const auto Identity=R.Field->Identity();
+    TSet<FString> Names;for(const auto& Id:R.Scalars)Names.Add(Id);
     FString PointIdName=TEXT("LBMStudioOriginalPointId");while(Names.Contains(PointIdName))PointIdName=TEXT("_")+PointIdName;
     const int32 Cells=Out.Triangles?Out.Triangles:Out.Points;
     const int64 Total=int64(Out.Points)*(R.Scalars.Num()+2)+2LL*Cells;
     FVTKStream W(Archive,Out,Cancellation,MoveTemp(Progress),Total);
     if(!W.Append(TEXT("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<VTKFile type=\"PolyData\" version=\"0.1\" byte_order=\"LittleEndian\">\n<PolyData>\n<FieldData>\n")))return Out;
-    const auto Metadata=VTKMetadata(R,*Identity,Out.Triangles,PointIdName);const FTCHARToUTF8 UTF8(*Metadata);
+    const auto Metadata=StudioFieldExport::Metadata(R,*Identity,Out.Triangles,PointIdName);const FTCHARToUTF8 UTF8(*Metadata);
     if(!W.Array(TEXT("LBMStudioMetadataUTF8"),TEXT("UInt8"),1,UTF8.Length()))return Out;
     for(int32 I=0;I<UTF8.Length();++I)if(!W.Append(FString::Printf(TEXT("%u "),uint8(UTF8.Get()[I]))))return Out;
     if(!W.EndArray()||!W.Array(TEXT("TimeValue"),TEXT("Float64"),1,1)||!W.Append(FString::Printf(TEXT("%.17g"),Identity->Frame.Time))||!W.EndArray()||
@@ -128,24 +77,14 @@ FStudioVTKExportResult StudioVTKExport::Write(const FStudioVTKExportRequest& R,F
     if(!W.EndArray())return Out;
     for(const auto& Id:R.Scalars)
     {
-        auto Field=R.Field;double First;
-        if(!Field->OriginalScalar(0,Id,First))Field=R.Field->LoadScalarSnapshot(Id,Cancellation,Out.Error);
-        if(!W.Check())return Out;
-        const auto Actual=Field?Field->Identity():TOptional<FStudioFieldIdentity>();
-        const auto S=Field?Field->Scalar(Id):TOptional<FStudioScalarDescriptor>();const auto Expected=*R.Field->Scalar(Id);
-        if(!Field||!Field->IsValid()||!Actual||!SameVTKFrame(*Identity,*Actual)||Field->OriginalPointCount()!=Out.Points||
-            !S||S->Id!=Expected.Id||S->Unit!=Expected.Unit||S->Origin!=Expected.Origin||S->Label!=Expected.Label||
-            S->Minimum!=Expected.Minimum||S->Maximum!=Expected.Maximum||
-            Field->ScalarExpression(Id)!=R.Field->ScalarExpression(Id))
-        {Out.Error=TEXT("A scalar read differs from the pinned original frame or its scientific meaning.");return Out;}
+        const auto Field=StudioFieldExport::LoadScalar(R,Id,Cancellation,Out);
+        if(!Field||!W.Check())return Out;
         if(!W.Array(Id,TEXT("Float64")))return Out;
         for(int32 I=0;I<Out.Points;++I)
         {
             if(Field!=R.Field)
             {
-                int64 OriginalId,LoadedId;FVector OriginalPosition,LoadedPosition;
-                if(!R.Field->OriginalPoint(I,OriginalId,OriginalPosition)||!Field->OriginalPoint(I,LoadedId,LoadedPosition)||
-                    OriginalId!=LoadedId||OriginalPosition!=LoadedPosition)
+                if(!StudioFieldExport::SamePoint(*R.Field,*Field,I))
                 {Out.Error=TEXT("A scalar read changed the original point order or coordinates.");return Out;}
             }
             double Value;if(!Field->OriginalScalar(I,Id,Value)||!FMath::IsFinite(Value))

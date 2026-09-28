@@ -1,4 +1,5 @@
 #include "StudioVTKExport.h"
+#include "StudioCSVExport.h"
 #include "StudioModel.h"
 #include "StudioPointRecording.h"
 #include "Misc/AutomationTest.h"
@@ -12,11 +13,11 @@ namespace StudioVTKTests
 constexpr auto Flags=EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter;
 FString Fixture(const TCHAR* Name){return FPaths::ProjectContentDir()/TEXT("Samples")/Name;}
 FString Output(){return FPaths::ProjectSavedDir()/TEXT("Automation/VTKExport");}
-FStudioVTKExportResult Save(const FStudioVTKExportRequest& R,const TCHAR* Name)
+FStudioFieldExportResult Save(const FStudioFieldExportRequest& R,const TCHAR* Name)
 {
     IFileManager::Get().MakeDirectory(*Output(),true);
     TUniquePtr<FArchive> A(IFileManager::Get().CreateFileWriter(*(Output()/Name)));
-    if(!A){FStudioVTKExportResult Error;Error.Error=TEXT("Test staging file could not open.");return Error;}
+    if(!A){FStudioFieldExportResult Error;Error.Error=TEXT("Test staging file could not open.");return Error;}
     auto Result=StudioVTKExport::Write(R,*A);
     if(!A->Close()||A->IsError()){Result.bSuccess=false;Result.Error=TEXT("Test staging file could not close.");}
     return Result;
@@ -103,7 +104,7 @@ bool FVTKReferenceFiles::RunTest(const FString&)
 {
     using namespace StudioVTKTests;
     FRecordedSolver Source;const auto Read=Source.ReadScalarFrame(420,TEXT("pressure"));if(!Read.Field)return false;
-    FStudioVTKExportRequest R{Read.Field,{TEXT("pressure"),TEXT("velocity_x"),TEXT("velocity_y"),TEXT("density"),TEXT("velocity_magnitude")}};
+    FStudioFieldExportRequest R{Read.Field,{TEXT("pressure"),TEXT("velocity_x"),TEXT("velocity_y"),TEXT("density"),TEXT("velocity_magnitude")}};
     auto A=Save(R,TEXT("airfoil-source.vtp"));TestTrue(*A.Error,A.bSuccess);
     R.Coordinates=EStudioExportCoordinates::Scene;auto B=Save(R,TEXT("airfoil-scene.vtp"));TestTrue(*B.Error,B.bSuccess);
     for(const auto Name:{TEXT("NACA0018_ReaderFixture"),TEXT("Cylinder3D_ReaderFixture")})
@@ -132,7 +133,7 @@ bool FVTKFailureSafety::RunTest(const FString&)
 {
     using namespace StudioVTKTests;
     FRecordedSolver Source;auto Read=Source.ReadScalarFrame(420,TEXT("pressure"));if(!Read.Field)return false;
-    FStudioVTKExportRequest R{Read.Field,{TEXT("pressure")}};
+    FStudioFieldExportRequest R{Read.Field,{TEXT("pressure")}};
     FBufferArchive PreCancelled;auto Cancel=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(true);
     TestTrue(TEXT("Pre-cancel emits no staging bytes"),StudioVTKExport::Write(R,PreCancelled,Cancel).bCancelled&&PreCancelled.IsEmpty());
     Cancel->store(false);FBufferArchive MidCancelled;int64 Last=0,LastTotal=0;bool Monotonic=true;
@@ -146,7 +147,9 @@ bool FVTKFailureSafety::RunTest(const FString&)
     R.Scalars={TEXT("pressure")};
     for(int32 Fault=1;Fault<=5;++Fault)
     {FBufferArchive Invalid;R.Field=MakeShared<FFaultField,ESPMode::ThreadSafe>(Read.Field,Fault);Result=StudioVTKExport::Write(R,Invalid);
-        TestTrue(TEXT("Identity, unit, point order, missing value and connectivity faults fail explicitly"),!Result.bSuccess&&!Result.Error.IsEmpty());}
+        TestTrue(TEXT("Identity, unit, point order, missing value and connectivity faults fail explicitly"),!Result.bSuccess&&!Result.Error.IsEmpty());
+        if(Fault<=4){FBufferArchive CSV;Result=StudioCSVExport::Write(R,CSV);
+            TestTrue(TEXT("CSV rejects identity, unit, row-order and missing-value faults"),!Result.bSuccess&&!Result.Error.IsEmpty());}}
     TestTrue(TEXT("Independent export failures leave source load status clear"),Source.LoadError().IsEmpty());
     return true;
 }

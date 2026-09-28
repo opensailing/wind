@@ -91,7 +91,7 @@ bool FSequenceReference::RunTest(const FString&)
 {
     using namespace StudioSequenceTests;
     const TCHAR* Names[]={TEXT("MeshGraphNets_Airfoil"),TEXT("NACA0018_ReaderFixture"),TEXT("Cylinder3D_ReaderFixture")};
-    for(int32 K=0;K<3;++K)
+    for(bool CSV:{false,true})for(int32 K=0;K<3;++K)
     {
         FStudioRecordingLoadResult Loaded;
         if(K==0)Loaded.Source=MakeShared<FRecordedSolver,ESPMode::ThreadSafe>();
@@ -99,9 +99,10 @@ bool FSequenceReference::RunTest(const FString&)
         if(!TestTrue(*Loaded.Error,Loaded.Source.IsValid()))return false;
         auto Source=MakeShared<FObservedSource,ESPMode::ThreadSafe>(Loaded.Source);
         FStudioFieldSequenceRequest R{Source,K==0?419:0,K==0?421:2,{TEXT("pressure")}};
+        R.Format=CSV?EStudioFieldExportFormat::CSV:EStudioFieldExportFormat::VTK;
         if(K==0){R.Scalars.Add(TEXT("density"));R.Coordinates=EStudioExportCoordinates::Scene;}
         if(K==2)R.Scalars.Add(TEXT("velocity_w"));
-        const FString Output=Root()/Names[K];IFileManager::Get().DeleteDirectory(*Output,false,true);IFileManager::Get().MakeDirectory(*Output,true);
+        const FString Output=Root()/(FString(Names[K])+(CSV?TEXT("_csv"):TEXT("")));IFileManager::Get().DeleteDirectory(*Output,false,true);IFileManager::Get().MakeDirectory(*Output,true);
         int32 Frames=0;int64 Done=0;bool Monotonic=true;
         const auto Result=StudioFieldSequence::Write(R,Output,{},[&](int32 F,int64 D,int64 T)
         {Monotonic&=F>=Frames&&F<=3&&D>=0&&D<=T&&(F!=Frames||D>=Done);Frames=F;Done=D;});
