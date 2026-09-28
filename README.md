@@ -172,6 +172,21 @@ python3 Tools/verify_vtk_export.py --ui \
 
 The scoped ship review in `tmp/analysis/field-export-ui-20260928/{ui-acceptance.json,finish-review.md}` records 229 successful model cases (two with existing Unreal helper warnings), two clean native cases, and 20 reviewed captures on package `c6b0508d…`. Each independent VTK 9.7 audit verifies two files and 301,407 original point rows: selected SU2 pressure/density at ordinal 420 in scene coordinates and all six cylinder arrays at ordinal 2 in source coordinates. Native tests use routed Slate keys and injected destinations; physical input, actual save-panel permissions, Finder reveal and accessibility remain unproven. Time-range/bulk and comparison exports, pipelines, full scientific rendering and current long-session/release gates remain open.
 
+### VTK frame-sequence backend
+
+`StudioFieldSequence` implements inclusive original-frame ranges for the next export-panel extension. The visible Export panel still saves one frame. A sequence retains its source reader independently of the project and playback, writes one exact frame at a time, and emits `frame_<original ordinal>.vtp` files plus `flow.pvd`. Scalar selection, source/scene coordinates, original IDs/topology, units and provenance use the same writer as single-frame VTK. Times come directly from the recording; no frames are interpolated or silently skipped. A failed read identifies its original ordinal.
+
+The native task writes into a private sibling directory under an existing destination folder, then atomically publishes a **new** named directory. Existing destinations are rejected before reads and checked atomically again at publication, including destinations created during the export. Cancellation before publication, failures and joined shutdown remove owned staging. One worker runs at a time. Requests allow up to 100,000 frames, with the existing 512 MiB per-frame limit; total disk demand grows with the selected range. The writer retains one original frame plus at most one additional scalar snapshot, alongside the reader's bounded cache.
+
+The relative `Collection/DataSet` references and recorded `timestep` values follow Kitware's [collection reader](https://github.com/Kitware/ParaView/blob/master/VTKExtensions/IOCore/vtkXMLCollectionReader.cxx) and [PVD reader](https://github.com/Kitware/ParaView/blob/master/VTKExtensions/IOCore/vtkPVDReader.cxx). After `Tools/test.sh`, independently audit the three reference sequences with NumPy and VTK:
+
+```bash
+python3 Tools/verify_field_sequence.py \
+  --report tmp/analysis/field-sequence-audit.json
+```
+
+`tmp/analysis/field-sequence-20260928/core-acceptance.json` records 233 clean model cases, including four sequence cases, and independent checks of nine exported frames / 960,339 original point rows with exact values. The audit parses PVD with ElementTree and reads every referenced VTP with VTK 9.7; it does not establish actual ParaView PVD-reader/GUI acceptance. Visible range controls, selected/all-frame CSV, native folder permissions, current integrated long-session testing and full-product acceptance remain open.
+
 ## CFD sample provenance
 
 - **Source:** Pfaff, Fortunato, Sanchez-Gonzalez and Battaglia, *Learning Mesh-Based Simulation with Graph Networks*, ICLR 2021. The bundled data is SU2 ground truth from the official dataset, not model predictions.
