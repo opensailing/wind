@@ -152,6 +152,7 @@ FStudioMonitorPlot StudioMonitor::BuildPlot(const FStudioHistory& H,const FStudi
         for(int32 I=P.FirstSample;I<=P.LastSample;++I)
         {
             const double Value=C.Values[I];
+            if(!FMath::IsFinite(Value)){++T.MissingSamples;bGap=true;continue;}
             if(S.bLogY&&Value<=0)
             {
                 ++T.OmittedNonPositive;bGap=true;
@@ -169,7 +170,7 @@ FStudioMonitorPlot StudioMonitor::BuildPlot(const FStudioHistory& H,const FStudi
         }
         Flush();P.Traces.Add(MoveTemp(T));
     }
-    if(!bAny){P.Error=TEXT("No positive samples for a logarithmic axis.");return P;}
+    if(!bAny){P.Error=S.bLogY?TEXT("No positive samples for a logarithmic axis."):TEXT("No available samples in this time window.");return P;}
     ExpandConstant(Lo,Hi);const double Pad=(Hi-Lo)*.05;
     P.ValueMinimum=Lo-Pad;P.ValueMaximum=Hi+Pad;
     if(!FMath::IsFinite(P.ValueMinimum)||!FMath::IsFinite(P.ValueMaximum)||!FMath::IsFinite(Hi-Lo)||P.ValueMinimum>=P.ValueMaximum)

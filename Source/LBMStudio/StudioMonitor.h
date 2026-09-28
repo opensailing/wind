@@ -24,7 +24,7 @@ struct FStudioMonitorTrace
     FString Id, Label, Unit;
     // Original source indices, in order. INDEX_NONE breaks a log trace at invalid samples.
     TArray<int32> Samples;
-    int32 OmittedNonPositive = 0;
+    int32 OmittedNonPositive = 0, MissingSamples = 0;
 };
 
 struct FStudioMonitorPlot

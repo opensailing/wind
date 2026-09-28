@@ -1,5 +1,6 @@
 #include "StudioMonitorExport.h"
 #include "StudioFileDialog.h"
+#include "StudioProbeMonitor.h"
 #include "Async/Async.h"
 
 namespace
@@ -8,6 +9,7 @@ FString MonitorCSVQuote(FString Text){Text.ReplaceInline(TEXT("\""),TEXT("\"\"")
 }
 bool StudioMonitorExport::CSV(const FStudioHistory& H,const FStudioMonitorSettings& S,FString& Out,int32& Rows,FString& Error)
 {
+    if(H.ProbeHistory)return StudioProbeMonitor::CSV(H,S,Out,Rows,Error);
     if(!StudioMonitor::ValidateSource(S,H,Error))return false;
     if(S.Series.IsEmpty()){Error=TEXT("Select at least one series before exporting.");return false;}
     FString Text=TEXT("# history_id,")+MonitorCSVQuote(H.Id)+TEXT("\n# title,")+MonitorCSVQuote(H.Title)+

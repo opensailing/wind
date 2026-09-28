@@ -3,6 +3,8 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Fonts/FontMeasure.h"
 #include "Styling/CoreStyle.h"
+#include "StudioProbeHistory.h"
+#include "StudioProbeProfile.h"
 
 namespace StudioMonitorChartPrivate
 {
@@ -14,17 +16,34 @@ FLinearColor Color(int32 Index)
     return Colors[Index%UE_ARRAY_COUNT(Colors)];
 }
 FSlateFontInfo Font(int32 Size){return FCoreStyle::GetDefaultFontStyle(TEXT("Regular"),Size);}
+TArray<FString> ValueTickLabels(const FStudioMonitorPlot& Plot,int32 Intervals)
+{
+    TArray<FString> Labels;
+    for(int32 Precision=Plot.bLogY?2:3;Precision<=17;++Precision)
+    {
+        Labels.Reset();bool Distinct=true;
+        for(int32 I=0;I<=Intervals;++I)
+        {
+            const double AxisValue=Plot.ValueMinimum+(Plot.ValueMaximum-Plot.ValueMinimum)*double(I)/Intervals;
+            const double Value=Plot.bLogY?FMath::Pow(10.,AxisValue):AxisValue;
+            const FString Label=FString::Printf(TEXT("%.*g"),Precision,Value);
+            if(I&&Label==Labels.Last())Distinct=false;Labels.Add(Label);
+        }
+        if(Distinct)break;
+    }
+    return Labels;
+}
 }
 void SStudioMonitorChart::Construct(const FArguments& A)
-{Model=A._Model;bCompact=A._Compact;SelectedSeries=A._Series;Residual=A._Residual;SetClipping(EWidgetClipping::ClipToBounds);SetCanTick(true);}
+{Model=A._Model;Binding=A._Binding;bCompact=A._Compact;SelectedSeries=A._Series;Residual=A._Residual;SetClipping(EWidgetClipping::ClipToBounds);SetCanTick(true);}
 TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> SStudioMonitorChart::Source() const
-{return Residual.Get(false)?Model->ResidualHistory():Model->MonitorHistory();}
+{return Binding?Binding->Source():Residual.Get(false)?Model->ResidualHistory():Model->MonitorHistory();}
 const FStudioMonitorSettings& SStudioMonitorChart::Settings() const
-{return Residual.Get(false)?Model->Project.Residual.Chart:Model->Project.Monitor;}
+{return Binding?Binding->Settings():Residual.Get(false)?Model->Project.Residual.Chart:Model->Project.Monitor;}
 uint64 SStudioMonitorChart::SourceRevision() const
-{return Residual.Get(false)?Model->ResidualRevision:Model->MonitorRevision;}
+{return Binding?Binding->Revision():Residual.Get(false)?Model->ResidualRevision:Model->MonitorRevision;}
 void SStudioMonitorChart::UpdateSettings(const FStudioMonitorSettings& Value)
-{if(Residual.Get(false))Model->UpdateResidualSettings(Value);else Model->UpdateMonitorSettings(Value);}
+{if(Binding)Binding->Update(Value);else if(Residual.Get(false))Model->UpdateResidualSettings(Value);else Model->UpdateMonitorSettings(Value);}
 TArray<FString> SStudioMonitorChart::VisibleSeries() const
 {
     auto Series=Settings().Series;
@@ -37,7 +56,7 @@ TArray<FString> SStudioMonitorChart::VisibleSeries() const
 }
 void SStudioMonitorChart::Tick(const FGeometry&,double,float)
 {
-    if(Source()!=History){HoverSample=INDEX_NONE;SetToolTipText(FText::GetEmpty());}
+    if(Source()!=History){HoverSample=INDEX_NONE;SetToolTipText(FText::GetEmpty());if(Binding&&Binding->SelectSample)Binding->SelectSample(INDEX_NONE);}
     if(Source()!=History||Revision!=SourceRevision()||CachedSeries!=SelectedSeries.Get(FString()))Invalidate(EInvalidateWidgetReason::Paint);
 }
 FVector2D SStudioMonitorChart::ComputeDesiredSize(float) const{return bCompact?FVector2D(210,110):FVector2D(500,320);}
@@ -45,7 +64,11 @@ FSlateRect SStudioMonitorChart::PlotRect(const FGeometry& G) const
 {const int32 Columns=FMath::Max(1,int32((G.GetLocalSize().X-16)/(bCompact?52:190)));
     const bool Legend=!bCompact||Residual.Get(false);
     const double Top=Legend?8+16*FMath::DivideAndRoundUp(VisibleSeries().Num(),Columns):8;
-    return FSlateRect(bCompact?60:64,Top,FMath::Max(double(bCompact?61:65),G.GetLocalSize().X-14),FMath::Max(Top+1,G.GetLocalSize().Y-(bCompact?40:44)));}
+    const auto Measure=FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+    double Left=bCompact?60:64;
+    for(const auto& Label:StudioMonitorChartPrivate::ValueTickLabels(Plot,bCompact?2:4))
+        Left=FMath::Max(Left,double(Measure->Measure(Label,StudioMonitorChartPrivate::Font(bCompact?8:9)).X)+14);
+    return FSlateRect(Left,Top,FMath::Max(Left+1,G.GetLocalSize().X-14),FMath::Max(Top+1,G.GetLocalSize().Y-(bCompact?40:44)));}
 void SStudioMonitorChart::Refresh(const FGeometry& G) const
 {
     const auto NewSource=Source();const auto R=PlotRect(G);const int32 NewWidth=FMath::Clamp(int32(R.Right-R.Left),1,4096);
@@ -54,6 +77,10 @@ void SStudioMonitorChart::Refresh(const FGeometry& G) const
     Revision=SourceRevision();History=NewSource;Width=NewWidth;CachedSeries=Series;
     auto ChartSettings=Settings();ChartSettings.Series=VisibleSeries();
     Plot=History?StudioMonitor::BuildPlot(*History,ChartSettings,Width):FStudioMonitorPlot();
+    // New bounds can require wider value labels. Reduce against the actual plot
+    // width so labels, source-coordinate interactions and geometry stay aligned.
+    const auto Measured=PlotRect(G);const int32 MeasuredWidth=FMath::Clamp(int32(Measured.Right-Measured.Left),1,4096);
+    if(History&&MeasuredWidth!=Width){Width=MeasuredWidth;Plot=StudioMonitor::BuildPlot(*History,ChartSettings,Width);}
 }
 int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool) const
 {
@@ -65,7 +92,7 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
     {FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Color,true,Thickness);};
     if(!History)
     {
-        Text((Residual.Get(false)?Model->IsResidualLoading():Model->IsMonitorLoading())?TEXT("Verifying history…"):Settings().HistoryId.IsEmpty()?TEXT("No history selected"):TEXT("History unavailable"),FVector2D(8,Size.Y*.35),bCompact?9:13,Muted);
+        Text((Binding?Binding->Loading():Residual.Get(false)?Model->IsResidualLoading():Model->IsMonitorLoading())?TEXT("Verifying history…"):Settings().HistoryId.IsEmpty()?TEXT("No history selected"):TEXT("History unavailable"),FVector2D(8,Size.Y*.35),bCompact?9:13,Muted);
         if(!bCompact)Text(TEXT("Choose history to load or locate a source."),FVector2D(8,Size.Y*.35+25),10,Muted);
         return Layer+2;
     }
@@ -106,11 +133,12 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
     auto X=[&](double Value){return R.Left+(Value-Plot.TimeMinimum)/(Plot.TimeMaximum-Plot.TimeMinimum)*W;};
     auto Y=[&](double Value){return R.Bottom-(Value-Plot.ValueMinimum)/(Plot.ValueMaximum-Plot.ValueMinimum)*H;};
     const int32 Ticks=bCompact?FMath::Clamp(int32(H/22),1,2):4;
+    const auto ValueLabels=ValueTickLabels(Plot,Ticks);
     for(int32 I=0;I<=Ticks;++I)
     {
         const double Fraction=double(I)/Ticks,Value=Plot.ValueMinimum+(Plot.ValueMaximum-Plot.ValueMinimum)*Fraction;
         const double ValueY=Y(Value);Line({{R.Left,ValueY},{R.Right,ValueY}},Grid);
-        const FString Label=Plot.bLogY?FString::Printf(TEXT("%.2g"),FMath::Pow(10.,Value)):FString::Printf(TEXT("%.3g"),Value);
+        const FString& Label=ValueLabels[I];
         const auto Extent=Measure->Measure(Label,Font(bCompact?8:9));Text(Label,{R.Left-Extent.X-6,ValueY-Extent.Y*.5},bCompact?8:9,Muted);
     }
     for(int32 I=0;I<=TimeIntervals;++I)
@@ -138,7 +166,7 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
         Flush();
         if(!bCompact||Residual.Get(false))
         {
-            FString Name=Trace.Id;
+            FString Name=History->ProbeHistory?C.Label:Trace.Id;
             if(Residual.Get(false))Name=Name.Replace(TEXT(".InitialFirst"),bCompact?TEXT(" i"):TEXT(" · first initial"))
                 .Replace(TEXT(".FinalLast"),bCompact?TEXT(" f"):TEXT(" · last final"));
             const double Cell=(Size.X-16)/LegendColumns,X0=8+(I%LegendColumns)*Cell,Y0=4+(I/LegendColumns)*16;
@@ -172,15 +200,33 @@ FReply SStudioMonitorChart::OnMouseMove(const FGeometry& G,const FPointerEvent& 
     if(HasMouseCapture())
     {const double Shift=(DragX-Local.X)/(R.Right-R.Left)*(DragMaximum-DragMinimum);ChangeWindow(DragMinimum+Shift,DragMaximum+Shift);return FReply::Handled();}
     const double Fraction=FMath::Clamp((Local.X-R.Left)/(R.Right-R.Left),0.,1.);
-    HoverSample=StudioMonitor::NearestSample(History->Times,Plot.TimeMinimum+(Plot.TimeMaximum-Plot.TimeMinimum)*Fraction);
+    SelectSample(StudioMonitor::NearestSample(History->Times,Plot.TimeMinimum+(Plot.TimeMaximum-Plot.TimeMinimum)*Fraction));
+    return FReply::Handled();
+}
+void SStudioMonitorChart::SelectSample(int32 Index)
+{
+    if(!History||!History->Times.IsValidIndex(Index))return;
+    HoverSample=Index;if(Binding&&Binding->SelectSample)Binding->SelectSample(Index);
     FString Tip=History->Title+FString::Printf(TEXT("\nOriginal sample %d · %.17g %s"),HoverSample,History->Times[HoverSample],*History->TimeUnit);
     if(History->bResiduals)Tip+=FString::Printf(TEXT(" · Time line %d"),History->TimeSourceLines[HoverSample]);
     for(const auto& Trace:Plot.Traces)
     {
-        const auto* C=History->FindColumn(Trace.Id);Tip+=FString::Printf(TEXT("\n%s: %.17g %s"),*C->Label,C->Values[HoverSample],*C->Unit);
+        const auto* C=History->FindColumn(Trace.Id);
+        if(FMath::IsFinite(C->Values[HoverSample]))Tip+=FString::Printf(TEXT("\n%s: %.17g %s"),*C->Label,C->Values[HoverSample],*C->Unit);
+        else Tip+=TEXT("\n")+C->Label+TEXT(": unavailable");
+        if(History->ProbeHistory)
+        {
+            const int32 Position=History->Columns.IndexOfByPredicate([&](const auto& Column){return Column.Id==C->Id;});
+            Tip+=TEXT(" · ")+StudioProbeProfile::SampleStatus(History->ProbeHistory->Frames[HoverSample].Samples[Position].Status);
+        }
         if(History->bResiduals)Tip+=FString::Printf(TEXT(" · log line %d"),C->SourceLines[HoverSample]);
     }
-    SetToolTipText(FText::FromString(Tip));Invalidate(EInvalidateWidgetReason::Paint);return FReply::Handled();
+    if(History->ProbeHistory)
+    {
+        const auto& F=History->ProbeHistory->Frames[HoverSample];
+        Tip+=FString::Printf(TEXT("\nFrame %d · source step %d"),F.Ordinal+1,F.Frame.Index);
+    }
+    SetToolTipText(FText::FromString(Tip));Invalidate(EInvalidateWidgetReason::Paint);
 }
 FReply SStudioMonitorChart::OnMouseWheel(const FGeometry& G,const FPointerEvent& E)
 {
@@ -200,6 +246,13 @@ FReply SStudioMonitorChart::OnMouseButtonUp(const FGeometry&,const FPointerEvent
 FReply SStudioMonitorChart::OnKeyDown(const FGeometry& G,const FKeyEvent& E)
 {
     Refresh(G);if(bCompact||!History)return FReply::Unhandled();
+    if(History->ProbeHistory&&(E.GetKey()==EKeys::Up||E.GetKey()==EKeys::Down))
+    {
+        SelectSample(FMath::Clamp(HoverSample==INDEX_NONE?0:HoverSample+(E.GetKey()==EKeys::Down?1:-1),0,History->Times.Num()-1));
+        return FReply::Handled();
+    }
+    if(History->ProbeHistory&&E.GetKey()==EKeys::Enter&&HoverSample!=INDEX_NONE&&Binding&&Binding->RevealSample)
+    {Binding->RevealSample(HoverSample);return FReply::Handled();}
     const double Span=Plot.TimeMaximum-Plot.TimeMinimum,Center=(Plot.TimeMinimum+Plot.TimeMaximum)*.5;
     if(E.GetKey()==EKeys::Home){auto S=Settings();S.bManualTime=false;UpdateSettings(S);}
     else if(E.GetKey()==EKeys::Left)ChangeWindow(Plot.TimeMinimum-Span*.1,Plot.TimeMaximum-Span*.1);

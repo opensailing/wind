@@ -25,6 +25,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioBoundaries.h"
 #include "StudioMonitorChart.h"
 #include "StudioMonitorExport.h"
+#include "StudioProbeMonitor.h"
 #include "StudioLogExport.h"
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
@@ -1083,6 +1084,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
     InspectionMarkers=MakeShared<FStudioProbeMarkerScheduler>();
     InspectionExport=MakeShared<FStudioProbeExportTask>();
     MonitorExport=MakeShared<FStudioMonitorExportTask>();
+    ProbeMonitor=MakeShared<FStudioProbeMonitorSession>();
     SnapshotExport=MakeShared<FStudioSnapshotExportTask>();
     LogState=MakeShared<FStudioLogWorkspaceState>();
     auto Restore=Button(TEXT("Restore"),TEXT("save"),[this]{if(ConfirmReplace(true)) M->RequestRecoveryOpen();});
@@ -2395,18 +2397,18 @@ TSharedRef<SWidget> SStudioWorkspace::ActivityLogPanel()
 }
 
 TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> SStudioWorkspace::ActiveMonitorHistory() const
-{return bMonitorResidual?M->ResidualHistory():M->MonitorHistory();}
+{return bMonitorProbe?ProbeMonitor->History():bMonitorResidual?M->ResidualHistory():M->MonitorHistory();}
 const FStudioMonitorSettings& SStudioWorkspace::ActiveMonitorSettings() const
-{return bMonitorResidual?M->Project.Residual.Chart:M->Project.Monitor;}
+{return bMonitorProbe?ProbeMonitor->Settings():bMonitorResidual?M->Project.Residual.Chart:M->Project.Monitor;}
 bool SStudioWorkspace::IsActiveMonitorLoading() const
-{return bMonitorResidual?M->IsResidualLoading():M->IsMonitorLoading();}
+{return bMonitorProbe?ProbeMonitor->IsBusy():bMonitorResidual?M->IsResidualLoading():M->IsMonitorLoading();}
 void SStudioWorkspace::UpdateActiveMonitor(const FStudioMonitorSettings& Settings)
-{if(bMonitorResidual)M->UpdateResidualSettings(Settings);else M->UpdateMonitorSettings(Settings);}
+{if(bMonitorProbe)ProbeMonitor->UpdateSettings(Settings);else if(bMonitorResidual)M->UpdateResidualSettings(Settings);else M->UpdateMonitorSettings(Settings);}
 void SStudioWorkspace::PickResidualLog(bool bLocate)
 {
     FString Path;
     if(!StudioFileDialog::ResidualLog(M->Project.Residual.Path,Path))return;
-    if(M->RequestResidualLog(Path,bLocate))bMonitorResidual=true;
+    if(M->RequestResidualLog(Path,bLocate)){bMonitorResidual=true;bMonitorProbe=false;}
 }
 
 // THESIS: Trace residual values back to their original completed solver log.
@@ -2415,8 +2417,26 @@ void SStudioWorkspace::PickResidualLog(bool bLocate)
 // FIRST VIEWPORT: One chart and source selector in Monitors; separate residual and force cards in Solve.
 // FORM: Local Operate extension; no additional workspace navigation or implied run association.
 // FINISH: Verified original data, both desktop sizes, fresh finish review and recorded behavior.
+void SStudioWorkspace::RevealProbeHistoryFrame(int32 Sample)
+{
+    ProbeMonitor->Tick(M->Project.Id,M->Solver,M->InspectionObjects);
+    const auto H=ProbeMonitor->History();
+    if(!H||!H->ProbeHistory||!H->ProbeHistory->Frames.IsValidIndex(Sample)||M->IsProjectOpenPending()||M->IsRecordingLoadPending())return;
+    const int32 Ordinal=H->ProbeHistory->Frames[Sample].Ordinal;
+    M->Scrub(M->Frames.Num()>1?double(Ordinal)/(M->Frames.Num()-1):0.);
+    M->SelectInspectionObject(H->ProbeHistory->Probe.Id);Navigate(EStudioWorkspace::Solve);
+    bInspectionOpen=true;bPerformanceOpen=false;M->bActivityLogExpanded=false;
+}
 TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
 {
+    auto Binding=MakeShared<FStudioMonitorChartBinding>();
+    Binding->Source=[this]{return ActiveMonitorHistory();};
+    Binding->Settings=[this]() -> const FStudioMonitorSettings& {return ActiveMonitorSettings();};
+    Binding->Revision=[this]{return bMonitorProbe?ProbeMonitor->Revision:bMonitorResidual?M->ResidualRevision:M->MonitorRevision;};
+    Binding->Update=[this](const auto& Value){UpdateActiveMonitor(Value);};
+    Binding->Loading=[this]{return IsActiveMonitorLoading();};
+    Binding->SelectSample=[this](int32 Index){ProbeHistorySample=Index;};
+    Binding->RevealSample=[this](int32 Index){RevealProbeHistoryFrame(Index);};
     auto Source=SNew(SStudioMenuButton).Tag(TEXT("MonitorSource")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,7))
         .IsEnabled_Lambda([this]{return !M->IsMonitorLoading()&&!M->IsResidualLoading()&&!M->IsProjectOpenPending();})
         .OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
@@ -2424,24 +2444,41 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
             auto Rows=SNew(SVerticalBox);
             for(const auto& E:StudioHistories::Installed())
             {
-                auto Pick=Button(E.Title,TEXT("chart"),[this,Id=E.Id]{FSlateApplication::Get().DismissAllMenus();bMonitorResidual=false;M->RequestMonitorHistory(Id);});
+                auto Pick=Button(E.Title,TEXT("chart"),[this,Id=E.Id]{FSlateApplication::Get().DismissAllMenus();bMonitorResidual=false;bMonitorProbe=false;M->RequestMonitorHistory(Id);});
                 Pick->SetTag(FName(*(TEXT("MonitorSource_")+E.Id)));Rows->AddSlot().AutoHeight().Padding(0,3)[Pick];
             }
             if(!M->Project.Residual.Path.IsEmpty())
             {
-                auto Pick=Button(TEXT("Residuals · ")+FPaths::GetCleanFilename(M->Project.Residual.Path),TEXT("chart"),[this]{bMonitorResidual=true;FSlateApplication::Get().DismissAllMenus();});
+                auto Pick=Button(TEXT("Residuals · ")+FPaths::GetCleanFilename(M->Project.Residual.Path),TEXT("chart"),[this]{bMonitorResidual=true;bMonitorProbe=false;FSlateApplication::Get().DismissAllMenus();});
                 Pick->SetTag(TEXT("MonitorSource_Residual"));Rows->AddSlot().AutoHeight().Padding(0,3)[Pick];
+            }
+            Rows->AddSlot().AutoHeight().Padding(0,12,0,5)[Label(TEXT("Saved probes · current recording"),10,Muted)];
+            if(!M->InspectionObjects.Probes.ContainsByPredicate([this](const auto& P){return P.Source==M->InspectionSource();}))
+                Rows->AddSlot().AutoHeight().Padding(0,3)[Live([]{return TEXT("Create a probe in Solve using the Probe tool, then choose it here.");},9,Muted,true)];
+            for(const auto& Probe:M->InspectionObjects.Probes)
+            {
+                if(!(Probe.Source==M->InspectionSource()))continue;
+                auto Pick=Button(Probe.Name,TEXT("probe"),[this,Id=Probe.Id]
+                {
+                    FSlateApplication::Get().DismissAllMenus();const auto* P=M->FindProbe(Id);
+                    if(!P||!(P->Source==M->InspectionSource())||M->IsRecordingLoadPending())return;
+                    FStudioProbeHistoryRequest R;R.ProjectId=M->Project.Id;R.Probe=*P;R.Source=M->Solver;
+                    R.Scalar=P->Field.IsEmpty()?M->ActiveScalar().Id:P->Field;R.LastOrdinal=M->Solver->FrameCount()-1;
+                    ProbeMonitor->Select(MoveTemp(R));bMonitorProbe=true;bMonitorResidual=false;ProbeHistorySample=INDEX_NONE;
+                });
+                Pick->SetTag(FName(*(TEXT("MonitorProbe_")+Probe.Id.ToString(EGuidFormats::Digits))));
+                Rows->AddSlot().AutoHeight().Padding(0,3)[Pick];
             }
             auto Import=Button(TEXT("Import residual log…"),TEXT("import"),[this]{FSlateApplication::Get().DismissAllMenus();PickResidualLog(false);});
             Import->SetTag(TEXT("MonitorImportResidual"));Rows->AddSlot().AutoHeight().Padding(0,10,0,3)[Import];
             auto Locate=Button(TEXT("Locate exact residual source…"),TEXT("folder"),[this]{FSlateApplication::Get().DismissAllMenus();PickResidualLog(true);});
             Locate->SetTag(TEXT("MonitorLocateResidual"));Locate->SetEnabled(!M->Project.Residual.Path.IsEmpty());Rows->AddSlot().AutoHeight().Padding(0,3)[Locate];
-            return SNew(SBox).WidthOverride(440)[SNew(SBorder).BorderImage(&PanelBrush).Padding(10)[Rows]];
+            return SNew(SBox).WidthOverride(440).MaxDesiredHeight(440)[SNew(SBorder).BorderImage(&PanelBrush).Padding(10)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]]];
         }).ButtonContent()[Label(TEXT("Choose history"),10,Cyan)];
-    auto Cancel=Button(TEXT("Cancel loading"),TEXT("stop"),[this]{if(bMonitorResidual)M->CancelResidualLog();else M->CancelMonitorHistory();});Cancel->SetTag(TEXT("MonitorCancel"));
+    auto Cancel=Button(TEXT("Cancel loading"),TEXT("stop"),[this]{if(bMonitorProbe)ProbeMonitor->Cancel();else if(bMonitorResidual)M->CancelResidualLog();else M->CancelMonitorHistory();});Cancel->SetTag(TEXT("MonitorCancel"));
     Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return IsActiveMonitorLoading();}));
-    auto Remove=Button(TEXT("Remove"),TEXT("stop"),[this]{if(bMonitorResidual)M->ClearResidualLog();else M->ClearMonitorHistory();});Remove->SetTag(TEXT("MonitorRemove"));
-    Remove->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !M->IsProjectOpenPending()&&!ActiveMonitorSettings().HistoryId.IsEmpty();}));
+    auto Remove=Button(TEXT("Remove"),TEXT("stop"),[this]{if(bMonitorProbe)ProbeMonitor->Clear();else if(bMonitorResidual)M->ClearResidualLog();else M->ClearMonitorHistory();});Remove->SetTag(TEXT("MonitorRemove"));
+    Remove->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !M->IsProjectOpenPending()&&(bMonitorProbe?ProbeMonitor->Selection().IsSet():!ActiveMonitorSettings().HistoryId.IsEmpty());}));
     auto Fit=Button(TEXT("Fit time"),TEXT("fit"),[this]{auto S=ActiveMonitorSettings();S.bManualTime=false;UpdateActiveMonitor(S);});Fit->SetTag(TEXT("MonitorFit"));
     Fit->SetEnabled(TAttribute<bool>::CreateLambda([this]{return ActiveMonitorHistory().IsValid()&&!IsActiveMonitorLoading();}));
     auto Expand=Button(TEXT("Expand / Restore"),TEXT("expand"),[this]{bMonitorExpanded=!bMonitorExpanded;});Expand->SetTag(TEXT("MonitorExpand"));
@@ -2452,34 +2489,58 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
         const auto Settings=ActiveMonitorSettings();FString Path;
         MonitorExportProject=M->Project.Id;MonitorExportHistory=H;MonitorExportPath.Empty();MonitorExportSeries=FString::Join(Settings.Series,TEXT(", "));
         if(!StudioFileDialog::ProbeCSV(TEXT("history-" )+H->Id+TEXT(".csv"),Path)){MonitorExportNotice=TEXT("CSV export cancelled.");return;}
-        if(MonitorExport->Start(H,Settings,Path)){MonitorExportPath=Path;MonitorExportNotice=TEXT("Writing original history rows…");}
+        if(MonitorExport->Start(H,Settings,Path)){MonitorExportPath=Path;MonitorExportNotice=H->ProbeHistory?TEXT("Writing frozen probe samples…"):TEXT("Writing original history rows…");}
     });Export->SetTag(TEXT("MonitorExport"));
     Export->SetEnabled(TAttribute<bool>::CreateLambda([this]{return ActiveMonitorHistory().IsValid()&&!ActiveMonitorSettings().Series.IsEmpty()&&!MonitorExport->IsBusy();}));
     auto ClearSeries=Button(TEXT("Clear series"),TEXT("stop"),[this]{auto S=ActiveMonitorSettings();S.Series.Reset();UpdateActiveMonitor(S);});
     ClearSeries->SetTag(TEXT("MonitorClearSeries"));ClearSeries->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !IsActiveMonitorLoading()&&ActiveMonitorHistory().IsValid()&&!ActiveMonitorSettings().Series.IsEmpty();}));
     auto SourceTitle=Live([this]
-        {const auto H=ActiveMonitorHistory();return H?H->Title:bMonitorResidual&&!M->Project.Residual.Path.IsEmpty()?FPaths::GetCleanFilename(M->Project.Residual.Path):TEXT("No history selected.");},10,Text,true);
+        {const auto H=ActiveMonitorHistory();return H?H->Title:bMonitorProbe&&ProbeMonitor->Selection().IsSet()?ProbeMonitor->Selection()->Probe.Name+TEXT(" · ")+ProbeMonitor->Selection()->Scalar:bMonitorResidual&&!M->Project.Residual.Path.IsEmpty()?FPaths::GetCleanFilename(M->Project.Residual.Path):TEXT("No history selected.");},10,Text,true);
     SourceTitle->SetWrapTextAt(284);
     auto OpenSource=Button(TEXT("Open published source"),TEXT("export"),[this]
         {const auto H=ActiveMonitorHistory();if(H&&H->SourceURL.StartsWith(TEXT("https://")))FPlatformProcess::LaunchURL(*H->SourceURL,nullptr,nullptr);});
     OpenSource->SetVisibility(TAttribute<EVisibility>::CreateLambda([this]{const auto H=ActiveMonitorHistory();return H&&H->SourceURL.StartsWith(TEXT("https://"))?EVisibility::Visible:EVisibility::Collapsed;}));
     auto ExportStatus=Live([this]{return MonitorExportNotice;},9,Amber,true);
     ExportStatus->SetToolTipText(TAttribute<FText>::CreateLambda([this]{return FText::FromString(MonitorExportPath);}));
+    auto FrameInput=[this](bool First) -> TSharedRef<SWidget>
+    {
+        return SNew(SNumericEntryBox<int32>).Tag(First?TEXT("ProbeHistoryFirst"):TEXT("ProbeHistoryLast"))
+            .Font(Font(10)).EditableTextBoxStyle(&InputStyle()).MinValue(1).AllowSpin(false)
+            .IsEnabled_Lambda([this]{return ProbeMonitor->Selection().IsSet()&&!ProbeMonitor->IsBusy();})
+            .Value_Lambda([this,First]() -> TOptional<int32>
+                {const auto& R=ProbeMonitor->Selection();return R.IsSet()?TOptional<int32>((First?R->FirstOrdinal:R->LastOrdinal)+1):TOptional<int32>();})
+            .OnValueCommitted_Lambda([this,First](int32 Value,ETextCommit::Type)
+                {const auto& R=ProbeMonitor->Selection();if(R.IsSet()&&Value>=1)ProbeMonitor->SetRange(First?Value-1:R->FirstOrdinal,First?R->LastOrdinal:Value-1);});
+    };
+    auto Generate=Button(TEXT("Generate history"),TEXT("run"),[this]{ProbeMonitor->Generate();});Generate->SetTag(TEXT("ProbeHistoryGenerate"));
+    Generate->SetEnabled(TAttribute<bool>::CreateLambda([this]{return ProbeMonitor->Selection().IsSet()&&!ProbeMonitor->IsBusy()&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();}));
+    auto ProbeControls=SNew(SBox).Visibility_Lambda([this]{return bMonitorProbe?EVisibility::Visible:EVisibility::Collapsed;})
+        [SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]
+                {const auto& R=ProbeMonitor->Selection();return R.IsSet()?R->Probe.Method==EStudioProbeMethod::OriginalPoint?
+                    TEXT("Exact original point ID · ")+FString::Printf(TEXT("%lld"),R->Probe.PointId.GetValue()):
+                    TEXT("Sample saved positions using the recording's available interpolation."):TEXT("Choose a saved probe to generate its history.");},9,Muted,true)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Row(TEXT("First frame"),FrameInput(true),140)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Last frame"),FrameInput(false),140)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]
+                {const auto& R=ProbeMonitor->Selection();return R.IsSet()?FString::Printf(TEXT("Frames 1–%d, inclusive · field: %s"),R->Source->FrameCount(),*R->Scalar):FString();},9,Muted,true)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Generate]];
     auto Controls=SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("History source"),12,Text,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Source]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SourceTitle]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Live([this]
-        {const auto H=ActiveMonitorHistory();return H?(H->FieldRecordingId.IsSet()&&*H->FieldRecordingId==M->Project.Dataset?
+        {const auto H=ActiveMonitorHistory();return bMonitorProbe?TEXT("Samples from this recording at saved probe locations. History generation does not change playback."):H?(H->FieldRecordingId.IsSet()&&*H->FieldRecordingId==M->Project.Dataset?
             TEXT("Source declares an association with the current recording."):TEXT("Independent run. Its time and values are not synchronized to the flow recording.")):
             TEXT("Histories keep their own source, time and normalization.");},9,Amber,true)]
+        +SVerticalBox::Slot().AutoHeight()[ProbeControls]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Cancel]+SHorizontalBox::Slot().FillWidth(1)[Remove]]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]{return bMonitorResidual?M->ResidualNotice:M->MonitorNotice;},9,Amber,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]{return bMonitorProbe?(ProbeMonitor->IsBusy()?FString::Printf(TEXT("Sampling %d / %d original frames…"),ProbeMonitor->CompletedFrames(),ProbeMonitor->TotalFrames()):ProbeMonitor->Notice):bMonitorResidual?M->ResidualNotice:M->MonitorNotice;},9,Amber,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[SNew(SBox).Visibility_Lambda([this]{return bMonitorResidual?EVisibility::Visible:EVisibility::Collapsed;})
             [Live([]{return TEXT("First initial: first solve per time block. Last final: last solve per time block. No convergence threshold is assumed. To restore a moved source, choose Locate exact residual source.");},9,Muted,true)]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Series"),12,Text,true)]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Live([]{return TEXT("One unit per value axis. Clear the selection to choose another unit.");},9,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Live([this]{return bMonitorProbe?TEXT("Select up to 16 positions. Every selected position retains all sampled frames."):TEXT("One unit per value axis. Clear the selection to choose another unit.");},9,Muted,true)]
         +SVerticalBox::Slot().AutoHeight()[SAssignNew(MonitorSeriesRows,SVerticalBox)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,6)[ClearSeries]
         +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,6)[Label(TEXT("Provenance & normalization"),12,Text,true)]
@@ -2487,6 +2548,12 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
         {
             const auto H=ActiveMonitorHistory();if(!H)return FString(TEXT("Select a history to view its provenance."));
             FString T=H->TimeNote+TEXT("\n");
+            if(H->ProbeHistory)
+            {
+                const auto& R=*H->ProbeHistory;T+=TEXT("\n")+R.SourceTitle+TEXT("\n")+R.Method+TEXT("\nSource: ")+R.Identity->Dataset+
+                    TEXT("\nMetadata SHA-256: ")+R.Identity->MetadataSHA256+
+                    (R.Identity->ReconstructionSHA256.IsEmpty()?FString():TEXT("\nReconstruction SHA-256: ")+R.Identity->ReconstructionSHA256);
+            }
             if(H->bResiduals)T+=H->SourcePath+TEXT("\n\nSHA-256: ")+H->SourceSHA256;TArray<FString> Keys;H->ReferenceValues.GetKeys(Keys);Keys.Sort();
             for(const auto& Key:Keys)T+=FString::Printf(TEXT("\n%s = %.17g"),*Key,H->ReferenceValues[Key]);
             for(const auto& Id:ActiveMonitorSettings().Series)if(const auto* C=H->FindColumn(Id))
@@ -2503,7 +2570,7 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Fit]
             +SHorizontalBox::Slot().AutoWidth()[Expand]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]
-        {const auto H=ActiveMonitorHistory();return H?H->Title+FString::Printf(TEXT(" · %d original samples"),H->Times.Num()):TEXT("Choose a published history or import a completed residual log.");},10,Muted,true)]
+        {const auto H=ActiveMonitorHistory();return H?H->Title+FString::Printf(TEXT(" · %d %s"),H->Times.Num(),H->ProbeHistory?TEXT("recorded frames"):TEXT("original samples")):TEXT("Choose a published history, a saved probe, or import a completed residual log.");},10,Muted,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[ExportStatus]
         +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)
@@ -2517,9 +2584,20 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
                             .IsChecked_Lambda([this]{return ActiveMonitorSettings().bLogY?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
                             .OnCheckStateChanged_Lambda([this](ECheckBoxState State){auto S=ActiveMonitorSettings();S.bLogY=State==ECheckBoxState::Checked;UpdateActiveMonitor(S);})
                             [Label(TEXT("Log scale"),10)]]]
-                    +SVerticalBox::Slot().FillHeight(1)[SNew(SStudioMonitorChart).Model(M).Compact(false).Residual_Lambda([this]{return bMonitorResidual;}).Tag(TEXT("MonitorChart"))]
+                    +SVerticalBox::Slot().FillHeight(1)[SNew(SStudioMonitorChart).Model(M).Binding(Binding).Compact(false).Residual_Lambda([this]{return bMonitorResidual;}).Tag(TEXT("MonitorChart"))]
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[SNew(SBox).Visibility_Lambda([this]{return bMonitorProbe?EVisibility::Visible:EVisibility::Collapsed;})
+                        [SNew(SHorizontalBox)
+                            +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Live([this]
+                            {
+                                const auto H=ProbeMonitor->History();if(!H||!H->ProbeHistory||!H->ProbeHistory->Frames.IsValidIndex(ProbeHistorySample))return FString(TEXT("Hover or use ↑ / ↓ on the chart to select a recorded frame."));
+                                const auto& F=H->ProbeHistory->Frames[ProbeHistorySample];return FString::Printf(TEXT("Frame %d · source step %d · %.9g s"),F.Ordinal+1,F.Frame.Index,F.Frame.Time);
+                            },9,Muted,true)]
+                            +SHorizontalBox::Slot().AutoWidth().Padding(10,0,0,0)[SNew(SButton).Tag(TEXT("ProbeHistoryReveal")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
+                                .IsEnabled_Lambda([this]{const auto H=ProbeMonitor->History();return H&&H->ProbeHistory&&H->ProbeHistory->Frames.IsValidIndex(ProbeHistorySample)&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();})
+                                .OnClicked_Lambda([this]{RevealProbeHistoryFrame(ProbeHistorySample);return FReply::Handled();})[Label(TEXT("Show frame in Solve"),9)]]]]
                     +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[Live([this]
                     {return ActiveMonitorSettings().bLogY?TEXT("Log scale omits nonpositive samples and breaks the trace at gaps. Values are unchanged."):
+                        bMonitorProbe?TEXT("Values at recorded times; spatial gaps stay empty. Pixel reduction preserves extrema; no temporal smoothing."):
                         TEXT("Original samples; pixel reduction preserves extrema. No smoothing or time offset.");},9,Muted,true)]
                     +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[Live([]{return TEXT("Hover: exact sample · Scroll: zoom time · Drag: pan · + / −: zoom · ← / →: pan · Home: fit");},9,Muted,true)]]]
             +SHorizontalBox::Slot().AutoWidth().Padding(14,0,0,0)[SNew(SBox).WidthOverride(326)
@@ -2529,18 +2607,19 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
 }
 void SStudioWorkspace::RefreshMonitors()
 {
+    ProbeMonitor->Tick(M->Project.Id,M->Solver,M->InspectionObjects);
     if(MonitorSessionProject!=M->Project.Id)
     {
-        MonitorSessionProject=M->Project.Id;
+        MonitorSessionProject=M->Project.Id;bMonitorProbe=false;ProbeHistorySample=INDEX_NONE;
         bMonitorResidual=M->Project.Monitor.HistoryId.IsEmpty()&&!M->Project.Residual.Path.IsEmpty();
     }
     const auto H=ActiveMonitorHistory();
     if(MonitorExportProject!=M->Project.Id||MonitorExportHistory.Pin()!=H){MonitorExportNotice.Empty();MonitorExportPath.Empty();}
     if(MonitorExport)if(const auto R=MonitorExport->Poll();R.IsSet())
         if(MonitorExportProject==M->Project.Id&&MonitorExportHistory.Pin()==H)
-            MonitorExportNotice=R->bSuccess?FString::Printf(TEXT("Exported %d original samples · %s · %s"),R->Samples,*MonitorExportSeries,*FPaths::GetCleanFilename(R->Path)):TEXT("History export failed: ")+R->Error;
+            MonitorExportNotice=R->bSuccess?FString::Printf(TEXT("Exported %d %s · %s · %s"),R->Samples,H&&H->ProbeHistory?TEXT("probe sample rows"):TEXT("original samples"),*MonitorExportSeries,*FPaths::GetCleanFilename(R->Path)):TEXT("History export failed: ")+R->Error;
     if(!MonitorSeriesRows||MonitorSeriesHistory==H)return;
-    MonitorSeriesHistory=H;MonitorSeriesRows->ClearChildren();if(!H)return;
+    MonitorSeriesHistory=H;ProbeHistorySample=INDEX_NONE;MonitorSeriesRows->ClearChildren();if(!H)return;
     for(const auto& Column:H->Columns)
     {
         const FString Id=Column.Id,Unit=Column.Unit;
@@ -2548,6 +2627,7 @@ void SStudioWorkspace::RefreshMonitors()
             .IsEnabled_Lambda([this,H,Id,Unit]
             {
                 if(ActiveMonitorHistory()!=H||IsActiveMonitorLoading())return false;
+                if(!ActiveMonitorSettings().Series.Contains(Id)&&ActiveMonitorSettings().Series.Num()>=16)return false;
                 for(const auto& Selected:ActiveMonitorSettings().Series)if(const auto* C=H->FindColumn(Selected))if(C->Unit!=Unit)return false;
                 return true;
             })

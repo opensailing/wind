@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "StudioRecording.h"
 
+struct FStudioProbeHistoryResult;
+
 /** One column of source or explicitly derived scalar history. No absent values become zero. */
 struct FStudioHistoryColumn
 {
@@ -26,6 +28,8 @@ struct FStudioHistory
     /** External residual logs retain source identity without a spatial association. */
     bool bResiduals = false;
     FString SourcePath;
+    /** Derived, session-only samples with explicit gap and frame provenance. */
+    TSharedPtr<const FStudioProbeHistoryResult,ESPMode::ThreadSafe> ProbeHistory;
     TArray<int32> TimeSourceLines;
     int64 SourceRecordCount = 0;
     const FStudioHistoryColumn* FindColumn(const FString& ColumnId) const;
