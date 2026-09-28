@@ -301,6 +301,14 @@ The Geometry documentation pass read the native source and recorded evidence, op
 
 The run-parameter documentation pass read source, review and recorded evidence, opened four representative captures across both sizes, verified ten source pins and four manifest/report results, and checked all 16 PNG payloads and dimensions. It ran no application, build or test. This acceptance covers retained parameter authoring, guarded submission and frozen-run/recording isolation. Backend stopping, output selection and disk estimates, restart compatibility and full S13–S15 remain open, as do physical OS input, full accessibility, long-session stability, whole-renderer and overall reference fidelity. No numerical backend enforces these requests or produces scheduled output/restart files.
 
+**Monitors — 2026-09-28.** The six-line contract beside `SStudioWorkspace::MonitorWorkspace` adds a large original-time chart and one source/series/provenance inspector to the incumbent native macOS UE5.8 Slate Operate workspace. Sidebar navigation, blue-black panels, compact CoreStyle type and cyan focus retain their existing roles. Model/settings commit `cb03c92`, same-project reopen fix `5f238f8`, original-row export `8adbfed` and UI commit `abe2fa3` implement this bounded published-history slice. Schema 18 adds saved monitor settings; expansion and the compact preview choice remain in-memory session state. `PRODUCT.md` is unchanged.
+
+`tmp/analysis/monitors-20260928/finish-review.md` is the initial bounded finding basis; `finish-verdict.md` gives **ship for F1–F3 only**, all resolved in correction round one. F1 identifies the single compact trace with series/unit/position/count and a native picker, F2 visibly names Linear/Log, and F3 distinguishes original-time ticks under deep zoom. This verdict does not repeat the initial full scoped review or accept the whole studio.
+
+`ui-acceptance.json` in that folder pins final package `274d5cb8f3592f50ee6eb006cefcccb5f1cdf587d6db81ad147dcab2c34e4e80`, 15 current source hashes, 30 final captures and three clean native cases: Monitors at 1320 × 740 and 1280 × 720, plus the shared Inspector regression at 1280 × 720. All three manifests report success, exit 0 and empty owned-process inventories. The earlier model report records 172 successful cases, 171 clean and one with Unreal's bundled `idevice_id` CPU-architecture helper warning; its timing precedes the final UI-only corrections. No final-package model rerun is claimed. Earlier native helper-focus failure evidence remains in the acceptance record.
+
+The same reviewer opened all 30 final captures under `.impeccable/review/monitors/{1320,1280}/` and found them valid. This documentation pass read source and recorded evidence, opened four representative captures and verified all 30 PNG signatures, chunk CRCs, compressed payloads and dimensions, all 15 source pins and all three accepted native manifests. It ran no build, application or tests. Original-sample hover, tooltip appearance, native Save panels and lower provenance content are not established by these captures. Physical OS input, broad accessibility, installed residuals, external-history import/portable paths, probe histories, live metrics/log/performance scope and current long-session/release gates remain open. Prior source-reader/provenance evidence and all earlier design scopes retain their boundaries. The context helper's desktop-platform fallback does not make this a web surface; no HTML/CSS detector applies.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -321,6 +329,7 @@ The run-parameter documentation pass read source, review and recorded evidence, 
 - Preview labels describe applied state, renderable drafts, source verification and sampled occupancy without implying solver readiness.
 - Geometry retains exact object drafts beside the applied mesh, with explicit Apply/Revert and removal-specific Discard recovery.
 - Setup retains next-run stop/output/checkpoint requests with Apply/Revert, shared case history and visible backend limits.
+- Monitors preserves independent published source/time/units, exact-row export and a named single-series Solve preview.
 
 ## Colors
 
@@ -354,6 +363,8 @@ Streamline tubes follow the captured viewport scalar mapping. The live popover�
 
 Authoring reuses Cyan for selection and focus, Amber for recovery, draft geometry and outside/unknown containment, and the same Text/Muted hierarchy. Enabled optional-value and filter hints use Text at full hint opacity through the existing `SProjectFilterBox`; “Unknown”, “Optional · unknown” and “Filter by name” remain hints rather than stored values. The F3 reviewer measured six captured regions at **14.36:1** contrast (foreground RGB 223/232/243, background 15/25/34), above the 4.5:1 finding threshold. These are measured native pixels, not new palette tokens or a full accessibility certification. Disabled controls keep their separate native treatment.
 
+Monitors reuses the native panel, text, action and recovery colors. The chart owns a separate six-color trace cycle, fine linear-color grid/labels and cyan hover/focus lines in `StudioMonitorChart.cpp`; these local chart colors do not redefine the application or scalar-field palette. Trace color follows plotted selection order, and the compact preview identifies its sole trace by name and unit. Source constants are recorded in the sidecar.
+
 ## Typography
 
 The implementation requests Unreal CoreStyle Regular and Bold. No separate display or monospace family is configured for D08. The menu title uses the local title role; exact values, mode choices, row labels, and the menu key use body. “Arrow length” and “Display” use bold section text. Supporting copy, counts, recovery, and the compact key use label text. These compact sentence-case roles are extracted from this slice, not a replacement for the whole application’s type hierarchy.
@@ -363,6 +374,8 @@ The sidecar uses an explicitly approximate browser font fallback for portable co
 D05–D07 reuses the title, body, section, and label roles. Seed-kind headings use the observed seed-kind role; the “Seeds” suffix in a shared list row uses micro. Snapshot annotations request CoreStyle Regular at `max(6, round(10 × s))`, where `s = clamp(min(outputWidth / 800, outputHeight / 500), 0.25, 4)`. This export scale is separate from fixed-size live control typography.
 
 Authoring uses the existing CoreStyle hierarchy and the recurring authoring-title role for Domain, Boundary Conditions and Meshing. Materials has an observed 20-point Bold workspace heading. Exact fields use 10-point type; source, unit, recovery and status text wrap within their owners. Round-trippable numeric strings remain intact in editable fields and value tooltips; horizontal field scrolling accommodates long values.
+
+Monitors uses a 22-point Bold workspace title, 12-point Bold source/series/provenance headings, 10-point controls and wrapping 9-point explanations. The compact source, series/count and scale labels use 8-point type. Main time/value ticks use 9-point type, compact ticks use 8-point, and exact hover values retain 17 significant digits. Tick precision increases until adjacent labels differ; measured native text bounds the count before endpoint labels use separate rows at constrained widths.
 
 ## Layout
 
@@ -393,6 +406,8 @@ Materials uses an 18-unit workspace inset, a 210-unit list, a flexible retained 
 Boundary Conditions uses a 14-unit workspace inset, a 196-unit bounded target list, a flexible preview and one 310-unit inspector, with 12-unit gutters. Its Select/Orbit, Fit and projection actions are local preview controls. Lists and inspectors scroll independently; a clipped row at a scroll boundary is ordinary retained form content. The two accepted window sizes are evidence sizes, not new breakpoints. The authoring camera supports arbitrary observation independently of the saved Solve camera and recorded frame.
 
 Geometry keeps its 190-unit object list with 12-unit inset, flexible applied-mesh preview and 304-unit inspector, separated by 6-unit gutters. The retained inspector has 14-unit padding, instant focus scrolling and 10-unit navigation padding. Object name precedes Position, Rotation and Scale groups; each group has three equal-width fields with 6-unit gaps, labels 4 units above inputs and 12 units below the group. The source-axis/origin explanation sits above the adjacent Apply/Revert actions. Wrapped recovery and source diagnostics remain in the same scroll container; removal recovery appears above the disabled retained form. The two reviewed window sizes are evidence sizes, not new layout breakpoints.
+
+Monitors uses an 18-unit workspace inset with the title/actions above the source/sample count and export status. A flexible left chart has 12-unit panel padding; the right source inspector is 326 units wide, separated by a 14-unit gutter, with 14-unit padding and instant focus scrolling with 12-unit navigation padding. Expand / Restore collapses only this source inspector and retains chart controls and selections. This local in-memory expansion differs from the existing saved Solve expansion preference. The compact Solve card retains its existing row allocation and adds source identity, a single-series picker/count and adjacent Linear/Log label above the chart. The reviewed 1320 × 740 and 1280 × 720 windows are evidence sizes, not breakpoints.
 
 ## Elevation & Depth
 
@@ -644,6 +659,26 @@ Drafts remain with their project/object across workspace and object switching. T
 
 Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the contract/editor/guards in `StudioWorkspace.cpp`, and `StudioGeometryEditRenderTests.cpp`. `Tools/test-geometry-edit.sh [width height]` runs the single packaged `Studio.GeometryEditUI.` case, defaulting to 1320 × 740. The final package, two cases and F1-only verdict in Overview bound this addition; native routed input does not prove physical OS input or complete sequential Tab/screen-reader behavior. Portable snippets describe appearance only.
 
+### Published-history Monitors and shared Solve preview
+
+**The Independent History Rule.** Keep each history's verified source, original solver time, units and normalization visible. An independent run never acquires the active field recording's time, physics or residuals.
+
+The installed Nalu-Wind NACA 0021 history supplies 6,967 rows over 0.4004–3.1868 seconds. Its declared field association is empty. Source force components use N, moments use N m, and Y+ extrema and CL/CD use unit 1. The supplied coefficient derivations are CL = (Fpy + Fvy) / 6000 and CD = (Fpx + Fvx) / 6000, with density 1.2 kg/m³, freestream speed 50 m/s and area 4 m². The scrollable inspector retains time interpretation, sorted reference values, selected-column origin/expressions, limitations and Open published source. Missing residuals remain “Not supplied” in Solve.
+
+Choose published history opens the installed catalog. Loading verifies integrity asynchronously; Cancel loading retains the previous selection, and Remove clears the project reference while preserving source files. Stale results cannot take ownership after project replacement, and same-project reopen invalidates the previous loaded history before verification. Missing or changed interpretation reports recovery instead of silently accepting another source. The initial CL/CD selection comes from declared columns. Each axis accepts one unit: unlike-unit checkboxes disable until Clear series or individual removal empties the selection. No-series, no-original-samples and no-positive-log-samples states remain explicit.
+
+The full chart plots original time and selected values. Pixel buckets retain original first/minimum/maximum/last samples in temporal order; reduction does not smooth, interpolate or shift time. Log scale plots positive values with visible gaps at nonpositive samples and an explanatory note. Main labels name Value (unit) and linear/logarithmic scale. Hover uses the nearest original source row and lists exact time and trace values; the cyan cursor marks that row. The main chart supports wheel zoom around the pointer, left-drag pan, focused +/− zoom about the center, ←/→ pan by 10% of the current span, and Home / Fit time to restore the original extent. The compact chart shares data/settings and hover semantics; time navigation belongs to the full chart.
+
+**The Named Compact Trace Rule.** Draw only the named preview series; keep its ID, unit, position/count and Linear/Log scale visible while preserving the full project selection.
+
+The native compact picker exposes all project-selected series and is enabled when more than one is selected. Examples are `CL (1) · 1 of 2` and `Fpy (N) · 2 of 6`. Selecting a preview series narrows a copy of chart settings only; it cannot replace the saved selection or hide those series in the full Monitors chart. If the local choice is absent from the current selection, the preview uses its first selected series. The scale tooltip explains nonpositive omission and broken traces. Adaptive original-time ticks remain distinct in full and compact views, including the reviewed 1.7900–1.7908-second window. Source identity and independent-history labeling remain above this compact representation.
+
+Schema 18 saves `historyId`, `metadataSHA256`, `series`, `logY`, `manualTime`, `timeMinimum` and `timeMaximum` in the project `monitor` object. Older documents start with no selected monitor source. Source identity and equal-unit membership are validated when data becomes available. Monitors expansion and the preview-series choice live in the workspace session only; neither is scientific project content or serialized to `StudioSession.json`. History/chart changes retain the recorded flow, camera and active control-run identity.
+
+Export history freezes immutable history, selected series and time settings before the native destination panel opens. The UTF-8 CSV emits every original row in the inclusive selected window, with zero-based `source_sample`, `solver_time (s)` and selected series IDs. `%.17g` preserves round-trippable times and values. Comment records carry history ID/title/source URL, metadata/payload/original-source hashes, declared field association, time note, each column's label/unit/origin/expression and sorted normalization references. Log gaps and display reduction never alter exported values or row membership. A single bounded background task writes atomically, rejects output above 32 Mi-characters, and reports original-row count, frozen series and filename. Empty series/windows produce explicit errors; export feedback is accepted only for its owning project and loaded history. The general toolbar Export CSV remains a separate action.
+
+Source authority is `StudioMonitor.h/.cpp`, `StudioModelMonitor.cpp`, `StudioMonitorChart.h/.cpp`, `StudioMonitorExport.h/.cpp`, schema 18 in `StudioProject.h/.cpp`, and `Monitors`, `MonitorWorkspace` and `RefreshMonitors` in `StudioWorkspace.cpp`. `Tools/test-monitors.sh [width height]` runs one packaged `Studio.MonitorUI.` case, default 1320 × 740. Recorded evidence and the F1–F3 verdict in Overview bound this addition. Existing portable snippets remain appearance previews; they supply no native chart, history, export or acceptance behavior.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -652,7 +687,7 @@ Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the 
 - Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.
 - Do retain selected-scalar coloring independently of velocity direction and length.
 - Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.
-- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing and Setup run parameters, retaining each review’s finding and package boundaries.
+- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing, Setup run parameters and published-history Monitors, retaining each review’s finding and package boundaries.
 - Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.
 - Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.
 - Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.
@@ -668,6 +703,9 @@ Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the 
 - Do preserve exact Geometry fields, original-axis scale, source-origin rotation and the applied mesh while drafts remain unresolved.
 - Do give removed Geometry drafts an enabled Discard recovery and focus that action when saving redirects to it.
 - Do retain exact next-run requests, explicit Apply/Revert, conflict recovery and shared case history while the active run keeps its submitted settings.
+
+- Do preserve original history rows/time/units, one-unit axis selection, visible log gaps and frozen exact-row CSV provenance.
+- Do name the compact trace, unit, position/count and scale while retaining the complete project selection.
 
 ### Don't:
 
@@ -688,3 +726,5 @@ Source authority is `StudioGeometryEdit.h/.cpp`, `StudioModelGeometry.cpp`, the 
 - Don’t treat F1–F3 acceptance or the earlier 161 model cases as a fresh main build/model result, physical OS input, full M3, solver validation or whole-product approval.
 - Don’t treat the Geometry F1-only verdict or its two final native cases as full Geometry, solver readiness, physical OS input, broad accessibility, long-session or whole-product acceptance.
 - Don’t describe retained run requests or their scoped review as enforced stopping, generated flow/restart files, full S13–S15 or whole-product acceptance.
+- Don’t synchronize independent Nalu-Wind history to SU2 playback, invent residuals, or export reduced/log-filtered rows as the original history.
+- Don’t treat the Monitors F1–F3 correction verdict as physical hover/dialog acceptance, a final-package model rerun, current long-session/release acceptance or completion of live backend/history tooling.
