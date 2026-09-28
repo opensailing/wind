@@ -23,6 +23,7 @@ bool FStudioWorkspaceRoutes::RunTest(const FString&)
     FStudioModel M(Dir); M.Run(); M.Scrub(.6); M.Project.Camera.Position=FVector(9,8,7);
     const FString Before=StudioProjectIO::Serialize(M.SnapshotProject()); const int32 Revision=M.Revision;
     TestTrue(TEXT("Projects is a working route"),M.Navigate(EStudioWorkspace::Projects));
+    TestTrue(TEXT("Results is a working route"),M.Navigate(EStudioWorkspace::Results));
     for(const auto Workspace:{EStudioWorkspace::Materials,EStudioWorkspace::Domain,EStudioWorkspace::BoundaryConditions,EStudioWorkspace::Meshing})
         TestTrue(TEXT("Implemented authoring route is available"),M.Navigate(Workspace));
     TestTrue(TEXT("Dashboard is a working route"),M.Navigate(EStudioWorkspace::Dashboard));

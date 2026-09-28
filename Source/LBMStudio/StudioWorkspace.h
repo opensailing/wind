@@ -66,7 +66,6 @@ private:
     bool bProjectListsDirty=true;
     TSharedPtr<SVerticalBox> RecentProjectRows;
     TSharedPtr<SVerticalBox> DashboardProjectRows;
-    TSharedPtr<SVerticalBox> DashboardRunRows;
     TSharedPtr<SEditableTextBox> ProjectSearchBox;
     TWeakPtr<SVerticalBox> AssetRows;
     TWeakPtr<SButton> AssetRefreshButton;
@@ -217,7 +216,6 @@ private:
     void ExportInspectionProbe(const FGuid& Id);
     void RefreshCameraRows();
     TSharedRef<SWidget> ViewHistoryControls();
-    TSharedRef<SWidget> RecordingMenu();
     TSharedRef<SWidget> SurfaceMenu();
     TSharedRef<SWidget> VolumeMenu();
     void ImportRecording();

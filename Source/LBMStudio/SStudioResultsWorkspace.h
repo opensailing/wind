@@ -1,0 +1,47 @@
+#pragma once
+#include "Widgets/SCompoundWidget.h"
+#include "StudioRecording.h"
+#include "Async/Future.h"
+
+class FStudioModel;
+class SVerticalBox;
+class SBox;
+class SButton;
+class SEditableTextBox;
+
+/** One source catalog for recordings and saved run records. Dataset selection
+ * uses the model's transactional reader; metadata never borrows case values. */
+class SStudioResultsWorkspace final : public SCompoundWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SStudioResultsWorkspace) {}
+        SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
+        SLATE_EVENT(FSimpleDelegate,OnInspect)
+        SLATE_EVENT(FSimpleDelegate,OnImport)
+        SLATE_ARGUMENT(TFunction<void(const FString&,const FString&)>,Locate)
+    SLATE_END_ARGS()
+    void Construct(const FArguments& Args);
+    void Tick(const FGeometry& Geometry,double Time,float Delta) override;
+private:
+    bool Available() const;
+    bool HasRecording() const;
+    void SetRuns(bool Value);
+    void OpenDataset(const FString& Id);
+    void RefreshRows();
+    TSharedRef<SWidget> RecordingDetails();
+    TSharedRef<SWidget> RunDetails();
+    TSharedPtr<FStudioModel> M;
+    FSimpleDelegate Inspect,Import;
+    TFunction<void(const FString&,const FString&)> Locate;
+    TSharedPtr<SVerticalBox> Rows;
+    TSharedPtr<SBox> Details;
+    TSharedPtr<SEditableTextBox> SearchBox;
+    TMap<FName,TWeakPtr<SButton>> RowButtons;
+    TFuture<TArray<FStudioRecordingEntry>> InstalledTask;
+    TArray<FStudioRecordingEntry> Installed;
+    TWeakPtr<IStudioSolver,ESPMode::ThreadSafe> LastSource;
+    FGuid ProjectId,RunId;
+    int32 LastCatalog=INDEX_NONE,LastRunCount=INDEX_NONE;
+    FString Search,Opening;
+    bool bRuns=false,bRowsDirty=true,bDetailsDirty=true;
+};

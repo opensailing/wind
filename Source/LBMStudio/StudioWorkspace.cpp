@@ -10,6 +10,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioTheme.h"
 #include "SStudioCommandInput.h"
 #include "SStudioPerformancePanel.h"
+#include "SStudioResultsWorkspace.h"
 #include "StudioScene.h"
 #include "StudioOrientation.h"
 #include "StudioSurfaceReconstruction.h"
@@ -1140,7 +1141,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Navigation()]
             +SHorizontalBox::Slot().FillWidth(1).Padding(7,0,7,0)[SNew(SWidgetSwitcher)
-                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:M->Workspace==EStudioWorkspace::Monitors?8:0;})
+                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:M->Workspace==EStudioWorkspace::Monitors?8:M->Workspace==EStudioWorkspace::Results?9:0;})
                 +SWidgetSwitcher::Slot()[SolveSurface]
                 +SWidgetSwitcher::Slot()[ProjectsSurface]
                 +SWidgetSwitcher::Slot()[DashboardSurface]
@@ -1149,7 +1150,11 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[DomainWorkspace()]
                 +SWidgetSwitcher::Slot()[BoundaryWorkspace()]
                 +SWidgetSwitcher::Slot()[LatticeWorkspace()]
-                +SWidgetSwitcher::Slot()[MonitorWorkspace()]]]
+                +SWidgetSwitcher::Slot()[MonitorWorkspace()]
+                +SWidgetSwitcher::Slot()[SNew(SStudioResultsWorkspace).Model(M)
+                    .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
+                    .OnImport_Lambda([this]{ImportRecording();})
+                    .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]]]
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):TEXT("RECORDED CFD");},8,Amber)]
@@ -1162,7 +1167,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
                     [Label(TEXT("Cancel opening"),9)]]]
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)
                 [SNew(SBox).Visibility_Lambda([this]{return M->IsRecordingLoadPending()?EVisibility::Visible:EVisibility::Collapsed;})
-                    [SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,3))
+                    [SNew(SButton).Tag(TEXT("CancelRecording")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,3))
                         .IsEnabled_Lambda([this]{return M->bRecordingLoading;})
                         .OnClicked_Lambda([this]{M->CancelRecording();M->Notice=TEXT("Recording change cancelled. Current view retained.");return FReply::Handled();})
                         [Label(TEXT("Cancel recording"),9)]]]
@@ -1313,7 +1318,7 @@ TSharedRef<SWidget> SStudioWorkspace::Dashboard()
                 +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Custom solver"),Label(TEXT("Not connected"),10,Muted))]
                 +SVerticalBox::Slot().AutoHeight()[Live([]{return TEXT("Playback continues while browsing. Returning to Solve keeps your camera and review frame.");},10,Muted,true)]]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,22,0,8)[Label(TEXT("Recordings and runs"),12,Text,true)]
-        +SVerticalBox::Slot().AutoHeight()[SAssignNew(DashboardRunRows,SVerticalBox)]
+        +SVerticalBox::Slot().AutoHeight()[Live([this]{return FString::Printf(TEXT("%d saved records. Inspect recordings and captured run settings in Results."),M->Project.Runs.Num());},10,Muted,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,22,0,8)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Recent projects"),12,Text,true)]
             +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("All projects"),TEXT("folder"),[this]{Navigate(EStudioWorkspace::Projects);})]]
@@ -1363,12 +1368,12 @@ TSharedRef<SWidget> SStudioWorkspace::RecentProjectRow(const FStudioProjectSumma
 }
 void SStudioWorkspace::RefreshProjectLists()
 {
-    if(!RecentProjectRows||!DashboardProjectRows||!DashboardRunRows) return;
+    if(!RecentProjectRows||!DashboardProjectRows) return;
     FString FocusKey;
     const auto Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();
     for(const auto& Target:ProjectActionTargets) if(Target.Value==Focused) { FocusKey=Target.Key; break; }
     ProjectActionTargets.Reset();
-    RecentProjectRows->ClearChildren(); DashboardProjectRows->ClearChildren(); DashboardRunRows->ClearChildren();
+    RecentProjectRows->ClearChildren(); DashboardProjectRows->ClearChildren();
     int32 Shown=0,Recent=0;
     for(const auto& Item:M->ProjectCatalog)
     {
@@ -1382,22 +1387,6 @@ void SStudioWorkspace::RefreshProjectLists()
     if(!Shown) RecentProjectRows->AddSlot().AutoHeight().Padding(0,18)
         [Label(M->bCatalogLoading?TEXT("Loading recent projects…"):M->ProjectCatalog.IsEmpty()?TEXT("Open or save a project to add it here."):TEXT("No projects match these filters."),10,Muted)];
     if(!Recent) DashboardProjectRows->AddSlot().AutoHeight().Padding(0,10)[Label(TEXT("Open or save a project to build your recent list."),10,Muted)];
-    for(const auto& Run:M->Project.Runs)
-    {
-        const FString Kind=Run.GetOrigin()==EStudioRunOrigin::PublishedRecording?TEXT("Published CFD"):Run.GetOrigin()==EStudioRunOrigin::ImportedRecording?TEXT("Imported recording"):Run.GetOrigin()==EStudioRunOrigin::ControlHarness?TEXT("Control harness configuration"):TEXT("Solver configuration");
-        const bool bCanInspect=Run.GetDatasetId()==M->Project.Dataset;
-        auto Inspect=Button(TEXT("Inspect"),TEXT("run"),[this]{Navigate(EStudioWorkspace::Solve);}); Inspect->SetEnabled(bCanInspect);
-        Inspect->SetToolTipText(FText::FromString(bCanInspect?TEXT("Inspect this recording in Solve"):TEXT("No field dataset is loaded for this run record")));
-        DashboardRunRows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SVerticalBox)
-            +SVerticalBox::Slot().AutoHeight()[SNew(SBox).HeightOverride(1)[SNew(SBorder).BorderImage(&LineBrush)]]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,12)[SNew(SHorizontalBox)
-                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[SNew(SVerticalBox)
-                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[Label(Run.GetName(),11,Text,true)]
-                    +SVerticalBox::Slot().AutoHeight()[Label(Kind,9,Muted)]
-                    +SVerticalBox::Slot().AutoHeight().Padding(0,3)[Live([this,Id=Run.GetId()]{return M->RunStatus(Id);},9,Muted)]]
-                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Inspect]]];
-    }
-    if(M->Project.Runs.IsEmpty()) DashboardRunRows->AddSlot().AutoHeight()[Label(TEXT("No recordings or run records in this project."),10,Muted)];
     LastCatalogRevision=M->CatalogRevision; DashboardProjectId=M->Project.Id; DashboardRunCount=M->Project.Runs.Num(); bProjectListsDirty=false;
     if(!FocusKey.IsEmpty())
     {
@@ -2709,8 +2698,8 @@ TSharedRef<SWidget> SStudioWorkspace::Settings()
     Controls->AddSlot().AutoHeight()[RunSettingsControls()];
     Controls->AddSlot().AutoHeight()[JobControls()];
     Controls->AddSlot().AutoHeight()[Section(TEXT("Recorded dataset"),SNew(SVerticalBox)
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SStudioMenuButton).Tag(TEXT("RecordingSelector")).ButtonStyle(&ButtonStyle()).OnGetMenuContent(this,&SStudioWorkspace::RecordingMenu)
-            .ButtonContent()[Live([this]{return M->Solver->Descriptor().Title;},10,Cyan)]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,4)[Live([this]{return M->Solver->Descriptor().Title;},10,Text,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Choose or import recordings in Results."),9,Muted)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SStudioMenuButton).Tag(TEXT("SurfaceSettings"))
             .Visibility_Lambda([this]{return M->Solver->Descriptor().bSourcePoints?EVisibility::Visible:EVisibility::Collapsed;})
             .ButtonStyle(&ButtonStyle()).OnGetMenuContent(this,&SStudioWorkspace::SurfaceMenu)
@@ -2721,8 +2710,7 @@ TSharedRef<SWidget> SStudioWorkspace::Settings()
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Playback length"),Live([this]{return FString::Printf(TEXT("%.1f s"),(M->Solver->FrameCount()-1)*FStudioModel::PlaybackInterval/M->PlaybackRate);}))]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return M->Solver->Descriptor().bSourcePoints?M->Solver->Descriptor().FieldNote:TEXT("Recorded 2D fields repeat along Y; this adds no spanwise flow. Playback speed does not extend source duration.");},9,Amber,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Replay speed"),Number([this]{return M->PlaybackRate;},[this](double V){M->PlaybackRate=V;},.25,4.,TEXT("×"),.25))]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Check(TEXT("Loop recording"),[this]{return M->bLoopPlayback;},[this](bool V){M->bLoopPlayback=V;})]
-        +SVerticalBox::Slot().AutoHeight()[Button(TEXT("Open dataset source"),TEXT("export"),[this]{const auto& URL=M->Solver->Descriptor().SourceURL;if(URL.StartsWith(TEXT("https://")))FPlatformProcess::LaunchURL(*URL,nullptr,nullptr);})])];
+        +SVerticalBox::Slot().AutoHeight()[Check(TEXT("Loop recording"),[this]{return M->bLoopPlayback;},[this](bool V){M->bLoopPlayback=V;})])];
     Controls->AddSlot().AutoHeight()[Section(TEXT("Playback status"),SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Row(TEXT("Status"),Live([this]{return M->StatusText();},10,Green))]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Row(TEXT("Recorded frames"),Live([this]{return FString::FromInt(M->Frames.Num());}))]
@@ -3561,46 +3549,6 @@ TSharedRef<SWidget> SStudioWorkspace::SurfaceMenu()
         [SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(10)
             +SScrollBox::Slot()[Items]]];
 }
-TSharedRef<SWidget> SStudioWorkspace::RecordingMenu()
-{
-    auto Items=SNew(SVerticalBox),Rows=SNew(SVerticalBox);
-    Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Recorded datasets"),12,Text,true)];
-    Items->AddSlot().AutoHeight().Padding(0,0,0,10)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
-        .Text(FText::FromString(TEXT("Choose a folder containing recording.json and its data files. Available fields, units, dimensions and duration come from the recording.")))];
-    const auto Available=[this]{return !M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
-    auto Import=Button(TEXT("Import recording…"),TEXT("folder"),[this]{ImportRecording();},Cyan);
-    Import->SetEnabled(TAttribute<bool>::CreateLambda(Available));
-    Items->AddSlot().AutoHeight().Padding(0,0,0,12)[Import];
-    TArray<FStudioRecordingEntry> Entries;
-    for(const auto& R:M->Project.Recordings)Entries.Add({R.Id,R.Title,R.Path});
-    for(const auto& R:StudioRecordings::Installed())if(!Entries.ContainsByPredicate([&](const auto& E){return E.Id==R.Id;}))Entries.Add(R);
-    for(const auto& Entry:Entries)
-    {
-        const bool External=M->Project.Recordings.ContainsByPredicate([&](const auto& R){return R.Id==Entry.Id;});
-        auto Select=Button(Entry.Title,TEXT("box"),[this,Id=Entry.Id]{M->RequestRecording(Id);FSlateApplication::Get().DismissAllMenus();});
-        Select->SetContent(Live([this,Entry]{return Entry.Title+(M->Project.Dataset==Entry.Id?TEXT(" · Current"):TEXT(""));},10,Text,true));
-        Select->SetEnabled(TAttribute<bool>::CreateLambda([this,Available,Id=Entry.Id]{return Available()&&M->Project.Dataset!=Id;}));
-        Select->SetToolTipText(FText::FromString(Entry.Path));
-        auto RecordingRow=SNew(SHorizontalBox)+SHorizontalBox::Slot().FillWidth(1)[Select];
-        if(External)
-        {
-            auto Locate=Button(TEXT("Locate…"),TEXT("folder"),[this,Entry]{LocateRecording(Entry.Id,Entry.Path);});
-            Locate->SetEnabled(TAttribute<bool>::CreateLambda(Available));
-            Locate->SetToolTipText(FText::FromString(TEXT("Verify an exact copy of this recording in a different folder.")));
-            RecordingRow->AddSlot().AutoWidth().Padding(6,0)[Locate];
-        }
-        Rows->AddSlot().AutoHeight().Padding(0,0,0,10)[SNew(SVerticalBox)
-            +SVerticalBox::Slot().AutoHeight()[RecordingRow]
-            +SVerticalBox::Slot().AutoHeight().Padding(8,4)[Label(External?TEXT("External folder · verified on open"):TEXT("Included published recording"),9,Muted)]];
-    }
-    Items->AddSlot().AutoHeight()[SNew(SBox).MaxDesiredHeight(280)[SNew(SScrollBox)+SScrollBox::Slot()[Rows]]];
-    Items->AddSlot().AutoHeight().Padding(0,8)[Live([this]{return M->bRecordingLoading?TEXT("Verifying recording… current view retained"):M->IsRecordingLoadPending()?TEXT("Cancelling… finishing the current read"):TEXT("Camera and case retained. Import does not run a solver.");},9,Muted,true)];
-    Items->AddSlot().AutoHeight()[SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,7))
-        .IsEnabled_Lambda([this]{return M->bRecordingLoading;})
-        .OnClicked_Lambda([this]{M->CancelRecording();M->Notice=TEXT("Recording change cancelled. Current view retained.");return FReply::Handled();})[Label(TEXT("Cancel loading"))]];
-    return SNew(SBox).WidthOverride(380)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)[Items]];
-}
-
 TSharedRef<SWidget> SStudioWorkspace::AssetMenu()
 {
     M->RefreshAssets();

@@ -57,7 +57,7 @@ public:
         case 4:
             Test->TestEqual(TEXT("Setup category selected"),M.InspectorTab,0);
             Test->TestEqual(TEXT("Display actions not duplicated in Setup"),Count(TEXT("ScalarSelector")),0);
-            Test->TestEqual(TEXT("Recording selector belongs to Setup"),Count(TEXT("RecordingSelector")),1);
+            Test->TestEqual(TEXT("Recording selection has one home in Results"),Count(TEXT("RecordingSelector")),0);
             Capture(TEXT("setup.png"));Press(TEXT("InspectorTab1"));Next();break;
         case 5:Test->TestTrue(TEXT("Physics reads saved case choice"),VisibleText(GEngine->GameViewport->GetWindow().ToSharedRef()).Contains(TEXT("BGK")));Capture(TEXT("physics.png"));Press(TEXT("InspectorTab2"));Next();break;
         case 6:Test->TestTrue(TEXT("BCs reads assigned domain condition"),VisibleText(GEngine->GameViewport->GetWindow().ToSharedRef()).Contains(TEXT("Velocity inlet")));Capture(TEXT("boundaries.png"));Press(TEXT("InspectorTab3"));Next();break;

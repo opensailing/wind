@@ -64,7 +64,10 @@ public:
             Capture(TEXT("source-menu.png"));
             StudioFileDialog::SetNextRecordingFolderForAutomation(Folder);Press(TEXT("Import recording…"));Phase=2;break;
         case 2:
-            if(M.IsRecordingLoadPending()||!Scene->HasCurrentFrame())return false;
+            if(M.IsRecordingLoadPending())return false;
+            Route(Find(GEngine->GameViewport->GetWindow().ToSharedRef(),FString(),TEXT("ResultsInspect")));Phase=20;break;
+        case 20:
+            if(!Scene->HasCurrentFrame())return false;
             Test->TestEqual(TEXT("Routed import commits verified source"),M.Project.Dataset,FString(TEXT("external-ui-SU2-010")));
             Test->TestTrue(TEXT("Import retains exact camera"),StudioView::CameraEquals(M.Project.Camera,Original.Camera));
             Test->TestEqual(TEXT("Translated renderer uses descriptor minimum"),Scene->GetRenderedFlowBounds().Min,Bounds.Min);
@@ -82,7 +85,10 @@ public:
             Capture(TEXT("external-menu.png"));
             StudioFileDialog::SetNextRecordingFolderForAutomation(Moved);Press(TEXT("Locate…"));Phase=5;break;
         case 5:
-            if(M.IsRecordingLoadPending()||!Scene->HasCurrentFrame())return false;
+            if(M.IsRecordingLoadPending())return false;
+            Route(Find(GEngine->GameViewport->GetWindow().ToSharedRef(),FString(),TEXT("ResultsInspect")));Phase=50;break;
+        case 50:
+            if(!Scene->HasCurrentFrame())return false;
             Test->TestTrue(TEXT("Routed Locate updates external location"),FPaths::IsSamePath(M.Project.Recordings.Last().Path,Moved/TEXT("flow.bin")));
             M.Scrub(.4);Phase=6;break;
         case 6:
@@ -110,9 +116,6 @@ public:
         case 9:return !M.IsProjectOpenPending()&&Scene->HasCurrentFrame();
         case 100:
         {
-            const auto Selector=Find(GEngine->GameViewport->GetWindow().ToSharedRef(),FString(),TEXT("RecordingSelector"));
-            if(!Selector){Test->AddError(TEXT("Recording selector unavailable"));return true;}
-            Route(Find(Selector.ToSharedRef(),FString()));
             Phase=MenuNextPhase;ResumeFrame=GFrameCounter+2;break;
         }
         }
@@ -148,8 +151,8 @@ private:
     }
     void OpenSelector(int32 NextPhase)
     {
-        Route(Find(GEngine->GameViewport->GetWindow().ToSharedRef(),FString(),TEXT("InspectorTab0")));
-        // The selected inspector is exposed after Slate evaluates its attribute.
+        Route(Find(GEngine->GameViewport->GetWindow().ToSharedRef(),FString(),TEXT("Workspace9")));
+        // The Results source catalog is exposed after Slate evaluates its attribute.
         MenuNextPhase=NextPhase;Phase=100;ResumeFrame=GFrameCounter+2;
     }
     void Capture(const TCHAR* Name)
