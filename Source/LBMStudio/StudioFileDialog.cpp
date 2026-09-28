@@ -5,6 +5,15 @@
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 namespace { TOptional<FString> AutomationRecordingFolder,AutomationReconstructionFolder,AutomationProbeCSV,AutomationSnapshotPNG,AutomationResidualLog,AutomationFieldVTK; }
+namespace { TOptional<FString> AutomationExportFolder; }
+void StudioFileDialog::SetNextExportFolderForAutomation(const FString& Path)
+{check(IsInGameThread());if(FParse::Param(FCommandLine::Get(),TEXT("StudioAutomation")))AutomationExportFolder=Path;}
+bool StudioFileDialog::ConsumeExportFolderForAutomation(FString& Out,bool& bAccepted)
+{
+    if(!AutomationExportFolder.IsSet())return false;
+    bAccepted=!AutomationExportFolder->IsEmpty();if(bAccepted)Out=*AutomationExportFolder;
+    AutomationExportFolder.Reset();return true;
+}
 void StudioFileDialog::SetNextFieldVTKForAutomation(const FString& Path)
 {
     check(IsInGameThread());
@@ -75,6 +84,7 @@ bool StudioFileDialog::ConsumeReconstructionFolderForAutomation(FString& Out,boo
 }
 #endif
 #if !PLATFORM_MAC
+bool StudioFileDialog::ExportFolder(FString&){return false;}
 bool StudioFileDialog::CreateExportStage(const FString&,FString&,FString& Error)
 {Error=TEXT("Frame sequence publication is not available on this platform.");return false;}
 bool StudioFileDialog::PublishExportDirectory(const FString&,const FString&,FString& Error)

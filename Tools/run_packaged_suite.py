@@ -236,11 +236,14 @@ def main():
         if args.captures:
             target = output/'captures'
             target.mkdir(exist_ok=True)
-            for source in (saved/'Automation'/args.captures).glob('*'):
-                if source.suffix not in {'.png', '.csv', '.vtp'}:
+            capture_root = saved/'Automation'/args.captures
+            for source in capture_root.rglob('*'):
+                if not source.is_file() or source.suffix not in {'.png', '.csv', '.vtp', '.pvd'}:
                     continue
                 if source.stat().st_mtime >= started_wall:
-                    shutil.copy2(source, target/source.name)
+                    destination = target/source.relative_to(capture_root)
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination)
         manifest['passed'] = not manifest['errors']
         (output/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
         if residual_input is not None:

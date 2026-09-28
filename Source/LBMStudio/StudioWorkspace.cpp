@@ -1184,6 +1184,7 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,14,0)[Step]
         +SHorizontalBox::Slot().AutoWidth()[SNew(SStudioMenuButton).Tag(TEXT("ExportMenu")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7))
             .OnGetMenuContent(this,&SStudioWorkspace::ExportMenu)
+            .OnMenuOpenChanged_Lambda([State=FieldExport](bool Open){State->MenuOpenChanged(Open);})
             .ButtonContent()[Live([this]{return FieldExport->IsBusy()?TEXT("Exporting…"):TEXT("Export");},10)]]]];
 }
 TSharedRef<SWidget> SStudioWorkspace::Navigation()
@@ -3355,28 +3356,7 @@ FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEv
 }
 TSharedRef<SWidget> SStudioWorkspace::ExportMenu()
 {
-    const auto State=FieldExport.ToSharedRef();
-    auto VTK=SNew(SStudioMenuButton).Tag(TEXT("VTKExportMenu")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(10,8))
-        .OnGetMenuContent_Lambda([this,State]{return State->Menu(M.ToSharedRef(),Scene.Get());})
-        .OnMenuOpenChanged_Lambda([State](bool Open){State->MenuOpenChanged(Open);})
-        .ButtonContent()[Label(TEXT("VTK XML · original field…"),10)];
-    auto CSV=Button(TEXT("CSV · current frame"),TEXT("export"),[this]{FSlateApplication::Get().DismissAllMenus();Export();});
-    CSV->SetTag(TEXT("ExportFieldCSV"));
-    CSV->SetToolTipText(FText::FromString(TEXT("Export all original fields from the current frame in source coordinates to Saved/Exports.")));
-    return SNew(SBox).WidthOverride(290)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)
-        [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Export field data"),12,Text,true)]
-            +SVerticalBox::Slot().AutoHeight()[VTK]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[CSV]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[Live([State]{return State->Status();},9,Muted,true)]]];
-}
-void SStudioWorkspace::Export()
-{
-    if(!Scene->HasCurrentFrame()||!Scene->HasPresentedFrame())
-    { M->Notice=TEXT("The requested frame is still rendering. Pause or wait for the view, then export."); return; }
-    const FString Dir=FPaths::ProjectSavedDir()/TEXT("Exports");IFileManager::Get().MakeDirectory(*Dir,true);
-    const FString Path=Dir/(TEXT("su2-field-")+FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))+TEXT(".csv"));
-    const bool OK=M->ExportField(Path);M->Notice=OK?TEXT("Source field CSV exported to Saved/Exports."):TEXT("Could not write source field CSV.");M->AddLog(M->Notice,OK?EStudioLogSeverity::Info:EStudioLogSeverity::Error);
-    if(OK)FPlatformProcess::ExploreFolder(*FPaths::ConvertRelativePathToFull(Dir));
+    return FieldExport->Menu(M.ToSharedRef(),Scene.Get());
 }
 FIntPoint SStudioWorkspace::SnapshotOutputSize() const
 {

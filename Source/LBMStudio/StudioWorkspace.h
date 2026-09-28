@@ -230,7 +230,6 @@ private:
     bool ConfirmReplace(bool bAllowRecovery=false);
     bool EnsurePlacementResolved();
     bool OpenProject(const FString& Path, const FString& ReplacedRecentPath = FString());
-    void Export();
     TSharedRef<SWidget> ExportMenu();
     void Snapshot();
 };
