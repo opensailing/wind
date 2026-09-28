@@ -21,6 +21,7 @@ struct FStudioMaterialWorkspaceState;
 struct FStudioDomainWorkspaceState;
 struct FStudioBoundaryWorkspaceState;
 struct FStudioLatticeWorkspaceState;
+struct FStudioGeometryWorkspaceState;
 class SStudioWorkspace : public SCompoundWidget
 {
 public:
@@ -66,6 +67,7 @@ private:
     TMap<EStudioWorkspace,TSharedPtr<SButton>> NavigationButtons;
     TMap<FString,TSharedPtr<SWidget>> ProjectActionTargets;
     TSharedPtr<SVerticalBox> GeometryObjectRows;
+    TSharedPtr<FStudioGeometryWorkspaceState> GeometryState;
     int32 LastGeometryRevision=-1;
     FGuid GeometryProjectId;
     int64 GeometryCaseRevision=-1;
@@ -101,6 +103,9 @@ private:
     TSharedRef<SWidget> Projects();
     TSharedRef<SWidget> Dashboard();
     TSharedRef<SWidget> GeometryWorkspace();
+    TSharedRef<SWidget> GeometryObjectEditor(const FGuid& Id);
+    void RefreshGeometryEditor();
+    bool EnsureGeometryResolved();
     TSharedRef<SWidget> DomainWorkspace();
     void RefreshDomain();
     bool EnsureDomainResolved();

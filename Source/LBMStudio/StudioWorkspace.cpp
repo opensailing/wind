@@ -132,6 +132,8 @@ namespace StudioUI
     const FLinearColor Green=FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("43D981")));
     const FLinearColor Amber=FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("F0B74B")));
     const FSlateColorBrush Background(BG),PanelBrush(Panel),RaisedBrush(Raised),LineBrush(Line),White(FLinearColor::White);
+    const TCHAR* GeometrySaveGuard=TEXT("Apply or revert object edits before saving or replacing this project.");
+    const TCHAR* RemovedGeometrySaveGuard=TEXT("Discard the removed object's edits before saving or replacing this project.");
     const TCHAR* MaterialSaveGuard=TEXT("Apply or revert material properties before saving, closing or replacing the project.");
     const TCHAR* DomainSaveGuard=TEXT("Apply or revert the domain edits before saving or replacing this project.");
     const TCHAR* LatticeSaveGuard=TEXT("Apply or revert lattice edits before saving or replacing this project.");
@@ -1376,6 +1378,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     }
     if(LastAssetRevision!=M->AssetRevision) RefreshAssetRows();
     if(LastCameraCollectionRevision!=M->CameraCollectionRevision||CameraRowsProjectId!=M->Project.Id) RefreshCameraRows();
+    RefreshGeometryEditor();
     if(LastGeometryRevision!=M->GeometryRevision||GeometryProjectId!=M->Project.Id||GeometryCaseRevision!=M->Project.Draft.Revision)RefreshGeometryObjects();
     RefreshMaterials();
     RefreshDomain();
@@ -2576,14 +2579,14 @@ TSharedRef<SWidget> SStudioWorkspace::ViewHistoryControls()
 }
 bool SStudioWorkspace::Save(bool bSaveAs)
 {
-    if(!EnsurePlacementResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
     FString Path=M->ProjectPath;
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
     M->Project.Camera=Scene->SavedCameraState(); return M->SaveProject(Path);
 }
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
-    if(!EnsurePlacementResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
     if(!M->CanReplaceProject())return false;
     if(!bAllowRecovery&&!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before switching projects.");return false;}
     M->Project.Camera=Scene->SavedCameraState();
@@ -2629,7 +2632,7 @@ void SStudioWorkspace::Execute(ECommand Command)
     case ECommand::SaveAs: Save(true); break;
     case ECommand::DuplicateProject:
     {
-        if(!EnsurePlacementResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())break;
+        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())break;
         if(!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before duplicating a project.");break;}
         FString Path;
         if(!StudioFileDialog::Project(true,M->ProjectPath,M->Project.Name+TEXT(" copy"),Path)) break;
@@ -2977,6 +2980,37 @@ void SStudioWorkspace::ImportGeometry()
     FString Path;
     if(StudioFileDialog::ImportGeometry(Path)&&M->RequestGeometryImport(Path))Navigate(EStudioWorkspace::Geometry);
 }
+struct FStudioGeometryForm
+{
+    FStudioGeometryEdit Edit;
+    bool bConflict=false,bSynchronizing=false,bRemoved=false;
+    TWeakPtr<SEditableTextBox> Inputs[10];
+    TWeakPtr<SWidget> RemovedAction;
+    FString& Value(int32 Index){return Index==0?Edit.Name:Edit.Values[Index-1];}
+    void Synchronize()
+    {
+        bSynchronizing=true;
+        for(int32 Index=0;Index<10;++Index)if(auto Input=Inputs[Index].Pin())Input->SetText(FText::FromString(Value(Index)));
+        bSynchronizing=false;
+    }
+    void FocusError()
+    {
+        if(Edit.ErrorField>=0&&Edit.ErrorField<10)
+            if(auto Input=Inputs[Edit.ErrorField].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::Navigation);
+    }
+};
+struct FStudioGeometryWorkspaceState
+{
+    FGuid Project,SourceSelection,Selected,Presented,PendingSelection;
+    int64 Revision=-1;
+    bool bImport=false;
+    FString Notice;
+    TMap<FGuid,TSharedPtr<FStudioGeometryForm>> Drafts;
+    TMap<FGuid,TSharedPtr<SWidget>> Editors;
+    TSharedPtr<SBox> Details;
+    TSharedPtr<SVerticalBox> Removed;
+};
+
 void SStudioWorkspace::RefreshGeometryObjects()
 {
     LastGeometryRevision=M->GeometryRevision;GeometryProjectId=M->Project.Id;GeometryCaseRevision=M->Project.Draft.Revision;
@@ -2987,11 +3021,189 @@ void SStudioWorkspace::RefreshGeometryObjects()
     {
         const FGuid Id=Asset.Id;
         GeometryObjectRows->AddSlot().AutoHeight().Padding(0,0,0,5)
-        [SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,8)).IsEnabled_Lambda([this]{return !M->IsReadingGeometry();})
+        [SNew(SButton).Tag(FName(*(TEXT("GeometryRow_")+Id.ToString()))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,8)).IsEnabled_Lambda([this]{return !M->IsReadingGeometry()&&!M->IsProjectOpenPending();})
             .ToolTipText(FText::FromString(Asset.SourcePath)).OnClicked_Lambda([this,Id]{M->SelectGeometry(Id);return FReply::Handled();})
-            [SNew(STextBlock).Text(FText::FromString(Asset.Name)).Font(Font(10)).AutoWrapText(true)
+            [SNew(STextBlock).Text_Lambda([this,Id,Name=Asset.Name]
+                {const auto* Form=GeometryState?GeometryState->Drafts.Find(Id):nullptr;return FText::FromString(Name+(Form&&((*Form)->Edit.IsDirty()||(*Form)->bConflict)?TEXT(" *"):TEXT("")));}).Font(Font(10)).AutoWrapText(true)
                 .ColorAndOpacity_Lambda([this,Id]{return M->SelectedGeometry==Id?Cyan:Text;})]];
     }
+}
+
+void SStudioWorkspace::RefreshGeometryEditor()
+{
+    if(!GeometryState||!GeometryState->Details)return;
+    auto& State=*GeometryState;
+    if(State.Project!=M->Project.Id)
+    {
+        State.Project=M->Project.Id;State.Revision=-1;State.Drafts.Empty();State.Editors.Empty();
+        State.SourceSelection.Invalidate();State.Selected.Invalidate();State.Presented.Invalidate();
+        State.PendingSelection.Invalidate();
+        State.Details->SetContent(SNullWidget::NullWidget);State.Notice.Empty();State.bImport=false;
+    }
+    if(State.PendingSelection.IsValid()&&!M->IsReadingGeometry()&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending())
+    {
+        const FGuid Id=State.PendingSelection;State.PendingSelection.Invalidate();
+        if(M->Project.Draft.Geometry.ContainsByPredicate([Id](const auto& Asset){return Asset.Id==Id;}))M->SelectGeometry(Id);
+    }
+    if(State.SourceSelection!=M->SelectedGeometry||State.bImport!=M->bImportPreview)
+    {
+        State.SourceSelection=M->SelectedGeometry;State.bImport=M->bImportPreview;
+        State.Selected=M->bImportPreview?FGuid():M->SelectedGeometry;
+    }
+    if(State.Revision!=M->Project.Draft.Revision)
+    {
+        State.Revision=M->Project.Draft.Revision;
+        State.Removed->ClearChildren();
+        for(auto It=State.Drafts.CreateIterator();It;++It)
+        {
+            const FGuid Id=It.Key();const auto Form=It.Value();
+            const auto* Applied=M->Project.Draft.Geometry.FindByPredicate([Id](const auto& Asset){return Asset.Id==Id;});
+            Form->bRemoved=!Applied;
+            if(!Applied)
+            {
+                if(!Form->Edit.IsDirty()&&!Form->bConflict){State.Editors.Remove(Id);It.RemoveCurrent();continue;}
+                Form->bConflict=true;
+                auto Discard=Button(TEXT("Discard removed object's edits"),TEXT("stop"),[this,Id]
+                {
+                    GeometryState->Editors.Remove(Id);GeometryState->Drafts.Remove(Id);GeometryState->Revision=-1;
+                    GeometryState->Selected.Invalidate();GeometryState->Presented.Invalidate();
+                    if(GeometryState->PendingSelection==Id)GeometryState->PendingSelection.Invalidate();
+                    GeometryState->Details->SetContent(SNullWidget::NullWidget);
+                    GeometryState->Notice=TEXT("Removed object's unapplied edits discarded.");
+                    ResolveSaveNotice(*M,GeometrySaveGuard,GeometryState->Notice);
+                    ResolveSaveNotice(*M,RemovedGeometrySaveGuard,GeometryState->Notice);RefreshGeometryEditor();
+                });
+                Discard->SetTag(TEXT("DiscardRemovedGeometryDraft"));
+                Form->RemovedAction=Discard;
+                State.Removed->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SVerticalBox)
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Live([Name=Form->Edit.Saved.Name]
+                        {return Name+TEXT(" was removed. Its unapplied edits are retained.");},10,Amber,true)]
+                    +SVerticalBox::Slot().AutoHeight()[Discard]];
+            }
+            else if(!Form->Edit.Matches(*Applied))
+            {
+                if(Form->Edit.IsDirty()||Form->bConflict)Form->bConflict=true;
+                else {Form->Edit.Reset(*Applied);Form->Synchronize();}
+            }
+        }
+    }
+    if(State.Selected.IsValid()&&!State.Drafts.Contains(State.Selected))
+        if(const auto* Asset=M->Project.Draft.Geometry.FindByPredicate([&State](const auto& Item){return Item.Id==State.Selected;}))
+        {
+            const auto Form=MakeShared<FStudioGeometryForm>();Form->Edit.Reset(*Asset);State.Drafts.Add(State.Selected,Form);
+        }
+    if(State.Selected!=State.Presented)
+    {
+        State.Presented=State.Selected;
+        State.Details->SetContent(State.Drafts.Contains(State.Selected)?GeometryObjectEditor(State.Selected):SNullWidget::NullWidget);
+    }
+}
+
+bool SStudioWorkspace::EnsureGeometryResolved()
+{
+    RefreshGeometryEditor();
+    if(!GeometryState||GeometryState->Project!=M->Project.Id)return true;
+    for(const auto& Pair:GeometryState->Drafts)
+    {
+        if(!Pair.Value->Edit.IsDirty()&&!Pair.Value->bConflict)continue;
+        M->Notice=GeometryState->Notice=Pair.Value->bRemoved?RemovedGeometrySaveGuard:GeometrySaveGuard;
+        Navigate(EStudioWorkspace::Geometry);
+        if(M->IsReadingGeometry())GeometryState->PendingSelection=Pair.Key;
+        else {GeometryState->PendingSelection.Invalidate();M->SelectGeometry(Pair.Key);}
+        GeometryState->SourceSelection=M->SelectedGeometry;GeometryState->Selected=Pair.Key;
+        RefreshGeometryEditor();
+        if(Pair.Value->bRemoved)
+        {if(const auto Action=Pair.Value->RemovedAction.Pin())FSlateApplication::Get().SetKeyboardFocus(Action,EFocusCause::Navigation);}
+        else if(const auto Field=Pair.Value->Inputs[0].Pin())FSlateApplication::Get().SetKeyboardFocus(Field,EFocusCause::Navigation);
+        return false;
+    }
+    return true;
+}
+
+// THESIS: Position a verified case object with exact retained edits and one Apply.
+// OWN-WORLD: Existing compact native Geometry inspector, cyan actions and amber recovery.
+// STORY: Select an object, edit name/pose/scale, apply, inspect and save; undo restores it.
+// FIRST VIEWPORT: Object list and applied mesh stay visible beside the editable transform.
+// FORM: Local Operate extension; source provenance and observing cameras stay independent.
+// FINISH: Two-size native evidence, scoped finish review and documentation.
+TSharedRef<SWidget> SStudioWorkspace::GeometryObjectEditor(const FGuid& Id)
+{
+    if(const auto* Existing=GeometryState->Editors.Find(Id))return Existing->ToSharedRef();
+    const auto Form=GeometryState->Drafts.FindChecked(Id);const FGuid ProjectId=M->Project.Id;
+    auto Current=[this,Id,ProjectId]
+    {return M->Project.Id==ProjectId&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending()&&
+        M->Project.Draft.Geometry.ContainsByPredicate([Id](const auto& Asset){return Asset.Id==Id;});};
+    auto Apply=[this,Id,Form,Current]
+    {
+        if(!Current()||Form->bConflict)return;
+        if(!M->UpdateGeometry(Form->Edit)){Form->FocusError();return;}
+        const auto* Asset=M->Project.Draft.Geometry.FindByPredicate([Id](const auto& Item){return Item.Id==Id;});
+        Form->Edit.Reset(*Asset);Form->Synchronize();GeometryState->Notice=TEXT("Object changes applied.");
+        RefreshGeometryEditor();
+    };
+    auto Input=[this,Form,Apply,Current](int32 Index,const TCHAR* Tag)
+    {
+        auto Widget=SNew(SEditableTextBox).Tag(Tag).Style(&InputStyle()).Font(Font(10))
+            .Text(FText::FromString(Form->Value(Index))).SelectAllTextWhenFocused(true).ClearKeyboardFocusOnCommit(false)
+            .IsEnabled_Lambda(Current).ToolTipText_Lambda([Form,Index]{return FText::FromString(Form->Value(Index));})
+            .OnTextChanged_Lambda([this,Form,Index](const FText& Value)
+            {
+                if(Form->bSynchronizing)return;
+                Form->Value(Index)=Value.ToString();
+                if(!Form->Edit.Error.IsEmpty())
+                {
+                    if(M->GeometryNotice==Form->Edit.Error)M->GeometryNotice.Empty();
+                    if(M->Notice==Form->Edit.Error)M->Notice.Empty();
+                }
+                Form->Edit.Error.Empty();Form->Edit.ErrorField=INDEX_NONE;
+                if(GeometryState->Notice!=GeometrySaveGuard)GeometryState->Notice.Empty();
+            })
+            .OnTextCommitted_Lambda([Apply](const FText&,ETextCommit::Type How){if(How==ETextCommit::OnEnter)Apply();});
+        Form->Inputs[Index]=Widget;return Widget;
+    };
+    auto Fields=SNew(SVerticalBox);
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Object name"),10,Muted)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Input(0,TEXT("GeometryEditName"))];
+    const TCHAR* Headings[]={TEXT("Position (m)"),TEXT("Rotation (°)"),TEXT("Scale · source axes")};
+    const TCHAR* Labels[]={TEXT("X"),TEXT("Y"),TEXT("Z"),TEXT("Roll · X"),TEXT("Pitch · Y"),TEXT("Yaw · Z"),TEXT("X"),TEXT("Y"),TEXT("Z")};
+    for(int32 Group=0;Group<3;++Group)
+    {
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(Headings[Group],10,Muted)];
+        auto RowBox=SNew(SHorizontalBox);
+        for(int32 Axis=0;Axis<3;++Axis)
+        {
+            const int32 Index=Group*3+Axis;
+            RowBox->AddSlot().FillWidth(1).Padding(0,0,Axis<2?6:0,0)[SNew(SVerticalBox)
+                +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,4)[Label(Labels[Index],9,Muted)]
+                +SVerticalBox::Slot().AutoHeight()[Input(Index+1,*FString::Printf(TEXT("GeometryEditValue%d"),Index))]];
+        }
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[RowBox];
+    }
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([]
+        {return TEXT("Scale uses original mesh axes. Rotation is about the original origin; position is in case meters. Import units remain unchanged.");},9,Muted,true)];
+    auto ApplyButton=Button(TEXT("Apply changes"),TEXT("check"),Apply,Cyan);ApplyButton->SetTag(TEXT("ApplyGeometryEdits"));
+    ApplyButton->SetEnabled(TAttribute<bool>::CreateLambda([this,Id,Form,Current]
+        {return Current()&&!Form->bConflict&&Form->Edit.IsDirty()&&!M->bImportPreview&&!M->IsReadingGeometry()&&
+            M->SelectedGeometry==Id&&M->GeometrySource.IsValid();}));
+    auto Revert=Button(TEXT("Revert edits"),TEXT("undo"),[this,Id,Form,Current]
+    {
+        if(!Current())return;
+        const auto* Applied=M->Project.Draft.Geometry.FindByPredicate([Id](const auto& Asset){return Asset.Id==Id;});
+        Form->Edit.Reset(*Applied);Form->bConflict=false;Form->Synchronize();
+        GeometryState->Notice=TEXT("Applied object values restored.");ResolveSaveNotice(*M,GeometrySaveGuard,GeometryState->Notice);
+        ResolveSaveNotice(*M,RemovedGeometrySaveGuard,GeometryState->Notice);
+    });
+    Revert->SetTag(TEXT("RevertGeometryEdits"));
+    Revert->SetEnabled(TAttribute<bool>::CreateLambda([Form,Current]{return Current()&&(Form->Edit.IsDirty()||Form->bConflict);}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[ApplyButton]
+        +SHorizontalBox::Slot().FillWidth(1)[Revert]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([Form]
+        {return Form->bRemoved?TEXT("This object is no longer in the case. Discard its unapplied edits above."):
+            Form->bConflict?TEXT("This object changed outside the form. Revert before applying."):
+            !Form->Edit.Error.IsEmpty()?Form->Edit.Error:Form->Edit.IsDirty()?TEXT("Unapplied edits. The viewport still shows the applied object."):FString();},10,Amber,true)];
+    auto Widget=SNew(SBox).Tag(TEXT("GeometryObjectEditor"))[Fields];
+    GeometryState->Editors.Add(Id,Widget);return Widget;
 }
 struct FStudioMaterialForm
 {
@@ -3815,6 +4027,7 @@ TSharedRef<SWidget> SStudioWorkspace::LatticeWorkspace()
 
 TSharedRef<SWidget> SStudioWorkspace::GeometryWorkspace()
 {
+    GeometryState=MakeShared<FStudioGeometryWorkspaceState>();
     auto Copy=[&](TFunction<FString()> Read,FLinearColor Color=Muted)
     {return SNew(STextBlock).Text_Lambda([Read]{return FText::FromString(Read());}).Font(Font(10)).ColorAndOpacity(Color).AutoWrapText(true);};
     auto Picker=[&](TFunction<FString()> Read,TArray<FString> Names,TFunction<void(int32)> Select)
@@ -3826,10 +4039,12 @@ TSharedRef<SWidget> SStudioWorkspace::GeometryWorkspace()
     };
     auto Undo=Button(TEXT("Undo case"),TEXT("undo"),[this]{M->UndoCase();});Undo->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanUndoCase();}));
     auto Redo=Button(TEXT("Redo case"),TEXT("redo"),[this]{M->RedoCase();});Redo->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanRedoCase();}));
+    Undo->SetTag(TEXT("GeometryUndo"));Redo->SetTag(TEXT("GeometryRedo"));
     auto Commit=Button(TEXT("Import into case"),TEXT("plus"),[this]{M->CommitGeometryImport();},Cyan);
     Commit->SetEnabled(TAttribute<bool>::CreateLambda([this]{FStudioGeometryAsset A;FString E;return M->bImportPreview&&!M->IsReadingGeometry()&&M->GeometryAssetForPreview(A,E);}));
     auto Cancel=Button(TEXT("Cancel preview"),TEXT("stop"),[this]{M->CancelGeometryImport();});
     Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->bImportPreview||M->IsReadingGeometry();}));
+    Cancel->SetVisibility(TAttribute<EVisibility>::CreateLambda([this]{return M->bImportPreview||M->IsReadingGeometry()?EVisibility::Visible:EVisibility::Collapsed;}));
     const auto AxisNames=TArray<FString>{TEXT("X"),TEXT("Y"),TEXT("Z")};
     auto Options=SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Import settings"),12,Text,true)]
@@ -3846,16 +4061,21 @@ TSharedRef<SWidget> SStudioWorkspace::GeometryWorkspace()
         {if(!M->GeometrySource.IsValid())return FString(TEXT("Choose a file to begin."));FStudioGeometryAsset A;FString Error;if(!M->GeometryAssetForPreview(A,Error))return Error;return FString(TEXT("Source forward maps to +X; source up maps to +Z. Original coordinates are retained."));})]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Commit];
     Options->SetVisibility(TAttribute<EVisibility>::CreateLambda([this]{return M->bImportPreview?EVisibility::Visible:EVisibility::Collapsed;}));
-    auto Inspector=SNew(SScrollBox)
+    auto Inspector=SNew(SRetainedFormScrollBox).Tag(TEXT("GeometryInspector")).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(10)
         +SScrollBox::Slot().Padding(14)[SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]{return M->IsReadingGeometry()?TEXT("Reading geometry…"):M->bImportPreview?TEXT("Preview before import"):TEXT("Geometry details");},12,Text,true)]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[Copy([this]{return M->GeometryNotice.IsEmpty()?TEXT("Select an object to verify its source and inspect its mesh."):M->GeometryNotice;})]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[Copy([this]
+            {
+                const auto* Form=GeometryState->Drafts.Find(GeometryState->Selected);
+                if(Form&&(*Form)->bRemoved)return FString(TEXT("Selected object removed. No mesh is being previewed for it."));
+                return M->GeometryNotice.IsEmpty()?TEXT("Select an object to verify its source and inspect its mesh."):M->GeometryNotice;
+            })]
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Cancel]
             +SVerticalBox::Slot().AutoHeight()[Options]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,8)[SNew(SEditableTextBox).Style(&InputStyle()).Font(Font(10))
-                .HintText(FText::FromString(TEXT("Object name"))).Visibility_Lambda([this]{return !M->bImportPreview&&M->SelectedGeometry.IsValid()?EVisibility::Visible:EVisibility::Collapsed;})
-                .Text_Lambda([this]{const auto* A=M->Project.Draft.Geometry.FindByPredicate([this](const auto& G){return G.Id==M->SelectedGeometry;});return FText::FromString(A?A->Name:FString());})
-                .OnTextCommitted_Lambda([this](const FText& TextValue,ETextCommit::Type Type){if(Type==ETextCommit::OnCleared)return;const auto Id=M->SelectedGeometry;const auto Name=TextValue.ToString();M->EditCase(TEXT("Rename geometry"),[Id,Name](auto& D){if(auto* A=D.Geometry.FindByPredicate([Id](const auto& G){return G.Id==Id;}))A->Name=Name;});})]
+            +SVerticalBox::Slot().AutoHeight()[SAssignNew(GeometryState->Removed,SVerticalBox)]
+            +SVerticalBox::Slot().AutoHeight()[SAssignNew(GeometryState->Details,SBox)
+                .Visibility_Lambda([this]{return M->bImportPreview?EVisibility::Collapsed:EVisibility::Visible;})]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Copy([this]{return GeometryState->Notice;})]
             +SVerticalBox::Slot().AutoHeight()[Section(TEXT("Source mesh"),Copy([this]
             {const auto Mesh=M->GeometrySource.Mesh;if(!Mesh)return FString(TEXT("No verified mesh selected."));return FString::Printf(TEXT("%s\n%d vertices · %d triangles\n%d surface patches"),*FPaths::GetCleanFilename(M->GeometrySource.Path),Mesh->Positions.Num(),Mesh->Indices.Num()/3,Mesh->PatchNames.Num());}))]
             +SVerticalBox::Slot().AutoHeight()[Section(TEXT("Dimensions"),Copy([this]
@@ -3875,7 +4095,14 @@ TSharedRef<SWidget> SStudioWorkspace::GeometryWorkspace()
             +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[SNew(SBorder).BorderImage(&LineBrush).Padding(1)
                 [SNew(SOverlay)+SOverlay::Slot()[SNew(SFlowViewport).Scene(Scene.Get())]
                     +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12)[SNew(SBorder).BorderImage(&PanelBrush).Padding(8,5)
-                        [Live([this]{return M->bImportPreview?M->ImportOptions.MetersPerUnit>0?TEXT("Import preview · not yet in case"):TEXT("Import preview · source units unknown"):TEXT("Selected case object · recorded CFD unchanged");},10,Muted)]]
+                        [Live([this]
+                        {
+                            if(M->bImportPreview)return M->ImportOptions.MetersPerUnit>0?TEXT("Import preview · not yet in case"):TEXT("Import preview · source units unknown");
+                            if(M->IsReadingGeometry())return TEXT("Reading selected object…");
+                            if(!M->GeometrySource.IsValid())return TEXT("Object preview unavailable");
+                            const auto* Form=GeometryState->Drafts.Find(M->SelectedGeometry);
+                            return Form&&((*Form)->Edit.IsDirty()||(*Form)->bConflict)?TEXT("Applied object · unapplied edits not shown"):TEXT("Applied case object");
+                        },10,Muted)]]
                     +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(12)[SNew(SOrientationAxes).Scene(Scene.Get()).Visibility(EVisibility::HitTestInvisible)]
                     +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(12)[SNew(SVerticalBox)
                         +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,0,0,6)[Button(TEXT("Fit geometry"),TEXT("fit"),[this]{Scene->FitCamera();})]
