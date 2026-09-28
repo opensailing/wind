@@ -18,6 +18,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioProbeProfile.h"
 #include "SStudioProbeProfile.h"
 #include "StudioPointRecording.h"
+#include "StudioMaterials.h"
+#include "StudioBoundaries.h"
+#include "StudioBoundarySelection.h"
 #include "Widgets/Layout/SWrapBox.h"
 #include "Fonts/FontMeasure.h"
 #include "Misc/MessageDialog.h"
@@ -129,6 +132,15 @@ namespace StudioUI
     const FLinearColor Green=FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("43D981")));
     const FLinearColor Amber=FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("F0B74B")));
     const FSlateColorBrush Background(BG),PanelBrush(Panel),RaisedBrush(Raised),LineBrush(Line),White(FLinearColor::White);
+    const TCHAR* MaterialSaveGuard=TEXT("Apply or revert material properties before saving, closing or replacing the project.");
+    const TCHAR* DomainSaveGuard=TEXT("Apply or revert the domain edits before saving or replacing this project.");
+    const TCHAR* LatticeSaveGuard=TEXT("Apply or revert lattice edits before saving or replacing this project.");
+    const TCHAR* BoundarySaveGuard=TEXT("Apply or revert boundary edits before saving or replacing this project.");
+    void ResolveSaveNotice(FStudioModel& Model,const TCHAR* Guard,const FString& Resolution)
+    {
+        // Reverting a form resolves its own save warning without hiding a newer job or file error.
+        if(Model.Notice==Guard)Model.Notice=Resolution;
+    }
     FSlateFontInfo Font(int32 Size=10,bool Bold=false) { return FCoreStyle::GetDefaultFontStyle(Bold?"Bold":"Regular",Size); }
     const FButtonStyle& ButtonStyle()
     {
@@ -1092,14 +1104,18 @@ void SStudioWorkspace::Construct(const FArguments& A)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Navigation()]
             +SHorizontalBox::Slot().FillWidth(1).Padding(7,0,7,0)[SNew(SWidgetSwitcher)
-                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:0;})
+                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:0;})
                 +SWidgetSwitcher::Slot()[SolveSurface]
                 +SWidgetSwitcher::Slot()[ProjectsSurface]
                 +SWidgetSwitcher::Slot()[DashboardSurface]
-                +SWidgetSwitcher::Slot()[GeometryWorkspace()]]]
+                +SWidgetSwitcher::Slot()[GeometryWorkspace()]
+                +SWidgetSwitcher::Slot()[MaterialsWorkspace()]
+                +SWidgetSwitcher::Slot()[DomainWorkspace()]
+                +SWidgetSwitcher::Slot()[BoundaryWorkspace()]
+                +SWidgetSwitcher::Slot()[LatticeWorkspace()]]]
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
-            +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):TEXT("RECORDED CFD");},8,Amber)]
+            +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):TEXT("RECORDED CFD");},8,Amber)]
             +SHorizontalBox::Slot().FillWidth(1).Padding(12,0).VAlign(VAlign_Center)[Live([this]{return M->IsProjectOpenPending()?M->ProjectOpenStatus():M->Notice.IsEmpty()?M->Solver->Descriptor().Title+TEXT(" · Recorded CFD · Custom solver not connected"):M->Notice;},9,Muted)]
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)
                 [SNew(SBox).Visibility_Lambda([this]{return M->IsProjectOpenPending()?EVisibility::Visible:EVisibility::Collapsed;})
@@ -1154,7 +1170,7 @@ TSharedRef<SWidget> SStudioWorkspace::Navigation()
         const bool bAvailable=FStudioModel::IsWorkspaceAvailable(Destination);
         List->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(45)
             [SNew(SBorder).BorderImage_Lambda([this,Destination]{return M->Workspace==Destination?&RaisedBrush:&Background;}).Padding(0)
-            [SAssignNew(NavigationButtons.FindOrAdd(Destination),SButton).ButtonStyle(&NavigationStyle()).ContentPadding(FMargin(14,0)).IsEnabled(bAvailable)
+            [SAssignNew(NavigationButtons.FindOrAdd(Destination),SButton).Tag(FName(*FString::Printf(TEXT("Workspace%d"),I))).ButtonStyle(&NavigationStyle()).ContentPadding(FMargin(14,0)).IsEnabled(bAvailable)
                 .ToolTipText(FText::FromString(bAvailable?Name:Name+TEXT(" — being implemented")))
                 .OnClicked_Lambda([this,Destination]{Navigate(Destination);return FReply::Handled();})
                 [SNew(SHorizontalBox)
@@ -1361,6 +1377,10 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     if(LastAssetRevision!=M->AssetRevision) RefreshAssetRows();
     if(LastCameraCollectionRevision!=M->CameraCollectionRevision||CameraRowsProjectId!=M->Project.Id) RefreshCameraRows();
     if(LastGeometryRevision!=M->GeometryRevision||GeometryProjectId!=M->Project.Id||GeometryCaseRevision!=M->Project.Draft.Revision)RefreshGeometryObjects();
+    RefreshMaterials();
+    RefreshDomain();
+    RefreshBoundaries();
+    RefreshLattice();
     if(DisplayMenuProject!=M->Project.Id||DisplayMenuSource.Pin()!=M->Solver||DisplayMenuScalar!=M->ActiveScalar().Id)
         DisplayMenuDrafts.Empty(); // Release prior recording closures even if no editor is reopened.
     if(bProjectListsDirty || LastCatalogRevision!=M->CatalogRevision || DashboardProjectId!=M->Project.Id || DashboardRunCount!=M->Project.Runs.Num()) RefreshProjectLists();
@@ -2178,18 +2198,15 @@ TSharedRef<SWidget> SStudioWorkspace::Settings()
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return TEXT("Case: ")+M->Project.Draft.Name;},10,Text,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return FString::Printf(TEXT("%d saved condition%s"),M->Project.Draft.Boundaries.Num(),M->Project.Draft.Boundaries.Num()==1?TEXT(""):TEXT("s"));},10,Cyan)]
         +SVerticalBox::Slot().AutoHeight()[Live([]{return TEXT("Assignments below belong to the saved case. Recording boundary conditions are not supplied by this data adapter.");},9,Muted,true)])];
-    const auto BoundaryName=[](EStudioBoundaryType Type)->FString
-    {
-        switch(Type){case EStudioBoundaryType::VelocityInlet:return TEXT("Velocity inlet");case EStudioBoundaryType::PressureOutlet:return TEXT("Pressure outlet");
-            case EStudioBoundaryType::NoSlip:return TEXT("No slip wall");case EStudioBoundaryType::Slip:return TEXT("Slip wall");case EStudioBoundaryType::Symmetry:return TEXT("Symmetry");default:return TEXT("Unassigned");}
-    };
+    const auto BoundaryName=[](EStudioBoundaryType Type)->FString{return StudioBoundaries::TypeName(Type);};
     auto Faces=SNew(SVerticalBox);
     const TCHAR* FaceNames[]={TEXT("−X"),TEXT("+X"),TEXT("−Y"),TEXT("+Y"),TEXT("−Z"),TEXT("+Z")};
     for(int32 I=0;I<6;++I)Faces->AddSlot().AutoHeight().Padding(0,0,0,8)[Row(FaceNames[I],Live([this,I,BoundaryName]
     {
         const auto& D=M->Project.Draft;if(!D.Domain.Faces.IsValidIndex(I))return FString(TEXT("Unavailable"));
         const auto* B=D.Boundaries.FindByPredicate([&](const auto& V){return V.TargetId==D.Domain.Faces[I];});
-        return B?BoundaryName(B->Type):FString(TEXT("Unassigned"));
+        const FString Name=D.Domain.FaceNames.IsValidIndex(I)?D.Domain.FaceNames[I]:FString();
+        return Name+TEXT(" · ")+(B?BoundaryName(B->Type):FString(TEXT("Unassigned")));
     },9),190)];
     Boundaries->AddSlot().AutoHeight()[Section(TEXT("Domain faces"),Faces)];
     Boundaries->AddSlot().AutoHeight()[Section(TEXT("Surface patches"),Live([this,BoundaryName]
@@ -2559,14 +2576,14 @@ TSharedRef<SWidget> SStudioWorkspace::ViewHistoryControls()
 }
 bool SStudioWorkspace::Save(bool bSaveAs)
 {
-    if(!EnsurePlacementResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
     FString Path=M->ProjectPath;
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
     M->Project.Camera=Scene->SavedCameraState(); return M->SaveProject(Path);
 }
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
-    if(!EnsurePlacementResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
     if(!M->CanReplaceProject())return false;
     if(!bAllowRecovery&&!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before switching projects.");return false;}
     M->Project.Camera=Scene->SavedCameraState();
@@ -2612,7 +2629,7 @@ void SStudioWorkspace::Execute(ECommand Command)
     case ECommand::SaveAs: Save(true); break;
     case ECommand::DuplicateProject:
     {
-        if(!EnsurePlacementResolved())break;
+        if(!EnsurePlacementResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())break;
         if(!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before duplicating a project.");break;}
         FString Path;
         if(!StudioFileDialog::Project(true,M->ProjectPath,M->Project.Name+TEXT(" copy"),Path)) break;
@@ -2976,6 +2993,826 @@ void SStudioWorkspace::RefreshGeometryObjects()
                 .ColorAndOpacity_Lambda([this,Id]{return M->SelectedGeometry==Id?Cyan:Text;})]];
     }
 }
+struct FStudioMaterialForm
+{
+    FStudioMaterialEdit Edit;
+    bool bConflict=false;
+    bool bSynchronizing=false;
+    TWeakPtr<SEditableTextBox> Name;
+    TWeakPtr<SEditableTextBox> Inputs[4];
+    void Synchronize()
+    {
+        bSynchronizing=true;
+        if(auto Field=Name.Pin())Field->SetText(FText::FromString(Edit.Name));
+        for(int32 I=0;I<4;++I)if(auto Field=Inputs[I].Pin())Field->SetText(FText::FromString(Edit.Values[I]));
+        bSynchronizing=false;
+    }
+};
+struct FStudioMaterialWorkspaceState
+{
+    FGuid Project,Selected,Presented;
+    int64 Revision=-1;
+    TMap<FGuid,TSharedPtr<FStudioMaterialForm>> Drafts;
+    TMap<FGuid,TSharedPtr<SWidget>> Editors;
+    TSharedPtr<SVerticalBox> Rows,Assignments;
+    TSharedPtr<SBox> Details;
+    FString Notice;
+};
+
+// THESIS: Materials belong to the editable case, with unknown values left unknown.
+// OWN-WORLD: Existing blue-black Slate panels, compact SI fields, cyan selection.
+// STORY: Add a fluid or solid, enter known properties, apply and assign to the case.
+// FIRST VIEWPORT: Material list left, retained property form center, assignments right.
+// FORM: Native Operate extension, one sidebar route, no duplicate settings elsewhere.
+// FINISH: Native two-size evidence, independent finish review and design documentation.
+TSharedRef<SWidget> SStudioWorkspace::MaterialsWorkspace()
+{
+    MaterialsState=MakeShared<FStudioMaterialWorkspaceState>();
+    auto Available=[this]{return !M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
+    auto Add=[this](bool Solid)
+    {FGuid Id;if(M->AddMaterial(Solid,Id)){MaterialsState->Selected=Id;MaterialsState->Notice=TEXT("Material added. Enter known properties, then apply.");RefreshMaterials();}else MaterialsState->Notice=M->Notice;};
+    auto Fluid=Button(TEXT("Add fluid"),TEXT("plus"),[Add]{Add(false);},Cyan);Fluid->SetTag(TEXT("AddFluidMaterial"));Fluid->SetEnabled(TAttribute<bool>::CreateLambda(Available));
+    auto Solid=Button(TEXT("Add solid"),TEXT("plus"),[Add]{Add(true);});Solid->SetTag(TEXT("AddSolidMaterial"));Solid->SetEnabled(TAttribute<bool>::CreateLambda(Available));
+    auto Undo=Button(TEXT("Undo case"),TEXT("undo"),[this]{M->UndoCase();RefreshMaterials();});Undo->SetTag(TEXT("MaterialsUndo"));
+    Undo->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&M->CanUndoCase();}));
+    auto Redo=Button(TEXT("Redo case"),TEXT("redo"),[this]{M->RedoCase();RefreshMaterials();});Redo->SetTag(TEXT("MaterialsRedo"));
+    Redo->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&M->CanRedoCase();}));
+    return SNew(SBorder).Tag(TEXT("MaterialsWorkspace")).BorderImage(&PanelBrush).Padding(18)
+        [SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Materials"),20,Text,true)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,16)[Label(TEXT("Case properties and assignments. Blank values remain unknown."),10,Muted)]
+            +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
+                +SHorizontalBox::Slot().AutoWidth().Padding(0,0,16,0)[SNew(SBox).WidthOverride(210)
+                    [SNew(SVerticalBox)
+                        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Fluid]
+                        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[Solid]
+                        +SVerticalBox::Slot().FillHeight(1)[SNew(SRetainedFormScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
+                            +SScrollBox::Slot()[SAssignNew(MaterialsState->Rows,SVerticalBox)]]
+                        +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,6)[Undo]
+                        +SVerticalBox::Slot().AutoHeight()[Redo]]]
+                +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,18,0)[SNew(SRetainedFormScrollBox).Tag(TEXT("MaterialPropertiesScroll"))
+                    .ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(8)
+                    +SScrollBox::Slot()[SAssignNew(MaterialsState->Details,SBox)]]
+                +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(280)[SNew(SRetainedFormScrollBox)
+                    .ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(8)
+                    +SScrollBox::Slot()[SAssignNew(MaterialsState->Assignments,SVerticalBox)]]]]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,14,0,0)
+                [Live([this]{return MaterialsState->Notice.IsEmpty()?TEXT("Properties are stored in SI units. Solver-specific validation is not available until an adapter supplies its rules."):MaterialsState->Notice;},10,Muted,true)]];
+}
+
+TSharedRef<SWidget> SStudioWorkspace::MaterialDetails(const FGuid& Id)
+{
+    if(const auto* Existing=MaterialsState->Editors.Find(Id))return Existing->ToSharedRef();
+    const auto Form=MaterialsState->Drafts.FindChecked(Id);
+    const FGuid ProjectId=M->Project.Id;
+    auto Current=[this,Id,ProjectId,Form]
+    {return M->Project.Id==ProjectId&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending()&&!Form->bConflict&&
+        M->Project.Draft.Materials.ContainsByPredicate([Id](const auto& Item){return Item.Id==Id;});};
+    auto Apply=[this,Form,Current]
+    {
+        if(!Current())return;
+        const auto* Saved=M->Project.Draft.Materials.FindByPredicate([Id=Form->Edit.Saved.Id](const auto& Item){return Item.Id==Id;});
+        if(!Saved||!Form->Edit.Matches(*Saved)){Form->bConflict=true;return;}
+        FStudioMaterial Candidate;
+        if(!Form->Edit.Build(Candidate))return;
+        if(!M->UpdateMaterial(Candidate)){Form->Edit.Error=M->Notice;return;}
+        Form->Edit.Reset(Candidate,true);Form->Synchronize();MaterialsState->Notice=TEXT("Material saved in the case. Recording and existing runs are unchanged.");
+        ResolveSaveNotice(*M,MaterialSaveGuard,MaterialsState->Notice);RefreshMaterials();
+    };
+    auto Fields=SNew(SVerticalBox);
+    auto Name=SNew(SEditableTextBox).Tag(TEXT("MaterialName")).Style(&InputStyle()).Font(Font(10))
+        .Text(FText::FromString(Form->Edit.Name)).SelectAllTextWhenFocused(true).ClearKeyboardFocusOnCommit(false)
+        .OnTextChanged_Lambda([Form](const FText& Value){if(!Form->bSynchronizing){Form->Edit.Name=Value.ToString();Form->Edit.Error.Empty();}})
+        .OnTextCommitted_Lambda([Apply](const FText&,ETextCommit::Type How){if(How==ETextCommit::OnEnter)Apply();});
+    Form->Name=Name;
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,7)[Label(TEXT("Name"),10,Muted)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,14)[Name];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,16)[Row(TEXT("Material type"),SNew(SStudioMenuButton).Tag(TEXT("MaterialType"))
+        .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6)).OnGetMenuContent_Lambda([Form]
+        {
+            auto Choices=SNew(SVerticalBox);
+            for(bool Solid:{false,true})Choices->AddSlot().AutoHeight()[Button(Solid?TEXT("Solid"):TEXT("Fluid"),TEXT("box"),[Form,Solid]
+                {FSlateApplication::Get().DismissAllMenus();Form->Edit.bSolid=Solid;Form->Edit.Error.Empty();})];
+            return Choices;
+        }).ButtonContent()[Live([Form]{return Form->Edit.bSolid?TEXT("Solid"):TEXT("Fluid");})],150)];
+    for(int32 I=0;I<4;++I)
+    {
+        const auto Property=EStudioMaterialProperty(I);
+        auto Editor=SNew(SProjectFilterBox).Tag(FName(*FString::Printf(TEXT("MaterialProperty%d"),I)))
+            .Style(&InputStyle()).Font(Font(10)).Text(FText::FromString(Form->Edit.Values[I]))
+            .HintText(FText::FromString(TEXT("Unknown"))).SelectAllTextWhenFocused(true).ClearKeyboardFocusOnCommit(false)
+            .OnTextChanged_Lambda([Form,I](const FText& Value){if(!Form->bSynchronizing){Form->Edit.Values[I]=Value.ToString();Form->Edit.Error.Empty();Form->Edit.ErrorProperty=INDEX_NONE;}})
+            .OnTextCommitted_Lambda([Apply](const FText&,ETextCommit::Type How){if(How==ETextCommit::OnEnter)Apply();});
+        Form->Inputs[I]=Editor;
+        TSharedRef<SWidget> Unit=Label(StudioMaterials::UnitLabel(Property,0),9,Muted);
+        if(StudioMaterials::UnitCount(Property)>1)
+            Unit=SNew(SStudioMenuButton).Tag(FName(*FString::Printf(TEXT("MaterialUnit%d"),I)))
+                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,6)).OnGetMenuContent_Lambda([Form,Property]
+                {
+                    auto Choices=SNew(SVerticalBox);
+                    for(int32 U=0;U<StudioMaterials::UnitCount(Property);++U)
+                    {
+                        auto Choice=Button(StudioMaterials::UnitLabel(Property,U),TEXT("select"),[Form,Property,U]
+                        {FSlateApplication::Get().DismissAllMenus();if(Form->Edit.ChangeUnit(Property,U))Form->Synchronize();});
+                        Choice->SetTag(FName(*FString::Printf(TEXT("MaterialUnitOption%d_%d"),int32(Property),U)));Choices->AddSlot().AutoHeight()[Choice];
+                    }
+                    return Choices;
+                }).ButtonContent()[Live([Form,Property]{return FString(StudioMaterials::UnitLabel(Property,Form->Edit.Units[int32(Property)]));},9)];
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(StudioMaterials::PropertyName(Property),10,Muted)];
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,14)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1)[Editor]
+            +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8,0,0,0)[SNew(SBox).WidthOverride(100)[Unit]]];
+    }
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Live([Form]
+    {return Form->bConflict?TEXT("This material changed through undo or another edit. Your text is retained. Use Revert to load the saved values before applying."):Form->Edit.Error;},10,Amber,true)];
+    auto ApplyButton=Button(TEXT("Apply properties"),TEXT("check"),Apply,Cyan);ApplyButton->SetTag(TEXT("ApplyMaterial"));
+    ApplyButton->SetEnabled(TAttribute<bool>::CreateLambda([Current,Form]{return Current()&&Form->Edit.IsDirty();}));
+    auto Revert=Button(TEXT("Revert"),TEXT("undo"),[this,Form,Id,ProjectId]
+    {if(M->Project.Id!=ProjectId)return;if(const auto* Saved=M->Project.Draft.Materials.FindByPredicate([Id](const auto& Item){return Item.Id==Id;}))
+        {Form->Edit.Reset(*Saved,true);Form->bConflict=false;Form->Synchronize();
+            MaterialsState->Notice=TEXT("Loaded the applied material properties.");ResolveSaveNotice(*M,MaterialSaveGuard,MaterialsState->Notice);}});
+    Revert->SetTag(TEXT("RevertMaterial"));Revert->SetEnabled(TAttribute<bool>::CreateLambda([Form]{return Form->bConflict||Form->Edit.IsDirty();}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8,6))
+        +SWrapBox::Slot()[ApplyButton]+SWrapBox::Slot()[Revert]];
+    Fields->AddSlot().AutoHeight()[Live([Form]{return Form->Edit.IsDirty()?TEXT("Unapplied properties are retained when switching materials or workspaces. Apply before saving the project."):TEXT("Applied properties are included when you save the project.");},9,Muted,true)];
+    MaterialsState->Editors.Add(Id,Fields);return Fields;
+}
+
+void SStudioWorkspace::RefreshMaterials()
+{
+    if(!MaterialsState||!MaterialsState->Rows||!MaterialsState->Details||!MaterialsState->Assignments)return;
+    auto& State=*MaterialsState;
+    if(State.Project==M->Project.Id&&State.Revision==M->Project.Draft.Revision&&State.Presented==State.Selected)return;
+    if(State.Project!=M->Project.Id)
+    {FSlateApplication::Get().DismissAllMenus();State.Project=M->Project.Id;State.Selected.Invalidate();State.Drafts.Empty();State.Editors.Empty();State.Notice.Empty();}
+    State.Revision=M->Project.Draft.Revision;
+    for(auto It=State.Drafts.CreateIterator();It;++It)
+        if(!M->Project.Draft.Materials.ContainsByPredicate([Id=It.Key()](const auto& Material){return Material.Id==Id;}))
+        {State.Editors.Remove(It.Key());It.RemoveCurrent();}
+    for(const auto& Material:M->Project.Draft.Materials)
+    {
+        auto& Form=State.Drafts.FindOrAdd(Material.Id);
+        if(!Form){Form=MakeShared<FStudioMaterialForm>();Form->Edit.Reset(Material);}
+        else if(!Form->Edit.Matches(Material))
+        {
+            if(Form->Edit.IsDirty())Form->bConflict=true;
+            else {Form->Edit.Reset(Material,true);Form->bConflict=false;Form->Synchronize();}
+        }
+        else Form->bConflict=false;
+    }
+    if(!State.Drafts.Contains(State.Selected))State.Selected=M->Project.Draft.Materials.IsEmpty()?FGuid():M->Project.Draft.Materials[0].Id;
+    State.Presented=State.Selected;
+    const auto Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();FGuid FocusId;
+    const FName FocusTag=Focused?Focused->GetTag():NAME_None;
+    if(Focused)for(const auto& Material:M->Project.Draft.Materials)
+        if(FocusTag==FName(*(FString(TEXT("MaterialRow_"))+Material.Id.ToString())))FocusId=Material.Id;
+    State.Rows->ClearChildren();State.Assignments->ClearChildren();
+    TSharedPtr<SWidget> RestoreFocus;
+    for(const auto& Material:M->Project.Draft.Materials)
+    {
+        const FGuid Id=Material.Id;
+        auto Select=SNew(SButton).Tag(FName(*(FString(TEXT("MaterialRow_"))+Id.ToString()))).ButtonStyle(&ButtonStyle())
+            .ContentPadding(FMargin(10,9)).OnClicked_Lambda([this,Id]{MaterialsState->Selected=Id;RefreshMaterials();return FReply::Handled();})
+            [SNew(SVerticalBox)
+                +SVerticalBox::Slot().AutoHeight()[Live([this,Id]
+                {const auto* Item=M->Project.Draft.Materials.FindByPredicate([Id](const auto& V){return V.Id==Id;});const auto* Draft=MaterialsState->Drafts.Find(Id);return Item?Item->Name+(Draft&&(*Draft)->Edit.IsDirty()?TEXT(" *"):TEXT("")):FString();},10,State.Selected==Id?Cyan:Text,true)]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,0)[Label(FString(Material.bSolid?TEXT("Solid"):TEXT("Fluid"))+FString::Printf(TEXT(" · %d assignments"),StudioMaterials::AssignmentCount(M->Project.Draft,Id)),9,Muted)]];
+        State.Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Select];if(Id==FocusId)RestoreFocus=Select;
+    }
+    if(!State.Selected.IsValid())
+    {
+        State.Details->SetContent(SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("No materials yet"),14,Text,true)]
+            +SVerticalBox::Slot().AutoHeight()[Live([]{return TEXT("Add a fluid or solid to define the material properties for your case. No properties are inferred from the recorded CFD.");},10,Muted,true)]);
+        State.Assignments->AddSlot().AutoHeight()[Live([]{return TEXT("Assignments appear after you add a material. Domain and imported objects can be assigned separately.");},10,Muted,true)];return;
+    }
+    const FGuid Id=State.Selected,ProjectId=M->Project.Id;
+    State.Details->SetContent(MaterialDetails(Id));
+    const auto Form=State.Drafts.FindChecked(Id);
+    auto Available=[this,ProjectId]{return M->Project.Id==ProjectId&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
+    auto Duplicate=Button(TEXT("Duplicate"),TEXT("plus"),[this,Id,Available,Form]
+    {if(!Available())return;if(Form->Edit.IsDirty()){MaterialsState->Notice=TEXT("Apply or revert this material before duplicating it.");return;}FGuid New;if(M->DuplicateMaterial(Id,New)){MaterialsState->Selected=New;RefreshMaterials();}else MaterialsState->Notice=M->Notice;});
+    Duplicate->SetTag(TEXT("DuplicateMaterial"));Duplicate->SetEnabled(TAttribute<bool>::CreateLambda(Available));
+    const int32 Count=StudioMaterials::AssignmentCount(M->Project.Draft,Id);
+    auto Delete=Button(Count?TEXT("Unassign and delete"):TEXT("Delete material"),TEXT("stop"),[this,Id,Available,Form,Count]
+    {
+        if(!Available())return;
+        if(Form->Edit.IsDirty()){MaterialsState->Notice=TEXT("Apply or revert this material before deleting it.");return;}
+        if(M->DeleteMaterial(Id,Count>0)){MaterialsState->Notice=TEXT("Material removed from the case. Undo case restores its properties and assignments.");RefreshMaterials();}else MaterialsState->Notice=M->Notice;
+    });
+    Delete->SetTag(TEXT("DeleteMaterial"));Delete->SetEnabled(TAttribute<bool>::CreateLambda(Available));
+    State.Assignments->AddSlot().AutoHeight().Padding(0,0,0,14)[SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Duplicate]
+        +SVerticalBox::Slot().AutoHeight()[Delete]];
+    State.Assignments->AddSlot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Assignments"),12,Text,true)];
+    State.Assignments->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([]{return TEXT("Assignments use applied properties. Changes are included in case undo and project saves.");},9,Muted,true)];
+    const auto* Saved=M->Project.Draft.Materials.FindByPredicate([Id](const auto& Item){return Item.Id==Id;});
+    auto Domain=SNew(SCheckBox).Tag(TEXT("MaterialDomainAssignment"))
+        .IsEnabled_Lambda([Available,Solid=Saved->bSolid]{return Available()&&!Solid;})
+        .IsChecked_Lambda([this,Id]{return M->Project.Draft.Domain.FluidMaterialId==Id?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+        .OnCheckStateChanged_Lambda([this,Id](ECheckBoxState Value){M->AssignDomainMaterial(Value==ECheckBoxState::Checked?Id:FGuid());RefreshMaterials();})
+        [Label(TEXT("Fluid domain"),10)];
+    State.Assignments->AddSlot().AutoHeight().Padding(0,0,0,6)[Domain];
+    if(FocusTag==TEXT("MaterialDomainAssignment"))RestoreFocus=Domain;
+    if(Saved->bSolid)State.Assignments->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([]{return TEXT("A solid cannot be assigned as the domain fluid.");},9,Muted,true)];
+    if(M->Project.Draft.Geometry.IsEmpty())State.Assignments->AddSlot().AutoHeight().Padding(0,8)[Live([]{return TEXT("Import geometry to assign materials to case objects.");},10,Muted,true)];
+    for(const auto& Geometry:M->Project.Draft.Geometry)
+    {
+        const FGuid GeometryId=Geometry.Id;
+        auto Assignment=SNew(SCheckBox).Tag(FName(*(FString(TEXT("MaterialGeometry_"))+GeometryId.ToString())))
+            .IsEnabled_Lambda(Available).IsChecked_Lambda([this,GeometryId,Id]
+            {const auto* Item=M->Project.Draft.Geometry.FindByPredicate([GeometryId](const auto& G){return G.Id==GeometryId;});return Item&&Item->MaterialId==Id?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+            .OnCheckStateChanged_Lambda([this,GeometryId,Id](ECheckBoxState Value){M->AssignGeometryMaterial(GeometryId,Value==ECheckBoxState::Checked?Id:FGuid());RefreshMaterials();})
+            [Live([Name=Geometry.Name]{return Name;},10,Text,true)];
+        State.Assignments->AddSlot().AutoHeight().Padding(0,6)[Assignment];
+        if(FocusTag==Assignment->GetTag())RestoreFocus=Assignment;
+    }
+    State.Assignments->AddSlot().AutoHeight().Padding(0,18,0,0)[Live([]{return TEXT("A new assignment replaces that object's previous material. Existing run configurations keep their original materials.");},9,Muted,true)];
+    if(RestoreFocus)FSlateApplication::Get().SetKeyboardFocus(RestoreFocus,EFocusCause::Navigation);
+}
+
+bool SStudioWorkspace::EnsureMaterialsResolved()
+{
+    RefreshMaterials();
+    if(!MaterialsState||MaterialsState->Project!=M->Project.Id)return true;
+    for(const auto& Pair:MaterialsState->Drafts)
+        if(Pair.Value->Edit.IsDirty()||Pair.Value->bConflict)
+        {
+            MaterialsState->Selected=Pair.Key;
+            MaterialsState->Notice=MaterialSaveGuard;
+            M->Notice=MaterialsState->Notice;Navigate(EStudioWorkspace::Materials);RefreshMaterials();
+            if(const auto Focus=Pair.Value->Name.Pin())FSlateApplication::Get().SetKeyboardFocus(Focus,EFocusCause::Navigation);
+            return false;
+        }
+    return true;
+}
+
+struct FStudioDomainWorkspaceState
+{
+    FStudioDomainEdit Edit;
+    FGuid Project;
+    int64 Revision=-1;
+    bool bConflict=false,bSynchronizing=false;
+    FString Notice;
+    uint64 EditRevision=0;
+    TWeakPtr<SEditableTextBox> Inputs[21];
+    bool CanPreviewDraft(const AStudioScene* Scene,FStudioDomain& Domain) const
+    {
+        if(!Scene||!Scene->Model||bConflict||Scene->Model->Workspace!=EStudioWorkspace::Domain||
+            Project!=Scene->Model->Project.Id||Scene->Model->IsProjectOpenPending()||Scene->Model->IsRecordingLoadPending())return false;
+        auto Draft=Edit;return Draft.Build(Domain);
+    }
+    FString& Value(int32 Index)
+    {return Index<6?(Index%2?Edit.Maximum[Index/2]:Edit.Minimum[Index/2]):Index<12?Edit.FaceNames[Index-6]:Index<18?Edit.Padding[Index-12]:Edit.Dimensions[Index-18];}
+    void Synchronize()
+    {
+        bSynchronizing=true;
+        for(int32 I=0;I<21;++I)if(auto Input=Inputs[I].Pin())Input->SetText(FText::FromString(Value(I)));
+        bSynchronizing=false;
+    }
+    void Change(int32 Index,const FString& ValueText)
+    {
+        if(bSynchronizing)return;
+        if(Index<6)Edit.SetCoordinate(Index,ValueText);
+        else if(Index>=18)Edit.SetDimension(Index-18,ValueText);
+        else Value(Index)=ValueText;
+        ++EditRevision;Edit.Error.Empty();if(!bConflict)Notice.Empty();
+        bSynchronizing=true;
+        const int32 Other=Index<6?18+Index/2:Index>=18?(Index-18)*2+1:INDEX_NONE;
+        if(Other!=INDEX_NONE)if(auto Input=Inputs[Other].Pin())Input->SetText(FText::FromString(Value(Other)));
+        bSynchronizing=false;
+    }
+    void FocusError()
+    {if(Edit.ErrorField>=0&&Edit.ErrorField<21)if(auto Input=Inputs[Edit.ErrorField].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::SetDirectly);}
+};
+class SDomainViewport final : public SFlowViewport
+{
+public:
+    SLATE_BEGIN_ARGS(SDomainViewport){}
+        SLATE_ARGUMENT(AStudioScene*,Scene)
+        SLATE_ARGUMENT(TSharedPtr<FStudioDomainWorkspaceState>,Form)
+    SLATE_END_ARGS()
+    void Construct(const FArguments& A)
+    {Form=A._Form;SFlowViewport::Construct(SFlowViewport::FArguments().Scene(A._Scene));}
+    ~SDomainViewport(){RestoreDrag();}
+    bool CanEdit(FStudioDomain& Domain) const
+    {
+        return Scene.IsValid()&&Form&&Form->CanPreviewDraft(Scene.Get(),Domain);
+    }
+    double Aspect() const
+    {const auto Size=Scene->PresentedViewportSize();return Size.Y>0?double(Size.X)/Size.Y:0.;}
+    int32 Hit(const FGeometry& G,FVector2D Pixel,const FStudioDomain& Domain) const
+    {
+        double Best=100;int32 Face=INDEX_NONE;
+        for(int32 I=0;I<6;++I)
+        {
+            FVector2D P;if(!StudioCameraPlacement::Project(Scene->PresentedCamera(),G.GetLocalSize(),StudioDomain::FaceCenter(Domain,I),P,Aspect()))continue;
+            if(P.X<10||P.Y<10||P.X>G.GetLocalSize().X-28||P.Y>G.GetLocalSize().Y-20)continue;
+            const double Distance=(Pixel-P).SizeSquared();if(Distance<Best){Best=Distance;Face=I;}
+        }
+        return Face;
+    }
+    bool Current(const FGeometry* G=nullptr) const
+    {
+        return FaceDrag.IsSet()&&Scene.IsValid()&&Form->Project==Scene->Model->Project.Id&&
+            Scene->Model->Workspace==EStudioWorkspace::Domain&&Scene->Model->Project.Draft.Revision==CaseRevision&&
+            Scene->Model->SelectedDomainFace==FaceDrag->Face&&!Form->bConflict&&Form->EditRevision==OwnedRevision&&
+            StudioView::CameraEquals(Scene->CameraState(),FaceDrag->Observer)&&Aspect()==FaceDrag->ProjectionAspect&&
+            (!G||G->GetLocalSize().Equals(FaceDrag->Viewport));
+    }
+    void RestoreDrag()
+    {
+        if(Current()){Form->Edit=OriginalDraft;Form->Synchronize();++Form->EditRevision;Form->Notice=TEXT("Face drag cancelled. Earlier edits retained.");}
+        FaceDrag.Reset();
+    }
+    virtual int32 OnPaint(const FPaintArgs& Args,const FGeometry& G,const FSlateRect& Cull,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle& Style,bool Enabled) const override
+    {
+        Layer=SFlowViewport::OnPaint(Args,G,Cull,Out,Layer,Style,Enabled);
+        FStudioDomain Domain;if(!CanEdit(Domain)||!Scene->HasDomainPreview())return Layer;
+        const auto& Observer=Scene->PresentedCamera();const auto Size=G.GetLocalSize();
+        if(Form->Edit.IsDirty())
+        {
+            FVector Corners[8];for(int32 I=0;I<8;++I)Corners[I]=FVector(I&1?Domain.Max.X:Domain.Min.X,I&2?Domain.Max.Y:Domain.Min.Y,I&4?Domain.Max.Z:Domain.Min.Z);
+            for(int32 I=0;I<8;++I)for(int32 Axis=0;Axis<3;++Axis)if(!(I&(1<<Axis)))
+            {FVector2D A,B;if(StudioCameraPlacement::ProjectLine(Observer,Size,Corners[I],Corners[I|(1<<Axis)],A,B,Aspect()))
+                FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),TArray<FVector2D>{A,B},ESlateDrawEffect::None,Amber,true,1.4);}
+        }
+        for(int32 Face=0;Face<6;++Face)
+        {
+            FVector2D P;if(!StudioCameraPlacement::Project(Observer,Size,StudioDomain::FaceCenter(Domain,Face),P,Aspect())||
+                P.X<10||P.Y<10||P.X>Size.X-28||P.Y>Size.Y-20)continue;
+            const bool Active=Face==Scene->Model->SelectedDomainFace;
+            const FLinearColor Color=FaceDrag.IsSet()&&FaceDrag->Face==Face?Text:Form->Edit.IsDirty()?Amber:Active?Cyan:Muted;
+            FSlateDrawElement::MakeBox(Out,Layer+2,G.ToPaintGeometry(FVector2D(10,10),FSlateLayoutTransform(P-FVector2D(5,5))),&White,ESlateDrawEffect::None,Panel);
+            const float Width=Face==HoverFace||Active?2.f:1.f;
+            FSlateDrawElement::MakeLines(Out,Layer+3,G.ToPaintGeometry(),TArray<FVector2D>{P+FVector2D(-5,-5),P+FVector2D(5,-5),P+FVector2D(5,5),P+FVector2D(-5,5),P+FVector2D(-5,-5)},ESlateDrawEffect::None,Color,true,Width);
+            FSlateDrawElement::MakeText(Out,Layer+3,G.ToPaintGeometry(FVector2D(24,14),FSlateLayoutTransform(P+FVector2D(8,-7))),
+                FString::Printf(TEXT("%c%c"),Face%2?TEXT('+'):TEXT('-'),TEXT("XYZ")[Face/2]),Font(9,true),ESlateDrawEffect::None,Color);
+        }
+        return Layer+3;
+    }
+    virtual void Tick(const FGeometry& G,double T,float D) override
+    {
+        SFlowViewport::Tick(G,T,D);
+        if(FaceDrag.IsSet()&&!Current(&G))
+        {FaceDrag.Reset();Form->Notice=TEXT("The view or case changed during the drag. Current edits retained.");ReleaseOwnCapture();}
+        if(PaintedRevision!=Form->EditRevision){PaintedRevision=Form->EditRevision;Invalidate(EInvalidateWidgetReason::Paint);}
+    }
+    virtual FReply OnMouseButtonDown(const FGeometry& G,const FPointerEvent& Event) override
+    {
+        FStudioDomain Domain;
+        if(Event.GetEffectingButton()==EKeys::LeftMouseButton&&CanEdit(Domain)&&Scene->HasDomainPreview())
+        {
+            const auto Pixel=G.AbsoluteToLocal(Event.GetScreenSpacePosition());const int32 Face=Hit(G,Pixel,Domain);
+            if(Face!=INDEX_NONE)
+            {
+                StudioDomain::FFaceDrag Start;
+                if(!StudioDomain::BeginFaceDrag(Domain,Face,Scene->PresentedCamera(),G.GetLocalSize(),Pixel,Start,Aspect()))
+                {Form->Notice=TEXT("This face is viewed along its normal. Orbit the view, or edit its coordinate in Bounds.");return FReply::Handled();}
+                ReleaseOwnCapture();Scene->Model->SelectDomainFace(Face);OriginalDraft=Form->Edit;FaceDrag=Start;
+                CaseRevision=Scene->Model->Project.Draft.Revision;OwnedRevision=Form->EditRevision;
+                CapturedUser=Event.GetUserIndex();CapturedPointer=Event.GetPointerIndex();Drag=EKeys::LeftMouseButton;
+                Form->Notice=TEXT("Drag to resize the amber draft outline over the applied domain. Release, then Apply domain. Escape cancels this drag.");
+                return FReply::Handled().SetUserFocus(SharedThis(this)).CaptureMouse(SharedThis(this));
+            }
+        }
+        return SFlowViewport::OnMouseButtonDown(G,Event);
+    }
+    virtual FReply OnMouseMove(const FGeometry& G,const FPointerEvent& Event) override
+    {
+        if(FaceDrag.IsSet())
+        {
+            if(!OwnsPointer(Event))return FReply::Unhandled();
+            if(!Current(&G)){FaceDrag.Reset();FinishInput();return FReply::Handled().ReleaseMouseCapture();}
+            FStudioDomain Domain;
+            if(StudioDomain::DragFace(*FaceDrag,G.AbsoluteToLocal(Event.GetScreenSpacePosition()),Domain))
+            {
+                const int32 Face=FaceDrag->Face;
+                Form->Edit.SetCoordinate(Face,StudioMaterials::ExactNumber(Face%2?Domain.Max[Face/2]:Domain.Min[Face/2]));
+                Form->Synchronize();OwnedRevision=++Form->EditRevision;Invalidate(EInvalidateWidgetReason::Paint);
+            }
+            else Form->Notice=TEXT("The face must leave a positive domain dimension within ±1e8 m. Earlier valid draft position retained.");
+            return FReply::Handled();
+        }
+        FStudioDomain Domain;const int32 NewHover=CanEdit(Domain)?Hit(G,G.AbsoluteToLocal(Event.GetScreenSpacePosition()),Domain):INDEX_NONE;
+        if(HoverFace!=NewHover){HoverFace=NewHover;Invalidate(EInvalidateWidgetReason::Paint);}
+        return SFlowViewport::OnMouseMove(G,Event);
+    }
+    virtual FReply OnMouseButtonUp(const FGeometry& G,const FPointerEvent& Event) override
+    {
+        if(FaceDrag.IsSet()&&OwnsPointer(Event)&&Event.GetEffectingButton()==EKeys::LeftMouseButton)
+        {FaceDrag.Reset();Form->Notice=TEXT("Face drag ended. Apply domain to use the draft bounds, or Revert edits.");FinishInput();return FReply::Handled().ReleaseMouseCapture();}
+        return SFlowViewport::OnMouseButtonUp(G,Event);
+    }
+    virtual FReply OnMouseWheel(const FGeometry& G,const FPointerEvent& Event) override
+    {return FaceDrag.IsSet()?FReply::Handled():SFlowViewport::OnMouseWheel(G,Event);}
+    virtual FReply OnKeyDown(const FGeometry& G,const FKeyEvent& Event) override
+    {
+        if(FaceDrag.IsSet()&&Event.GetKey()==EKeys::Escape){RestoreDrag();ReleaseOwnCapture();return FReply::Handled();}
+        if(FaceDrag.IsSet())return FReply::Handled();
+        return SFlowViewport::OnKeyDown(G,Event);
+    }
+    virtual void OnFocusLost(const FFocusEvent& Event) override
+    {RestoreDrag();SFlowViewport::OnFocusLost(Event);}
+    virtual void OnMouseCaptureLost(const FCaptureLostEvent& Event) override
+    {if(Event.UserIndex==int32(CapturedUser)&&Event.PointerIndex==int32(CapturedPointer))RestoreDrag();SFlowViewport::OnMouseCaptureLost(Event);}
+private:
+    TSharedPtr<FStudioDomainWorkspaceState> Form;
+    TOptional<StudioDomain::FFaceDrag> FaceDrag;
+    FStudioDomainEdit OriginalDraft;
+    int32 HoverFace=INDEX_NONE;
+    int64 CaseRevision=0;
+    uint64 OwnedRevision=0,PaintedRevision=MAX_uint64;
+};
+
+void SStudioWorkspace::RefreshDomain()
+{
+    if(!DomainState)return;
+    auto& State=*DomainState;
+    if(State.Project==M->Project.Id&&State.Revision==M->Project.Draft.Revision)return;
+    if(State.Project!=M->Project.Id)
+    {
+        State.Edit=FStudioDomainEdit();State.Edit.Reset(M->Project.Draft.Domain);State.bConflict=false;
+        State.Notice.Empty();State.Project=M->Project.Id;State.Synchronize();++State.EditRevision;
+    }
+    else if(!State.Edit.Matches(M->Project.Draft.Domain))
+    {
+        if(State.Edit.IsDirty())
+        {State.bConflict=true;State.Notice=TEXT("The applied domain changed while you were editing. Your text is retained. Revert to load the current domain.");}
+        else {State.Edit.Reset(M->Project.Draft.Domain);State.bConflict=false;State.Synchronize();++State.EditRevision;}
+    }
+    State.Revision=M->Project.Draft.Revision;
+}
+void SStudioWorkspace::ApplyDomain()
+{
+    RefreshDomain();auto& State=*DomainState;
+    if(State.bConflict)return;
+    FStudioDomain Domain;
+    if(!State.Edit.Build(Domain)){State.Notice=State.Edit.Error;State.FocusError();return;}
+    if(!M->UpdateDomain(Domain)){State.Notice=M->Notice;return;}
+    State.Edit.Reset(M->Project.Draft.Domain);State.Synchronize();++State.EditRevision;State.Revision=M->Project.Draft.Revision;
+    State.Notice=TEXT("Domain applied to the case. Save to keep these changes.");
+    ResolveSaveNotice(*M,DomainSaveGuard,State.Notice);
+}
+bool SStudioWorkspace::EnsureDomainResolved()
+{
+    RefreshDomain();
+    if(DomainState&&(DomainState->Edit.IsDirty()||DomainState->bConflict))
+    {
+        DomainState->Notice=DomainSaveGuard;
+        M->Notice=DomainState->Notice;Navigate(EStudioWorkspace::Domain);
+        if(auto Input=DomainState->Inputs[0].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::SetDirectly);
+        return false;
+    }
+    return true;
+}
+
+// THESIS: Author a physical case domain against verified imported geometry.
+// OWN-WORLD: Incumbent blue-black Slate scene, compact meter fields and cyan face selection.
+// STORY: Check source geometry, edit bounds or fit with padding, name faces, apply and save.
+// FIRST VIEWPORT: Applied 3D domain left, one retained domain inspector right.
+// FORM: Local Operate extension reached only through the existing sidebar.
+// FINISH: Two-size native controls/preview evidence and independent finish handoffs.
+TSharedRef<SWidget> SStudioWorkspace::DomainWorkspace()
+{
+    DomainState=MakeShared<FStudioDomainWorkspaceState>();RefreshDomain();
+    const auto State=DomainState;
+    auto Available=[this]{return !M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
+    auto Copy=[](TFunction<FString()> Read,FLinearColor Color=Muted)
+    {return SNew(STextBlock).Text_Lambda([Read]{return FText::FromString(Read());}).Font(Font(10)).ColorAndOpacity(Color).AutoWrapText(true);};
+    auto Layers=[this,State]() -> FString
+    {
+        if(!Scene.IsValid()||!Scene->HasDomainPreview())return TEXT("Domain preview unavailable");
+        if(State->bConflict)return TEXT("Applied domain · Conflicting draft hidden");
+        FStudioDomain Draft;
+        if(State->Edit.IsDirty()&&!State->CanPreviewDraft(Scene.Get(),Draft))return TEXT("Applied domain · Invalid draft hidden");
+        return State->Edit.IsDirty()?TEXT("Applied domain + amber draft outline"):TEXT("Applied domain");
+    };
+    auto Input=[this,State](int32 Index,const FString& Name)
+    {
+        auto Field=SNew(SEditableTextBox).Tag(FName(*FString::Printf(TEXT("DomainValue%d"),Index)))
+            .Style(&InputStyle()).Font(Font(10)).Text(FText::FromString(State->Value(Index)))
+            .ToolTipText_Lambda([State,Index,Name]{return FText::FromString(Name+TEXT(": ")+State->Value(Index));})
+            .OnTextChanged_Lambda([State,Index](const FText& Value)
+            {State->Change(Index,Value.ToString());})
+            .OnTextCommitted_Lambda([this,Index](const FText&,ETextCommit::Type Type){if(Type==ETextCommit::OnEnter&&(Index<12||Index>=18))ApplyDomain();});
+        State->Inputs[Index]=Field;return Field;
+    };
+    auto Fields=SNew(SVerticalBox);
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,7)[Label(TEXT("Bounds · meters"),12,Text,true)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(23)]
+        +SHorizontalBox::Slot().FillWidth(1)[Label(TEXT("Minimum"),9,Muted)]
+        +SHorizontalBox::Slot().FillWidth(1)[Label(TEXT("Maximum"),9,Muted)]];
+    for(int32 Axis=0;Axis<3;++Axis)
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SBox).WidthOverride(23)[Label(FString::Chr(TEXT("XYZ")[Axis]),10,Text,true)]]
+            +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,5,0)[Input(Axis*2,FString::Printf(TEXT("%c minimum (m)"),TEXT("XYZ")[Axis]))]
+            +SHorizontalBox::Slot().FillWidth(1)[Input(Axis*2+1,FString::Printf(TEXT("%c maximum (m)"),TEXT("XYZ")[Axis]))]];
+    Fields->AddSlot().AutoHeight().Padding(0,8,0,6)[Label(TEXT("Dimensions · meters"),11,Text,true)];
+    auto Dimensions=SNew(SHorizontalBox);
+    for(int32 Axis=0;Axis<3;++Axis)Dimensions->AddSlot().FillWidth(1).Padding(Axis?5:0,0,0,0)[SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,4)[Label(FString::Chr(TEXT("XYZ")[Axis]),9,Muted)]
+        +SVerticalBox::Slot().AutoHeight()[Input(18+Axis,FString::Printf(TEXT("%c dimension (m), anchored at minimum"),TEXT("XYZ")[Axis]))]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,5)[Dimensions];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("Changing a dimension keeps its minimum fixed."),9,Muted)];
+    auto Apply=Button(TEXT("Apply domain"),TEXT("check"),[this]{ApplyDomain();},Cyan);Apply->SetTag(TEXT("DomainApply"));
+    Apply->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&!State->bConflict&&State->Edit.IsDirty();}));
+    auto Revert=Button(TEXT("Revert edits"),TEXT("undo"),[this,State]
+    {State->Edit.Reset(M->Project.Draft.Domain);State->bConflict=false;State->Notice=TEXT("Loaded the applied case domain.");State->Revision=M->Project.Draft.Revision;State->Synchronize();++State->EditRevision;
+        ResolveSaveNotice(*M,DomainSaveGuard,State->Notice);});
+    Revert->SetTag(TEXT("DomainRevert"));Revert->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&(State->bConflict||State->Edit.IsDirty()||!State->Edit.Error.IsEmpty());}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Apply]+SHorizontalBox::Slot().AutoWidth()[Revert]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Copy(Layers)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Copy([State]
+    {return State->Notice.IsEmpty()?(State->Edit.IsDirty()?TEXT("Edits are unapplied. Apply domain to use them, or Revert edits."):TEXT("Edits are applied to the case.")):State->Notice;},Amber)];
+    Fields->AddSlot().AutoHeight().Padding(0,14,0,7)[Label(TEXT("Faces"),12,Text,true)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Select a face to highlight it in the preview."),9,Muted)];
+    for(int32 Face=0;Face<6;++Face)
+    {
+        const FString Axis=FString::Printf(TEXT("%c%c"),Face%2?TEXT('+'):TEXT('-'),TEXT("XYZ")[Face/2]);
+        auto Select=SNew(SButton).Tag(FName(*FString::Printf(TEXT("DomainFace%d"),Face))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
+            .ToolTipText_Lambda([this,Face]{return FText::FromString(TEXT("Highlight ")+M->Project.Draft.Domain.FaceNames[Face]);})
+            .OnClicked_Lambda([this,Face]{M->SelectDomainFace(Face);return FReply::Handled();})
+            [SNew(STextBlock).Text(FText::FromString(Axis)).Font(Font(10)).ColorAndOpacity_Lambda([this,Face]{return M->SelectedDomainFace==Face?Cyan:Muted;})];
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,7,0)[SNew(SBox).WidthOverride(42)[Select]]
+            +SHorizontalBox::Slot().FillWidth(1)[Input(6+Face,Axis+TEXT(" face name"))]];
+    }
+    Fields->AddSlot().AutoHeight().Padding(0,16,0,7)[Label(TEXT("Fit to geometry"),12,Text,true)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Copy([]{return FString(TEXT("Padding for the next fit, in meters. Planar geometry needs padding to enclose a 3D volume."));})];
+    for(int32 Axis=0;Axis<3;++Axis)
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SBox).WidthOverride(23)[Label(FString::Chr(TEXT("XYZ")[Axis]),10,Text,true)]]
+            +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,5,0)[Input(12+Axis*2,FString::Printf(TEXT("-%c padding (m)"),TEXT("XYZ")[Axis]))]
+            +SHorizontalBox::Slot().FillWidth(1)[Input(13+Axis*2,FString::Printf(TEXT("+%c padding (m)"),TEXT("XYZ")[Axis]))]];
+    auto Fit=Button(TEXT("Fit bounds with padding"),TEXT("fit"),[this,State]
+    {RefreshDomain();if(State->bConflict||!M->DomainGeometry||!M->DomainGeometry->Complete())return;
+        if(State->Edit.Fit(M->DomainGeometry->Bounds)){State->Synchronize();++State->EditRevision;State->Notice=TEXT("Draft bounds fitted to geometry. Apply domain to use them in the case.");}
+        else {State->Notice=State->Edit.Error;State->FocusError();}});
+    Fit->SetTag(TEXT("DomainFitBounds"));Fit->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]
+    {return Available()&&!State->bConflict&&!M->IsReadingDomainGeometry()&&M->DomainGeometry&&M->DomainGeometry->Complete();}));
+    Fields->AddSlot().AutoHeight().Padding(0,4,0,6)[Fit];
+    Fields->AddSlot().AutoHeight()[Label(TEXT("Left column: negative face · Right: positive face"),9,Muted)];
+    auto Check=Button(TEXT("Check geometry"),TEXT("check"),[this]{M->RequestDomainGeometry();});Check->SetTag(TEXT("DomainCheckGeometry"));
+    Check->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&!M->IsReadingDomainGeometry();}));
+    auto Cancel=Button(TEXT("Cancel check"),TEXT("stop"),[this]{M->CancelDomainGeometry();});Cancel->SetTag(TEXT("DomainCancelCheck"));
+    Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->IsReadingDomainGeometry();}));
+    auto Undo=Button(TEXT("Undo case"),TEXT("undo"),[this]{M->UndoCase();RefreshDomain();});Undo->SetTag(TEXT("DomainUndo"));
+    Undo->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]{return Available()&&!State->Edit.IsDirty()&&!State->bConflict&&M->CanUndoCase();}));
+    auto Redo=Button(TEXT("Redo case"),TEXT("redo"),[this]{M->RedoCase();RefreshDomain();});Redo->SetTag(TEXT("DomainRedo"));
+    Redo->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]{return Available()&&!State->Edit.IsDirty()&&!State->bConflict&&M->CanRedoCase();}));
+    auto Inspector=SNew(SRetainedFormScrollBox).Tag(TEXT("DomainInspector")).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12)
+        +SScrollBox::Slot().Padding(14)[SNew(SBox).IsEnabled_Lambda(Available)[Fields]];
+    auto FitView=Button(TEXT("Fit view"),TEXT("fit"),[this]{if(Scene.IsValid())Scene->FitCamera();});FitView->SetTag(TEXT("DomainFitView"));
+    return SNew(SVerticalBox).Tag(TEXT("DomainWorkspace"))
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SBorder).BorderImage(&PanelBrush).Padding(14,10)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Domain"),18,Text,true)]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Undo]+SHorizontalBox::Slot().AutoWidth()[Redo]]]
+        +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[SNew(SVerticalBox)
+                +SVerticalBox::Slot().FillHeight(1)[SNew(SBorder).BorderImage(&LineBrush).Padding(1)[SNew(SOverlay)
+                    +SOverlay::Slot()[SNew(SDomainViewport).Tag(TEXT("DomainViewport")).Scene(Scene.Get()).Form(State)]
+                    +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12)[SNew(SBorder).BorderImage(&PanelBrush).Padding(8,5)
+                        [Live(Layers,10,Muted)]]
+                    +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(12)[SNew(SOrientationAxes).Scene(Scene.Get()).Visibility(EVisibility::HitTestInvisible)]
+                    +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(12)[SNew(SVerticalBox)
+                        +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,0,0,6)[FitView]
+                        +SVerticalBox::Slot().AutoHeight()[SNew(SBorder).BorderImage(&PanelBrush).Padding(8,5)
+                            [Label(TEXT("Square handles: resize · Drag: orbit · Middle-drag: pan · Scroll: zoom"),9,Muted)]]]]]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)[SNew(SVerticalBox)
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SHorizontalBox)
+                        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Geometry containment"),11,Text,true)]
+                        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,5,0)[Check]+SHorizontalBox::Slot().AutoWidth()[Cancel]]
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Copy([this]{return M->DomainNotice;})]
+                    +SVerticalBox::Slot().AutoHeight()[SNew(SBox).MaxDesiredHeight(128)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(STextBlock).Font(Font(10)).AutoWrapText(true)
+                    .ColorAndOpacity_Lambda([this]
+                    {
+                        if(!M->DomainGeometry||!M->DomainGeometry->Complete())return Amber;
+                        for(const auto& Object:M->DomainGeometry->Objects)if(!StudioDomain::Contains(M->Project.Draft.Domain,Object.Bounds))return Amber;
+                        return Muted;
+                    }).Text_Lambda([this]
+                    {
+                        if(!M->DomainGeometry)return FText::FromString(TEXT("Applied-domain containment unknown. Check geometry to verify the source files."));
+                        TArray<FString> Lines;bool Outside=false,Unknown=false;
+                        for(const auto& Object:M->DomainGeometry->Objects)
+                        {
+                            if(!Object.Error.IsEmpty()){Unknown=true;Lines.Add(Object.Name+TEXT(" · Containment unknown: ")+Object.Error);}
+                            else if(StudioDomain::Contains(M->Project.Draft.Domain,Object.Bounds))Lines.Add(Object.Name+TEXT(" · Inside the applied domain"));
+                            else {Outside=true;Lines.Add(Object.Name+TEXT(" · Outside the applied domain"));}
+                        }
+                        if(Outside)Lines.Add(TEXT("Enlarge Bounds or use Fit to geometry, then Apply domain."));
+                        if(Unknown)Lines.Add(TEXT("Resolve the source files in Geometry, then Check geometry again."));
+                        if(M->DomainGeometry->bPreviewLimited)Lines.Add(TEXT("Preview limit reached. Containment uses verified original geometry bounds."));
+                        return FText::FromString(FString::Join(Lines,TEXT("\n")));
+                    })]]]]]]
+            +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(334)[SNew(SBorder).BorderImage(&PanelBrush).Padding(0)[Inspector]]]];
+}
+
+struct FStudioLatticeWorkspaceState
+{
+    FGuid Project;int64 Revision=-1;FStudioLatticeEdit Edit;
+    FStudioLatticePreviewSettings Preview;bool bConflict=false;FString Notice;
+    TWeakPtr<SEditableTextBox> Inputs[4];
+    void Synchronize()
+    {for(int32 I=0;I<4;++I)if(const auto Input=Inputs[I].Pin())Input->SetText(FText::FromString(I<3?Edit.Counts[I]:Edit.RequestedSpacing));}
+    void FocusError()
+    {if(Edit.ErrorField>=0&&Edit.ErrorField<4)if(const auto Input=Inputs[Edit.ErrorField].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::SetDirectly);}
+};
+void SStudioWorkspace::RefreshLattice()
+{
+    if(!LatticeState)return;auto& State=*LatticeState;
+    if(State.Project==M->Project.Id&&State.Revision==M->Project.Draft.Revision)return;
+    const auto Resolution=M->Project.Draft.Setup.LatticeResolution;
+    if(State.Project!=M->Project.Id)
+    {
+        State.Project=M->Project.Id;State.Edit.Reset(Resolution);State.bConflict=false;State.Notice.Empty();
+        State.Preview={};State.Preview.Layer=Resolution.Z/2;State.Preview.MaximumSamples=8192;State.Synchronize();
+    }
+    else if(State.Edit.Saved!=Resolution)
+    {
+        if(State.Edit.IsDirty())
+        {State.bConflict=true;State.Notice=TEXT("The applied resolution changed. Your text is retained. Revert to load the current counts.");}
+        else {State.Edit.Reset(Resolution);State.bConflict=false;State.Synchronize();}
+    }
+    if(State.Preview.Axis>=0)State.Preview.Layer=FMath::Clamp(State.Preview.Layer,0,Resolution[State.Preview.Axis]-1);
+    State.Revision=M->Project.Draft.Revision;
+}
+void SStudioWorkspace::ApplyLattice()
+{
+    RefreshLattice();auto& State=*LatticeState;if(State.bConflict)return;
+    FIntVector Resolution;if(!State.Edit.Build(Resolution)){State.Notice=State.Edit.Error;State.FocusError();return;}
+    if(!M->UpdateLatticeResolution(Resolution)){State.Notice=M->Notice;return;}
+    State.Edit.Reset(Resolution);State.Synchronize();State.Revision=-1;RefreshLattice();
+    State.Notice=TEXT("Resolution applied. Preview cells to inspect it, and save to keep the case.");
+    ResolveSaveNotice(*M,LatticeSaveGuard,State.Notice);
+}
+bool SStudioWorkspace::EnsureLatticeResolved()
+{
+    RefreshLattice();if(!LatticeState||(!LatticeState->bConflict&&!LatticeState->Edit.IsDirty()))return true;
+    LatticeState->Notice=LatticeSaveGuard;M->Notice=LatticeState->Notice;
+    Navigate(EStudioWorkspace::Meshing);
+    if(const auto Input=LatticeState->Inputs[0].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::SetDirectly);
+    return false;
+}
+
+// THESIS: Inspect bounded samples of original physical cells before backend preparation.
+// OWN-WORLD: Existing blue-black authoring scene, retained meter/count fields, cyan controls.
+// STORY: Apply counts, choose a layer, preview occupancy, inspect from any camera perspective.
+// FIRST VIEWPORT: Flexible 3D scene with one 334-unit lattice inspector.
+// FORM: Meshing sidebar workspace; no second workspace navigation.
+// FINISH: Native two-size controls/cancellation/camera evidence and finish review required.
+TSharedRef<SWidget> SStudioWorkspace::LatticeWorkspace()
+{
+    LatticeState=MakeShared<FStudioLatticeWorkspaceState>();RefreshLattice();const auto State=LatticeState;
+    auto Available=[this]{return !M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
+    auto Copy=[](TFunction<FString()> Read,FLinearColor Color=Muted)
+    {return SNew(STextBlock).Text_Lambda([Read]{return FText::FromString(Read());}).Font(Font(10)).ColorAndOpacity(Color).AutoWrapText(true);};
+    auto Input=[this,State](int32 Index,const FString& Name)
+    {
+        auto Field=SNew(SEditableTextBox).Tag(FName(*FString::Printf(TEXT("LatticeValue%d"),Index))).Style(&InputStyle()).Font(Font(10))
+            .Text(FText::FromString(Index<3?State->Edit.Counts[Index]:State->Edit.RequestedSpacing)).ToolTipText(FText::FromString(Name))
+            .OnTextChanged_Lambda([State,Index](const FText& Value)
+            {if(Index<3)State->Edit.Counts[Index]=Value.ToString();else State->Edit.RequestedSpacing=Value.ToString();State->Notice.Empty();State->Edit.Error.Empty();})
+            .OnTextCommitted_Lambda([this,Index](const FText&,ETextCommit::Type Type){if(Index<3&&Type==ETextCommit::OnEnter)ApplyLattice();});
+        State->Inputs[Index]=Field;return Field;
+    };
+    auto Fields=SNew(SVerticalBox);
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,7)[Label(TEXT("Resolution · cells"),12,Text,true)];
+    auto Counts=SNew(SHorizontalBox);
+    for(int32 Axis=0;Axis<3;++Axis)Counts->AddSlot().FillWidth(1).Padding(Axis?5:0,0,0,0)[SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,4)[Label(FString::Chr(TEXT("XYZ")[Axis]),9,Muted)]
+        +SVerticalBox::Slot().AutoHeight()[Input(Axis,FString::Printf(TEXT("%c cell count"),TEXT("XYZ")[Axis]))]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Counts];
+    auto Apply=Button(TEXT("Apply counts"),TEXT("check"),[this]{ApplyLattice();},Cyan);Apply->SetTag(TEXT("LatticeApply"));
+    Apply->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&!State->bConflict&&State->Edit.IsDirty();}));
+    auto Revert=Button(TEXT("Revert edits"),TEXT("undo"),[this,State]
+    {State->Edit.Reset(M->Project.Draft.Setup.LatticeResolution);State->bConflict=false;State->Synchronize();State->Revision=-1;RefreshLattice();State->Notice=TEXT("Loaded the applied cell counts.");
+        ResolveSaveNotice(*M,LatticeSaveGuard,State->Notice);});
+    Revert->SetTag(TEXT("LatticeRevert"));Revert->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&(State->bConflict||State->Edit.IsDirty()||!State->Edit.Error.IsEmpty());}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Apply]+SHorizontalBox::Slot().AutoWidth()[Revert]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Copy([State]
+    {return !State->Notice.IsEmpty()?State->Notice:State->Edit.IsDirty()?FString(TEXT("Unapplied counts. The scene uses the applied case.")):FString(TEXT("Counts divide the applied domain into physical cells."));},Amber)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Maximum spacing · meters"),11,Text,true)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[Input(3,TEXT("Requested maximum cell spacing in meters"))];
+    auto Derive=Button(TEXT("Calculate draft counts"),TEXT("mesh"),[this,State]
+    {
+        RefreshLattice();if(State->bConflict)return;
+        if(State->Edit.UseSpacing(M->Project.Draft.Domain)){State->Synchronize();State->Notice=TEXT("Draft counts calculated. Apply counts to change the case.");}
+        else {State->Notice=State->Edit.Error;State->FocusError();}
+    });Derive->SetTag(TEXT("LatticeUseSpacing"));Derive->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&!State->bConflict;}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Derive];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,14)[Copy([this]
+    {
+        FStudioLatticeLayout Layout;FString Error;
+        if(!StudioLattice::Layout(M->Project.Draft.Domain,M->Project.Draft.Setup.LatticeResolution,Layout,Error))return Error;
+        return FString::Printf(TEXT("Applied: %llu cells\nSpacing X %.6g · Y %.6g · Z %.6g m"),static_cast<unsigned long long>(Layout.Cells),Layout.Spacing.X,Layout.Spacing.Y,Layout.Spacing.Z);
+    })];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,7)[Label(TEXT("Preview region"),12,Text,true)];
+    auto Axes=SNew(SHorizontalBox);
+    for(int32 Choice=0;Choice<4;++Choice)
+    {
+        const int32 Axis=Choice<3?Choice:-1;
+        Axes->AddSlot().FillWidth(Choice<3?1:1.8).Padding(Choice?4:0,0,0,0)[SNew(SButton)
+            .Tag(FName(*FString::Printf(TEXT("LatticeAxis%d"),Choice))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,6))
+            .OnClicked_Lambda([this,State,Axis]
+            {State->Preview.Axis=Axis;if(Axis>=0)State->Preview.Layer=M->Project.Draft.Setup.LatticeResolution[Axis]/2;else State->Preview.MaximumSamples=FMath::Min(State->Preview.MaximumSamples,4096);return FReply::Handled();})
+            [SNew(STextBlock).Text(FText::FromString(Choice<3?FString::Chr(TEXT("XYZ")[Choice]):FString(TEXT("Whole")))).Font(Font(10))
+                .ColorAndOpacity_Lambda([State,Axis]{return State->Preview.Axis==Axis?Cyan:Muted;})]];
+    }
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Axes];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SVerticalBox).Visibility_Lambda([State]{return State->Preview.Axis>=0?EVisibility::Visible:EVisibility::Collapsed;})
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,4)[Copy([this,State]
+        {return State->Preview.Axis>=0?FString::Printf(TEXT("Layer index · 0 to %d"),M->Project.Draft.Setup.LatticeResolution[State->Preview.Axis]-1):FString();})]
+        +SVerticalBox::Slot().AutoHeight()[SNew(SNumericEntryBox<int32>).Tag(TEXT("LatticeLayer")).Font(Font(10)).AllowSpin(true).MinValue(0).MinSliderValue(0)
+            .MaxValue_Lambda([this,State]{return TOptional<int32>(M->Project.Draft.Setup.LatticeResolution[FMath::Max(0,State->Preview.Axis)]-1);})
+            .MaxSliderValue_Lambda([this,State]{return TOptional<int32>(M->Project.Draft.Setup.LatticeResolution[FMath::Max(0,State->Preview.Axis)]-1);})
+            .Value_Lambda([State]{return TOptional<int32>(State->Preview.Layer);})
+            .OnValueChanged_Lambda([this,State](int32 Value){State->Preview.Layer=FMath::Clamp(Value,0,M->Project.Draft.Setup.LatticeResolution[FMath::Max(0,State->Preview.Axis)]-1);})]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,4)[Label(TEXT("Maximum displayed cells"),10,Muted)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SStudioMenuButton).Tag(TEXT("LatticeBudget")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
+        .OnGetMenuContent_Lambda([State]
+        {
+            auto Items=SNew(SVerticalBox);
+            for(int32 Limit:{512,2048,4096,8192,32768})
+                if(State->Preview.Axis>=0||Limit<=4096)
+                    Items->AddSlot().AutoHeight()[Button(FString::FromInt(Limit),TEXT("select"),[State,Limit]{State->Preview.MaximumSamples=Limit;FSlateApplication::Get().DismissAllMenus();})];
+            return Items;
+        })
+        .ButtonContent()[Live([State]{return FString::FromInt(State->Preview.MaximumSamples);},10)]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[Copy([State]
+    {return State->Preview.Axis<0?FString(TEXT("Whole-domain view samples up to 4,096 original cells. Choose Preview cells to update the view.")):FString(TEXT("Layer view samples up to 32,768 original cells. Tiles pass through their centers. Choose Preview cells to update the view."));})];
+    auto Preview=Button(TEXT("Preview cells"),TEXT("mesh"),[this,State]{RefreshLattice();if(!State->bConflict&&!State->Edit.IsDirty())M->RequestLatticePreview(State->Preview);},Cyan);
+    Preview->SetTag(TEXT("LatticePreview"));Preview->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]
+    {return Available()&&!State->bConflict&&!State->Edit.IsDirty()&&!M->IsBuildingLatticePreview()&&!M->IsReadingDomainGeometry();}));
+    auto Cancel=SNew(SButton).Tag(TEXT("LatticeCancel")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,6))
+        .IsEnabled_Lambda([this]{return M->IsBuildingLatticePreview()||M->LatticePreview.IsValid();})
+        .OnClicked_Lambda([this]{M->CancelLatticePreview();return FReply::Handled();})
+        [Live([this]{return M->IsBuildingLatticePreview()?TEXT("Cancel"):TEXT("Clear preview");},10)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Preview]+SHorizontalBox::Slot().AutoWidth()[Cancel]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Copy([this]
+    {
+        if(M->LatticeProgress)
+        {const auto& P=*M->LatticeProgress;return P.Stage.load()<2?FString(TEXT("Indexing original geometry…")):FString::Printf(TEXT("Classified %d of %d displayed cells"),P.Completed.load(),P.Total.load());}
+        return M->LatticeNotice.IsEmpty()?FString(TEXT("Choose a layer and preview the applied lattice.")):M->LatticeNotice;
+    })];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,14)[Copy([this]
+    {
+        if(!M->LatticePreview)return FString();const auto& P=*M->LatticePreview;
+        return FString::Printf(TEXT("%d displayed / %llu candidate cells%s\nOutside geometry: %d\nInside closed geometry: %d\nSurface overlap: %d\nUnknown: %d"),P.Samples.Num(),static_cast<unsigned long long>(P.Plan.CandidateCells),P.Plan.bSampled?TEXT(" · sampled"):TEXT(" · complete region"),P.Outside,P.Inside,P.Surface,P.Unknown);
+    })];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Backend preparation"),12,Text,true)];
+    Fields->AddSlot().AutoHeight()[Copy([]
+    {return FString(TEXT("Backend lattice rules, memory estimate, refinement and production cell flags are not supplied. This preview checks geometric occupancy only."));})];
+    auto Undo=Button(TEXT("Undo case"),TEXT("undo"),[this]{M->UndoCase();RefreshLattice();});Undo->SetTag(TEXT("LatticeUndo"));
+    Undo->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]{return Available()&&!State->Edit.IsDirty()&&!State->bConflict&&M->CanUndoCase();}));
+    auto Redo=Button(TEXT("Redo case"),TEXT("redo"),[this]{M->RedoCase();RefreshLattice();});Redo->SetTag(TEXT("LatticeRedo"));
+    Redo->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]{return Available()&&!State->Edit.IsDirty()&&!State->bConflict&&M->CanRedoCase();}));
+    auto Check=Button(TEXT("Check geometry"),TEXT("check"),[this]{M->RequestDomainGeometry();});Check->SetTag(TEXT("LatticeCheckGeometry"));
+    Check->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&!M->IsReadingDomainGeometry();}));
+    auto CancelCheck=Button(TEXT("Cancel check"),TEXT("stop"),[this]{M->CancelDomainGeometry();});CancelCheck->SetTag(TEXT("LatticeCancelCheck"));
+    CancelCheck->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->IsReadingDomainGeometry();}));
+    auto Fit=Button(TEXT("Fit view"),TEXT("fit"),[this]{if(Scene.IsValid()&&Scene->HasLatticePreview())Scene->FitCamera();});Fit->SetTag(TEXT("LatticeFitView"));
+    Fit->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Scene.IsValid()&&Scene->HasLatticePreview();}));
+    auto Projection=SNew(SButton).Tag(TEXT("LatticeProjection")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,6))
+        .IsEnabled_Lambda([this]{return Scene.IsValid()&&Scene->HasLatticePreview();})
+        .ToolTipText_Lambda([this]{return FText::FromString(Scene.IsValid()&&Scene->CameraState().bOrthographic?TEXT("Switch the authoring camera to perspective"):TEXT("Switch the authoring camera to orthographic"));})
+        .OnClicked_Lambda([this]{if(Scene.IsValid()){auto Camera=Scene->CameraState();Camera.bOrthographic=!Camera.bOrthographic;Scene->RestoreCamera(Camera,TEXT("Authoring projection"));}return FReply::Handled();})
+        [Live([this]{return Scene.IsValid()&&Scene->CameraState().bOrthographic?TEXT("Orthographic"):TEXT("Perspective");},10)];
+    return SNew(SVerticalBox).Tag(TEXT("LatticeWorkspace"))
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SBorder).BorderImage(&PanelBrush).Padding(14,10)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Meshing"),18,Text,true)]
+            +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Undo]+SHorizontalBox::Slot().AutoWidth()[Redo]]]
+        +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[SNew(SVerticalBox)
+                +SVerticalBox::Slot().FillHeight(1)[SNew(SBorder).BorderImage(&LineBrush).Padding(1)[SNew(SOverlay)
+                    +SOverlay::Slot()[SNew(SFlowViewport).Tag(TEXT("LatticeViewport")).Scene(Scene.Get())]
+                    +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12)[SNew(SBorder).BorderImage(&PanelBrush).Padding(8,5)[Live([this]
+                    {
+                        if(!M->LatticePreview)return FString(TEXT("Applied domain · Preview cells to inspect occupancy"));const auto& P=M->LatticePreview->Plan;
+                        return P.Settings.Axis<0?FString(TEXT("Applied lattice · Whole domain")):FString::Printf(TEXT("Applied lattice · %c layer %d"),TEXT("XYZ")[P.Settings.Axis],P.Settings.Layer);
+                    },10,Muted)]]
+                    +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(12)[SNew(SOrientationAxes).Scene(Scene.Get()).Visibility(EVisibility::HitTestInvisible)]
+                    +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(12)[SNew(SBorder).BorderImage(&PanelBrush).Padding(8)[SNew(SHorizontalBox)
+                        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Fit]+SHorizontalBox::Slot().AutoWidth()[Projection]]]]]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)[SNew(SVerticalBox)
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SWrapBox).UseAllottedSize(true)
+                        +SWrapBox::Slot().Padding(0,0,12,4)[Label(TEXT("● Outside geometry"),9,FLinearColor(.08,.48,.62))]
+                        +SWrapBox::Slot().Padding(0,0,12,4)[Label(TEXT("● Inside closed geometry"),9,FLinearColor(.48,.38,.7))]
+                        +SWrapBox::Slot().Padding(0,0,12,4)[Label(TEXT("● Surface"),9,Amber)]
+                        +SWrapBox::Slot().Padding(0,0,0,4)[Label(TEXT("● Unknown"),9,FLinearColor(.7,.28,.34))]]
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,7)[Copy([]{return FString(TEXT("3% display gaps · Drag: orbit · Right-drag: look · Middle-drag: pan · Scroll: zoom"));})]
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SHorizontalBox)
+                        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Check]+SHorizontalBox::Slot().AutoWidth()[CancelCheck]]
+                    +SVerticalBox::Slot().AutoHeight()[Copy([this]{return M->DomainNotice;})]]]]
+            +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(334)[SNew(SBorder).BorderImage(&PanelBrush).Padding(0)
+                [SNew(SRetainedFormScrollBox).Tag(TEXT("LatticeInspector")).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12)
+                    +SScrollBox::Slot().Padding(14)[SNew(SBox).IsEnabled_Lambda(Available)[Fields]]]]]];
+}
+
 TSharedRef<SWidget> SStudioWorkspace::GeometryWorkspace()
 {
     auto Copy=[&](TFunction<FString()> Read,FLinearColor Color=Muted)
@@ -3742,4 +4579,417 @@ void SStudioWorkspace::ExportInspectionProbe(const FGuid& Id)
     if(!StudioFileDialog::ProbeCSV(Name,Path)){M->InspectionNotice=TEXT("Probe export cancelled.");return;}
     if(InspectionExport->Start(MoveTemp(Frozen),Path))M->InspectionNotice=TEXT("Writing captured probe samples…");
     else M->InspectionNotice=TEXT("The captured probe result could not be exported.");
+}
+
+struct FStudioBoundaryForm
+{
+    FStudioBoundaryEdit Edit;
+    FStudioBoundaryTarget Target;
+    bool bConflict=false,bMissing=false,bSynchronizing=false;
+    TWeakPtr<SEditableTextBox> Inputs[6];
+    FString& Value(int32 I){return I==0?Edit.Name:I<4?Edit.Velocity[I-1]:I==4?Edit.Pressure:Edit.Temperature;}
+    void Synchronize()
+    {bSynchronizing=true;for(int32 I=0;I<6;++I)if(auto Input=Inputs[I].Pin())Input->SetText(FText::FromString(Value(I)));bSynchronizing=false;}
+    void FocusError()
+    {if(Edit.ErrorField>=0&&Edit.ErrorField<6)if(auto Input=Inputs[Edit.ErrorField].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::SetDirectly);}
+};
+struct FStudioBoundaryWorkspaceState
+{
+    FGuid Project,Selected,Presented;
+    int64 Revision=-1;
+    TArray<FStudioBoundaryTarget> Targets;
+    FString Filter,PresentedFilter;
+    int32 Offset=0,PresentedOffset=INDEX_NONE,Matches=0;
+    FStudioBoundaryCoverage Coverage;
+    TMap<FGuid,TSharedPtr<FStudioBoundaryForm>> Drafts;
+    TMap<FGuid,TSharedPtr<SWidget>> Editors;
+    TSharedPtr<SVerticalBox> Rows;
+    TSharedPtr<SBox> Details;
+    FString Notice;
+    bool bSelectSurfaces=true;
+    bool HasDrafts() const
+    {for(const auto& Pair:Drafts)if(Pair.Value->Edit.IsDirty()||Pair.Value->bConflict||Pair.Value->bMissing)return true;return false;}
+};
+
+DECLARE_DELEGATE_OneParam(FOnBoundaryTargetSelected,const FGuid&);
+class SBoundaryViewport final : public SFlowViewport
+{
+public:
+    SLATE_BEGIN_ARGS(SBoundaryViewport){}
+        SLATE_ARGUMENT(AStudioScene*,Scene)
+        SLATE_ARGUMENT(TSharedPtr<FStudioBoundaryWorkspaceState>,Form)
+        SLATE_EVENT(FOnBoundaryTargetSelected,OnSelect)
+    SLATE_END_ARGS()
+    void Construct(const FArguments& Args)
+    {
+        Form=Args._Form;OnSelect=Args._OnSelect;
+        SFlowViewport::Construct(SFlowViewport::FArguments().Scene(Args._Scene));
+    }
+    bool Current() const
+    {
+        return Scene.IsValid()&&Scene->Model&&Form&&Form->Project==Scene->Model->Project.Id&&
+            Scene->Model->Workspace==EStudioWorkspace::BoundaryConditions&&Scene->HasBoundaryPreview()&&
+            !Scene->Model->IsProjectOpenPending()&&!Scene->Model->IsRecordingLoadPending()&&
+            StudioView::CameraEquals(Scene->PresentedCamera(),Scene->CameraState());
+    }
+    FStudioCameraState SelectionCamera() const
+    {
+        auto Camera=Scene->PresentedCamera();
+        if(!Camera.bDepthClipping)
+        {
+            Camera.bDepthClipping=true;Camera.NearClipMeters=FMath::Max(1.e-6,Scene->PresentedNearClipMeters());
+            Camera.FarClipMeters=1.e8;
+        }
+        return Camera;
+    }
+    virtual int32 OnPaint(const FPaintArgs& Args,const FGeometry& G,const FSlateRect& Cull,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle& Style,bool Enabled) const override
+    {
+        Layer=SFlowViewport::OnPaint(Args,G,Cull,Out,Layer,Style,Enabled);
+        if(!Current()||!Form->bSelectSurfaces)return Layer;
+        const auto Handles=StudioBoundarySelection::FaceHandles(Scene->Model->Project.Draft.Domain,SelectionCamera(),G.GetLocalSize(),PlacementProjectionAspect());
+        for(const auto& Handle:Handles)
+        {
+            const FVector2D P=Handle.Pixel;const bool Active=Handle.Target==Form->Selected;const auto Color=Active?Cyan:Muted;
+            FSlateDrawElement::MakeBox(Out,Layer+1,G.ToPaintGeometry(FVector2D(10,10),FSlateLayoutTransform(P-FVector2D(5,5))),&White,ESlateDrawEffect::None,Panel);
+            FSlateDrawElement::MakeLines(Out,Layer+2,G.ToPaintGeometry(),TArray<FVector2D>{P+FVector2D(-5,-5),P+FVector2D(5,-5),P+FVector2D(5,5),P+FVector2D(-5,5),P+FVector2D(-5,-5)},ESlateDrawEffect::None,Color,true,Active?2.f:1.f);
+            FSlateDrawElement::MakeText(Out,Layer+2,G.ToPaintGeometry(FVector2D(24,14),FSlateLayoutTransform(P+FVector2D(8,-7))),
+                FString::Printf(TEXT("%c%c"),Handle.Face%2?TEXT('+'):TEXT('-'),TEXT("XYZ")[Handle.Face/2]),Font(9,true),ESlateDrawEffect::None,Color);
+        }
+        return Layer+2;
+    }
+    virtual void Tick(const FGeometry& G,double T,float D) override
+    {
+        SFlowViewport::Tick(G,T,D);
+        if(Form&&bPaintedSelect!=Form->bSelectSurfaces){bPaintedSelect=Form->bSelectSurfaces;Invalidate(EInvalidateWidgetReason::Paint);}
+    }
+    virtual FReply OnMouseButtonDown(const FGeometry& G,const FPointerEvent& Event) override
+    {
+        if(!Form||!Form->bSelectSurfaces||Event.GetEffectingButton()!=EKeys::LeftMouseButton)
+            return SFlowViewport::OnMouseButtonDown(G,Event);
+        if(HasOwnCapture()&&!OwnsPointer(Event))return FReply::Unhandled();
+        ReleaseOwnCapture();FSlateApplication::Get().SetUserFocus(Event.GetUserIndex(),SharedThis(this),EFocusCause::Mouse);
+        if(!Current()){Form->Notice=TEXT("Wait for the current geometry view before selecting a boundary.");return FReply::Handled();}
+        const auto Pixel=G.AbsoluteToLocal(Event.GetScreenSpacePosition());const auto Observer=SelectionCamera();const double Aspect=PlacementProjectionAspect();
+        FGuid Target=StudioBoundarySelection::HitFaceHandle(StudioBoundarySelection::FaceHandles(Scene->Model->Project.Draft.Domain,Observer,G.GetLocalSize(),Aspect),Pixel);
+        if(!Target.IsValid()&&Scene->Model->DomainGeometry)
+        {
+            StudioBoundarySelection::FPatchHit Hit;
+            if(StudioBoundarySelection::PickPatch(*Scene->Model->DomainGeometry,Observer,G.GetLocalSize(),Pixel,Hit,Aspect))Target=Hit.Target;
+        }
+        FStudioBoundaryTarget CurrentTarget;
+        if(Target.IsValid()&&StudioBoundaries::FindTarget(Scene->Model->Project.Draft,Target,CurrentTarget))
+        {
+            OnSelect.ExecuteIfBound(Target);Form->Notice=TEXT("Selected ")+CurrentTarget.Name+TEXT(". Choose and apply its boundary condition.");
+        }
+        else Form->Notice=TEXT("No visible surface here. Click a domain handle or an imported surface, or choose a target from the list.");
+        Invalidate(EInvalidateWidgetReason::Paint);return FReply::Handled();
+    }
+private:
+    TSharedPtr<FStudioBoundaryWorkspaceState> Form;
+    FOnBoundaryTargetSelected OnSelect;
+    bool bPaintedSelect=true;
+};
+
+// THESIS: Assign known physical conditions to stable case faces and source patches.
+// OWN-WORLD: Existing native Slate shell, compact SI inputs and cyan selection.
+// STORY: Select a target, choose a condition, apply values, review missing coverage.
+// FIRST VIEWPORT: Targets left, verified geometry center, retained physical editor and coverage right.
+// FORM: Boundary Conditions sidebar owns editing; Solve shows saved summaries.
+// FINISH: Native two-size workflow evidence, scoped review and documentation required.
+TSharedRef<SWidget> SStudioWorkspace::BoundaryWorkspace()
+{
+    BoundaryState=MakeShared<FStudioBoundaryWorkspaceState>();const auto State=BoundaryState;
+    auto Available=[this]{return !M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
+    auto Undo=Button(TEXT("Undo case"),TEXT("undo"),[this]{M->UndoCase();RefreshBoundaries();});Undo->SetTag(TEXT("BoundaryUndo"));
+    Undo->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]{return Available()&&!State->HasDrafts()&&M->CanUndoCase();}));
+    auto Redo=Button(TEXT("Redo case"),TEXT("redo"),[this]{M->RedoCase();RefreshBoundaries();});Redo->SetTag(TEXT("BoundaryRedo"));
+    Redo->SetEnabled(TAttribute<bool>::CreateLambda([this,State,Available]{return Available()&&!State->HasDrafts()&&M->CanRedoCase();}));
+    auto Check=Button(TEXT("Check geometry"),TEXT("check"),[this]{M->RequestDomainGeometry();});Check->SetTag(TEXT("BoundaryCheckGeometry"));
+    Check->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&!M->IsReadingDomainGeometry();}));
+    auto Cancel=Button(TEXT("Cancel check"),TEXT("stop"),[this]{M->CancelDomainGeometry();});Cancel->SetTag(TEXT("BoundaryCancelCheck"));
+    Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->IsReadingDomainGeometry();}));
+    auto Previous=Button(TEXT("Previous"),TEXT("left"),[this]{BoundaryState->Offset=FMath::Max(0,BoundaryState->Offset-128);RefreshBoundaries();});Previous->SetTag(TEXT("BoundaryPreviousPage"));
+    Previous->SetEnabled(TAttribute<bool>::CreateLambda([State]{return State->Offset>0;}));
+    auto Next=Button(TEXT("Next"),TEXT("right"),[this]{BoundaryState->Offset+=128;RefreshBoundaries();});Next->SetTag(TEXT("BoundaryNextPage"));
+    Next->SetEnabled(TAttribute<bool>::CreateLambda([State]{return State->Offset+State->Targets.Num()<State->Matches;}));
+    const auto Targets=SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Faces and patches"),11,Text,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SProjectFilterBox).Tag(TEXT("BoundaryFilter")).Style(&InputStyle()).Font(Font(10))
+            .HintText(FText::FromString(TEXT("Filter by name"))).ToolTipText(FText::FromString(TEXT("Filter faces and patches by name")))
+            .OnTextChanged_Lambda([this](const FText& Value){BoundaryState->Filter=Value.ToString();BoundaryState->Offset=0;RefreshBoundaries();})]
+        +SVerticalBox::Slot().FillHeight(1)[SNew(SRetainedFormScrollBox).Tag(TEXT("BoundaryTargetsScroll")).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
+            +SScrollBox::Slot()[SAssignNew(State->Rows,SVerticalBox)]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,6)[Live([State]
+        {return State->Matches?FString::Printf(TEXT("%d–%d of %d matching targets"),State->Offset+1,State->Offset+State->Targets.Num(),State->Matches):FString(TEXT("No matching targets"));},9,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,4,0)[Previous]+SHorizontalBox::Slot().FillWidth(1)[Next]];
+    auto Mode=[State](bool Select,const FString& Name)
+    {
+        return SNew(SButton).Tag(Select?TEXT("BoundarySelectMode"):TEXT("BoundaryOrbitMode")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
+            .OnClicked_Lambda([State,Select]{State->bSelectSurfaces=Select;return FReply::Handled();})
+            [SNew(STextBlock).Text(FText::FromString(Name)).Font(Font(10)).ColorAndOpacity_Lambda([State,Select]{return State->bSelectSurfaces==Select?Cyan:Muted;})];
+    };
+    auto Fit=Button(TEXT("Fit"),TEXT("fit"),[this]{if(Scene.IsValid()&&Scene->HasBoundaryPreview())Scene->FitCamera();});Fit->SetTag(TEXT("BoundaryFitView"));
+    Fit->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Scene.IsValid()&&Scene->HasBoundaryPreview();}));
+    auto Projection=SNew(SButton).Tag(TEXT("BoundaryProjection")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
+        .IsEnabled_Lambda([this]{return Scene.IsValid()&&Scene->HasBoundaryPreview();})
+        .ToolTipText_Lambda([this]{return FText::FromString(Scene.IsValid()&&Scene->CameraState().bOrthographic?TEXT("Switch the authoring camera to perspective"):TEXT("Switch the authoring camera to orthographic"));})
+        .OnClicked_Lambda([this]
+        {auto Camera=Scene->CameraState();Camera.bOrthographic=!Camera.bOrthographic;Scene->RestoreCamera(Camera,TEXT("Authoring projection"));return FReply::Handled();})
+        [Live([this]{return Scene.IsValid()&&Scene->CameraState().bOrthographic?TEXT("Orthographic"):TEXT("Perspective");},10,Text)];
+    const auto View=SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(4,4))
+            +SWrapBox::Slot()[Mode(true,TEXT("Select"))]+SWrapBox::Slot()[Mode(false,TEXT("Orbit"))]+SWrapBox::Slot()[Fit]+SWrapBox::Slot()[Projection]]
+        +SVerticalBox::Slot().FillHeight(1)[SNew(SBorder).BorderImage(&LineBrush).Padding(1)[SNew(SOverlay)
+            +SOverlay::Slot()[SNew(SBoundaryViewport).Tag(TEXT("BoundaryViewport")).Scene(Scene.Get()).Form(State)
+                .OnSelect_Lambda([this](const FGuid& Id){BoundaryState->Selected=Id;RefreshBoundaries();})]
+            +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(12)[SNew(SOrientationAxes).Scene(Scene.Get()).Visibility(EVisibility::HitTestInvisible)]]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,6)[Live([State]
+        {return State->bSelectSurfaces?TEXT("Click a surface or face handle · Middle-drag: pan · Scroll: zoom"):TEXT("Drag: orbit · Right-drag: look · WASD + Q/E: fly while looking");},9,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Live([this,State]
+        {
+            if(M->IsReadingDomainGeometry())return FString(TEXT("Checking original geometry…"));
+            if(!M->DomainGeometry)return M->DomainNotice;
+            if(M->Project.Draft.Geometry.IsEmpty())return FString(TEXT("Domain faces are available. Import case geometry to assign surface conditions."));
+            if(M->DomainGeometry->bPreviewLimited)return FString(TEXT("Some objects exceed the preview limit. Their patches remain available in the list."));
+            FStudioBoundaryTarget Selected;
+            if(StudioBoundaries::FindTarget(M->Project.Draft,State->Selected,Selected)&&Selected.DomainFace==INDEX_NONE&&
+                !M->DomainGeometry->PatchBounds.Contains(Selected.Id))return FString(TEXT("This patch has no verified triangles in the preview. Check its original geometry in Geometry."));
+            return M->DomainGeometry->Complete()?FString(TEXT("Original surface geometry · Selected boundary highlighted in cyan")):M->DomainNotice;
+        },10,Muted,true)];
+    const auto Inspector=SNew(SRetainedFormScrollBox).Tag(TEXT("BoundaryDetailsScroll"))
+        .ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12)
+        +SScrollBox::Slot()[SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight()[SAssignNew(State->Details,SBox)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,20,0,8)[Label(TEXT("Applied coverage"),12,Text,true)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Live([State]{return FString::Printf(TEXT("%d / %d targets configured"),State->Coverage.Configured,State->Coverage.Targets);},11,Text,true)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[Live([State]
+            {
+                if(!State->Coverage.IssueCount)return FString(TEXT("All required boundary values are supplied."));
+                FString Summary;const int32 Limit=FMath::Min(5,State->Coverage.Issues.Num());
+                for(int32 I=0;I<Limit;++I){if(I)Summary+=TEXT("\n\n");Summary+=State->Coverage.Issues[I].Message;}
+                if(Limit<State->Coverage.IssueCount)Summary+=FString::Printf(TEXT("\n\n%d additional issues need attention."),State->Coverage.IssueCount-Limit);
+                return Summary;
+            },10,Amber,true)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Solver compatibility"),12,Text,true)]
+            +SVerticalBox::Slot().AutoHeight()[Live([]{return TEXT("Not verified. The solver must provide supported boundary and thermal models before this case can be accepted for a run.");},10,Muted,true)]];
+    return SNew(SBorder).Tag(TEXT("BoundaryWorkspace")).BorderImage(&PanelBrush).Padding(14)
+        [SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[SNew(SHorizontalBox)
+                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Boundary Conditions"),18,Text,true)]
+                +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Check]+SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)[Cancel]
+                +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Undo]+SHorizontalBox::Slot().AutoWidth()[Redo]]
+            +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
+                +SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)[SNew(SBox).WidthOverride(196)[Targets]]
+                +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,12,0)[View]
+                +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(310)[Inspector]]]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,0)[Live([State]{return State->Notice.IsEmpty()?TEXT("Values use SI units. Blank values remain unknown; incomplete cases can be saved."):State->Notice;},10,Amber,true)]];
+}
+TSharedRef<SWidget> SStudioWorkspace::BoundaryDetails(const FGuid& Target)
+{
+    const auto State=BoundaryState;
+    if(const auto* Cached=State->Editors.Find(Target))return Cached->ToSharedRef();
+    const auto Form=State->Drafts.FindChecked(Target);const FGuid Project=M->Project.Id;
+    auto Current=[this,Project,Form]{return M->Project.Id==Project&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending()&&!Form->bConflict&&!Form->bMissing;};
+    auto Copy=[](TFunction<FString()> Read,FLinearColor Color=Muted)
+    {return SNew(STextBlock).Text_Lambda([Read]{return FText::FromString(Read());}).Font(Font(10)).ColorAndOpacity(Color).AutoWrapText(true);};
+    auto Input=[this,Target,Form](int32 I,const FString& Hint)
+    {
+        auto Widget=SNew(SProjectFilterBox).Tag(FName(*FString::Printf(TEXT("BoundaryValue%d"),I))).Style(&InputStyle()).Font(Font(10))
+            .Text(FText::FromString(Form->Value(I))).HintText(FText::FromString(Hint)).ToolTipText(FText::FromString(Hint))
+            .OnTextChanged_Lambda([Form,I](const FText& ValueText){if(!Form->bSynchronizing)Form->Value(I)=ValueText.ToString();})
+            .OnTextCommitted_Lambda([this,Target](const FText&,ETextCommit::Type Type){if(Type==ETextCommit::OnEnter)ApplyBoundary(Target,false);});
+        Form->Inputs[I]=Widget;return Widget;
+    };
+    auto Type=SNew(SStudioMenuButton).Tag(TEXT("BoundaryType")).ButtonStyle(&ButtonStyle())
+        .OnGetMenuContent_Lambda([this,Form,Current]
+        {
+            auto Menu=SNew(SVerticalBox);
+            for(int32 I=0;I<=int32(EStudioBoundaryType::Periodic);++I)
+            {
+                const auto Kind=EStudioBoundaryType(I);
+                auto Choice=Button(StudioBoundaries::TypeName(Kind),TEXT("settings"),[Form,Kind]
+                {Form->Edit.Type=Kind;Form->Edit.Error.Empty();FSlateApplication::Get().DismissAllMenus();});
+                Choice->SetTag(FName(*FString::Printf(TEXT("BoundaryType%d"),I)));
+                Choice->SetEnabled(Current()&&(Kind!=EStudioBoundaryType::Periodic||Form->Target.DomainFace!=INDEX_NONE));
+                Menu->AddSlot().AutoHeight()[Choice];
+            }
+            return SNew(SBorder).BorderImage(&PanelBrush).Padding(6)[Menu];
+        }).ButtonContent()[Live([Form]{return StudioBoundaries::TypeName(Form->Edit.Type);},10,Text)];
+    auto Fields=SNew(SVerticalBox);
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,7)[Copy([Form]{return Form->Target.Name;},Text)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,14)[Copy([Form]{return Form->Target.DomainFace==INDEX_NONE?TEXT("Imported surface patch"):TEXT("Domain face");})];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Condition name"),10,Muted)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,12)[Input(0,TEXT("Name · 1–120 characters"))];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Condition"),10,Muted)];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,14)[Type];
+    auto Velocity=SNew(SVerticalBox).Visibility_Lambda([Form]{return Form->Edit.Type==EStudioBoundaryType::VelocityInlet?EVisibility::Visible:EVisibility::Collapsed;});
+    Velocity->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Velocity · m/s"),11,Text,true)];
+    for(int32 I=0;I<3;++I)Velocity->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SBox).WidthOverride(23)[Label(FString::Chr(TEXT("XYZ")[I]),10,Muted)]]
+        +SHorizontalBox::Slot().FillWidth(1)[Input(1+I,TEXT("Unknown"))]];
+    Velocity->AddSlot().AutoHeight().Padding(0,0,0,12)[Copy([]{return TEXT("Enter every component, including zeros. Leave all three blank if velocity is unknown.");})];
+    Fields->AddSlot().AutoHeight()[Velocity];
+    Fields->AddSlot().AutoHeight()[SNew(SVerticalBox).Visibility_Lambda([Form]{return Form->Edit.Type==EStudioBoundaryType::PressureOutlet?EVisibility::Visible:EVisibility::Collapsed;})
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Outlet pressure · Pa"),11,Text,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Input(4,TEXT("Unknown"))]];
+    Fields->AddSlot().AutoHeight()[SNew(SVerticalBox).Visibility_Lambda([Form]{return Form->Edit.Type!=EStudioBoundaryType::Periodic&&Form->Edit.Type!=EStudioBoundaryType::Unassigned?EVisibility::Visible:EVisibility::Collapsed;})
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Prescribed temperature · K"),11,Text,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Input(5,TEXT("Optional · unknown"))]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,14)[Copy([]{return TEXT("A prescribed temperature requires an enabled thermal model and supporting solver.");})]];
+    Fields->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([Form]{return Form->Edit.Type==EStudioBoundaryType::Periodic?EVisibility::Visible:EVisibility::Collapsed;})
+        [Copy([this,Form]
+        {
+            const int32 Index=Form->Target.DomainFace;
+            if(!M->Project.Draft.Domain.FaceNames.IsValidIndex(Index^1))return FString(TEXT("This target cannot be paired automatically."));
+            const FString Partner=M->Project.Draft.Domain.FaceNames[Index^1];
+            return Form->Edit.bHadAssignment&&Form->Edit.Saved.Type==EStudioBoundaryType::Periodic?
+                TEXT("Paired with ")+Partner+TEXT(". Removing this assignment also removes its partner."):
+                TEXT("Pairs with ")+Partner+TEXT(". Both assignments are applied together. The opposite face must be unassigned.");
+        })]];
+    auto NeedsUnpair=[Form]{return Form->Edit.bHadAssignment&&Form->Edit.Saved.Type==EStudioBoundaryType::Periodic&&Form->Edit.Type!=EStudioBoundaryType::Periodic;};
+    auto Apply=Button(TEXT("Apply condition"),TEXT("check"),[this,Target]{ApplyBoundary(Target,false);},Cyan);Apply->SetTag(TEXT("BoundaryApply"));
+    Apply->SetEnabled(TAttribute<bool>::CreateLambda([Current,Form,NeedsUnpair]{return Current()&&!NeedsUnpair()&&Form->Edit.IsDirty();}));
+    auto Unpair=Button(TEXT("Unpair and apply"),TEXT("check"),[this,Target]{ApplyBoundary(Target,true);},Amber);Unpair->SetTag(TEXT("BoundaryUnpairApply"));
+    Unpair->SetVisibility(TAttribute<EVisibility>::CreateLambda([NeedsUnpair]{return NeedsUnpair()?EVisibility::Visible:EVisibility::Collapsed;}));
+    Unpair->SetEnabled(TAttribute<bool>::CreateLambda(Current));
+    auto Revert=Button(TEXT("Revert edits"),TEXT("undo"),[this,Target,Form]
+    {
+        const auto State=BoundaryState;
+        if(Form->bMissing){State->Drafts.Remove(Target);State->Editors.Remove(Target);State->Selected.Invalidate();}
+        else
+        {
+            const auto* Saved=M->Project.Draft.Boundaries.FindByPredicate([Target](const auto& B){return B.TargetId==Target;});
+            Form->Edit.Reset(Form->Target,Saved);Form->bConflict=false;Form->Synchronize();
+        }
+        State->Revision=-1;State->Notice=TEXT("Unapplied edits reverted.");ResolveSaveNotice(*M,BoundarySaveGuard,State->Notice);RefreshBoundaries();
+    });Revert->SetTag(TEXT("BoundaryRevert"));
+    Revert->SetEnabled(TAttribute<bool>::CreateLambda([Form,this,Project]{return M->Project.Id==Project&&!M->IsProjectOpenPending()&&(Form->Edit.IsDirty()||Form->bConflict||Form->bMissing||!Form->Edit.Error.IsEmpty());}));
+    auto Remove=Button(TEXT("Remove assignment"),TEXT("stop"),[this,Target,Form]
+    {if(!Form->Edit.IsDirty()&&M->RemoveBoundary(Target)){BoundaryState->Notice=TEXT("Assignment removed. Removing a periodic condition also removes its partner.");RefreshBoundaries();}else BoundaryState->Notice=M->Notice;});
+    Remove->SetTag(TEXT("BoundaryRemove"));Remove->SetEnabled(TAttribute<bool>::CreateLambda([Current,Form]{return Current()&&Form->Edit.bHadAssignment&&!Form->Edit.IsDirty();}));
+    auto Editor=SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight()[SNew(SBox).IsEnabled_Lambda(Current)[Fields]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,6)[Copy([Form]{return Form->bMissing?TEXT("This target was removed while you were editing. Revert to discard its retained draft."):Form->bConflict?TEXT("The saved assignment changed. Your edits are retained; revert to load its current values."):Form->Edit.Error;},Amber)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(6,6))
+            +SWrapBox::Slot()[Apply]+SWrapBox::Slot()[Unpair]+SWrapBox::Slot()[Revert]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SBox).Visibility_Lambda([NeedsUnpair]{return NeedsUnpair()?EVisibility::Visible:EVisibility::Collapsed;})
+            [Copy([]{return TEXT("Applying this change also removes the opposite face's periodic assignment.");},Amber)]]
+        +SVerticalBox::Slot().AutoHeight()[Remove];
+    State->Editors.Add(Target,Editor);return Editor;
+}
+void SStudioWorkspace::RefreshBoundaries()
+{
+    if(!BoundaryState||!BoundaryState->Rows||!BoundaryState->Details)return;auto& State=*BoundaryState;
+    const bool CaseChanged=State.Project!=M->Project.Id||State.Revision!=M->Project.Draft.Revision;
+    if(!CaseChanged&&State.Presented==State.Selected&&State.Filter==State.PresentedFilter&&State.Offset==State.PresentedOffset)return;
+    if(State.Project!=M->Project.Id)
+    {
+        FSlateApplication::Get().DismissAllMenus();State.Project=M->Project.Id;State.Selected.Invalidate();
+        State.Drafts.Empty();State.Editors.Empty();State.Notice.Empty();State.Offset=0;
+    }
+    const auto& Case=M->Project.Draft;
+    if(CaseChanged)State.Coverage=StudioBoundaries::Analyze(Case);
+    TMap<FGuid,const FStudioBoundaryCondition*> Assignments;
+    for(const auto& Assignment:Case.Boundaries)Assignments.Add(Assignment.TargetId,&Assignment);
+    // Keep only visited drafts. A large imported patch catalog must not allocate
+    // one editable form or Slate subtree per target.
+    for(auto It=State.Drafts.CreateIterator();It;++It)
+    {
+        auto& Form=*It.Value();FStudioBoundaryTarget Target;
+        if(!StudioBoundaries::FindTarget(Case,It.Key(),Target))
+        {
+            if(Form.Edit.IsDirty()||Form.bConflict){Form.bMissing=true;Form.bConflict=true;}
+            else {State.Editors.Remove(It.Key());It.RemoveCurrent();}
+            continue;
+        }
+        const auto* Assignment=Assignments.FindRef(It.Key());
+        if(!Form.Edit.Matches(Assignment))
+        {
+            if(Form.Edit.IsDirty())Form.bConflict=true;
+            else {Form.Edit.Reset(Target,Assignment);Form.bConflict=false;Form.Synchronize();}
+        }
+        else Form.bConflict=false;
+        Form.Target=Target;Form.bMissing=false;
+        if(It.Key()!=State.Selected&&!Form.Edit.IsDirty()&&!Form.bConflict)
+        {State.Editors.Remove(It.Key());It.RemoveCurrent();}
+    }
+    FStudioBoundaryTarget Selected;
+    bool SelectedExists=StudioBoundaries::FindTarget(Case,State.Selected,Selected);
+    if(!SelectedExists&&!State.Drafts.Contains(State.Selected))
+    {
+        const auto First=StudioBoundaries::TargetPage(Case,FString(),0,1);
+        State.Selected=First.Items.IsEmpty()?FGuid():First.Items[0].Id;
+        SelectedExists=StudioBoundaries::FindTarget(Case,State.Selected,Selected);
+    }
+    if(SelectedExists)
+    {
+        if(!State.Drafts.Contains(State.Selected))
+        {
+            const auto Form=MakeShared<FStudioBoundaryForm>();Form->Target=Selected;
+            Form->Edit.Reset(Selected,Assignments.FindRef(State.Selected));State.Drafts.Add(State.Selected,Form);
+        }
+        M->SelectBoundaryTarget(State.Selected);
+    }
+    else if(M->SelectedBoundaryTarget.IsValid())
+    {M->SelectedBoundaryTarget.Invalidate();++M->DomainPreviewRevision;}
+    auto Page=StudioBoundaries::TargetPage(Case,State.Filter,State.Offset);
+    if(State.Offset>0&&State.Offset>=Page.Matches)
+    {State.Offset=Page.Matches?((Page.Matches-1)/128)*128:0;Page=StudioBoundaries::TargetPage(Case,State.Filter,State.Offset);}
+    State.Matches=Page.Matches;State.Targets=MoveTemp(Page.Items);
+    const auto Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();const FName FocusTag=Focused?Focused->GetTag():NAME_None;
+    State.Rows->ClearChildren();TSharedPtr<SWidget> Restore;
+    auto AddRow=[this,&State,&Assignments,FocusTag,&Restore](const FStudioBoundaryTarget& Target)
+    {
+        const FGuid Id=Target.Id;const auto* Assignment=Assignments.FindRef(Id);
+        const auto SavedType=Assignment?Assignment->Type:EStudioBoundaryType::Unassigned;
+        const auto Row=SNew(SButton).Tag(FName(*(TEXT("BoundaryTarget_")+Id.ToString()))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(10,9))
+            .OnClicked_Lambda([this,Id]{BoundaryState->Selected=Id;RefreshBoundaries();return FReply::Handled();})
+            [SNew(SVerticalBox)
+                +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,4)[SNew(STextBlock).Text(FText::FromString(Target.Name)).Font(Font(10,true))
+                    .AutoWrapText(true).ColorAndOpacity_Lambda([this,Id]{return BoundaryState->Selected==Id?Cyan:Text;})]
+                +SVerticalBox::Slot().AutoHeight()[Live([this,Id,SavedType]
+                {
+                    const auto Form=BoundaryState->Drafts.FindRef(Id);
+                    if(Form&&Form->bMissing)return FString(TEXT("Removed target · retained draft"));
+                    return StudioBoundaries::TypeName(SavedType)+(Form&&Form->Edit.IsDirty()?TEXT(" · editing"):TEXT(""));
+                },9,Muted,true)]];
+        State.Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Row];if(Row->GetTag()==FocusTag)Restore=Row;
+    };
+    // A selected draft stays reachable when its name is filtered out or its
+    // original target is removed. Other retained drafts are visited by save guards.
+    if(const auto Form=State.Drafts.FindRef(State.Selected);Form&&!State.Targets.ContainsByPredicate([&](const auto& T){return T.Id==State.Selected;}))
+    {
+        State.Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Selected target"),10,Muted)];AddRow(Form->Target);
+        State.Rows->AddSlot().AutoHeight().Padding(0,4,0,8)[Label(TEXT("Matching targets"),10,Muted)];
+    }
+    for(const auto& Target:State.Targets)AddRow(Target);
+    State.Revision=Case.Revision;State.Presented=State.Selected;State.PresentedFilter=State.Filter;State.PresentedOffset=State.Offset;
+    if(State.Selected.IsValid())State.Details->SetContent(BoundaryDetails(State.Selected));
+    else State.Details->SetContent(Label(TEXT("No boundary targets are available."),12,Muted));
+    if(Restore)FSlateApplication::Get().SetKeyboardFocus(Restore,EFocusCause::Navigation);
+}
+void SStudioWorkspace::ApplyBoundary(const FGuid& Target,bool bUnpair)
+{
+    RefreshBoundaries();const auto Form=BoundaryState->Drafts.FindRef(Target);
+    if(!Form||Form->bConflict||Form->bMissing)return;
+    FStudioBoundaryCondition Candidate;
+    if(!Form->Edit.Build(M->Project.Draft,Candidate)){BoundaryState->Notice=Form->Edit.Error;Form->FocusError();return;}
+    if(!M->UpdateBoundary(Candidate,bUnpair)){BoundaryState->Notice=M->Notice;return;}
+    Form->Edit.Reset(Form->Target,&Candidate);Form->Synchronize();BoundaryState->Revision=-1;
+    BoundaryState->Notice=TEXT("Condition applied to the case. Save to keep this assignment.");
+    ResolveSaveNotice(*M,BoundarySaveGuard,BoundaryState->Notice);RefreshBoundaries();
+}
+bool SStudioWorkspace::EnsureBoundariesResolved()
+{
+    RefreshBoundaries();if(!BoundaryState)return true;
+    for(const auto& Pair:BoundaryState->Drafts)if(Pair.Value->Edit.IsDirty()||Pair.Value->bConflict||Pair.Value->bMissing)
+    {
+        const auto Form=Pair.Value;
+        BoundaryState->Selected=Pair.Key;BoundaryState->Notice=BoundarySaveGuard;
+        M->Notice=BoundaryState->Notice;Navigate(EStudioWorkspace::BoundaryConditions);RefreshBoundaries();
+        if(auto Input=Form->Inputs[0].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::SetDirectly);
+        return false;
+    }
+    return true;
 }

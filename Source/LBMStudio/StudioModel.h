@@ -6,6 +6,8 @@
 #include "StudioCameraPlacement.h"
 #include "StudioAssets.h"
 #include "StudioMeshImport.h"
+#include "StudioDomain.h"
+#include "StudioLattice.h"
 #include "Async/Future.h"
 
 enum class EStudioWorkspace : uint8
@@ -164,7 +166,7 @@ class FStudioModel : public FStudioViewSettings, public TSharedFromThis<FStudioM
 public:
     explicit FStudioModel(const FString& SessionDirectory=FString());
     ~FStudioModel() { if(AssetCancellation) *AssetCancellation=true; if(MeshCancellation) *MeshCancellation=true;
-        if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true; }
+        if(DomainCancellation) *DomainCancellation=true; if(LatticeCancellation) *LatticeCancellation=true; if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true; }
     static constexpr double PlaybackInterval = 0.05; // 20 snapshots/s; 601 snapshots play for 30 seconds.
     static constexpr double ColorMax = 400.0; // Fixed velocity legend across all source frames.
     TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> Solver;
@@ -209,6 +211,17 @@ public:
     void RefreshAssets();
     void CancelAssetCheck();
     bool LocateAsset(const FStudioAssetReference& Source,const FString& Path);
+    TSharedPtr<const FStudioDomainGeometry,ESPMode::ThreadSafe> DomainGeometry;
+    int32 DomainPreviewRevision=0;
+    int32 SelectedDomainFace=0;
+    FGuid SelectedBoundaryTarget;
+    FString DomainNotice;
+    bool RequestDomainGeometry();
+    void CancelDomainGeometry();
+    bool IsReadingDomainGeometry() const { return PendingDomainGeometry.IsValid(); }
+    bool UpdateDomain(const FStudioDomain& Domain);
+    void SelectDomainFace(int32 Index);
+    bool SelectBoundaryTarget(const FGuid& Id);
     FStudioMeshImportResult GeometrySource;
     FStudioMeshImportOptions ImportOptions;
     FGuid SelectedGeometry;
@@ -340,6 +353,21 @@ public:
     bool RenameProject(const FString& Name);
     /** All authoring writes go through an atomic edit; view/playback are excluded. */
     bool EditCase(const FString& Label, TFunctionRef<void(FStudioCaseDraft&)> Edit);
+    bool AddMaterial(bool bSolid,FGuid& OutId);
+    bool UpdateMaterial(const FStudioMaterial& Material);
+    bool DuplicateMaterial(const FGuid& Id,FGuid& OutId);
+    bool DeleteMaterial(const FGuid& Id,bool bUnassign);
+    bool AssignDomainMaterial(const FGuid& Id);
+    bool AssignGeometryMaterial(const FGuid& GeometryId,const FGuid& MaterialId);
+    bool UpdateBoundary(const FStudioBoundaryCondition& Boundary,bool bUnpairExisting=false);
+    bool UpdateLatticeResolution(const FIntVector& Resolution);
+    TSharedPtr<const FStudioLatticePreview,ESPMode::ThreadSafe> LatticePreview;
+    TSharedPtr<const FStudioLatticePreviewProgress,ESPMode::ThreadSafe> LatticeProgress;
+    FString LatticeNotice;
+    bool RequestLatticePreview(const FStudioLatticePreviewSettings& Settings);
+    void CancelLatticePreview();
+    bool IsBuildingLatticePreview() const { return PendingLatticePreview.IsValid(); }
+    bool RemoveBoundary(const FGuid& Target);
     bool UndoCase();
     bool RedoCase();
     bool CanUndoCase() const { return !CaseUndo.IsEmpty(); }
@@ -417,6 +445,20 @@ private:
     uint64 MeshGeneration=0,ReadingMeshGeneration=0;
     bool bReadingImport=false;
     bool bReloadGeometry=false;
+    TFuture<FStudioDomainGeometry> PendingDomainGeometry;
+    TSharedPtr<std::atomic<bool>,ESPMode::ThreadSafe> DomainCancellation;
+    FGuid DomainProject,ReadingDomainProject;
+    FString DomainGeometryKey,ReadingDomainKey;
+    bool bReloadDomainGeometry=false;
+    void PollDomainGeometry();
+    void InvalidateDomainGeometry();
+    TFuture<FStudioLatticePreview> PendingLatticePreview;
+    TSharedPtr<std::atomic<bool>,ESPMode::ThreadSafe> LatticeCancellation;
+    FGuid LatticeProject;
+    FString LatticeKey;
+    FStudioLatticePreviewSettings LatticeSettings;
+    void PollLatticePreview();
+    void InvalidateLatticePreview(bool bForce=false);
     void PollGeometry();
     void InvalidateGeometry();
     bool StartMeshRead(const FString& Path,bool bImport,const FGuid& Id);

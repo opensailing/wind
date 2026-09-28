@@ -60,7 +60,11 @@ public:
     bool CaptureSnapshot(FStudioSnapshot& Snapshot,const FStudioProbeMarkerResult* Markers,FString& Error);
     bool HasCurrentFrame() const;
     bool HasPresentedFrame() const { return !PresentedDataset.IsEmpty(); }
-    bool HasGeometryPreview() const { return bGeometryView&&Model&&PreviewBounds.IsValid&&PreviewRevision==Model->GeometryRevision&&!PendingPreview.IsValid(); }
+    bool HasGeometryPreview() const { return bGeometryView&&!bDomainView&&Model&&PreviewBounds.IsValid&&PreviewRevision==Model->GeometryRevision&&!PendingPreview.IsValid(); }
+    bool HasDomainPreview() const { return bDomainView&&Model&&PreviewBounds.IsValid&&PreviewRevision==Model->DomainPreviewRevision&&!PendingPreview.IsValid(); }
+    bool HasBoundaryPreview() const { return bBoundaryView&&HasDomainPreview()&&!bCaptureDirty; }
+    bool HasLatticePreview() const { return bLatticeView&&HasDomainPreview()&&!bCaptureDirty; }
+    FBox GetPreviewBounds() const { return PreviewBounds; }
     FStudioFrame PresentedFrame() const { return CapturedFrame; }
     FString PresentedSource() const { return PresentedTitle; }
     FString PresentedDatasetId() const { return PresentedDataset; }
@@ -71,6 +75,7 @@ public:
     const FStudioMeshSummary& PresentedMesh() const { return CapturedMesh; }
     FGuid PresentedProjectId() const { return CapturedProjectId; }
     FStudioCameraState PresentedCamera() const { return CapturedCamera; }
+    double PresentedNearClipMeters() const { return CapturedNearClipMeters; }
     FIntPoint PresentedViewportSize() const { return CapturedViewportSize; }
     /** Same immutable field as the captured pixels. Never reads the requested
      * playback cursor, and returns empty outside a presented flow frame. */
@@ -117,7 +122,11 @@ private:
     FBox RenderedFlowBounds=FBox(ForceInit);
     bool bCaptureDirty=true;
     bool bGeometryView=false;
-    FStudioCameraState GeometryCamera;
+    bool bDomainView=false,bBuildingDomainPreview=false;
+    bool bBoundaryView=false,bBuildingBoundaryPreview=false;
+    bool bLatticeView=false,bBuildingLatticePreview=false;
+    FStudioCameraState GeometryCamera,DomainCamera;
+    FGuid DomainCameraProject;
     FBox PreviewBounds=FBox(ForceInit);
     TFuture<TSharedPtr<FStudioGeometry>> PendingPreview;
     FStudioLoadCancellation PreviewCancellation;
@@ -125,9 +134,11 @@ private:
     int32 PreviewRevision=-1,BuildingPreviewRevision=-1;
     bool bFitPreview=true;
     void UpdateGeometryPreview();
+    void UpdateDomainPreview();
     uint64 CaptureCount=0;
     uint64 CancelledBuildCount=0,DiscardedBuildCount=0;
     FStudioCameraState CapturedCamera;
+    double CapturedNearClipMeters=1.e-6;
     FIntPoint CapturedViewportSize=FIntPoint::ZeroValue;
     FTransform LastCapturedTransform;
     FVector Focus=FVector(50,0,0);

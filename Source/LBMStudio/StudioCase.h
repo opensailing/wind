@@ -46,15 +46,17 @@ struct FStudioDomain
     FGuid FluidMaterialId;
     // Fixed order: -X, +X, -Y, +Y, -Z, +Z. IDs survive changes to bounds.
     TArray<FGuid> Faces;
+    TArray<FString> FaceNames;
     FStudioDomain();
 };
 
-enum class EStudioBoundaryType : uint8 { Unassigned, VelocityInlet, PressureOutlet, NoSlip, Slip, Symmetry };
+enum class EStudioBoundaryType : uint8 { Unassigned, VelocityInlet, PressureOutlet, NoSlip, Slip, Symmetry, Periodic };
 struct FStudioBoundaryCondition
 {
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Boundary");
     FGuid TargetId; // Domain face or imported surface patch.
+    FGuid PairedTargetId; // Reciprocal periodic partner, otherwise invalid.
     EStudioBoundaryType Type = EStudioBoundaryType::Unassigned;
     TOptional<FVector> Velocity;
     TOptional<double> Pressure;

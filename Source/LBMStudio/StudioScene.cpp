@@ -523,12 +523,12 @@ void AStudioScene::AlignCamera(const FIntVector& Direction)
 {
     if(!StudioOrientation::IsDirection(Direction))return;
     if(Model)Model->EndViewEdit();
-    const auto C=bGeometryView?GeometryCamera:SavedCameraState();
+    const auto C=bGeometryView?(bDomainView?DomainCamera:GeometryCamera):SavedCameraState();
     RestoreCamera(StudioOrientation::Align(C,Direction),TEXT("View from ")+StudioOrientation::Label(Direction));
 }
 void AStudioScene::RestoreCamera(const FStudioCameraState& C,const FString& Label)
 {
-    if(bGeometryView){GeometryCamera=C;ApplyCamera(C);return;}
+    if(bGeometryView){(bDomainView?DomainCamera:GeometryCamera)=C;ApplyCamera(C);return;}
     if(!Model || !Model->EditCamera(Label,C)) return;
     if(!StudioView::CameraEquals(CameraState(),C)) ApplyCamera(C);
 }
@@ -544,7 +544,7 @@ FStudioCameraState AStudioScene::CameraState() const
 }
 bool AStudioScene::SetDepthClipping(bool bEnabled,double NearMeters,double FarMeters)
 {
-    auto C=bGeometryView?GeometryCamera:SavedCameraState();
+    auto C=bGeometryView?(bDomainView?DomainCamera:GeometryCamera):SavedCameraState();
     C.bDepthClipping=bEnabled;C.NearClipMeters=NearMeters;C.FarClipMeters=FarMeters;
     if(!StudioView::IsValidClipping(C))return false;
     RestoreCamera(C,TEXT("Camera depth clipping"));return true;
@@ -721,16 +721,20 @@ void AStudioScene::Tick(float Delta)
     bool bMinimized=false;
     if(GEngine&&GEngine->GameViewport)
         if(const auto Window=GEngine->GameViewport->GetWindow())bMinimized=Window->IsWindowMinimized();
-    const bool WantsGeometry=Model->Workspace==EStudioWorkspace::Geometry;
+    const bool WantsBoundary=Model->Workspace==EStudioWorkspace::BoundaryConditions;
+    const bool WantsLattice=Model->Workspace==EStudioWorkspace::Meshing;
+    const bool WantsDomain=Model->Workspace==EStudioWorkspace::Domain||WantsBoundary||WantsLattice;
+    const bool WantsGeometry=Model->Workspace==EStudioWorkspace::Geometry||WantsDomain;
+    const int32 WantedPreviewRevision=WantsDomain?Model->DomainPreviewRevision:Model->GeometryRevision;
     const bool WantsFlow=Model->Workspace==EStudioWorkspace::Solve&&!bMinimized;
     if(bBuilding&&(!WantsFlow||!IsGeometryRequestCurrent()))CancelBuild(GeometryCancellation);
-    if(PendingPreview.IsValid()&&(!WantsGeometry||bMinimized||BuildingPreviewRevision!=Model->GeometryRevision||BuildingPreviewProjectId!=Model->Project.Id))CancelBuild(PreviewCancellation);
-    if(WantsGeometry!=bGeometryView)
+    if(PendingPreview.IsValid()&&(!WantsGeometry||bMinimized||BuildingPreviewRevision!=WantedPreviewRevision||bBuildingDomainPreview!=WantsDomain||bBuildingBoundaryPreview!=WantsBoundary||bBuildingLatticePreview!=WantsLattice||BuildingPreviewProjectId!=Model->Project.Id))CancelBuild(PreviewCancellation);
+    if(WantsGeometry!=bGeometryView||WantsDomain!=bDomainView||WantsBoundary!=bBoundaryView||WantsLattice!=bLatticeView)
     {
-        if(bGeometryView)GeometryCamera=CameraState();bGeometryView=WantsGeometry;
+        if(bGeometryView)(bDomainView?DomainCamera:GeometryCamera)=CameraState();bGeometryView=WantsGeometry;bDomainView=WantsDomain;bBoundaryView=WantsBoundary;bLatticeView=WantsLattice;
         Mesh->ClearAllMeshSections();VolumeComponent->ClearVolume();PresentedDataset.Empty();RenderedDataset.Empty();PreviewRevision=-1;RenderedRevision=CapturedRevision=-1;
         RenderedField.Reset();CapturedField.Reset();
-        ApplyCamera(bGeometryView?GeometryCamera:Model->Project.Camera);bFitPreview=bGeometryView;
+        ApplyCamera(bGeometryView?(bDomainView?DomainCamera:GeometryCamera):Model->Project.Camera);bFitPreview=bGeometryView&&(!bDomainView||DomainCameraProject!=Model->Project.Id);
     }
     if(bBuilding&&PendingGeometry.IsReady())
     {
@@ -748,7 +752,7 @@ void AStudioScene::Tick(float Delta)
     if(PendingPreview.IsValid()&&PreviewCancellation->load()&&PendingPreview.IsReady())
     {PendingPreview.Get();PendingPreview={};PreviewCancellation.Reset();++DiscardedBuildCount;}
     if(bMinimized)return;
-    if(bGeometryView){UpdateGeometryPreview();CaptureIfChanged();return;}
+    if(bGeometryView){if(bDomainView)UpdateDomainPreview();else UpdateGeometryPreview();CaptureIfChanged();return;}
     if(AppliedCameraRevision!=Model->CameraRevision) ApplyCamera(Model->Project.Camera);
     // Background playback advances its cursor without hidden mesh/capture work.
     if(!WantsFlow)return;
@@ -793,6 +797,8 @@ void AStudioScene::CaptureIfChanged()
     CapturedRevision=RenderedRevision;CapturedIntentRevision=RenderedIntentRevision;
     CapturedProjectId=RenderedProjectId;CapturedSolver=RenderedSolver;
     CapturedCamera=CameraState();CapturedViewportSize=FIntPoint(RenderTarget->SizeX,RenderTarget->SizeY);
+    CapturedNearClipMeters=CapturedCamera.bDepthClipping?CapturedCamera.NearClipMeters:CapturedCamera.bOrthographic?0.:
+        (Capture->bOverride_CustomNearClippingPlane?Capture->CustomNearClippingPlane:GNearClippingPlane)/100.;
     LastCapturedTransform=Transform; bCaptureDirty=false; ++CaptureCount;
 }
 void AStudioScene::EndPlay(const EEndPlayReason::Type Reason)
@@ -809,7 +815,7 @@ void AStudioScene::UpdateGeometryPreview()
     if(PendingPreview.IsValid()&&PendingPreview.IsReady())
     {
         const auto G=PendingPreview.Get();PendingPreview=TFuture<TSharedPtr<FStudioGeometry>>();
-        if(G&&!PreviewCancellation->load()&&BuildingPreviewRevision==Model->GeometryRevision&&BuildingPreviewProjectId==Model->Project.Id)
+        if(G&&!PreviewCancellation->load()&&!bBuildingDomainPreview&&BuildingPreviewRevision==Model->GeometryRevision&&BuildingPreviewProjectId==Model->Project.Id)
         {
             ApplyGeometry(*G);PreviewBounds=G->Bounds;PreviewRevision=BuildingPreviewRevision;
             if(bFitPreview){FitCamera();bFitPreview=false;}
@@ -828,7 +834,7 @@ void AStudioScene::UpdateGeometryPreview()
         Asset.MetersPerSourceUnit=Model->ImportOptions.MetersPerUnit>0?Model->ImportOptions.MetersPerUnit:1.;
         Asset.Rotation=StudioMeshImport::AxisRotation(Model->ImportOptions.UpAxis,Model->ImportOptions.ForwardAxis);
     }
-    BuildingPreviewRevision=Model->GeometryRevision;
+    bBuildingDomainPreview=false;bBuildingBoundaryPreview=false;bBuildingLatticePreview=false;BuildingPreviewRevision=Model->GeometryRevision;
     BuildingPreviewProjectId=Model->Project.Id;
     PreviewCancellation=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
     bFitPreview=true;
@@ -850,6 +856,126 @@ void AStudioScene::UpdateGeometryPreview()
         }
         for(int32 I=0;I<S.Normals.Num();++I)
         {if((I&1023)==0&&Cancel->load())return {};auto& N=S.Normals[I];N.Normalize();const double Shade=.35+.65*FMath::Abs(FVector::DotProduct(N,FVector(.3,.5,.8).GetSafeNormal()));S.Colors[I]=FLinearColor(.27,.55,.65)*Shade;S.Colors[I].A=1;}
+        return G;
+    });
+}
+void AStudioScene::UpdateDomainPreview()
+{
+    if(DomainCameraProject!=Model->Project.Id)bFitPreview=true;
+    if(PendingPreview.IsValid()&&PendingPreview.IsReady())
+    {
+        const auto G=PendingPreview.Get();PendingPreview={};
+        if(G&&!PreviewCancellation->load()&&bBuildingDomainPreview&&bBuildingBoundaryPreview==bBoundaryView&&bBuildingLatticePreview==bLatticeView&&BuildingPreviewRevision==Model->DomainPreviewRevision&&BuildingPreviewProjectId==Model->Project.Id)
+        {
+            ApplyGeometry(*G);PreviewBounds=G->Bounds;PreviewRevision=BuildingPreviewRevision;
+            if(bFitPreview){FitCamera();bFitPreview=false;DomainCameraProject=Model->Project.Id;}
+        }
+        else ++DiscardedBuildCount;
+        PreviewCancellation.Reset();
+    }
+    if(bBuilding||PendingPreview.IsValid()||PreviewRevision==Model->DomainPreviewRevision)return;
+    bBuildingDomainPreview=true;bBuildingBoundaryPreview=bBoundaryView;bBuildingLatticePreview=bLatticeView;BuildingPreviewRevision=Model->DomainPreviewRevision;BuildingPreviewProjectId=Model->Project.Id;
+    PreviewCancellation=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
+    const auto Domain=Model->Project.Draft.Domain;
+    const FGuid SelectedPatch=bBoundaryView?Model->SelectedBoundaryTarget:FGuid();
+    const int32 Face=bLatticeView?INDEX_NONE:bBoundaryView?Domain.Faces.IndexOfByKey(SelectedPatch):Model->SelectedDomainFace;
+    const auto Checked=Model->DomainGeometry;
+    const auto Lattice=bLatticeView?Model->LatticePreview:nullptr;
+    PendingPreview=Async(EAsyncExecution::ThreadPool,[Domain,Face,SelectedPatch,Checked,Lattice,Cancel=PreviewCancellation]() -> TSharedPtr<FStudioGeometry>
+    {
+        if(Cancel->load())return {};
+        auto G=MakeShared<FStudioGeometry>();G->Bounds=FBox(Domain.Min,Domain.Max);
+        auto& S=G->Sections[0];
+        if(Checked&&Checked->Preview)
+        {
+            const auto Source=Checked->Preview;
+            if(Checked->Bounds.IsValid)G->Bounds+=Checked->Bounds;
+            S.Indices=Source->Indices;S.Vertices.Reserve(Source->Positions.Num());
+            int32 I=0;for(const auto& Position:Source->Positions)
+            {if((I++&1023)==0&&Cancel->load())return {};S.Vertices.Add(Position*100.);}
+            S.Normals.Init(FVector::ZeroVector,S.Vertices.Num());S.Colors.Init(FLinearColor(.22,.43,.52),S.Vertices.Num());
+            for(I=0;I<S.Indices.Num();I+=3)
+            {
+                if((I&1023)==0&&Cancel->load())return {};
+                const int32 A=S.Indices[I],B=S.Indices[I+1],C=S.Indices[I+2];
+                const FVector N=FVector::CrossProduct(S.Vertices[B]-S.Vertices[A],S.Vertices[C]-S.Vertices[A]);
+                S.Normals[A]+=N;S.Normals[B]+=N;S.Normals[C]+=N;
+            }
+            for(I=0;I<S.Normals.Num();++I)
+            {
+                if((I&1023)==0&&Cancel->load())return {};
+                auto& N=S.Normals[I];N.Normalize();
+                const double Shade=.35+.65*FMath::Abs(FVector::DotProduct(N,FVector(.3,.5,.8).GetSafeNormal()));
+                S.Colors[I]=FLinearColor(.27,.55,.65)*Shade;S.Colors[I].A=1;
+            }
+            if(SelectedPatch.IsValid()&&Checked->PatchBounds.Contains(SelectedPatch)&&Checked->TriangleTargets.Num()==Source->Indices.Num()/3)
+            {
+                // Split the displayed faces so a shared edge cannot leak the
+                // selection color onto a neighboring original surface patch.
+                auto& Highlight=G->Sections[4];TArray<int32> Retained;Retained.Reserve(S.Indices.Num());
+                TArray<int32> HighlightVertices;HighlightVertices.Init(INDEX_NONE,S.Vertices.Num());
+                auto AddVertex=[&](int32 Original)
+                {
+                    int32& Mapped=HighlightVertices[Original];
+                    if(Mapped==INDEX_NONE)
+                    {
+                        Mapped=Highlight.Vertices.Add(S.Vertices[Original]);Highlight.Normals.Add(S.Normals[Original]);
+                        Highlight.Colors.Add(FLinearColor(0,.75,.9));
+                    }
+                    Highlight.Indices.Add(Mapped);
+                };
+                for(int32 Triangle=0;Triangle<Checked->TriangleTargets.Num();++Triangle)
+                {
+                    if((Triangle&1023)==0&&Cancel->load())return {};
+                    const int32 A=S.Indices[Triangle*3],B=S.Indices[Triangle*3+1],C=S.Indices[Triangle*3+2];
+                    if(Checked->TriangleTargets[Triangle]==SelectedPatch)
+                    {AddVertex(A);AddVertex(B);AddVertex(C);}
+                    else {Retained.Add(A);Retained.Add(B);Retained.Add(C);}
+                }
+                S.Indices=MoveTemp(Retained);
+            }
+        }
+        FVector Corners[8];for(int32 I=0;I<8;++I)Corners[I]=FVector(I&1?Domain.Max.X:Domain.Min.X,I&2?Domain.Max.Y:Domain.Min.Y,I&4?Domain.Max.Z:Domain.Min.Z)*100.;
+        const double Radius=FMath::Max(.00001,(Domain.Max-Domain.Min).GetMax()*.08);
+        for(int32 I=0;I<8;++I)for(int32 Axis=0;Axis<3;++Axis)if(!(I&(1<<Axis)))
+            G->Sections[3].Tube(Corners[I],Corners[I|(1<<Axis)],Radius,FLinearColor(.28,.43,.51));
+        if(Lattice&&Lattice->Complete())
+        {
+            int32 I=0;auto& Cells=G->Sections[1];
+            const int32 LayerAxis=Lattice->Plan.Settings.Axis;
+            for(const auto& Cell:Lattice->Samples)
+            {
+                if((I++&127)==0&&Cancel->load())return {};
+                FVector Center;FBox Box;if(!Lattice->Plan.Layout.Cell(Cell.Index,Center,Box))continue;
+                FLinearColor Color;
+                switch(Cell.Kind)
+                {
+                case EStudioLatticeCell::OutsideGeometry:Color=FLinearColor(.08,.48,.62,.45);break;
+                case EStudioLatticeCell::InsideClosedGeometry:Color=FLinearColor(.48,.38,.7,.75);break;
+                case EStudioLatticeCell::Surface:Color=FLinearColor(1,.65,.15,.85);break;
+                default:Color=FLinearColor(.7,.28,.34,.7);break;
+                }
+                // Three percent display gap reveals original cells. Sampling
+                // never coarsens or changes their physical positions or sizes.
+                const FVector Extent=Box.GetExtent()*.97*100.;Center*=100.;
+                auto Quad=[&](int32 Axis,double Side)
+                {
+                    const int32 A=(Axis+1)%3,B=(Axis+2)%3;FVector P[4];
+                    for(int32 K=0;K<4;++K)
+                    {P[K]=Center;P[K][Axis]+=Side*Extent[Axis];P[K][A]+=(K==1||K==2?1:-1)*Extent[A];P[K][B]+=(K>=2?1:-1)*Extent[B];}
+                    Cells.Triangle(P[0],P[1],P[2],Color);Cells.Triangle(P[0],P[2],P[3],Color);
+                };
+                if(LayerAxis>=0)Quad(LayerAxis,0);
+                else for(int32 Axis=0;Axis<3;++Axis){Quad(Axis,-1);Quad(Axis,1);}
+            }
+        }
+        if(Face==INDEX_NONE)return G;
+        const int32 Axis=FMath::Clamp(Face/2,0,2),Side=Face%2,A=(Axis+1)%3,B=(Axis+2)%3;
+        const int32 Base=Side<<Axis;
+        const int32 Indices[4]={Base,Base|(1<<A),Base|(1<<A)|(1<<B),Base|(1<<B)};
+        for(int32 I=0;I<4;++I)G->Sections[4].Tube(Corners[Indices[I]],Corners[Indices[(I+1)%4]],Radius*2,FLinearColor(0,.75,.9));
+        G->Sections[1].Triangle(Corners[Indices[0]],Corners[Indices[1]],Corners[Indices[2]],FLinearColor(0,.65,.8,.07));
+        G->Sections[1].Triangle(Corners[Indices[0]],Corners[Indices[2]],Corners[Indices[3]],FLinearColor(0,.65,.8,.07));
         return G;
     });
 }

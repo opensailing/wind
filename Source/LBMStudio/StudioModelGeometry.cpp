@@ -23,6 +23,7 @@ void FStudioModel::CancelGeometryImport()
 }
 void FStudioModel::InvalidateGeometry()
 {
+    InvalidateDomainGeometry();
     ++MeshGeneration;if(MeshCancellation)*MeshCancellation=true;
     GeometrySource={};bImportPreview=false;++GeometryRevision;
     if(!Project.Draft.Geometry.ContainsByPredicate([this](const auto& A){return A.Id==SelectedGeometry;}))SelectedGeometry.Invalidate();

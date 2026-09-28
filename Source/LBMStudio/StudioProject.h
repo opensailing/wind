@@ -71,7 +71,7 @@ struct FStudioCameraBookmark
 
 struct FStudioProject
 {
-    static constexpr int32 CurrentVersion = 16;
+    static constexpr int32 CurrentVersion = 17;
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Airfoil SU2 009");
     FString Dataset = TEXT("MeshGraphNets_Airfoil_test009");

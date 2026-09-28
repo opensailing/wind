@@ -82,6 +82,8 @@ void FStudioModel::Tick(double Delta)
     PollRecording();
     PollAssets();
     PollGeometry();
+    PollDomainGeometry();
+    PollLatticePreview();
     DirtyCheckSeconds+=Delta; AutosaveSeconds+=Delta;
     if(DirtyCheckSeconds>=.5) { bDirty=HasUnsavedChanges(); DirtyCheckSeconds=0; }
     if(AutosaveSeconds>=30) { WriteRecovery(); AutosaveSeconds=0; }
@@ -112,8 +114,8 @@ void FStudioModel::NewProject(const FString& Name)
     if(!CanReplaceProject())return;
     const auto Source=PrepareRecording(FStudioProject(),0); if(!Source) return;
     RecordingRepair.Reset(); CancelProjectOpen(false); CancelRecording(); UseRecording(Source);
-    ClearCaseHistory(); ClearViewHistory();
     Project=FStudioProject(); ResetJobSession(); Project.Name=Name.IsEmpty()?TEXT("Untitled airfoil"):Name.Left(120);
+    ClearCaseHistory(); ClearViewHistory();
     static_cast<FStudioViewSettings&>(*this)=Project.View;
     ProjectPath.Empty(); Reset(); SavedSnapshot.Empty(); bDirty=true; Notice=TEXT("New project using the published airfoil recording.");
 }
@@ -414,13 +416,14 @@ bool FStudioModel::ApplyAssetLocation(const FStudioAssetReference& Source,const 
 
 bool FStudioModel::IsWorkspaceAvailable(EStudioWorkspace Destination)
 {
-    return Destination==EStudioWorkspace::Dashboard || Destination==EStudioWorkspace::Projects || Destination==EStudioWorkspace::Solve || Destination==EStudioWorkspace::Geometry;
+    return Destination==EStudioWorkspace::Dashboard || Destination==EStudioWorkspace::Projects || Destination==EStudioWorkspace::Solve || Destination==EStudioWorkspace::Geometry || Destination==EStudioWorkspace::Materials || Destination==EStudioWorkspace::Domain || Destination==EStudioWorkspace::BoundaryConditions || Destination==EStudioWorkspace::Meshing;
 }
 bool FStudioModel::Navigate(EStudioWorkspace Destination)
 {
     if(!IsWorkspaceAvailable(Destination)) return false;
     EndViewEdit();
     Workspace=Destination;
+    if(Destination==EStudioWorkspace::Domain||Destination==EStudioWorkspace::BoundaryConditions||Destination==EStudioWorkspace::Meshing){InvalidateDomainGeometry();if(!DomainGeometry&&!PendingDomainGeometry.IsValid())RequestDomainGeometry();}
     if(Destination!=EStudioWorkspace::Solve) RefreshProjectCatalog();
     return true;
 }

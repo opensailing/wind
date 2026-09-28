@@ -292,7 +292,16 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
         {
             const FObject* Draft;
             const TArray<TSharedPtr<FJsonValue>>* Runs;
-            if (!O->TryGetObjectField(TEXT("draft"),Draft) || !StudioCaseIO::FromJSON(*Draft,P.Draft,Error)) return false;
+            if (!O->TryGetObjectField(TEXT("draft"),Draft)) return false;
+            auto HasAuthoringFields=[](const FObject& Case)
+            {
+                const FObject* Domain;const TArray<TSharedPtr<FJsonValue>>* Boundaries;
+                if(!Case->TryGetObjectField(TEXT("domain"),Domain)||!(*Domain)->HasField(TEXT("faceNames"))||!Case->TryGetArrayField(TEXT("boundaries"),Boundaries))return false;
+                for(const auto& Value:*Boundaries){const FObject* Boundary;if(!Value->TryGetObject(Boundary)||!(*Boundary)->HasField(TEXT("pairedTargetId")))return false;}
+                return true;
+            };
+            if(Version>=17&&!HasAuthoringFields(*Draft)){Error=TEXT("Domain face names or boundary pairing fields are missing from the project.");return false;}
+            if(!StudioCaseIO::FromJSON(*Draft,P.Draft,Error)) return false;
             if (!O->TryGetArrayField(TEXT("runs"),Runs) || Runs->Num()>256)
             { Error=TEXT("Invalid or oversized run record list."); return false; }
             P.Runs.Reset(); TSet<FGuid> RunIds;
@@ -300,6 +309,12 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
             {
                 const FObject* Item; FStudioRunRecord Run;
                 if (!Value->TryGetObject(Item)) { Error=TEXT("Invalid run record."); return false; }
+                if(Version>=17)
+                {
+                    const FObject* Configuration;
+                    if((*Item)->TryGetObjectField(TEXT("configuration"),Configuration)&&!HasAuthoringFields(*Configuration))
+                    {Error=TEXT("The frozen configuration is missing domain names or boundary pairing fields.");return false;}
+                }
                 if (!FStudioRunRecord::FromJSON(*Item,Run,Error)) return false;
                 if (RunIds.Contains(Run.GetId())) { Error=TEXT("Duplicate run identity."); return false; }
                 RunIds.Add(Run.GetId()); P.Runs.Add(MoveTemp(Run));

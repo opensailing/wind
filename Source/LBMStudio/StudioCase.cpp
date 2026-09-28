@@ -93,6 +93,7 @@ namespace
         case EStudioBoundaryType::NoSlip: return TEXT("no-slip");
         case EStudioBoundaryType::Slip: return TEXT("slip");
         case EStudioBoundaryType::Symmetry: return TEXT("symmetry");
+        case EStudioBoundaryType::Periodic: return TEXT("periodic");
         default: return TEXT("invalid");
         }
     }
@@ -100,7 +101,7 @@ namespace
     {
         FString Text;
         if (!O->TryGetStringField(TEXT("type"),Text)) return false;
-        for (int32 I = 0; I <= int32(EStudioBoundaryType::Symmetry); ++I)
+        for (int32 I = 0; I <= int32(EStudioBoundaryType::Periodic); ++I)
             if (Text == BoundaryName(EStudioBoundaryType(I))) { Type = EStudioBoundaryType(I); return true; }
         return false;
     }
@@ -122,6 +123,7 @@ namespace
 FStudioDomain::FStudioDomain()
 {
     for (int32 I = 0; I < 6; ++I) Faces.Add(FGuid::NewGuid());
+    FaceNames={TEXT("-X"),TEXT("+X"),TEXT("-Y"),TEXT("+Y"),TEXT("-Z"),TEXT("+Z")};
 }
 
 TSharedRef<FJsonObject> StudioCaseIO::ToJSON(const FStudioCaseDraft& D)
@@ -134,6 +136,8 @@ TSharedRef<FJsonObject> StudioCaseIO::ToJSON(const FStudioCaseDraft& D)
     FValues Faces;
     for (const auto& Id : D.Domain.Faces) Faces.Add(MakeShared<FJsonValueString>(Id.ToString()));
     Domain->SetArrayField(TEXT("faces"),Faces); O->SetObjectField(TEXT("domain"),Domain);
+    FValues Names;for(const auto& Name:D.Domain.FaceNames)Names.Add(MakeShared<FJsonValueString>(Name));
+    Domain->SetArrayField(TEXT("faceNames"),Names);
     FValues Materials;
     for (const auto& M : D.Materials)
     {
@@ -167,6 +171,7 @@ TSharedRef<FJsonObject> StudioCaseIO::ToJSON(const FStudioCaseDraft& D)
     {
         auto Item = MakeShared<FJsonObject>(); IdField(Item,TEXT("id"),B.Id); IdField(Item,TEXT("targetId"),B.TargetId);
         Item->SetStringField(TEXT("name"),B.Name); Item->SetStringField(TEXT("type"),BoundaryName(B.Type));
+        IdField(Item,TEXT("pairedTargetId"),B.PairedTargetId);
         OptionalVector(Item,TEXT("velocityMS"),B.Velocity); OptionalField(Item,TEXT("pressurePa"),B.Pressure);
         OptionalField(Item,TEXT("temperatureK"),B.Temperature); Boundaries.Add(MakeShared<FJsonValueObject>(Item));
     }
@@ -202,6 +207,13 @@ bool StudioCaseIO::FromJSON(const FObject& O, FStudioCaseDraft& Out, FString& Er
         if (!Face->TryGetString(Text) || !FGuid::Parse(Text,Id)) return false;
         D.Domain.Faces.Add(Id);
     }
+    if((*Domain)->HasField(TEXT("faceNames")))
+    {
+        const FValues* Names;
+        if(!(*Domain)->TryGetArrayField(TEXT("faceNames"),Names)||Names->Num()!=6)return false;
+        D.Domain.FaceNames.Reset();
+        for(const auto& Value:*Names){FString Name;if(!Value->TryGetString(Name))return false;D.Domain.FaceNames.Add(Name);}
+    }
     if (!ReadItems(O,TEXT("materials"),D.Materials,256,[](const FObject& M, FStudioMaterial& V)
     {
         return ReadId(M,TEXT("id"),V.Id) && M->TryGetStringField(TEXT("name"),V.Name) && M->TryGetBoolField(TEXT("solid"),V.bSolid) &&
@@ -223,7 +235,7 @@ bool StudioCaseIO::FromJSON(const FObject& O, FStudioCaseDraft& Out, FString& Er
     if (!ReadItems(O,TEXT("boundaries"),D.Boundaries,4096,[](const FObject& B, FStudioBoundaryCondition& V)
     {
         return ReadId(B,TEXT("id"),V.Id) && ReadId(B,TEXT("targetId"),V.TargetId) && B->TryGetStringField(TEXT("name"),V.Name) &&
-            ReadBoundaryType(B,V.Type) && ReadOptionalVector(B,TEXT("velocityMS"),V.Velocity) &&
+            ReadBoundaryType(B,V.Type) && (!B->HasField(TEXT("pairedTargetId"))||ReadId(B,TEXT("pairedTargetId"),V.PairedTargetId,true)) && ReadOptionalVector(B,TEXT("velocityMS"),V.Velocity) &&
             ReadOptional(B,TEXT("pressurePa"),V.Pressure) && ReadOptional(B,TEXT("temperatureK"),V.Temperature);
     })) return false;
     if (!O->TryGetObjectField(TEXT("setup"),Setup)) return false;
@@ -259,6 +271,14 @@ bool StudioCaseIO::Validate(const FStudioCaseDraft& D, FString& Error)
         D.Domain.Min.X >= D.Domain.Max.X || D.Domain.Min.Y >= D.Domain.Max.Y || D.Domain.Min.Z >= D.Domain.Max.Z || D.Domain.Faces.Num() != 6)
         return Fail(TEXT("Domain bounds must enclose a nonzero volume and have six faces."));
     TSet<FGuid> Targets;
+    if(D.Domain.FaceNames.Num()!=6)return Fail(TEXT("The domain must have six named faces."));
+    TSet<FString> FaceNames;
+    for(const auto& Name:D.Domain.FaceNames)
+    {
+        const FString Clean=Name.TrimStartAndEnd();
+        if(!GoodName(Name)||FaceNames.Contains(Clean.ToLower()))return Fail(TEXT("Domain face names must be nonempty and unique (1–120 characters)."));
+        FaceNames.Add(Clean.ToLower());
+    }
     for (const auto& Id : D.Domain.Faces)
     { if (!Unique(Id)) return Fail(TEXT("Domain face identities must be unique.")); Targets.Add(Id); }
     if (D.Materials.Num() > 256 || D.Geometry.Num() > 1024 || D.Boundaries.Num() > 4096)
@@ -293,10 +313,22 @@ bool StudioCaseIO::Validate(const FStudioCaseDraft& D, FString& Error)
     for (const auto& B : D.Boundaries)
     {
         if (!Unique(B.Id) || !GoodName(B.Name) || !Targets.Contains(B.TargetId) || Assigned.Contains(B.TargetId) ||
-            uint8(B.Type) > uint8(EStudioBoundaryType::Symmetry) || !GoodOptionalVector(B.Velocity) || !Finite(B.Pressure) ||
+            uint8(B.Type) > uint8(EStudioBoundaryType::Periodic) || !GoodOptionalVector(B.Velocity) || !Finite(B.Pressure) ||
             !Finite(B.Temperature) || (B.Temperature.IsSet() && B.Temperature.GetValue() < 0))
             return Fail(TEXT("Boundary has an invalid value, missing target, or conflicting assignment."));
         Assigned.Add(B.TargetId);
+    }
+    for(const auto& B:D.Boundaries)
+    {
+        if(B.Type==EStudioBoundaryType::Periodic)
+        {
+            const int32 Face=D.Domain.Faces.IndexOfByKey(B.TargetId);
+            const auto* Partner=D.Boundaries.FindByPredicate([&](const auto& Other){return Other.TargetId==B.PairedTargetId;});
+            if(Face==INDEX_NONE||B.PairedTargetId!=D.Domain.Faces[Face^1]||!Partner||Partner->Type!=EStudioBoundaryType::Periodic||
+                Partner->PairedTargetId!=B.TargetId||B.Velocity.IsSet()||B.Pressure.IsSet()||B.Temperature.IsSet())
+                return Fail(TEXT("Periodic conditions must form a reciprocal pair on opposite domain faces, without prescribed velocity, pressure or temperature."));
+        }
+        else if(B.PairedTargetId.IsValid())return Fail(TEXT("Only periodic conditions may reference a paired face."));
     }
     const auto& S = D.Setup;
     if (!GoodOptionalVector(S.InletVelocity) || !Finite(S.OutletPressure) || !Positive(S.ReferenceLength) ||

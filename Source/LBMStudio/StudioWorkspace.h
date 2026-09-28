@@ -17,6 +17,10 @@ class FStudioProbeMarkerScheduler;
 class FStudioProbeExportTask;
 struct FStudioProbeResult;
 struct FStudioProbeProfile;
+struct FStudioMaterialWorkspaceState;
+struct FStudioDomainWorkspaceState;
+struct FStudioBoundaryWorkspaceState;
+struct FStudioLatticeWorkspaceState;
 class SStudioWorkspace : public SCompoundWidget
 {
 public:
@@ -80,6 +84,10 @@ private:
     FStudioSnapshotOptions SnapshotOptions;
     int32 SnapshotAspect=0,SnapshotWidth=1920;
     FString SnapshotNotice;
+    TSharedPtr<FStudioMaterialWorkspaceState> MaterialsState;
+    TSharedPtr<FStudioDomainWorkspaceState> DomainState;
+    TSharedPtr<FStudioBoundaryWorkspaceState> BoundaryState;
+    TSharedPtr<FStudioLatticeWorkspaceState> LatticeState;
     TSharedPtr<const FStudioProbeProfile> InspectionProfile;
     TMap<FGuid,TWeakPtr<SWidget>> InspectionRowButtons;
     FGuid InspectionProject,InspectionDetailId;
@@ -93,6 +101,23 @@ private:
     TSharedRef<SWidget> Projects();
     TSharedRef<SWidget> Dashboard();
     TSharedRef<SWidget> GeometryWorkspace();
+    TSharedRef<SWidget> DomainWorkspace();
+    void RefreshDomain();
+    bool EnsureDomainResolved();
+    void ApplyDomain();
+    TSharedRef<SWidget> MaterialsWorkspace();
+    TSharedRef<SWidget> MaterialDetails(const FGuid& Id);
+    void RefreshMaterials();
+    bool EnsureMaterialsResolved();
+    TSharedRef<SWidget> BoundaryWorkspace();
+    TSharedRef<SWidget> BoundaryDetails(const FGuid& Target);
+    void RefreshBoundaries();
+    void ApplyBoundary(const FGuid& Target,bool bUnpair);
+    bool EnsureBoundariesResolved();
+    TSharedRef<SWidget> LatticeWorkspace();
+    void RefreshLattice();
+    void ApplyLattice();
+    bool EnsureLatticeResolved();
     void ImportGeometry();
     void RefreshGeometryObjects();
     TSharedRef<SWidget> RecentProjectRow(const FStudioProjectSummary& Item,bool bCompact);
