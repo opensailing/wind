@@ -1,67 +1,17 @@
-# Unreal generated
-Binaries/
-DerivedDataCache/
-Intermediate/
-Saved/
-.vscode/
-.idea/
-*.xcworkspace/
-*.xcodeproj/
+/tmp/
+/Binaries/
+/Intermediate/
+/Saved/
+/DerivedDataCache/
+/Packaged/
+/.impeccable/review/
 .DS_Store
-
-# Python
 __pycache__/
 *.py[cod]
-.venv/
-venv/
-*.egg-info/
-.pytest_cache/
+*.xcworkspace
+*.xcodeproj
 
-# Locally generated sample data (regenerate with: python -m cfdviz generate-mock).
-# The low-resolution MockCylinderWake sample is the exception and IS committed:
-# the demo map auto-loads a case on first launch, so it cannot depend on anyone
-# having run a Python script first. Negating the directory itself is required --
-# git will not re-include a file whose parent directory is excluded.
-FlowViz/Samples/*.cfdviz/frames/
-!FlowViz/Samples/MockCylinderWake.cfdviz/frames/
+/Build/Mac/FileOpenOrder/
+/Build/Mac/PackageVersionCounter.txt
 
-# Blind-comparison reference stills are third-party film/AAA frames. Judging
-# our output against them locally is fine; redistributing them here is not
-# this project's call to make. See Tools/capture/references/README.md.
-FlowViz/Tools/capture/references/**
-!FlowViz/Tools/capture/references/README.md
-
-# Blind-comparison working files. The answer key must never be committed --
-# a reviewer reading git history would no longer be blind.
-FlowViz/Tools/capture/blind_sessions/
-
-# Agent-generated scratch, logs, plans, and summaries.
-/tmp/
-
-# Agent worktree scaffolding (EnterWorktree/Agent isolation), not project source.
-.claude/worktrees/
-
-# UAT packaging outputs (BuildCookRun writes both). Contents, not the
-# directory: git refuses to descend into an ignored directory, which would
-# make the re-includes below dead rules.
-FlowViz/Build/*
-# ...except the Mac signing inputs: the entitlements here decide whether the
-# packaged app is sandboxed, which is the difference between Browse working
-# and Browse silently doing nothing. Config, not output.
-!FlowViz/Build/Mac/
-FlowViz/Build/Mac/*
-!FlowViz/Build/Mac/Resources/
-FlowViz/Packaged/
-
-# The analytic film-tier fixture: generated on demand, not representative CFD.
-FlowViz/Samples/MockCylinderWakeHiRes.cfdviz/
-
-# Genuine FluidX3D solver output and its local release bundle. The small tracked
-# download descriptor carries the qualified SHA/size; the large data does not
-# belong in git. Transactional converter staging is ignored as well.
-FlowViz/Samples/FluidX3DSphereWake.cfdviz/
-FlowViz/Samples/.FluidX3DSphereWake.cfdviz.*.partial/
-FlowViz/Samples/.FluidX3DSphereWake.cfdviz.install.*/
-FlowViz/Samples/FluidX3DSphereWake.cfdviz.release.tar.gz
-FlowViz/Samples/FluidX3DSphereWake.cfdviz.release.tar.gz.partial
-FlowViz/Samples/FluidX3DSphereWake.release/
+/Build/Mac/*.PackageVersionCounter
