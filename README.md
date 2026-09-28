@@ -265,6 +265,15 @@ python3 -m unittest discover -s Tools -p 'test_extract_openfoam_residuals.py' -v
 
 The extraction is an external analysis directory and is not registered as an app sample. Its manifest records source/output hashes and selection rules. Native history import and chart integration remain pending. Acceptance against the original flowTorch cylinder log checked all 291,444 solve records and 20,000 source times independently; evidence is `tmp/analysis/flowtorch/residual-extraction-independent-verification.json`. Redistribution permission for that external dataset remains unverified, so its log and extracted values are not bundled in `Content/Samples`.
 
+`StudioResiduals` now reads the completed original log directly on a worker, with cancellation and a 256 MiB source limit. It selects each field's first initial and last final residual per source time, retaining the selected values' one-based source line numbers. The original file and interpretation are hash-pinned. Stable field coverage, finite nonnegative residuals and a final `End` marker are required; missing values are never filled. Limits are 31 fields, one million times, two million linear solves, 4,096 solves per time and eight million retained scalar values. Physical time units, normalization changes and convergence criteria are not inferred. Residual chart defaults select first-initial series on a logarithmic axis; zero values remain zero.
+
+The reader's three structural suites pass within 183 model cases. Packaged full-source acceptance and the existing Monitors regression pass on package `111ce4d7…`; an independent comparison matched all 120,000 selected values and source lines across the published log's 20,000 times. Evidence: `tmp/analysis/residuals-20260928/reader-acceptance.json`. The model run includes one existing Unreal `idevice_id` helper warning. The audit stages a byte-identical source copy inside its owned sandbox and does not exercise a native picker. **Import controls, saved external references and the visible residual card are still pending.**
+
+```bash
+Tools/test-residuals.sh /absolute/path/to/the/published/log.pimpleFoam
+python3 Tools/verify_openfoam_history.py /path/to/original/log.pimpleFoam /path/to/native-selected.csv --expected-sha256 6ff51d5a70736df30adfff60eaa9ae96f1a4a9d60d565483fbe744571d5408e2
+```
+
 
 ## Longer NACA 0018 recording — original-point playback
 
