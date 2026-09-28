@@ -1,0 +1,160 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "Widgets/SCompoundWidget.h"
+#include "StudioModel.h"
+#include "StudioInspectionPlacement.h"
+#include "StudioSnapshot.h"
+
+class AStudioScene;
+class SVerticalBox;
+class SBox;
+class SScrollBox;
+class SButton;
+class SStudioMenuButton;
+class SEditableTextBox;
+class FStudioProbeScheduler;
+class FStudioProbeMarkerScheduler;
+class FStudioProbeExportTask;
+struct FStudioProbeResult;
+struct FStudioProbeProfile;
+class SStudioWorkspace : public SCompoundWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SStudioWorkspace) {}
+        SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
+        SLATE_ARGUMENT(AStudioScene*,Scene)
+    SLATE_END_ARGS()
+    void Construct(const FArguments& Args);
+    bool CanClose();
+    virtual void Tick(const FGeometry& Geometry,double Time,float Delta) override;
+    virtual bool SupportsKeyboardFocus() const override { return true; }
+    virtual FReply OnKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override;
+    virtual FReply OnPreviewKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override;
+private:
+    enum class ECommand { NewProject, OpenProject, Save, SaveAs, DuplicateProject, FitCamera, RestartPlayback, UndoView, RedoView };
+    TSharedPtr<FStudioModel> M;
+    TWeakObjectPtr<AStudioScene> Scene;
+    // Menus retain in-progress text across inspector category changes.
+    TMap<FName,TSharedPtr<SWidget>> DisplayMenuDrafts;
+    FGuid DisplayMenuProject;
+    TWeakPtr<IStudioSolver,ESPMode::ThreadSafe> DisplayMenuSource;
+    FString DisplayMenuScalar;
+    uint64 DisplayMenuRevision=0;
+    TSharedRef<SWidget> CachedDisplayMenu(FName Kind,TFunction<TSharedRef<SWidget>()> Build);
+    FString ProjectFilter;
+    bool bFavoritesOnly=false;
+    int32 LastCatalogRevision=-1;
+    bool bProjectListsDirty=true;
+    TSharedPtr<SVerticalBox> RecentProjectRows;
+    TSharedPtr<SVerticalBox> DashboardProjectRows;
+    TSharedPtr<SVerticalBox> DashboardRunRows;
+    TSharedPtr<SEditableTextBox> ProjectSearchBox;
+    TWeakPtr<SVerticalBox> AssetRows;
+    TWeakPtr<SButton> AssetRefreshButton;
+    int32 LastAssetRevision = -1;
+    TMap<FString,TWeakPtr<SButton>> AssetLocateButtons;
+    TWeakPtr<SVerticalBox> CameraRows;
+    TWeakPtr<SEditableTextBox> CameraNameInput;
+    TWeakPtr<SWidget> CameraPlacementFocus;
+    TMap<FName,TWeakPtr<SWidget>> CameraActionTargets;
+    int32 LastCameraCollectionRevision=-1;
+    FGuid CameraRowsProjectId;
+    TMap<EStudioWorkspace,TSharedPtr<SButton>> NavigationButtons;
+    TMap<FString,TSharedPtr<SWidget>> ProjectActionTargets;
+    TSharedPtr<SVerticalBox> GeometryObjectRows;
+    int32 LastGeometryRevision=-1;
+    FGuid GeometryProjectId;
+    int64 GeometryCaseRevision=-1;
+    FGuid DashboardProjectId;
+    int32 DashboardRunCount=-1;
+    bool bInspectionOpen=false;
+    TSharedPtr<SVerticalBox> InspectionRows;
+    TSharedPtr<SScrollBox> InspectionListScroll;
+    TSharedPtr<SBox> InspectionDetails;
+    TSharedPtr<SScrollBox> InspectionDetailScroll;
+    TSharedPtr<FStudioProbeScheduler> InspectionProbe;
+    TSharedPtr<FStudioProbeMarkerScheduler> InspectionMarkers;
+    TSharedPtr<FStudioProbeExportTask> InspectionExport;
+    TSharedPtr<FStudioSnapshotExportTask> SnapshotExport;
+    TSharedPtr<SStudioMenuButton> SnapshotButton;
+    FStudioSnapshotOptions SnapshotOptions;
+    int32 SnapshotAspect=0,SnapshotWidth=1920;
+    FString SnapshotNotice;
+    TSharedPtr<const FStudioProbeProfile> InspectionProfile;
+    TMap<FGuid,TWeakPtr<SWidget>> InspectionRowButtons;
+    FGuid InspectionProject,InspectionDetailId;
+    int32 LastInspectionRevision=-1,LastInspectionSelection=-1;
+    TOptional<FStudioInspectionPlacement> InspectionPlacement;
+    int32 SeedPointIndex=0,SeedPlacementIndex=INDEX_NONE;
+    uint64 InspectionPlacementRevision=0;
+    TSharedRef<SWidget> Header();
+    TSharedRef<SWidget> Navigation();
+    TSharedRef<SWidget> Center();
+    TSharedRef<SWidget> Projects();
+    TSharedRef<SWidget> Dashboard();
+    TSharedRef<SWidget> GeometryWorkspace();
+    void ImportGeometry();
+    void RefreshGeometryObjects();
+    TSharedRef<SWidget> RecentProjectRow(const FStudioProjectSummary& Item,bool bCompact);
+    void RefreshProjectLists();
+    void Navigate(EStudioWorkspace Destination);
+    void LocateProject(const FString& OldPath);
+    TSharedRef<SWidget> Settings();
+    TSharedRef<SWidget> JobControls();
+    TSharedRef<SWidget> ViewTools();
+    TSharedRef<SWidget> ViewToolbar();
+    TSharedRef<SWidget> ViewportMenu();
+    TSharedRef<SWidget> MeshMenu();
+    TSharedRef<SWidget> DisplayTools();
+    TSharedRef<SWidget> VectorControls(bool bOriginalPoints);
+    TSharedRef<SWidget> VectorMenu();
+    FString VectorLegendText() const;
+    bool CanShowStreamlines() const;
+    FBox StreamlineBounds() const;
+    FString StreamlineSummary() const;
+    TSharedRef<SWidget> StreamlineControls();
+    TSharedRef<SWidget> StreamlineMenu();
+    TSharedRef<SWidget> SeedControls(const FGuid& Id);
+    TSharedRef<SWidget> ScalarMenu();
+    TSharedRef<SWidget> ColorMenu();
+    TSharedRef<SWidget> ColorLegend();
+    TSharedRef<SWidget> SnapshotMenu();
+    FIntPoint SnapshotOutputSize() const;
+    TSharedRef<SWidget> Timeline();
+    TSharedRef<SWidget> Monitors();
+    TSharedRef<SWidget> ProjectMenu();
+    TSharedRef<SWidget> CameraMenu();
+    TSharedRef<SWidget> CameraClippingControls();
+    TSharedRef<SWidget> CameraPlacementControls();
+    TSharedRef<SWidget> InspectionControls();
+    TSharedRef<SWidget> InspectionObjectControls(const FGuid& Id);
+    void RefreshInspectionControls();
+    void TickInspection();
+    void AddInspection(int32 Kind);
+    bool InspectionClick(const FGeometry& Geometry,const FPointerEvent& Event);
+    bool InspectionHover(const FGeometry& Geometry,const TOptional<FVector2D>& ScreenPosition);
+    void BeginInspectionPlacement(const FGuid& Id,int32 PointIndex=INDEX_NONE);
+    bool IsInspectionPlacementCurrent() const;
+    void CancelInspectionPlacement();
+    FString InspectionPlacementText() const;
+    FString InspectionSummary() const;
+    const FStudioProbeResult* CurrentInspectionProbeResult(const FGuid& Id) const;
+    void ExportInspectionProbe(const FGuid& Id);
+    void RefreshCameraRows();
+    TSharedRef<SWidget> ViewHistoryControls();
+    TSharedRef<SWidget> RecordingMenu();
+    TSharedRef<SWidget> SurfaceMenu();
+    TSharedRef<SWidget> VolumeMenu();
+    void ImportRecording();
+    void LocateRecording(const FString& Id,const FString& CurrentPath);
+    void RepairRecording();
+    TSharedRef<SWidget> AssetMenu();
+    void RefreshAssetRows();
+    void Execute(ECommand Command);
+    bool Save(bool bSaveAs=false);
+    bool ConfirmReplace(bool bAllowRecovery=false);
+    bool EnsurePlacementResolved();
+    bool OpenProject(const FString& Path, const FString& ReplacedRecentPath = FString());
+    void Export();
+    void Snapshot();
+};
