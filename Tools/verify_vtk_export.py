@@ -160,16 +160,19 @@ def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exports', type=Path, default=root / 'Saved/Automation/VTKExport')
+    parser.add_argument('--ui', action='store_true', help='Verify exports captured by Tools/test-field-export.sh')
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
     samples = root / 'Content/Samples'
     airfoil = source_rows(samples / 'MeshGraphNets_Airfoil', 420)
-    naca = source_rows(samples / 'NACA0018_ReaderFixture', 2)
     cylinder = source_rows(samples / 'Cylinder3D_ReaderFixture', 2)
     reports = [
+        verify(args.exports / 'selected-scene.vtp', airfoil, scene=True, selected=['pressure', 'density']),
+        verify(args.exports / 'cylinder-points.vtp', cylinder),
+    ] if args.ui else [
         verify(args.exports / 'airfoil-source.vtp', airfoil),
         verify(args.exports / 'airfoil-scene.vtp', airfoil, scene=True),
-        verify(args.exports / 'naca-points.vtp', naca),
+        verify(args.exports / 'naca-points.vtp', source_rows(samples / 'NACA0018_ReaderFixture', 2)),
         verify(args.exports / 'cylinder-points.vtp', cylinder),
         verify(args.exports / 'cylinder-from-view.vtp', cylinder, selected=['pressure'],
                reconstruction_hash=digest(samples / 'Cylinder3D_VolumeFixture/reconstruction.json')),

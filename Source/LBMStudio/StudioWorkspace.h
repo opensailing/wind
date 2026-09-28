@@ -20,6 +20,7 @@ class FStudioProbeMonitorSession;
 class FStudioProbeMarkerScheduler;
 class FStudioProbeExportTask;
 class FStudioMonitorExportTask;
+class FStudioFieldExportUI;
 struct FStudioProbeResult;
 struct FStudioProbeProfile;
 struct FStudioMaterialWorkspaceState;
@@ -95,6 +96,7 @@ private:
     TSharedPtr<FStudioProbeMarkerScheduler> InspectionMarkers;
     TSharedPtr<FStudioProbeExportTask> InspectionExport;
     TSharedPtr<FStudioSnapshotExportTask> SnapshotExport;
+    TSharedPtr<FStudioFieldExportUI> FieldExport;
     TSharedPtr<SStudioMenuButton> SnapshotButton;
     FStudioSnapshotOptions SnapshotOptions;
     int32 SnapshotAspect=0,SnapshotWidth=1920;
@@ -229,5 +231,6 @@ private:
     bool EnsurePlacementResolved();
     bool OpenProject(const FString& Path, const FString& ReplacedRecentPath = FString());
     void Export();
+    TSharedRef<SWidget> ExportMenu();
     void Snapshot();
 };

@@ -15,6 +15,7 @@ namespace StudioFileDialog
     /** CSV destination with purpose-specific native panel copy. */
     bool CSV(const FString& SuggestedName,FString& OutPath,const FString& Title,const FString& Description);
     bool SnapshotPNG(const FString& SuggestedName,FString& OutPath);
+    bool FieldVTK(const FString& SuggestedName,FString& OutPath);
 #if WITH_DEV_AUTOMATION_TESTS
     /** Routed UI tests supply a one-shot panel result; never proves native picker access. */
     void SetNextRecordingFolderForAutomation(const FString& Folder);
@@ -27,6 +28,8 @@ namespace StudioFileDialog
     bool ConsumeProbeCSVForAutomation(FString& OutPath,bool& bAccepted);
     void SetNextSnapshotPNGForAutomation(const FString& Path);
     bool ConsumeSnapshotPNGForAutomation(FString& OutPath,bool& bAccepted);
+    void SetNextFieldVTKForAutomation(const FString& Path);
+    bool ConsumeFieldVTKForAutomation(FString& OutPath,bool& bAccepted);
 #endif
     void* BeginAccess(const FString& Path);
     void EndAccess(void* Token);

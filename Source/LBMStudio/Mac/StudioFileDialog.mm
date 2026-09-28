@@ -91,6 +91,34 @@ bool StudioFileDialog::WriteAtomicFile(const FString& Path,const FString& Staged
     return WriteDataAtomic(Path,Data,Error);
 }
 
+bool StudioFileDialog::FieldVTK(const FString& SuggestedName,FString& OutPath)
+{
+#if WITH_DEV_AUTOMATION_TESTS
+    bool Automated=false;if(ConsumeFieldVTKForAutomation(OutPath,Automated))return Automated;
+#endif
+    MacApplication->SetCapture(nullptr);
+#if WITH_EDITOR
+    FCoreDelegates::PreModal.Broadcast();
+#endif
+    MacApplication->SystemModalMode(true);
+    const bool Accepted=MainThreadReturn(^{
+        SCOPED_AUTORELEASE_POOL;
+        NSSavePanel* Panel=[NSSavePanel savePanel];Panel.title=@"Export Original Field";
+        Panel.message=@"Saves the frozen source frame, selected scalar arrays and coordinates as VTK XML PolyData, with source identity and units.";
+        Panel.canCreateDirectories=YES;
+        UTType* Type=[UTType typeWithFilenameExtension:@"vtp"];if(Type)Panel.allowedContentTypes=@[Type];
+        Panel.nameFieldStringValue=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*(SuggestedName+TEXT(".vtp")))];
+        const bool OK=[Panel runModal]==NSModalResponseOK;
+        if(OK)OutPath=UTF8_TO_TCHAR(Panel.URL.path.UTF8String);
+        [Panel close];return OK;
+    });
+    MacApplication->SystemModalMode(false);MacApplication->ResetModifierKeys();
+#if WITH_EDITOR
+    FCoreDelegates::PostModal.Broadcast();
+#endif
+    return Accepted;
+}
+
 bool StudioFileDialog::SnapshotPNG(const FString& SuggestedName,FString& OutPath)
 {
 #if WITH_DEV_AUTOMATION_TESTS

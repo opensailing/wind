@@ -4,7 +4,18 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
-namespace { TOptional<FString> AutomationRecordingFolder,AutomationReconstructionFolder,AutomationProbeCSV,AutomationSnapshotPNG,AutomationResidualLog; }
+namespace { TOptional<FString> AutomationRecordingFolder,AutomationReconstructionFolder,AutomationProbeCSV,AutomationSnapshotPNG,AutomationResidualLog,AutomationFieldVTK; }
+void StudioFileDialog::SetNextFieldVTKForAutomation(const FString& Path)
+{
+    check(IsInGameThread());
+    if(FParse::Param(FCommandLine::Get(),TEXT("StudioAutomation")))AutomationFieldVTK=Path;
+}
+bool StudioFileDialog::ConsumeFieldVTKForAutomation(FString& Out,bool& bAccepted)
+{
+    if(!AutomationFieldVTK.IsSet())return false;
+    bAccepted=!AutomationFieldVTK->IsEmpty();if(bAccepted)Out=*AutomationFieldVTK;
+    AutomationFieldVTK.Reset();return true;
+}
 void StudioFileDialog::SetNextResidualLogForAutomation(const FString& Path)
 {
     check(IsInGameThread());
@@ -64,6 +75,7 @@ bool StudioFileDialog::ConsumeReconstructionFolderForAutomation(FString& Out,boo
 }
 #endif
 #if !PLATFORM_MAC
+bool StudioFileDialog::FieldVTK(const FString&,FString&) { return false; }
 bool StudioFileDialog::WriteAtomicFile(const FString&,const FString&,FString& Error)
 {Error=TEXT("Atomic field export is not available on this platform.");return false;}
 bool StudioFileDialog::SnapshotPNG(const FString&,FString&) { return false; }

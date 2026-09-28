@@ -237,7 +237,7 @@ def main():
             target = output/'captures'
             target.mkdir(exist_ok=True)
             for source in (saved/'Automation'/args.captures).glob('*'):
-                if source.suffix not in {'.png', '.csv'}:
+                if source.suffix not in {'.png', '.csv', '.vtp'}:
                     continue
                 if source.stat().st_mtime >= started_wall:
                     shutil.copy2(source, target/source.name)

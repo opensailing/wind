@@ -18,6 +18,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioSurfaceReconstruction.h"
 #include "StudioVolume.h"
 #include "StudioFileDialog.h"
+#include "StudioFieldExportUI.h"
 #include "StudioProbeScheduler.h"
 #include "StudioProbeMarkers.h"
 #include "StudioInspectionOverlay.h"
@@ -1064,6 +1065,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
     MonitorExport=MakeShared<FStudioMonitorExportTask>();
     ProbeMonitor=MakeShared<FStudioProbeMonitorSession>();
     SnapshotExport=MakeShared<FStudioSnapshotExportTask>();
+    FieldExport=MakeShared<FStudioFieldExportUI>();
     LogState=MakeShared<FStudioLogWorkspaceState>();
     auto Restore=Button(TEXT("Restore"),TEXT("save"),[this]{if(ConfirmReplace(true)) M->RequestRecoveryOpen();});
     Restore->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !M->IsProjectOpenPending();}));
@@ -1180,7 +1182,9 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Pause]
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Stop]
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,14,0)[Step]
-        +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Export CSV"),TEXT("export"),[this]{Export();})]]];
+        +SHorizontalBox::Slot().AutoWidth()[SNew(SStudioMenuButton).Tag(TEXT("ExportMenu")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7))
+            .OnGetMenuContent(this,&SStudioWorkspace::ExportMenu)
+            .ButtonContent()[Live([this]{return FieldExport->IsBusy()?TEXT("Exporting…"):TEXT("Export");},10)]]]];
 }
 TSharedRef<SWidget> SStudioWorkspace::Navigation()
 {
@@ -1383,6 +1387,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
         bPerformanceFocusPending=!PerformancePanel->HasKeyboardFocus();
     }
     TickInspection();
+    FieldExport->Tick(*M);
     if(const auto Result=SnapshotExport->Poll();Result.IsSet())
     {
         SnapshotNotice=Result->bSuccess?FString::Printf(TEXT("Saved PNG · frame %d · %.9g s"),Result->Frame.Index,Result->Frame.Time):
@@ -3347,6 +3352,22 @@ FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEv
         (Event.GetKey()==EKeys::Z&&Event.IsAltDown()&&M->Workspace==EStudioWorkspace::Solve)))
         return OnKeyDown(Geometry,Event);
     return FReply::Unhandled();
+}
+TSharedRef<SWidget> SStudioWorkspace::ExportMenu()
+{
+    const auto State=FieldExport.ToSharedRef();
+    auto VTK=SNew(SStudioMenuButton).Tag(TEXT("VTKExportMenu")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(10,8))
+        .OnGetMenuContent_Lambda([this,State]{return State->Menu(M.ToSharedRef(),Scene.Get());})
+        .OnMenuOpenChanged_Lambda([State](bool Open){State->MenuOpenChanged(Open);})
+        .ButtonContent()[Label(TEXT("VTK XML · original field…"),10)];
+    auto CSV=Button(TEXT("CSV · current frame"),TEXT("export"),[this]{FSlateApplication::Get().DismissAllMenus();Export();});
+    CSV->SetTag(TEXT("ExportFieldCSV"));
+    CSV->SetToolTipText(FText::FromString(TEXT("Export all original fields from the current frame in source coordinates to Saved/Exports.")));
+    return SNew(SBox).WidthOverride(290)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)
+        [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Export field data"),12,Text,true)]
+            +SVerticalBox::Slot().AutoHeight()[VTK]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[CSV]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[Live([State]{return State->Status();},9,Muted,true)]]];
 }
 void SStudioWorkspace::Export()
 {
