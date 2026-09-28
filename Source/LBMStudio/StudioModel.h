@@ -170,7 +170,7 @@ public:
     explicit FStudioModel(const FString& SessionDirectory=FString());
     ~FStudioModel() { if(AssetCancellation) *AssetCancellation=true; if(MeshCancellation) *MeshCancellation=true;
         if(DomainCancellation) *DomainCancellation=true; if(LatticeCancellation) *LatticeCancellation=true; if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true;
-        if(MonitorCancellation)*MonitorCancellation=true; }
+        if(MonitorCancellation)*MonitorCancellation=true; if(ResidualCancellation)*ResidualCancellation=true; }
     static constexpr double PlaybackInterval = 0.05; // 20 snapshots/s; 601 snapshots play for 30 seconds.
     static constexpr double ColorMax = 400.0; // Fixed velocity legend across all source frames.
     TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> Solver;
@@ -281,6 +281,15 @@ public:
     TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> MonitorHistory() const;
     FString MonitorNotice;
     uint64 MonitorRevision = 0;
+    /** Import a completed external log, or locate an exact copy of the saved source. */
+    bool RequestResidualLog(const FString& Path,bool bLocate=false);
+    void CancelResidualLog();
+    void ClearResidualLog();
+    bool UpdateResidualSettings(const FStudioMonitorSettings& Settings);
+    bool IsResidualLoading() const { return PendingResidual.IsValid(); }
+    TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> ResidualHistory() const;
+    FString ResidualNotice;
+    uint64 ResidualRevision = 0;
     void WriteRecovery();
     bool RestoreRecovery();
     void DiscardRecovery();
@@ -414,7 +423,7 @@ private:
     bool ApplyCameraCollectionHistory(bool bRedo);
     bool CameraCollectionMessage(const FString& Message,bool bError = false);
     void ClearCameraCollectionHistory();
-    void ClearViewHistory() { InvalidateMonitorSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();
+    void ClearViewHistory() { InvalidateMonitorSession(); InvalidateResidualSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();
         SelectedInspectionObject.Invalidate();++InspectionObjectsRevision;++InspectionSelectionRevision;InspectionNotice.Empty();bInspectionError=false; }
     bool CommitInspectionObjects(const FString& Label,FStudioInspectionObjects Objects,bool bContinueGesture=false,bool bUseSavedSeeds=false);
     bool PrepareInspectionObject(FStudioInspectionObject& Object,const TCHAR* BaseName);
@@ -485,6 +494,16 @@ private:
     FString MonitorId,MonitorHash;
     FStudioMonitorSettings ReadingMonitorSettings;
     bool bChooseMonitor = false;
+    void PollResidual();
+    void InvalidateResidualSession();
+    bool StartResidualLog(const FStudioResidualSettings& Settings,bool bChoose,bool bNewSource);
+    TFuture<FStudioHistoryLoadResult> PendingResidual;
+    FStudioLoadCancellation ResidualCancellation;
+    TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> LoadedResidual;
+    FGuid ResidualProject,ReadingResidualProject;
+    FString ResidualKey;
+    FStudioResidualSettings ReadingResidualSettings;
+    bool bChooseResidual=false,bNewResidual=false;
     void InvalidateLatticePreview(bool bForce=false);
     void PollGeometry();
     void InvalidateGeometry();

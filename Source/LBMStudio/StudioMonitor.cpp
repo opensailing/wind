@@ -169,3 +169,32 @@ FStudioMonitorPlot StudioMonitor::BuildPlot(const FStudioHistory& H,const FStudi
         P.Error=TEXT("Value range exceeds the supported chart scale. Select another series or logarithmic scale.");
     return P;
 }
+
+TSharedRef<FJsonObject> StudioResidualSettings::ToJSON(const FStudioResidualSettings& S)
+{
+    auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("path"),S.Path);
+    O->SetObjectField(TEXT("chart"),StudioMonitor::ToJSON(S.Chart));return O;
+}
+bool StudioResidualSettings::Validate(const FStudioResidualSettings& S,FString& Error)
+{
+    if(!StudioMonitor::Validate(S.Chart,Error))return false;
+    Error=TEXT("Invalid residual log path or source identity.");
+    if(S.Path.IsEmpty())
+    {if(!S.Chart.HistoryId.IsEmpty())return false;}
+    else
+    {
+        if(S.Path.TrimStartAndEnd().IsEmpty()||S.Path.Len()>4096||S.Path.Contains(TEXT("://"))||
+            !S.Chart.HistoryId.StartsWith(TEXT("OpenFOAM-"),ESearchCase::CaseSensitive)||
+            !Hash(S.Chart.HistoryId.Mid(9)))return false;
+        for(TCHAR C:S.Path)if(C<32||C==127)return false;
+    }
+    Error.Empty();return true;
+}
+bool StudioResidualSettings::FromJSON(const TSharedPtr<FJsonObject>& O,FStudioResidualSettings& Out,FString& Error)
+{
+    FStudioResidualSettings S;const TSharedPtr<FJsonObject>* Chart=nullptr;
+    Error=TEXT("Invalid residual history settings.");
+    if(!O||!O->TryGetStringField(TEXT("path"),S.Path)||!O->TryGetObjectField(TEXT("chart"),Chart)||
+        !StudioMonitor::FromJSON(*Chart,S.Chart,Error)||!Validate(S,Error))return false;
+    Out=MoveTemp(S);return true;
+}

@@ -232,6 +232,7 @@ FString StudioProjectIO::Serialize(const FStudioProject& P)
     O->SetArrayField(TEXT("cameras"),Bookmarks);
     O->SetObjectField(TEXT("draft"),StudioCaseIO::ToJSON(P.Draft));
     O->SetObjectField(TEXT("monitor"),StudioMonitor::ToJSON(P.Monitor));
+    O->SetObjectField(TEXT("residual"),StudioResidualSettings::ToJSON(P.Residual));
     TArray<TSharedPtr<FJsonValue>> Runs;
     for (const auto& Run : P.Runs) Runs.Add(MakeShared<FJsonValueObject>(Run.ToJSON()));
     O->SetArrayField(TEXT("runs"),Runs);
@@ -385,6 +386,13 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
     {
         const FObject* Monitor=nullptr;
         if(!O->TryGetObjectField(TEXT("monitor"),Monitor)||!StudioMonitor::FromJSON(*Monitor,P.Monitor,Error))return false;
+    }
+    if(Version>=19)
+    {
+        const FObject* Residual=nullptr;
+        if(!O->TryGetObjectField(TEXT("residual"),Residual))
+        {Error=TEXT("Residual history settings are missing from the project.");return false;}
+        if(!StudioResidualSettings::FromJSON(*Residual,P.Residual,Error))return false;
     }
     if (P.Dataset.IsEmpty() || P.Dataset.Len()>256)
     { Error=TEXT("Project recording identity is missing or too long."); return false; }

@@ -87,6 +87,7 @@ void FStudioModel::Tick(double Delta)
     PollDomainGeometry();
     PollLatticePreview();
     PollMonitor();
+    PollResidual();
     DirtyCheckSeconds+=Delta; AutosaveSeconds+=Delta;
     if(DirtyCheckSeconds>=.5) { bDirty=HasUnsavedChanges(); DirtyCheckSeconds=0; }
     if(AutosaveSeconds>=30) { WriteRecovery(); AutosaveSeconds=0; }
@@ -130,6 +131,7 @@ bool FStudioModel::SaveProject(const FString& Path)
     if(!StudioProjectIO::Save(Path,P,Error)) { Notice=Error; AddLog(Error,EStudioLogSeverity::Error); return false; }
     ProjectPath=FPaths::ConvertRelativePathToFull(Path);
     Project.Draft=P.Draft; Project.Runs=P.Runs; Project.Recordings=P.Recordings;
+    Project.Residual=P.Residual;
     Project.AssetBaseDirectory=FPaths::GetPath(ProjectPath);
     SavedSnapshot=StudioProjectIO::Serialize(P); bDirty=false;
     if(PendingRecovery.IsEmpty()) DiscardRecovery();

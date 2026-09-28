@@ -1,5 +1,6 @@
 #include "StudioResiduals.h"
 #include "StudioMonitor.h"
+#include "StudioModel.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/CommandLine.h"
@@ -134,6 +135,36 @@ bool FStudioPublishedResiduals::RunTest(const FString&)
     const auto S=StudioMonitor::Defaults(H);const auto P=StudioMonitor::BuildPlot(H,S,1280);
     TestTrue(TEXT("Original residuals produce a logarithmic chart"),P.Error.IsEmpty()&&P.bLogY&&P.Traces.Num()==3);
     for(const auto& T:P.Traces)TestTrue(TEXT("Retained original samples are bounded by chart width"),T.Samples.Num()<=8*1280);
+    // Exercise the same asynchronous project path the native import control uses
+    // with actual complete data and a simultaneous independent force history.
+    const FString Work=Folder/FGuid::NewGuid().ToString();
+    {
+        FStudioModel Model(Work/TEXT("session"));
+        auto Finish=[&]
+        {
+            const double End=FPlatformTime::Seconds()+30;
+            do{Model.Tick(.001);if(!Model.IsResidualLoading()&&!Model.IsMonitorLoading()&&!Model.IsProjectOpenPending())return true;FPlatformProcess::Sleep(.001);}while(FPlatformTime::Seconds()<End);
+            return false;
+        };
+        TestTrue(TEXT("Full original residual import starts"),Model.RequestResidualLog(Path));
+        TestTrue(TEXT("Independent published force history starts"),Model.RequestMonitorHistory(TEXT("NaluWind_NACA0021_Re270k_AoA30")));
+        TestTrue(TEXT("Both full histories settle"),Finish());
+        if(!TestTrue(TEXT("Full residual model available"),Model.ResidualHistory().IsValid())||
+            !TestTrue(TEXT("Force model remains available"),Model.MonitorHistory().IsValid()))return false;
+        TestEqual(TEXT("Model selects the exact interpretation"),Model.ResidualHistory()->MetadataSHA256,H.MetadataSHA256);
+        auto Settings=Model.Project.Residual.Chart;Settings.Series={TEXT("p.FinalLast")};Settings.bManualTime=true;Settings.TimeMinimum=1.;Settings.TimeMaximum=2.;
+        TestTrue(TEXT("Original residual time window saved"),Model.UpdateResidualSettings(Settings));
+        const FString Project=Work/TEXT("case.lbms");
+        TestTrue(TEXT("Save actual original source reference"),Model.SaveProject(Project));
+        Model.ClearResidualLog();TestTrue(TEXT("Reopen saved full history reference"),Model.RequestProjectOpen(Project));
+        TestTrue(TEXT("Real histories verify again on reopen"),Finish());
+        if(!TestTrue(TEXT("Reopened residual history available"),Model.ResidualHistory().IsValid()))return false;
+        TestEqual(TEXT("Reopened original sample count"),Model.ResidualHistory()->Times.Num(),20000);
+        TestEqual(TEXT("Reopened exact original pressure residual"),Model.ResidualHistory()->FindColumn(TEXT("p.FinalLast"))->Values.Last(),H.FindColumn(TEXT("p.FinalLast"))->Values.Last());
+        TestTrue(TEXT("Reopened residual window retained"),Model.Project.Residual.Chart.bManualTime&&Model.Project.Residual.Chart.TimeMinimum==1.&&Model.Project.Residual.Chart.TimeMaximum==2.);
+        TestTrue(TEXT("Reopen also preserves force history"),Model.MonitorHistory().IsValid());
+    }
+    IFileManager::Get().DeleteDirectory(*Work,false,true);
     return true;
 }
 #endif

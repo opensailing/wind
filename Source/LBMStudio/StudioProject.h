@@ -72,7 +72,7 @@ struct FStudioCameraBookmark
 
 struct FStudioProject
 {
-    static constexpr int32 CurrentVersion = 18;
+    static constexpr int32 CurrentVersion = 19;
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Airfoil SU2 009");
     FString Dataset = TEXT("MeshGraphNets_Airfoil_test009");
@@ -82,6 +82,7 @@ struct FStudioProject
     TArray<FStudioCameraBookmark> Cameras;
     FStudioCaseDraft Draft;
     FStudioMonitorSettings Monitor;
+    FStudioResidualSettings Residual;
     TArray<FStudioRunRecord> Runs = { FStudioRunRecord::Recording(TEXT("Airfoil SU2 009"),TEXT("MeshGraphNets_Airfoil_test009")) };
     TArray<FStudioJobHistory> JobHistory;
     bool bControlHarness = false;

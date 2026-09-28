@@ -17,6 +17,7 @@ namespace
 
     bool MapProject(FStudioProject& Project, FMapPath Map, FString& Error)
     {
+        if(!Project.Residual.Path.IsEmpty()&&!Map(Project.Residual.Path,Error))return false;
         for (auto& Recording : Project.Recordings)
         {
             if (!Map(Recording.Path, Error)) return false;

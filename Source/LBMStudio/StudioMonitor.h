@@ -12,6 +12,13 @@ struct FStudioMonitorSettings
     double TimeMinimum = 0, TimeMaximum = 1;
 };
 
+/** Independent residual source and chart. Paths are resolved/relativized with the project. */
+struct FStudioResidualSettings
+{
+    FString Path;
+    FStudioMonitorSettings Chart;
+};
+
 struct FStudioMonitorTrace
 {
     FString Id, Label, Unit;
@@ -47,4 +54,11 @@ namespace StudioMonitor
     FStudioMonitorPlot BuildPlot(const FStudioHistory& History, const FStudioMonitorSettings& Settings, int32 PixelWidth);
     bool SetTimeWindow(const FStudioHistory& History, double Minimum, double Maximum,
         FStudioMonitorSettings& Settings, FString& Error);
+}
+
+namespace StudioResidualSettings
+{
+    TSharedRef<FJsonObject> ToJSON(const FStudioResidualSettings& Settings);
+    bool FromJSON(const TSharedPtr<FJsonObject>& Object,FStudioResidualSettings& Out,FString& Error);
+    bool Validate(const FStudioResidualSettings& Settings,FString& Error);
 }
