@@ -1,6 +1,6 @@
 ---
-name: "LBM Solver Studio — Staged Recorded-Flow Controls"
-description: "Accumulating scoped record of D05–D08 streamline/vector controls, V10/D01 viewport toolbar/triangle mesh display, and D11/S01 Solve inspector foundation within the incumbent Operate workspace."
+name: "LBM Solver Studio — Recorded-Flow Controls and Case Authoring"
+description: "Accumulating scoped record of recorded-flow controls, the Solve inspector foundation, and Materials, Domain, Boundary Conditions and lattice-preview authoring in the incumbent Operate workspace."
 colors:
   background: "#07121D"
   panel: "#101E2B"
@@ -16,6 +16,10 @@ colors:
   button-hover: "color(srgb-linear 0.035 0.10 0.16)"
   button-pressed: "color(srgb-linear 0.01 0.055 0.09)"
 typography:
+  authoring-title:
+    fontFamily: "Unreal CoreStyle"
+    fontSize: "18pt"
+    fontWeight: 700
   title:
     fontFamily: "Unreal CoreStyle"
     fontSize: "12pt"
@@ -195,9 +199,38 @@ components:
     textColor: "{colors.cyan}"
     typography: "{typography.body}"
     padding: "12px 2px"
+  authoring-number:
+    backgroundColor: "{colors.background}"
+    textColor: "{colors.text}"
+    typography: "{typography.body}"
+    rounded: "{rounded.input}"
+    padding: "5px 7px"
+  material-row-selected:
+    backgroundColor: "{colors.raised}"
+    textColor: "{colors.cyan}"
+    typography: "{typography.body}"
+    rounded: "{rounded.button}"
+    padding: "9px 10px"
+  authoring-layers:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    padding: "5px 8px"
+  authoring-inspector:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.text}"
+    width: "334px"
+    padding: "14px"
+  boundary-inspector:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.text}"
+    width: "310px"
+  authoring-recovery:
+    textColor: "{colors.amber}"
+    typography: "{typography.body}"
 ---
 
-# Design System: LBM Solver Studio — Staged Recorded-Flow Controls
+# Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring
 
 ## Overview
 
@@ -239,6 +272,18 @@ The reviewer opened and accepted all 16 whole-window `.impeccable/review/solve-i
 
 Four additional final-client regressions remain pending behind the protected volume run: `Studio.SurfaceControls.`, `Studio.VolumeControls.`, `Studio.Rendering.ExternalRecordingControlsAndBounds`, and `Studio.Rendering.JobControlsAndCamera`. Main integration still requires the existing volume/stability gate and fresh guards. Editable M3 Physics/BC authoring, physical OS input, full accessibility, extended integrated stability, full reference fidelity and the wider M1–M5 UI goal remain open. This documentation does not accept those workflows or the whole UI, and does not touch main production files or the protected volume workspace.
 
+The 2026-09-28 authoring addition is a local code-led Operate extension for native macOS UE5.8 C++ Slate, scoped to Materials, Domain, Boundary Conditions and lattice-preview Meshing in `tmp/authoring-workspace-20260928`. Existing Solve tokens, component behavior and historical evidence above remain authoritative at their original scope. Earlier pending-integration statements describe those review checkpoints; they do not replace a current integration report. At the documentation checkpoint, the authoring source was installed in main but uncommitted pending production verification. The separate main-integration result below records the subsequent checks.
+
+Authoring has one editable owner for each parameter: material properties and assignments in Materials, domain bounds/dimensions/face names in Domain, conditions in Boundary Conditions, and physical cell counts in Meshing. Solve's read-only source physics and saved-case summaries keep their existing roles. The sidebar is the sole persistent workspace navigator; local preview actions do not create a top workflow row. Applied case data, retained form text, recorded scientific fields, frozen run configurations and observing cameras stay distinct. Geometry fixtures and occupancy previews are authoring data; the genuine published CFD in Solve retains its scientific identity.
+
+`../implementation/authoring-review-packet.md` and the full five-section `../implementation/authoring-finish-review.md` supply the authoring review. The appended correction verdict is **ship for F1–F3 only**, all resolved, on package `155679833b8b0522bce2192d543820c61bb747795ef05afc82d86189817768fe`, source delta `73fca1f932b435b08f7509314096509932f7def4017065edd5cb74d86f2fe6b7`. F1 unifies Domain renderability and layer labels; F2 separates verified aggregate geometry bounds from applied-domain containment; F3 restores full-opacity enabled hints. The original full review remains the finding basis; the correction verdict is not a new whole-surface review.
+
+Artifact `tmp/implementation/authoring-source-verification.json` pins 45 changed source/tool files and schema 17. `tmp/implementation/authoring-native-verification.json` pins eight manifests, **12 clean native cases across 1320 × 740 and 1280 × 720**, and **34 valid whole-window captures** in `.impeccable/review/authoring/`, all on that one package. The finish reviewer opened all 34, checked hashes/dimensions, and found no obstructing tooltips; each native manifest reports passed, exit 0 and no errors or remaining owned processes. The verification files' verdict-pending status predates the appended ship verdict. The earlier **161 model cases predate the final UI/test changes and Domain source-status copy**, so they are not a final-package model result. The historical one-off Domain pointer-capture failure remains unexplained despite the subsequently passing complete matrix.
+
+The authoring documentation pass read the source, review and recorded verification, opened nine representative captures, and checked all 34 capture hashes/dimensions, eight manifest hashes/results and 45 source pins. It ran no build, application, native interaction or test. Routed Slate/native GPU evidence does not establish physical OS input. Backend preparation, refinement/quality, remaining Geometry and Setup/Physics, full M3, connected solver validation, broad accessibility, long-session stability and overall reference fidelity remain incomplete. No new visual workshop, generated comp or HTML/CSS detector applies to this native extension.
+
+**Main authoring integration — 2026-09-28.** Source commit `7336661` integrates the reviewed authoring controls with schema 17. `tmp/analysis/authoring-integration-20260928/production-acceptance.json` records 161 clean model cases and 18 native cases on package `24ae10c2c7b0dedc73e1eca44e2b0e456a637568aec6c75fa5597cfb7d22c205`: 12 authoring cases at both window sizes and six shared scene, inspection, camera, volume and job regressions at 1280 × 720. One inspection snapshot-menu test required an unchanged-package retry; its initial failure is preserved and no menu fix is claimed. The Domain handle test now activates the app before pointer input, and both size runs observed that activation before passing. The production interaction code is unchanged by that test adjustment. All accepted native runs exited 0 without remaining owned processes. An additional editor build with adaptive unity disabled passed. These checks establish the integrated authoring scope; physical OS input, extended stability, solver preparation and the remaining UI milestones retain their open status.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -254,6 +299,9 @@ Four additional final-client regressions remain pending behind the protected vol
 - Expand/Restore is a saved session layout preference; active inspection and placement remain available.
 - Setup, Physics, BCs and Display have one local right-inspector owner with a session-only category preference.
 - Retained vector/streamline drafts stay with their project/source/scalar identity; source physics and saved case summaries remain explicit.
+
+- Materials, Domain, Boundary Conditions and physical lattice counts have separate retained case editors with explicit Apply/Revert and save guards.
+- Preview labels describe applied state, renderable drafts, source verification and sampled occupancy without implying solver readiness.
 
 ## Colors
 
@@ -285,6 +333,8 @@ V10/D01 reuses Panel, Raised, Text, Muted and the shared cyan hover/focus outlin
 
 Streamline tubes follow the captured viewport scalar mapping. The live popover’s work-limit recovery and “All seed sets:” readout use Text; the compact “limited” count uses Muted. The saved-seed density slider inherits CoreStyle and appears light gray in the captures; it does not use the automatic inlet slider’s authored Blue handle.
 
+Authoring reuses Cyan for selection and focus, Amber for recovery, draft geometry and outside/unknown containment, and the same Text/Muted hierarchy. Enabled optional-value and filter hints use Text at full hint opacity through the existing `SProjectFilterBox`; “Unknown”, “Optional · unknown” and “Filter by name” remain hints rather than stored values. The F3 reviewer measured six captured regions at **14.36:1** contrast (foreground RGB 223/232/243, background 15/25/34), above the 4.5:1 finding threshold. These are measured native pixels, not new palette tokens or a full accessibility certification. Disabled controls keep their separate native treatment.
+
 ## Typography
 
 The implementation requests Unreal CoreStyle Regular and Bold. No separate display or monospace family is configured for D08. The menu title uses the local title role; exact values, mode choices, row labels, and the menu key use body. “Arrow length” and “Display” use bold section text. Supporting copy, counts, recovery, and the compact key use label text. These compact sentence-case roles are extracted from this slice, not a replacement for the whole application’s type hierarchy.
@@ -292,6 +342,8 @@ The implementation requests Unreal CoreStyle Regular and Bold. No separate displ
 The sidecar uses an explicitly approximate browser font fallback for portable component previews. Native capture typography remains authoritative.
 
 D05–D07 reuses the title, body, section, and label roles. Seed-kind headings use the observed seed-kind role; the “Seeds” suffix in a shared list row uses micro. Snapshot annotations request CoreStyle Regular at `max(6, round(10 × s))`, where `s = clamp(min(outputWidth / 800, outputHeight / 500), 0.25, 4)`. This export scale is separate from fixed-size live control typography.
+
+Authoring uses the existing CoreStyle hierarchy and the recurring authoring-title role for Domain, Boundary Conditions and Meshing. Materials has an observed 20-point Bold workspace heading. Exact fields use 10-point type; source, unit, recovery and status text wrap within their owners. Round-trippable numeric strings remain intact in editable fields and value tooltips; horizontal field scrolling accommodates long values.
 
 ## Layout
 
@@ -315,11 +367,17 @@ Expand now hides the monitors and idle Solve inspector, including whichever of S
 
 D11/S01 uses the existing 322-unit inspector column and 7-unit gutter from the scene. The Panel container has 10-unit horizontal padding. Four equal-width category buttons use CoreStyle Regular 10-point labels, 2-unit horizontal and 12-unit vertical padding, Muted inactive text, Cyan active text and a 2-unit Cyan underline. Each category has its own retained scrolling body with instant focus scrolling and 12-unit navigation padding. The Display body adds 2-unit horizontal and 10-unit vertical padding. Section separators and compact label/value rows reuse the incumbent vocabulary; Setup’s lower content is deliberately reachable through its scroll boundary.
 
+Materials uses an 18-unit workspace inset, a 210-unit list, a flexible retained properties form and a 280-unit assignments column. List-to-form and form-to-assignments gaps are 16 and 18 units. Domain and Meshing place a flexible 3D preview beside one 334-unit inspector, separated by 6 units; inspector padding is 14 units with instant focus scrolling and 12-unit navigation padding. Their header uses 14 × 10 horizontal/vertical padding and a 6-unit scene gap. The containment or classification strip remains adjacent to its preview.
+
+Boundary Conditions uses a 14-unit workspace inset, a 196-unit bounded target list, a flexible preview and one 310-unit inspector, with 12-unit gutters. Its Select/Orbit, Fit and projection actions are local preview controls. Lists and inspectors scroll independently; a clipped row at a scroll boundary is ordinary retained form content. The two accepted window sizes are evidence sizes, not new breakpoints. The authoring camera supports arbitrary observation independently of the saved Solve camera and recorded frame.
+
 ## Elevation & Depth
 
 Native panels are flat. Tonal steps and one-unit control outlines provide containment; the vector extension defines no custom shadow or animated transition. The black scene ground and 3D field supply depth independently of the blue-black UI surfaces. Native popup/window behavior remains supplied by Slate.
 
 Streamline controls use the same flat treatment and define no additional shadow or transition vocabulary. Scene seed labels use opaque Panel backing. Draft markers and lines have a dark outline behind Amber to separate them from the scientific field.
+
+Authoring adds no custom shadow or motion vocabulary. Applied geometry and selected faces provide scene depth; an Amber draft outline overlays the applied Domain only when renderable. Compact status backing, bounded lists and scrollable inspectors retain the same flat tonal layers.
 
 ## Shapes
 
@@ -481,6 +539,62 @@ Vector and streamline popovers retain the same editor objects when dismissed and
 
 Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the six-line contract, `CachedDisplayMenu`, `Settings`, `DisplayTools`, `SRetainedFormScrollBox`, workspace tick and inspector switcher), `StudioWorkspace.h`, `StudioModel.cpp/.h`, `StudioInspectorTests.cpp`, and `StudioInspectorRenderTests.cpp`. The packet, finish review, verification, six native manifests and 16 captures named in Overview bound D11/S01 to this staged foundation. Current recording/reconstruction/job regressions and main integration remain pending. Portable previews express appearance only; they do not supply Slate behavior, scientific validation, persistence or runtime evidence.
 
+### Case authoring ownership and exact drafts
+
+**The Applied Case Rule.** Show the applied case independently of retained text, and require Apply before draft values can change the case. Preserve the recording, saved Solve camera and frozen run configurations.
+
+Materials, Domain, Boundary Conditions and Meshing use their existing sidebar routes. Their retained editors survive workspace/selection round trips within the current project. A rejected value remains visible with wrapped Amber recovery; a conflicting draft cannot silently overwrite a later case edit. Revert reloads applied data. Save guards route to unresolved forms for Apply/Revert; they do not silently serialize unfinished text. An applied case may still have unknown or incomplete scientific values and be saved without being declared ready to run. Applied edits use case undo/redo and exact project persistence; observing the authoring scene does not edit Solve's saved camera or scientific arrays.
+
+Materials and Boundary optional inputs and the Boundary filter reuse `SProjectFilterBox` at full hint opacity, with the shared Background/Text field style and Line/Muted/Cyan normal/hover/focus outlines. Empty text remains unknown data. Exact number formatting preserves the shortest decimal that round-trips to the stored double; source bounds and velocity editors retain precision even when native field scrolling is needed. Full-opacity hints are the F3 presentation correction and do not alter parsing, stored values or disabled-state semantics.
+
+### Materials list, properties and assignments
+
+The left list owns Add fluid/Add solid, selection and case history. Selected names use Cyan; rows show applied type, assignment count and an asterisk for unapplied properties. The center owns name, type, density, kinematic viscosity, thermal conductivity and specific heat; the right owns Duplicate, Delete or Unassign and delete, and applied domain/geometry assignments. The empty state offers creation without inventing properties.
+
+Optional properties accept blank for unknown or finite positive values within the document range. Density offers kg/m³ and g/cm³; viscosity offers m²/s and mm²/s; conductivity and specific heat use W/(m·K) and J/(kg·K). Display-unit changes preserve the saved SI value when text is unchanged. Apply properties or Enter commits a valid candidate; focus loss does not apply. Invalid and conflicting drafts remain in their material's editor, with Revert recovery. Assignments use applied properties and stay separate from unfinished property text. Unassign and delete clears current-case references in the same reversible edit; frozen run configurations keep their original material records. Solver-specific validation remains unavailable until an adapter supplies rules.
+
+### Domain bounds, layers and containment
+
+One inspector owns exact meter bounds, dimensions anchored at each minimum, six stable named faces, padding for the next fit, and Apply domain/Revert edits. Selecting a face highlights it in Cyan. Square viewport handles change a retained draft; release leaves it unapplied, while Escape/capture cancellation restores the prior draft. Fit bounds with padding produces draft bounds against complete verified original geometry. Planar geometry requires padding to enclose a 3D volume. Fit view frames the independent authoring camera and does not apply domain edits.
+
+**The Rendered Layers Rule.** Derive both the viewport badge and inspector layer text from the same renderable-draft predicate used by the painter; never claim that invalid or conflicting text has an outline.
+
+| Domain state | Visible layer wording and recovery |
+| --- | --- |
+| Applied, including outside geometry | “Applied domain”; no amber draft claim. |
+| Valid dirty bounds, fit or active/released handle | “Applied domain + amber draft outline”; Apply domain is required to change the case. |
+| Invalid retained text | “Applied domain · Invalid draft hidden”; keep text and the applied scene, with error recovery. |
+| Conflict after another applied edit | “Applied domain · Conflicting draft hidden”; retain text and require Revert before applying. |
+| No available scene preview | “Domain preview unavailable”. |
+
+`FStudioDomainWorkspaceState::CanPreviewDraft`, `SDomainViewport` and the shared `Layers` reader implement F1. Their gate includes current project/workspace identity, loading state, absence of conflict and successful draft construction. Fit and resize notices use the same applied/draft distinction.
+
+**The Containment Evidence Rule.** Report source/aggregate geometry verification separately from whether each object fits inside the applied domain.
+
+Check geometry verifies original file identity, saved surface patches and transformed bounds. Its result explicitly names aggregate geometry bounds. Per-object “Inside the applied domain”, Amber “Outside the applied domain” and Amber unknown containment remain separate. Outside recovery says to enlarge Bounds or use Fit to geometry, then Apply domain; unknown recovery calls for Check geometry or source-file repair in Geometry. Containment is evaluated against applied bounds even while a valid draft outline is visible. Geometry omitted by preview limits still contributes verified original bounds to containment. Verification and enclosure do not attest topology quality, production meshing or solver readiness. Original preview geometry is bounded at 500,000 vertices and 500,000 triangles; it does not infer replacement surfaces.
+
+### Boundary targets, conditions and atomic pairs
+
+The bounded, filterable Faces and patches list uses stable domain-face and imported-patch identities, with 128 targets per page. Selection and original-triangle picking share that identity; the preview highlights the selected original target. Select/Orbit and camera/projection controls remain local to this workspace. No fallback patch geometry is fabricated for unavailable sources, and the list remains available for targets omitted from the bounded scene preview.
+
+The inspector owns condition name/type, exact velocity in m/s, pressure in Pa, optional prescribed temperature in K, Apply condition and Revert edits. Supported document types are Unassigned, Velocity inlet, Pressure outlet, No-slip wall, Slip wall, Symmetry and Periodic pair. A velocity is either all three explicit components, including zeros, or entirely blank/unknown; partial vectors retain their text and show recovery. Thermal intent requires an enabled thermal model and a supporting solver. Visited draft forms remain bound to project/target identity; invalid or externally changed assignments retain text, and a removed target retains its unresolved draft until Revert discards it. Save guards prevent unresolved edits from being lost.
+
+A periodic domain face pairs with its opposite face. Both reciprocal assignments apply atomically in one case edit; a new pair requires the opposite face to be unassigned. Removing a periodic assignment removes its partner. Changing to a different condition exposes Amber “Unpair and apply” with the partner-removal consequence beside it. Rejection leaves both applied assignments intact. Applied coverage shows configured/total targets and bounded missing/incomplete/conflict diagnostics, while “Solver compatibility” remains explicitly not verified. A complete configuration count is not solver validation. Dedicated captures establish inlet, partial-vector, selected-patch and periodic appearance; pressure, thermal and removed-target behavior is supported by source and recorded assertions rather than separate captures in this packet.
+
+### Physical lattice counts and bounded occupancy preview
+
+Meshing owns X/Y/Z cell counts, exact requested maximum spacing, Apply counts/Revert edits and one preview inspector. Counts divide the applied domain into physical cells. Calculate draft counts uses a ceiling per axis so derived spacing is no larger than requested, and leaves Apply counts as the commit point. Invalid or conflicting counts stay in the form while the scene uses the applied case; preview requests are unavailable until the count draft is resolved.
+
+Preview region offers one original X/Y/Z cell layer or Whole, a layer index and a maximum displayed-cell budget. The UI bounds layer previews to 32,768 cells and whole-domain previews to 4,096. Deterministic sampling retains original cell indices and physical extents; it does not replace skipped cells with larger cells. The 3% display gap is visual spacing only. The badge identifies the applied lattice and region; counts distinguish displayed from candidate cells and “sampled” from “complete region”. Changing region/budget requires Preview cells to update the view.
+
+Classification distinguishes Outside geometry, Inside closed geometry, Surface overlap and Unknown, with a text key alongside swatches. It uses verified original triangles; surface intersection and closed-surface evidence have separate meanings. Open, missing, omitted or ambiguous geometry retains unknown occupancy where classification cannot be established. A verified original bound does not substitute for omitted triangle geometry. Progress states name geometry indexing and cells classified; Cancel/Clear removes pending or presented preview, and project/domain/geometry identity prevents stale results from publishing.
+
+The independent authoring camera, Fit view and perspective/orthographic control remain available for observation. Backend lattice rules, memory estimates, refinement and production cell flags are explicitly not supplied. This CPU geometric occupancy aid does not generate a production mesh, compute CFD, establish numerical compatibility or validate the custom LBM solver.
+
+### Authoring source and evidence boundary
+
+Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the Materials, Domain, Boundaries and Lattice contracts, retained forms, save guards and full-opacity hints), `StudioModelMaterials.cpp`, `StudioModelDomain.cpp`, `StudioModelBoundaries.cpp`, `StudioModelLattice.cpp`, `StudioMaterials.*`, `StudioDomain.*`, `StudioBoundaries.*`, `StudioBoundarySelection.*`, `StudioLattice.*`, `StudioLatticePreview.cpp` and `StudioScene.*`. The package, source delta, two verification files, review and 34 captures in Overview bound this addition. Existing Solve authority and prior review limits remain unchanged; the F1–F3 ship verdict and these portable appearance snippets do not establish fresh main integration or full M3 completion.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -489,7 +603,7 @@ Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the six-line contrac
 - Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.
 - Do retain selected-scalar coloring independently of velocity direction and length.
 - Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.
-- Do keep this record and its acceptance claims scoped to staged D05–D08, V10/D01 and the D11/S01 foundation, retaining each review’s finding and package boundaries.
+- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation and the authoring supplement, retaining each review’s finding and package boundaries.
 - Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.
 - Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.
 - Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.
@@ -498,6 +612,10 @@ Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the six-line contrac
 
 - Do preserve session-only inspector selection and source-bound draft ownership while category changes leave scientific state intact.
 - Do label Physics and BCs as read-only source/saved-case summaries until editable M3 authoring is implemented and accepted.
+
+- Do keep blank authoring values unknown, exact SI storage intact, and Apply/Revert/save guards adjacent to their retained forms.
+- Do make Domain layer labels follow renderability, with source-bound verification and applied-domain containment reported separately.
+- Do preserve stable boundary identities, atomic periodic pairs and sampled original-cell meaning.
 
 ### Don't:
 
@@ -513,3 +631,6 @@ Source authority is `Source/LBMStudio/StudioWorkspace.cpp` (the six-line contrac
 - Don’t treat V10/D01’s ship verdict as main integration, physical OS input, stability, D11/S01, M3–M5 or whole-studio/reference acceptance.
 - Don’t treat D11/S01’s foundation verdict as acceptance of editable M3 authoring, the four queued regressions, main integration or the wider UI goal.
 - Don’t restore a floating Display duplicate, persist unfinished editor text as scientific state, or keep Display controls visible after the idle inspector is expanded away.
+- Don’t treat a visible draft, verified aggregate bounds or complete coverage count as an applied change, enclosed geometry or solver compatibility.
+- Don’t substitute larger cells or invented triangles for omitted preview data, or equate geometric occupancy with production meshing.
+- Don’t treat F1–F3 acceptance or the earlier 161 model cases as a fresh main build/model result, physical OS input, full M3, solver validation or whole-product approval.

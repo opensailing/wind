@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-28T06:09:23.826871Z",
-  "title": "Design System: LBM Solver Studio — Staged Recorded-Flow Controls",
+  "generatedAt": "2026-09-28T11:02:15.103835+00:00",
+  "title": "Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring",
   "extensions": {
     "colorMeta": {
       "background": {
@@ -212,6 +212,10 @@
       "micro": {
         "displayName": "Object kind suffix",
         "purpose": "Seeds suffix in the shared inspection list; native CoreStyle Regular."
+      },
+      "authoring-title": {
+        "displayName": "Authoring workspace title",
+        "purpose": "Recurring CoreStyle Bold heading for Domain, Boundary Conditions and Meshing."
       }
     },
     "shadows": [],
@@ -983,6 +987,383 @@
           "New project receives a fresh editor"
         ]
       }
+    },
+    "authoringScope": {
+      "record": "Materials, Domain, Boundary Conditions and lattice-preview Meshing; additive to the existing Solve design records.",
+      "artifactRoot": "/Users/bcardarella/projects/wind/tmp/authoring-workspace-20260928",
+      "visualAuthority": "Existing PRODUCT.md, DESIGN.md and .impeccable/design.json; incumbent native macOS UE5.8 C++ Slate Operate world.",
+      "packageSha256": "155679833b8b0522bce2192d543820c61bb747795ef05afc82d86189817768fe",
+      "sourcePatchSha256": "73fca1f932b435b08f7509314096509932f7def4017065edd5cb74d86f2fe6b7",
+      "projectSchema": 17,
+      "packet": "../implementation/authoring-review-packet.md",
+      "review": "../implementation/authoring-finish-review.md",
+      "finishDisposition": "Ship for F1–F3 only, all resolved. Original five-section review remains the finding basis; correction verdict is not a new whole-surface review.",
+      "verification": [
+        "tmp/implementation/authoring-source-verification.json",
+        "tmp/implementation/authoring-native-verification.json"
+      ],
+      "verificationTiming": "Verification JSON pending-verdict status predates the appended ship verdict.",
+      "recordedVerification": {
+        "matchingSourcePins": 45,
+        "cleanNativeCases": 12,
+        "nativeManifests": 8,
+        "captures": 34,
+        "windows": [
+          [
+            1320,
+            740
+          ],
+          [
+            1280,
+            720
+          ]
+        ],
+        "passed": true,
+        "exitCodes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "errors": 0,
+        "remainingOwnedProcesses": 0,
+        "evidenceType": "Recorded routed Slate/native GPU workflows, not physical OS input."
+      },
+      "model": {
+        "cases": 161,
+        "qualification": "Earlier model cases predate final UI/test corrections and Domain source-status copy. A fresh main build/model/regression result remains pending."
+      },
+      "historicalIncident": "One-off Domain pointer-capture failure remains unexplained; the later corrected complete native matrix passes.",
+      "corrections": {
+        "F1": {
+          "status": "resolved",
+          "meaning": "Shared CanPreviewDraft predicate controls painting and layer labels; fit/resize notices retain the Apply requirement."
+        },
+        "F2": {
+          "status": "resolved",
+          "meaning": "Verified aggregate source bounds are separate from applied-domain inside/outside/unknown results and recovery."
+        },
+        "F3": {
+          "status": "resolved",
+          "meaning": "Existing SProjectFilterBox gives enabled optional inputs and Boundary filter full hint opacity; empty data stays empty.",
+          "reviewedContrast": {
+            "ratio": 14.36,
+            "required": 4.5,
+            "foregroundRGB": [
+              223,
+              232,
+              243
+            ],
+            "backgroundRGB": [
+              15,
+              25,
+              34
+            ],
+            "regions": 6,
+            "qualification": "Native PNG measurements from finish reviewer; not a new palette token or full accessibility audit."
+          }
+        }
+      },
+      "mainIntegration": "The authoring source is installed in main but remains uncommitted pending fresh production verification. Documentation supplies no runtime acceptance for main.",
+      "open": [
+        "Backend preparation, refinement, quality and production cell flags",
+        "Remaining Geometry and Setup/Physics; full M3 and wider plan",
+        "Connected custom LBM solver and numerical validation",
+        "Physical OS input, broad accessibility, long-session stability and overall reference fidelity"
+      ],
+      "documenterCaptureSample": [
+        ".impeccable/review/authoring/materials-1280x720-fluid.png",
+        ".impeccable/review/authoring/domain-1320x740-outside.png",
+        ".impeccable/review/authoring/domain-1280x720-conflict.png",
+        ".impeccable/review/authoring/boundaries-1320x740-partial-vector.png",
+        ".impeccable/review/authoring/lattice-1320x740-whole.png",
+        ".impeccable/review/authoring/domain-1320x740-bounds-draft.png",
+        ".impeccable/review/authoring/domain-1280x720-unverified.png",
+        ".impeccable/review/authoring/boundaries-1280x720-periodic.png",
+        ".impeccable/review/authoring/lattice-1280x720-invalid.png"
+      ],
+      "documenterActions": "Read current product/design context, relevant native source, complete five-section finish review and F1–F3 verdict; opened nine representative captures, verified 34 image hashes/dimensions, eight native manifest hashes/results and 45 source pins. Validated document syntax/references and preserved prior Solve records. No builds, tests, app launches, native interaction, source edits, main documentation writes or commits.",
+      "nativeProcess": "Local code-led extension; no new workshop, comp or HTML/CSS detector applies.",
+      "captures": [
+        ".impeccable/review/authoring/boundaries-1280x720-inlet.png",
+        ".impeccable/review/authoring/boundaries-1280x720-patch-selected.png",
+        ".impeccable/review/authoring/boundaries-1280x720-periodic.png",
+        ".impeccable/review/authoring/boundaries-1320x740-inlet.png",
+        ".impeccable/review/authoring/boundaries-1320x740-partial-vector.png",
+        ".impeccable/review/authoring/boundaries-1320x740-patch-selected.png",
+        ".impeccable/review/authoring/domain-1280x720-applied.png",
+        ".impeccable/review/authoring/domain-1280x720-bounds-draft.png",
+        ".impeccable/review/authoring/domain-1280x720-conflict.png",
+        ".impeccable/review/authoring/domain-1280x720-fit-draft.png",
+        ".impeccable/review/authoring/domain-1280x720-handle-draft.png",
+        ".impeccable/review/authoring/domain-1280x720-handle-released.png",
+        ".impeccable/review/authoring/domain-1280x720-invalid.png",
+        ".impeccable/review/authoring/domain-1280x720-outside.png",
+        ".impeccable/review/authoring/domain-1280x720-unverified.png",
+        ".impeccable/review/authoring/domain-1320x740-applied.png",
+        ".impeccable/review/authoring/domain-1320x740-bounds-draft.png",
+        ".impeccable/review/authoring/domain-1320x740-conflict.png",
+        ".impeccable/review/authoring/domain-1320x740-fit-draft.png",
+        ".impeccable/review/authoring/domain-1320x740-handle-draft.png",
+        ".impeccable/review/authoring/domain-1320x740-handle-released.png",
+        ".impeccable/review/authoring/domain-1320x740-invalid.png",
+        ".impeccable/review/authoring/domain-1320x740-outside.png",
+        ".impeccable/review/authoring/domain-1320x740-unverified.png",
+        ".impeccable/review/authoring/lattice-1280x720-invalid.png",
+        ".impeccable/review/authoring/lattice-1280x720-layer.png",
+        ".impeccable/review/authoring/lattice-1280x720-orthographic.png",
+        ".impeccable/review/authoring/lattice-1320x740-layer.png",
+        ".impeccable/review/authoring/lattice-1320x740-whole.png",
+        ".impeccable/review/authoring/materials-1280x720-empty.png",
+        ".impeccable/review/authoring/materials-1280x720-fluid.png",
+        ".impeccable/review/authoring/materials-1280x720-solid.png",
+        ".impeccable/review/authoring/materials-1320x740-fluid.png",
+        ".impeccable/review/authoring/materials-1320x740-invalid.png"
+      ],
+      "nativeReports": [
+        {
+          "path": "tmp/debug/authoring-materials-1320x740-20260928T105307774599Z/manifest.json",
+          "suite": "Studio.Materials.",
+          "count": 1,
+          "viewport": [
+            1320,
+            740
+          ],
+          "sha256": "5fc7851674caac6e056ccf34eb0b762449124a11839c96fd87a9e57fe11578b2"
+        },
+        {
+          "path": "tmp/debug/authoring-domain-1320x740-20260928T105318413454Z/manifest.json",
+          "suite": "Studio.Domain.",
+          "count": 2,
+          "viewport": [
+            1320,
+            740
+          ],
+          "sha256": "39806d773d69bc207eaa5f3374e7058d1f81e13198e3baca76bd709c894d756e"
+        },
+        {
+          "path": "tmp/debug/authoring-boundaries-1320x740-20260928T105327905516Z/manifest.json",
+          "suite": "Studio.Boundaries.",
+          "count": 2,
+          "viewport": [
+            1320,
+            740
+          ],
+          "sha256": "ddd9755ef0d049c963e7251508f34c697515578084e616460d9e8e1aa26c699c"
+        },
+        {
+          "path": "tmp/debug/authoring-lattice-1320x740-20260928T105337935693Z/manifest.json",
+          "suite": "Studio.LatticeUI.",
+          "count": 1,
+          "viewport": [
+            1320,
+            740
+          ],
+          "sha256": "f8ac04e6b119833c1afd298b44ea24e72864690a25562212ad6294ab82e82180"
+        },
+        {
+          "path": "tmp/debug/authoring-materials-1280x720-20260928T105346446926Z/manifest.json",
+          "suite": "Studio.Materials.",
+          "count": 1,
+          "viewport": [
+            1280,
+            720
+          ],
+          "sha256": "ef13ef73857bf05c3c22d8172787493ebb8d8e1d3c99cebb9679c93d92774fd2"
+        },
+        {
+          "path": "tmp/debug/authoring-domain-1280x720-20260928T105354950485Z/manifest.json",
+          "suite": "Studio.Domain.",
+          "count": 2,
+          "viewport": [
+            1280,
+            720
+          ],
+          "sha256": "1a10895a74e6c509e2c0b8fdbe72e888f33041d5e24ea0f5dc35d4a6ce0d8323"
+        },
+        {
+          "path": "tmp/debug/authoring-boundaries-1280x720-20260928T105403988051Z/manifest.json",
+          "suite": "Studio.Boundaries.",
+          "count": 2,
+          "viewport": [
+            1280,
+            720
+          ],
+          "sha256": "35c789f6ba953eaf7a742c4955ad4c88bc06e78318854c7126c05b9a355c0762"
+        },
+        {
+          "path": "tmp/debug/authoring-lattice-1280x720-20260928T105414136427Z/manifest.json",
+          "suite": "Studio.LatticeUI.",
+          "count": 1,
+          "viewport": [
+            1280,
+            720
+          ],
+          "sha256": "08890cf95c4b89a99a348bd9250d3cec726ff37cba54d83ea734cc3fce0be81b"
+        }
+      ]
+    },
+    "nativeAuthoring": {
+      "sources": [
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioModelMaterials.cpp",
+        "Source/LBMStudio/StudioModelDomain.cpp",
+        "Source/LBMStudio/StudioModelBoundaries.cpp",
+        "Source/LBMStudio/StudioModelLattice.cpp",
+        "Source/LBMStudio/StudioMaterials.cpp",
+        "Source/LBMStudio/StudioMaterials.h",
+        "Source/LBMStudio/StudioDomain.cpp",
+        "Source/LBMStudio/StudioDomain.h",
+        "Source/LBMStudio/StudioBoundaries.cpp",
+        "Source/LBMStudio/StudioBoundaries.h",
+        "Source/LBMStudio/StudioBoundarySelection.cpp",
+        "Source/LBMStudio/StudioBoundarySelection.h",
+        "Source/LBMStudio/StudioLattice.cpp",
+        "Source/LBMStudio/StudioLattice.h",
+        "Source/LBMStudio/StudioLatticePreview.cpp",
+        "Source/LBMStudio/StudioScene.cpp",
+        "Source/LBMStudio/StudioScene.h"
+      ],
+      "navigation": "Sidebar is the sole persistent workspace navigator. Select/Orbit and preview/camera actions are local controls; no duplicate top workflow row.",
+      "ownership": {
+        "Materials": "Editable properties and applied assignments",
+        "Domain": "Bounds, dimensions, stable face names and padding fit",
+        "Boundary Conditions": "Stable target condition assignments and coverage",
+        "Meshing": "Physical counts/spacing and bounded original-cell occupancy",
+        "Solve": "Existing recorded scientific fields and read-only source/case summaries retain their scope."
+      },
+      "isolation": "Applied case, retained text, published CFD source identity, saved Solve camera/frame and frozen run configurations remain separate. Authoring geometry fixtures are not scientific flow fields.",
+      "drafts": {
+        "retain": "Within the current project and material/target identity, including rejected and conflicting text. Removed boundary targets keep unresolved drafts until Revert.",
+        "apply": "Explicit Apply or field Enter where implemented; focus loss does not apply.",
+        "revert": "Reload applied state; conflict prevents overwriting an external edit.",
+        "save": "Unresolved editors route through Apply/Revert save guards. Applied unknown/incomplete cases can be saved without claiming readiness.",
+        "history": "Case undo/redo and exact persisted applied values."
+      },
+      "layout": {
+        "materials": "18-unit inset; 210-unit list, flexible properties, 280-unit assignments; 16/18-unit gutters.",
+        "domainAndLattice": "Flexible scene, 6-unit gutter, 334-unit inspector with 14-unit padding; instant focus scrolling and 12-unit navigation padding.",
+        "boundaries": "14-unit inset, 196-unit target list, flexible scene, 310-unit inspector and 12-unit gutters.",
+        "evidenceSizesOnly": [
+          "1320x740",
+          "1280x720"
+        ]
+      },
+      "hints": {
+        "control": "StudioUI::SProjectFilterBox",
+        "opacity": 1,
+        "uses": [
+          "Material optional properties: Unknown",
+          "Boundary target filter: Filter by name",
+          "Boundary numeric fields: Unknown / Optional · unknown"
+        ],
+        "data": "HintText only; blank scientific optionals remain unknown.",
+        "states": "Shared Background/Text with Line, Muted and Cyan normal/hover/focus outlines; disabled treatment preserved."
+      },
+      "materials": {
+        "properties": [
+          "Density",
+          "Kinematic viscosity",
+          "Thermal conductivity",
+          "Specific heat"
+        ],
+        "units": {
+          "density": [
+            "kg/m³",
+            "g/cm³"
+          ],
+          "kinematicViscosity": [
+            "m²/s",
+            "mm²/s"
+          ],
+          "thermalConductivity": [
+            "W/(m·K)"
+          ],
+          "specificHeat": [
+            "J/(kg·K)"
+          ]
+        },
+        "values": "Blank unknown or finite positive document-range value. Exact SI storage retained through unchanged display-unit switches.",
+        "assignments": "Applied properties only; domain/geometry assignment count, duplicate, delete and atomic unassign/delete. Frozen runs preserve original materials.",
+        "limits": "Solver-specific rules are not supplied."
+      },
+      "domain": {
+        "camera": "Independent authoring camera; arbitrary observation and Fit view do not edit saved Solve camera.",
+        "edits": "Exact meter bounds, dimensions anchored at minimum, six stable face names, six-sided padding fit and square drag handles. Release retains draft; Escape/capture cancellation restores prior draft. Apply commits.",
+        "renderability": "CanPreviewDraft shared by painter and Layers labels; current project/workspace, no pending loads/conflict, valid build.",
+        "layerLabels": [
+          "Applied domain",
+          "Applied domain + amber draft outline",
+          "Applied domain · Invalid draft hidden",
+          "Applied domain · Conflicting draft hidden",
+          "Domain preview unavailable"
+        ],
+        "sourceCheck": "Verify original hashes, saved patches and all transformed aggregate bounds.",
+        "containment": "Per-object inside/outside/unknown against applied domain. Outside and unknown are Amber; enlarge or Fit then Apply, or repair/check source files.",
+        "previewLimit": {
+          "vertices": 500000,
+          "triangles": 500000,
+          "omittedGeometry": "Verified original bounds still participate in containment; no inferred replacement surface."
+        },
+        "limits": "Source verification and bounds containment do not establish topology quality or solver readiness."
+      },
+      "boundaries": {
+        "pageSize": 128,
+        "targets": "Stable domain-face and imported-patch identities; original-triangle picking, bounded preview, selected/removed retained drafts.",
+        "conditions": [
+          "Unassigned",
+          "Velocity inlet",
+          "Pressure outlet",
+          "No-slip wall",
+          "Slip wall",
+          "Symmetry",
+          "Periodic pair"
+        ],
+        "values": "Velocity m/s: all components including explicit zeros, or all blank. Pressure Pa and optional temperature K preserve unknowns. Thermal intent requires supporting model/backend.",
+        "periodic": "Opposite domain faces assigned reciprocally in one atomic case edit. New partner must be unassigned; removal clears both. Amber Unpair and apply exposes partner removal. Rejection preserves current pair.",
+        "coverage": "Configured/total and bounded diagnostics refer to applied assignments; solver compatibility explicitly not verified.",
+        "captureLimit": "Pressure, thermal and removed-target behaviors have source/assertion support rather than dedicated captures in this packet."
+      },
+      "lattice": {
+        "counts": "Physical cells divide applied domain. Requested maximum spacing derives ceiling counts into a draft; Apply counts commits.",
+        "regions": [
+          "X layer",
+          "Y layer",
+          "Z layer",
+          "Whole"
+        ],
+        "maximumLayerSamples": 32768,
+        "maximumWholeSamplesInUI": 4096,
+        "sampling": "Deterministic original cell indices/extents; never larger replacement cells. 3% gaps are display only.",
+        "summary": "Applied lattice/region badge; displayed and candidate counts distinguish sampled from complete region.",
+        "classifications": [
+          "Outside geometry",
+          "Inside closed geometry",
+          "Surface overlap",
+          "Unknown"
+        ],
+        "uncertainty": "Open, unavailable, omitted or ambiguous geometry remains unknown where classification cannot be established; verified bounds do not replace missing triangles.",
+        "worker": "Indexing/classification progress, Cancel/Clear, identity-based stale-result rejection.",
+        "camera": "Fit and perspective/orthographic on independent authoring camera.",
+        "limits": "CPU geometric occupancy only. Backend rules, memory estimates, refinement, production cell flags and meshing/solver validation are not supplied."
+      },
+      "previewTranslation": "New sidecar snippets translate appearance only; they do not implement native validation, geometry, transactions, camera behavior, persistence or scientific computation."
+    },
+    "authoringMainIntegration": {
+      "date": "2026-09-28",
+      "sourceCommit": "73366617ce4516d522567f4e5dab0c7d340bbd53",
+      "binarySHA256": "24ae10c2c7b0dedc73e1eca44e2b0e456a637568aec6c75fa5597cfb7d22c205",
+      "report": "tmp/analysis/authoring-integration-20260928/production-acceptance.json",
+      "modelCases": 161,
+      "modelWarnings": 0,
+      "nativeCases": 18,
+      "retry": "One inspection snapshot-menu case passed on an unchanged-package retry; first failure retained, no menu fix claimed.",
+      "unityBuild": "Succeeded with adaptive unity disabled",
+      "scope": "Integrated authoring and six shared regressions; physical OS input, extended stability and full UI completion remain open."
     }
   },
   "components": [
@@ -1105,11 +1486,51 @@
       "description": "Local Setup / Physics / BCs / Display strip in the right inspector, shown with Display active; native behavior remains in Slate.",
       "html": "<div class=\"ds-solve-inspector\"><div class=\"ds-solve-tabs\" role=\"tablist\" aria-label=\"Solve inspector categories\"><button class=\"ds-solve-tab\" role=\"tab\" aria-selected=\"false\">Setup</button><button class=\"ds-solve-tab\" role=\"tab\" aria-selected=\"false\">Physics</button><button class=\"ds-solve-tab\" role=\"tab\" aria-selected=\"false\">BCs</button><button class=\"ds-solve-tab ds-solve-active\" role=\"tab\" aria-selected=\"true\">Display</button></div><div class=\"ds-solve-content\"><strong>Recorded field display</strong><p>Scalar, palette, vectors and streamlines</p></div></div>",
       "css": ".ds-solve-inspector { width: 302px; padding: 0 10px; background: #101E2B; color: #E0E9F3; font: 10pt Arial, sans-serif; } .ds-solve-tabs { display: flex; } .ds-solve-tab { flex: 1; min-width: 0; padding: 12px 2px; border: 0; border-bottom: 2px solid #101E2B; background: transparent; color: #99ACBF; font: 10pt Arial, sans-serif; cursor: pointer; } .ds-solve-active { color: #00C8EC; border-bottom-color: #00C8EC; } .ds-solve-tab:hover, .ds-solve-tab:active { background: #182735; } .ds-solve-tab:focus-visible { outline: 1px solid #00C8EC; outline-offset: -2px; } .ds-solve-content { padding: 10px 2px; } .ds-solve-content p { color: #99ACBF; font-size: 9pt; margin: 8px 0; }"
+    },
+    {
+      "name": "Unknown authoring property",
+      "kind": "input",
+      "refersTo": "authoring-number",
+      "description": "Enabled blank optional field with readable full-opacity hint; no scientific value is populated. Native parsing and SI storage remain in Slate.",
+      "html": "<label class=\"ds-authoring-field\">Thermal conductivity <span class=\"ds-authoring-input-row\"><input class=\"ds-authoring-input\" type=\"text\" inputmode=\"decimal\" placeholder=\"Unknown\" aria-label=\"Thermal conductivity, unknown\"><span>W/(m·K)</span></span></label>",
+      "css": ".ds-authoring-field{display:grid;gap:6px;color:#99ACBF;font:10pt Arial,sans-serif}.ds-authoring-input-row{display:flex;align-items:center;gap:8px}.ds-authoring-input{min-width:0;flex:1;background:#07121D;color:#E0E9F3;border:1px solid #304151;border-radius:3px;padding:5px 7px;font:10pt Arial,sans-serif}.ds-authoring-input::placeholder{color:#E0E9F3;opacity:1}.ds-authoring-input:hover{border-color:#99ACBF}.ds-authoring-input:focus-visible{border-color:#00C8EC;outline:1px solid #00C8EC;outline-offset:-1px}"
+    },
+    {
+      "name": "Selected material row",
+      "kind": "button",
+      "refersTo": "material-row-selected",
+      "description": "Material selection with applied type/assignment count and an asterisk denoting retained unapplied edits.",
+      "html": "<button class=\"ds-material-row\" aria-pressed=\"true\"><span>Wing fluid *</span><small>Fluid · 1 assignment</small></button>",
+      "css": ".ds-material-row{display:grid;gap:4px;text-align:left;background:#182735;color:#00C8EC;border:1px solid #304151;border-radius:4px;padding:9px 10px;font:10pt Arial,sans-serif}.ds-material-row small{color:#99ACBF;font-size:9pt}.ds-material-row:hover{background:color(srgb-linear 0.035 0.10 0.16);border-color:#00C8EC}.ds-material-row:active{background:color(srgb-linear 0.01 0.055 0.09)}.ds-material-row:focus-visible{outline:1px solid #00C8EC;outline-offset:2px}"
+    },
+    {
+      "name": "Domain layers and containment recovery",
+      "kind": "custom",
+      "refersTo": "authoring-layers",
+      "description": "Appearance example separating a renderable draft from containment of the applied domain; it does not render geometry.",
+      "html": "<div class=\"ds-domain-status\"><div class=\"ds-domain-layers\">Applied domain + amber draft outline</div><p>Source check complete. Aggregate geometry bounds verified for all case objects.</p><p class=\"ds-domain-warning\">domain-fixture · Outside the applied domain<br>Enlarge Bounds or use Fit to geometry, then Apply domain.</p></div>",
+      "css": ".ds-domain-status{max-width:460px;background:#101E2B;color:#99ACBF;padding:12px;font:10pt Arial,sans-serif}.ds-domain-layers{background:#101E2B;padding:5px 8px}.ds-domain-status p{margin:8px 0 0;line-height:1.35}.ds-domain-status .ds-domain-warning{color:#F0B74B}"
+    },
+    {
+      "name": "Periodic boundary ownership",
+      "kind": "custom",
+      "refersTo": "boundary-inspector",
+      "description": "Applied reciprocal pair and explicit partner-removal consequence; atomic mutation is supplied by the native case model.",
+      "html": "<div class=\"ds-periodic\"><strong>Periodic pair</strong><p>Paired with +Y. Removing this assignment also removes its partner.</p><button class=\"ds-periodic-action\">Remove assignment</button><p>Solver compatibility: not verified.</p></div>",
+      "css": ".ds-periodic{max-width:310px;background:#101E2B;color:#E0E9F3;font:10pt Arial,sans-serif}.ds-periodic p{color:#99ACBF;line-height:1.35;margin:10px 0}.ds-periodic-action{background:#182735;color:#E0E9F3;border:1px solid #304151;border-radius:4px;padding:6px 9px;font:10pt Arial,sans-serif}.ds-periodic-action:hover{border-color:#00C8EC;background:color(srgb-linear 0.035 0.10 0.16)}.ds-periodic-action:active{background:color(srgb-linear 0.01 0.055 0.09)}.ds-periodic-action:focus-visible{outline:1px solid #00C8EC;outline-offset:2px}"
+    },
+    {
+      "name": "Applied lattice preview disclosure",
+      "kind": "custom",
+      "refersTo": "authoring-inspector",
+      "description": "Bounded original-cell sampling and absent backend preparation, shown as text without fabricated CFD or mesh geometry.",
+      "html": "<div class=\"ds-lattice-disclosure\"><strong>Preview region</strong><p>Whole-domain view samples up to 4,096 original cells. Choose Preview cells to update the view.</p><p>Applied lattice · Whole domain</p><strong>Backend preparation</strong><p>Backend lattice rules, memory estimate, refinement and production cell flags are not supplied. This preview checks geometric occupancy only.</p></div>",
+      "css": ".ds-lattice-disclosure{max-width:306px;padding:14px;background:#101E2B;color:#E0E9F3;font:10pt Arial,sans-serif}.ds-lattice-disclosure p{color:#99ACBF;line-height:1.35;margin:8px 0 14px}"
     }
   ],
   "narrative": {
     "northStar": "Operate",
-    "overview": "The established “Operate” world is a dense native desktop workspace: blue-black surfaces, fine borders, compact controls, and a dominant CFD scene. D08 adds vector sampling and length controls; D05–D07 adds instantaneous recorded-velocity tracing, exact limits, and saved seed sets inside that world. Descriptive language and direction carry forward the user’s pinned appearance.\n\nThis is an accumulating scoped design record for `tmp/inspection-workspace-20260927`: D05–D08 streamline controls, saved seed editors and vectors, followed by V10/D01 viewport toolbar and actual triangle mesh display, and the D11/S01 Solve inspector category/ownership foundation. Each accepted feature retains its own evidence and limits. Main `DESIGN.md` remains the visual authority. Shared inspection infrastructure is described only where it serves these slices; other inspection features, the full application, and the wider renderer remain outside this record’s acceptance.\n\nThe six-line contract beside `SStudioWorkspace::VectorControls` makes density and length interpretable against the displayed CFD frame: sample limit, proportional or equal length, exact scale, and a current-frame key. Project/view history owns settings; captured geometry owns the key. Main `PRODUCT.md` and `DESIGN.md` were read as context only.\n\nThe D08 initial finish review and same-reviewer verdict live at `../implementation/vector-controls-finish-review.md` and `../implementation/vector-controls-finish-verdict.md`. The latter resolves **F1 only** with disposition **ship** for staged package `2751570ac6ad32c1877d431c68e33bd65b916e5acef234d766182cdfafcaaad8`. Its evidence is the 14 replacement captures in `.impeccable/review/vector-controls/` and two recorded five-suite workflows at 1320 × 740 and 1280 × 720, each with five successes, zero warnings/failures, exit 0, and no remaining owned processes. The prior D08 documentation pass inspected source, reports, and all 14 captures; it launched and tested nothing. The earlier 131-test model result predates the final UI-only correction and is not a fresh final-package model result.\n\nThe D05–D07 six-line contract immediately before `SStudioWorkspace::CanShowStreamlines` places one settings action beside Streamlines and owns saved seeds through the shared Inspection panel, scene placement, and view history. This is a local code-led extension in native macOS UE5 Slate using genuine published recorded fields. It retains unrestricted camera exploration and the sidebar as the sole persistent workspace navigator. No generated comp or new visual workshop applies.\n\nThe D05–D07 packet, initial review, and same-reviewer correction verdict are `../implementation/streamline-review-packet.md`, `../implementation/streamline-controls-finish-review.md`, and `../implementation/streamline-controls-finish-verdict.md`. The verdict is **ship for F1 and F2 only**, both resolved, on package `afedca302bc1061d9a7385ad6a1a99c0c997ae4766ba5582662d0fa266feee7c`. F1 adds visible derived-trace interpretation and frozen export work-limit text; F2 labels the shared aggregate “All seed sets:”. This correction verdict is not a fresh full-surface review. The D08 disposition and package above remain a separate historical scope.\n\nRecorded verification is `tmp/debug/streamline-ui-verification-20260928.json`: 221 matching source/tool/config hashes and 12 clean packaged cases, comprising one Streamlines case and five FieldDisplay cases at each accepted size. All four manifests pin the corrected package, exit 0, and record no remaining owned processes. The model run reports 135 clean successes plus one success with Unreal’s bundled iOS `idevice_id` architecture-helper warning, zero failures/not-run. It precedes presentation-only formatting, header allocation, and provenance/annotation changes; backend/schema hashes are unchanged, and no fresh final-package model run is claimed.\n\nThis merge inspected relevant native source, recorded results, and all 26 captures at `.impeccable/review/streamlines-{1320x740,1280x720}-{settings,invalid,budget,saved-empty,inlet,line,line-draft,plane,points,original-unavailable,surface,volume,snapshot}.png`. Settings, invalid, and budget include an incidental settings-button hover tooltip; the F1/F2 scoring captures are unobstructed. Both snapshots intentionally export at 1280 × 720 without application chrome. This documenter launched no runtime and performed no build or test run.\n\nMain integration, physical OS input, full accessibility, current integrated long-session acceptance, overall renderer/reference fidelity, and the rest of the full UI plan remain open. Protected main/schema-11 and scheduled-volume boundaries remain in force. Routed Slate events establish the supplied control workflow; the small authentic data fixtures do not establish full-source transport duration or extended stability. No browser/HTML detector applies to this native UI.\n\nThe V10/D01 direction contract immediately above `SStudioWorkspace::ViewToolbar` adds one compact owner for view direction, projection, topology and framing below the input hint. It inherits the dense blue-black Slate world, cyan selection and real recorded CFD. Views, Fit, and camera transform/lens/depth controls move to this owner; their previous visible copies are removed. The left Camera manager still manages saved views. The sidebar remains the sole workspace navigator, with no duplicate top workflow tabs, following the user’s explicit correction to the supplied reference.\n\n`../implementation/viewport-toolbar-finish-review.md` gives **ship**, with no material fixes, for staged V10/D01 package `866d37a998d5242e080546f74e507a194b32d06d47cfc3f0f0f229d0c3419655`. The recorded verification at `../debug/viewport-toolbar-verification-20260928.json` pins 237 source/config/tool/material hashes and 24 captures. It records 139 successful model cases: 138 clean and one with the bundled `idevice_id` wrong-CPU helper warning. Five native manifests record 15 clean suites: one toolbar and five clipping suites per window size, plus three orientation suites at 1280 × 720. All owned native apps exited 0 with empty remaining-process inventories.\n\nThe finish reviewer opened all 24 `.impeccable/review/viewport-toolbar-{1320x740,1280x720}-{field,overlay,edges,derived-overlay,expanded,camera-settings,mesh-menu,no-topology,views,projection,mesh-snapshot,clipping-invalid}.png` captures and found them valid. The 22 window captures have the stated dimensions; the two mesh snapshots intentionally export at 960 × 540. `tmp/debug/viewport-toolbar-png-audit.json` independently records valid PNG chunk CRCs and frozen mesh metadata for both exports. This documentation pass read the implementation and recorded evidence and opened four representative captures; it ran no Unreal runtime, build or test.\n\nV10/D01 acceptance covers routed Slate/native GPU behavior at those two sizes. It does not establish physical OS pointer/keyboard acceptance, long-session stability, full accessibility, the entire UI plan, or full studio/reference fidelity. Main integration waits for the existing volume/stability gate and fresh integration guards. The protected main `56a73127…` and scheduled-volume `516efec6…` executables remain unchanged by this staged work. At that V10/D01 verdict, D11/S01 inspector consolidation remained open; its later scoped foundation acceptance is recorded below. Full editable M3 authoring and M3–M5 completion remain open. Earlier inspection/camera acceptance remains in the canonical record with its original boundaries.\n\nThe D11/S01 six-line contract immediately above `SStudioWorkspace::CachedDisplayMenu` gives each Solve setting one visible owner without losing an unfinished edit. Setup, Physics, BCs and Display occupy the existing right inspector; the category tabs are local to Solve. The incumbent Operate palette, compact native macOS UE5 Slate controls, authentic recorded fields and sidebar-only workspace navigation remain the visual authority. This is a local code-led extension with no generated comp or new identity.\n\n`../implementation/solve-inspector-finish-review.md` gives **ship**, with no material fixes, only for the staged D11/S01 category/ownership foundation, captured retained drafts, and supplied persistence/isolation evidence on client `92bfe98b417dfcb4c56a31d777b7b5b2cadb217314f281b2a631f58adf0fbc2e`, project schema 16. The packet is `../implementation/solve-inspector-review-packet.md`. Its early pending language and verification status predate the review; the finish review supplies the disposition. This acceptance adds to the prior D05–D08 and V10/D01 records without widening their verdicts.\n\n`../debug/solve-inspector-verification-20260928.json` records 240 matching staged source/config/tool/material hashes and 14 clean final-client native cases in six manifests: one Inspector case at each of 1320 × 740 and 1280 × 720, plus five Colors, five FieldDisplay, one Streamlines and one ViewportToolbar case at 1280 × 720. All six report exit 0, zero warnings/errors/not-run cases and empty owned-process inventories. The model report records **140 clean successes** at `2026.09.28-05.51.31`, including `Studio.Inspector.SessionCategoryIsolation`, before the final retained-scroll UI correction and native-test formatting correction. Numerical model and persistence changes were unchanged afterward. This is not a fresh 140-case model run on the final client; the six native manifests cover that client.\n\nThe reviewer opened and accepted all 16 whole-window `.impeccable/review/solve-inspector-{1320x740,1280x720}-{display,setup,physics,boundaries,invalid,retained-draft,inspection,streamline-draft}.png` captures, eight at each stated size. They decode, match their recorded hashes and show the named states. This documentation pass opened eight representative captures spanning all eight states, validated all 16 capture hashes/dimensions and checked the source/evidence references. It ran no build, test, runtime, native control or context regeneration.\n\nFour additional final-client regressions remain pending behind the protected volume run: `Studio.SurfaceControls.`, `Studio.VolumeControls.`, `Studio.Rendering.ExternalRecordingControlsAndBounds`, and `Studio.Rendering.JobControlsAndCamera`. Main integration still requires the existing volume/stability gate and fresh guards. Editable M3 Physics/BC authoring, physical OS input, full accessibility, extended integrated stability, full reference fidelity and the wider M1–M5 UI goal remain open. This documentation does not accept those workflows or the whole UI, and does not touch main production files or the protected volume workspace.",
+    "overview": "The established “Operate” world is a dense native desktop workspace: blue-black surfaces, fine borders, compact controls, and a dominant CFD scene. D08 adds vector sampling and length controls; D05–D07 adds instantaneous recorded-velocity tracing, exact limits, and saved seed sets inside that world. Descriptive language and direction carry forward the user’s pinned appearance.\n\nThis is an accumulating scoped design record for `tmp/inspection-workspace-20260927`: D05–D08 streamline controls, saved seed editors and vectors, followed by V10/D01 viewport toolbar and actual triangle mesh display, and the D11/S01 Solve inspector category/ownership foundation. Each accepted feature retains its own evidence and limits. Main `DESIGN.md` remains the visual authority. Shared inspection infrastructure is described only where it serves these slices; other inspection features, the full application, and the wider renderer remain outside this record’s acceptance.\n\nThe six-line contract beside `SStudioWorkspace::VectorControls` makes density and length interpretable against the displayed CFD frame: sample limit, proportional or equal length, exact scale, and a current-frame key. Project/view history owns settings; captured geometry owns the key. Main `PRODUCT.md` and `DESIGN.md` were read as context only.\n\nThe D08 initial finish review and same-reviewer verdict live at `../implementation/vector-controls-finish-review.md` and `../implementation/vector-controls-finish-verdict.md`. The latter resolves **F1 only** with disposition **ship** for staged package `2751570ac6ad32c1877d431c68e33bd65b916e5acef234d766182cdfafcaaad8`. Its evidence is the 14 replacement captures in `.impeccable/review/vector-controls/` and two recorded five-suite workflows at 1320 × 740 and 1280 × 720, each with five successes, zero warnings/failures, exit 0, and no remaining owned processes. The prior D08 documentation pass inspected source, reports, and all 14 captures; it launched and tested nothing. The earlier 131-test model result predates the final UI-only correction and is not a fresh final-package model result.\n\nThe D05–D07 six-line contract immediately before `SStudioWorkspace::CanShowStreamlines` places one settings action beside Streamlines and owns saved seeds through the shared Inspection panel, scene placement, and view history. This is a local code-led extension in native macOS UE5 Slate using genuine published recorded fields. It retains unrestricted camera exploration and the sidebar as the sole persistent workspace navigator. No generated comp or new visual workshop applies.\n\nThe D05–D07 packet, initial review, and same-reviewer correction verdict are `../implementation/streamline-review-packet.md`, `../implementation/streamline-controls-finish-review.md`, and `../implementation/streamline-controls-finish-verdict.md`. The verdict is **ship for F1 and F2 only**, both resolved, on package `afedca302bc1061d9a7385ad6a1a99c0c997ae4766ba5582662d0fa266feee7c`. F1 adds visible derived-trace interpretation and frozen export work-limit text; F2 labels the shared aggregate “All seed sets:”. This correction verdict is not a fresh full-surface review. The D08 disposition and package above remain a separate historical scope.\n\nRecorded verification is `tmp/debug/streamline-ui-verification-20260928.json`: 221 matching source/tool/config hashes and 12 clean packaged cases, comprising one Streamlines case and five FieldDisplay cases at each accepted size. All four manifests pin the corrected package, exit 0, and record no remaining owned processes. The model run reports 135 clean successes plus one success with Unreal’s bundled iOS `idevice_id` architecture-helper warning, zero failures/not-run. It precedes presentation-only formatting, header allocation, and provenance/annotation changes; backend/schema hashes are unchanged, and no fresh final-package model run is claimed.\n\nThis merge inspected relevant native source, recorded results, and all 26 captures at `.impeccable/review/streamlines-{1320x740,1280x720}-{settings,invalid,budget,saved-empty,inlet,line,line-draft,plane,points,original-unavailable,surface,volume,snapshot}.png`. Settings, invalid, and budget include an incidental settings-button hover tooltip; the F1/F2 scoring captures are unobstructed. Both snapshots intentionally export at 1280 × 720 without application chrome. This documenter launched no runtime and performed no build or test run.\n\nMain integration, physical OS input, full accessibility, current integrated long-session acceptance, overall renderer/reference fidelity, and the rest of the full UI plan remain open. Protected main/schema-11 and scheduled-volume boundaries remain in force. Routed Slate events establish the supplied control workflow; the small authentic data fixtures do not establish full-source transport duration or extended stability. No browser/HTML detector applies to this native UI.\n\nThe V10/D01 direction contract immediately above `SStudioWorkspace::ViewToolbar` adds one compact owner for view direction, projection, topology and framing below the input hint. It inherits the dense blue-black Slate world, cyan selection and real recorded CFD. Views, Fit, and camera transform/lens/depth controls move to this owner; their previous visible copies are removed. The left Camera manager still manages saved views. The sidebar remains the sole workspace navigator, with no duplicate top workflow tabs, following the user’s explicit correction to the supplied reference.\n\n`../implementation/viewport-toolbar-finish-review.md` gives **ship**, with no material fixes, for staged V10/D01 package `866d37a998d5242e080546f74e507a194b32d06d47cfc3f0f0f229d0c3419655`. The recorded verification at `../debug/viewport-toolbar-verification-20260928.json` pins 237 source/config/tool/material hashes and 24 captures. It records 139 successful model cases: 138 clean and one with the bundled `idevice_id` wrong-CPU helper warning. Five native manifests record 15 clean suites: one toolbar and five clipping suites per window size, plus three orientation suites at 1280 × 720. All owned native apps exited 0 with empty remaining-process inventories.\n\nThe finish reviewer opened all 24 `.impeccable/review/viewport-toolbar-{1320x740,1280x720}-{field,overlay,edges,derived-overlay,expanded,camera-settings,mesh-menu,no-topology,views,projection,mesh-snapshot,clipping-invalid}.png` captures and found them valid. The 22 window captures have the stated dimensions; the two mesh snapshots intentionally export at 960 × 540. `tmp/debug/viewport-toolbar-png-audit.json` independently records valid PNG chunk CRCs and frozen mesh metadata for both exports. This documentation pass read the implementation and recorded evidence and opened four representative captures; it ran no Unreal runtime, build or test.\n\nV10/D01 acceptance covers routed Slate/native GPU behavior at those two sizes. It does not establish physical OS pointer/keyboard acceptance, long-session stability, full accessibility, the entire UI plan, or full studio/reference fidelity. Main integration waits for the existing volume/stability gate and fresh integration guards. The protected main `56a73127…` and scheduled-volume `516efec6…` executables remain unchanged by this staged work. At that V10/D01 verdict, D11/S01 inspector consolidation remained open; its later scoped foundation acceptance is recorded below. Full editable M3 authoring and M3–M5 completion remain open. Earlier inspection/camera acceptance remains in the canonical record with its original boundaries.\n\nThe D11/S01 six-line contract immediately above `SStudioWorkspace::CachedDisplayMenu` gives each Solve setting one visible owner without losing an unfinished edit. Setup, Physics, BCs and Display occupy the existing right inspector; the category tabs are local to Solve. The incumbent Operate palette, compact native macOS UE5 Slate controls, authentic recorded fields and sidebar-only workspace navigation remain the visual authority. This is a local code-led extension with no generated comp or new identity.\n\n`../implementation/solve-inspector-finish-review.md` gives **ship**, with no material fixes, only for the staged D11/S01 category/ownership foundation, captured retained drafts, and supplied persistence/isolation evidence on client `92bfe98b417dfcb4c56a31d777b7b5b2cadb217314f281b2a631f58adf0fbc2e`, project schema 16. The packet is `../implementation/solve-inspector-review-packet.md`. Its early pending language and verification status predate the review; the finish review supplies the disposition. This acceptance adds to the prior D05–D08 and V10/D01 records without widening their verdicts.\n\n`../debug/solve-inspector-verification-20260928.json` records 240 matching staged source/config/tool/material hashes and 14 clean final-client native cases in six manifests: one Inspector case at each of 1320 × 740 and 1280 × 720, plus five Colors, five FieldDisplay, one Streamlines and one ViewportToolbar case at 1280 × 720. All six report exit 0, zero warnings/errors/not-run cases and empty owned-process inventories. The model report records **140 clean successes** at `2026.09.28-05.51.31`, including `Studio.Inspector.SessionCategoryIsolation`, before the final retained-scroll UI correction and native-test formatting correction. Numerical model and persistence changes were unchanged afterward. This is not a fresh 140-case model run on the final client; the six native manifests cover that client.\n\nThe reviewer opened and accepted all 16 whole-window `.impeccable/review/solve-inspector-{1320x740,1280x720}-{display,setup,physics,boundaries,invalid,retained-draft,inspection,streamline-draft}.png` captures, eight at each stated size. They decode, match their recorded hashes and show the named states. This documentation pass opened eight representative captures spanning all eight states, validated all 16 capture hashes/dimensions and checked the source/evidence references. It ran no build, test, runtime, native control or context regeneration.\n\nFour additional final-client regressions remain pending behind the protected volume run: `Studio.SurfaceControls.`, `Studio.VolumeControls.`, `Studio.Rendering.ExternalRecordingControlsAndBounds`, and `Studio.Rendering.JobControlsAndCamera`. Main integration still requires the existing volume/stability gate and fresh guards. Editable M3 Physics/BC authoring, physical OS input, full accessibility, extended integrated stability, full reference fidelity and the wider M1–M5 UI goal remain open. This documentation does not accept those workflows or the whole UI, and does not touch main production files or the protected volume workspace.\n\nThe 2026-09-28 authoring addition is a local code-led Operate extension for native macOS UE5.8 C++ Slate, scoped to Materials, Domain, Boundary Conditions and lattice-preview Meshing in `tmp/authoring-workspace-20260928`. Existing Solve tokens, component behavior and historical evidence above remain authoritative at their original scope. Earlier pending-integration statements describe those review checkpoints; they do not replace a current integration report. At the documentation checkpoint, the authoring source was installed in main but uncommitted pending production verification. The separate main-integration result below records the subsequent checks.\n\nAuthoring has one editable owner for each parameter: material properties and assignments in Materials, domain bounds/dimensions/face names in Domain, conditions in Boundary Conditions, and physical cell counts in Meshing. Solve's read-only source physics and saved-case summaries keep their existing roles. The sidebar is the sole persistent workspace navigator; local preview actions do not create a top workflow row. Applied case data, retained form text, recorded scientific fields, frozen run configurations and observing cameras stay distinct. Geometry fixtures and occupancy previews are authoring data; the genuine published CFD in Solve retains its scientific identity.\n\n`../implementation/authoring-review-packet.md` and the full five-section `../implementation/authoring-finish-review.md` supply the authoring review. The appended correction verdict is **ship for F1–F3 only**, all resolved, on package `155679833b8b0522bce2192d543820c61bb747795ef05afc82d86189817768fe`, source delta `73fca1f932b435b08f7509314096509932f7def4017065edd5cb74d86f2fe6b7`. F1 unifies Domain renderability and layer labels; F2 separates verified aggregate geometry bounds from applied-domain containment; F3 restores full-opacity enabled hints. The original full review remains the finding basis; the correction verdict is not a new whole-surface review.\n\nArtifact `tmp/implementation/authoring-source-verification.json` pins 45 changed source/tool files and schema 17. `tmp/implementation/authoring-native-verification.json` pins eight manifests, **12 clean native cases across 1320 × 740 and 1280 × 720**, and **34 valid whole-window captures** in `.impeccable/review/authoring/`, all on that one package. The finish reviewer opened all 34, checked hashes/dimensions, and found no obstructing tooltips; each native manifest reports passed, exit 0 and no errors or remaining owned processes. The verification files' verdict-pending status predates the appended ship verdict. The earlier **161 model cases predate the final UI/test changes and Domain source-status copy**, so they are not a final-package model result. The historical one-off Domain pointer-capture failure remains unexplained despite the subsequently passing complete matrix.\n\nThe authoring documentation pass read the source, review and recorded verification, opened nine representative captures, and checked all 34 capture hashes/dimensions, eight manifest hashes/results and 45 source pins. It ran no build, application, native interaction or test. Routed Slate/native GPU evidence does not establish physical OS input. Backend preparation, refinement/quality, remaining Geometry and Setup/Physics, full M3, connected solver validation, broad accessibility, long-session stability and overall reference fidelity remain incomplete. No new visual workshop, generated comp or HTML/CSS detector applies to this native extension.\n\n**Main authoring integration — 2026-09-28.** Source commit `7336661` integrates the reviewed authoring controls with schema 17. `tmp/analysis/authoring-integration-20260928/production-acceptance.json` records 161 clean model cases and 18 native cases on package `24ae10c2c7b0dedc73e1eca44e2b0e456a637568aec6c75fa5597cfb7d22c205`: 12 authoring cases at both window sizes and six shared scene, inspection, camera, volume and job regressions at 1280 × 720. One inspection snapshot-menu test required an unchanged-package retry; its initial failure is preserved and no menu fix is claimed. The Domain handle test now activates the app before pointer input, and both size runs observed that activation before passing. The production interaction code is unchanged by that test adjustment. All accepted native runs exited 0 without remaining owned processes. An additional editor build with adaptive unity disabled passed. These checks establish the integrated authoring scope; physical OS input, extended stability, solver preparation and the remaining UI milestones retain their open status.",
     "keyCharacteristics": [
       "One settings action beside Vectors in the existing Display panel.",
       "Exact sample and scale inputs with reversible view edits.",
@@ -1123,7 +1544,9 @@
       "Original, verified-derived and unavailable topology retain explicit meaning in the live legend and frozen export.",
       "Expand/Restore is a saved session layout preference; active inspection and placement remain available.",
       "Setup, Physics, BCs and Display have one local right-inspector owner with a session-only category preference.",
-      "Retained vector/streamline drafts stay with their project/source/scalar identity; source physics and saved case summaries remain explicit."
+      "Retained vector/streamline drafts stay with their project/source/scalar identity; source physics and saved case summaries remain explicit.",
+      "Materials, Domain, Boundary Conditions and physical lattice counts have separate retained case editors with explicit Apply/Revert and save guards.",
+      "Preview labels describe applied state, renderable drafts, source verification and sampled occupancy without implying solver readiness."
     ],
     "rules": [
       {
@@ -1170,6 +1593,21 @@
         "name": "The Draft Identity Rule",
         "body": "Retain unfinished display-editor text only within its project, solver instance and selected scalar; discard cached forms when any of those identities changes.",
         "section": "components"
+      },
+      {
+        "name": "The Applied Case Rule",
+        "body": "Show the applied case independently of retained text, and require Apply before draft values can change the case. Preserve the recording, saved Solve camera and frozen run configurations.",
+        "section": "components"
+      },
+      {
+        "name": "The Rendered Layers Rule",
+        "body": "Derive both the viewport badge and inspector layer text from the same renderable-draft predicate used by the painter; never claim that invalid or conflicting text has an outline.",
+        "section": "components"
+      },
+      {
+        "name": "The Containment Evidence Rule",
+        "body": "Report source/aggregate geometry verification separately from whether each object fits inside the applied domain.",
+        "section": "components"
       }
     ],
     "dos": [
@@ -1177,14 +1615,17 @@
       "Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.",
       "Do retain selected-scalar coloring independently of velocity direction and length.",
       "Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.",
-      "Do keep this record and its acceptance claims scoped to staged D05–D08, V10/D01 and the D11/S01 foundation, retaining each review’s finding and package boundaries.",
+      "Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation and the authoring supplement, retaining each review’s finding and package boundaries.",
       "Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.",
       "Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.",
       "Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.",
       "Do preserve original/derived topology, triangle count and hidden-fill meaning in the presented legend and frozen PNG metadata.",
       "Do retain active inspection and placement when expanding, and persist expansion separately from the case and camera.",
       "Do preserve session-only inspector selection and source-bound draft ownership while category changes leave scientific state intact.",
-      "Do label Physics and BCs as read-only source/saved-case summaries until editable M3 authoring is implemented and accepted."
+      "Do label Physics and BCs as read-only source/saved-case summaries until editable M3 authoring is implemented and accepted.",
+      "Do keep blank authoring values unknown, exact SI storage intact, and Apply/Revert/save guards adjacent to their retained forms.",
+      "Do make Domain layer labels follow renderability, with source-bound verification and applied-domain containment reported separately.",
+      "Do preserve stable boundary identities, atomic periodic pairs and sampled original-cell meaning."
     ],
     "donts": [
       "Don’t add a second persistent workspace navigation path.",
@@ -1198,7 +1639,10 @@
       "Don’t treat edges-only as a global wireframe mode or allow it to hide independently controlled streamlines, vectors or inspection objects.",
       "Don’t treat V10/D01’s ship verdict as main integration, physical OS input, stability, D11/S01, M3–M5 or whole-studio/reference acceptance.",
       "Don’t treat D11/S01’s foundation verdict as acceptance of editable M3 authoring, the four queued regressions, main integration or the wider UI goal.",
-      "Don’t restore a floating Display duplicate, persist unfinished editor text as scientific state, or keep Display controls visible after the idle inspector is expanded away."
+      "Don’t restore a floating Display duplicate, persist unfinished editor text as scientific state, or keep Display controls visible after the idle inspector is expanded away.",
+      "Don’t treat a visible draft, verified aggregate bounds or complete coverage count as an applied change, enclosed geometry or solver compatibility.",
+      "Don’t substitute larger cells or invented triangles for omitted preview data, or equate geometric occupancy with production meshing.",
+      "Don’t treat F1–F3 acceptance or the earlier 161 model cases as a fresh main build/model result, physical OS input, full M3, solver validation or whole-product approval."
     ]
   }
 }
