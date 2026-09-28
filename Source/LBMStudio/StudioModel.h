@@ -412,7 +412,7 @@ private:
     bool ApplyCameraCollectionHistory(bool bRedo);
     bool CameraCollectionMessage(const FString& Message,bool bError = false);
     void ClearCameraCollectionHistory();
-    void ClearViewHistory() { ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();
+    void ClearViewHistory() { InvalidateMonitorSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();
         SelectedInspectionObject.Invalidate();++InspectionObjectsRevision;++InspectionSelectionRevision;InspectionNotice.Empty();bInspectionError=false; }
     bool CommitInspectionObjects(const FString& Label,FStudioInspectionObjects Objects,bool bContinueGesture=false,bool bUseSavedSeeds=false);
     bool PrepareInspectionObject(FStudioInspectionObject& Object,const TCHAR* BaseName);
@@ -474,6 +474,7 @@ private:
     FStudioLatticePreviewSettings LatticeSettings;
     void PollLatticePreview();
     void PollMonitor();
+    void InvalidateMonitorSession();
     bool StartMonitorHistory(const FStudioMonitorSettings& Settings,bool bChoose);
     TFuture<FStudioHistoryLoadResult> PendingMonitor;
     TSharedPtr<std::atomic<bool>,ESPMode::ThreadSafe> MonitorCancellation;

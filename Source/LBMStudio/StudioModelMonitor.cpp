@@ -1,6 +1,12 @@
 #include "StudioModel.h"
 #include "Async/Async.h"
 
+void FStudioModel::InvalidateMonitorSession()
+{
+    if(MonitorCancellation)*MonitorCancellation=true;
+    LoadedMonitor.Reset();MonitorProject.Invalidate();MonitorNotice.Empty();++MonitorRevision;
+}
+
 TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> FStudioModel::MonitorHistory() const
 {
     if(MonitorProject!=Project.Id||!LoadedMonitor||LoadedMonitor->Id!=Project.Monitor.HistoryId||

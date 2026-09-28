@@ -15,7 +15,7 @@ FStudioHistoryLoadResult MonitorFixtureHistory()
 bool FinishMonitorModel(FStudioModel& Model)
 {
     const double Deadline=FPlatformTime::Seconds()+10;
-    do {Model.Tick(.001);if(!Model.IsMonitorLoading())return true;FPlatformProcess::Sleep(.001);}while(FPlatformTime::Seconds()<Deadline);
+    do {Model.Tick(.001);if(!Model.IsMonitorLoading()&&!Model.IsProjectOpenPending())return true;FPlatformProcess::Sleep(.001);}while(FPlatformTime::Seconds()<Deadline);
     return false;
 }
 FString MonitorTestJSON(const TSharedRef<FJsonObject>& O)
@@ -152,6 +152,11 @@ bool FStudioMonitorModel::RunTest(const FString&)
     const auto Frozen=StudioCaseIO::Serialize(*M.Job().Run()->GetConfiguration());
     Settings.bLogY=false;M.UpdateMonitorSettings(Settings);
     TestEqual(TEXT("Chart edits preserve frozen run"),StudioCaseIO::Serialize(*M.Job().Run()->GetConfiguration()),Frozen);
+    TestTrue(TEXT("Prepare candidate before reopening the same project ID"),Reopened.RequestMonitorHistory(Id));
+    TestTrue(TEXT("Reopen the same document"),Reopened.RequestProjectOpen(Dir/TEXT("chart.lbms")));
+    TestTrue(TEXT("Same-document replacement settles"),FinishMonitorModel(Reopened));
+    TestEqual(TEXT("Same ID cannot retain stale chart choices or late candidates"),MonitorTestJSON(StudioMonitor::ToJSON(Reopened.Project.Monitor)),Saved);
+    TestTrue(TEXT("Replaced document reloads its own pinned history"),Reopened.MonitorHistory().IsValid());
     TestTrue(TEXT("Request starts before project replacement"),Reopened.RequestMonitorHistory(Id));
     Reopened.Project=FStudioProject();TestTrue(TEXT("Stale worker reaped"),FinishMonitorModel(Reopened));
     TestFalse(TEXT("Old project cannot republish its chart"),Reopened.MonitorHistory().IsValid());
