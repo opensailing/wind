@@ -106,7 +106,10 @@ public:
             const auto Loaded=SurfaceRenderFixture();if(!Test->TestTrue(*Loaded.Error,Loaded.Source.IsValid()))return true;
             M.NewProject(TEXT("Reconstructed scalar surface"));auto P=M.SnapshotProject();
             P.Dataset=Loaded.Source->Descriptor().Id;P.Recordings={*Loaded.Reference};P.SelectedFrame=0;
-            P.View.bReconstructedSurface=true;P.View.bVectors=false;P.View.bMesh=false;
+            // This readback measures the surface alone. Recorded streamlines
+            // now work on reconstructed point data and can cover a sample pixel
+            // with their own segment color, rather than the underlying scalar.
+            P.View.bReconstructedSurface=true;P.View.bVectors=false;P.View.bStreamlines=false;P.View.bMesh=false;
             P.View.ScalarField=TEXT("pressure");
             const auto B=Loaded.Source->Descriptor().DisplayBounds;
             P.Camera.Focus=B.GetCenter();P.Camera.Focus.Y=0;
@@ -152,6 +155,7 @@ public:
 private:
     void VerifyPixels()
     {
+        Test->TestEqual(TEXT("Surface pixel audit has no streamline overlay"),Scene->PresentedStreams().Segments,0);
         const auto& M=*Scene->Model;const auto Field=M.Solver->CaptureViewField(M.SelectedFrame,TEXT("pressure"),false);
         const auto Points=Field->OriginalPoints();const auto* Values=Points->FindValues(TEXT("pressure"));
         const auto Surface=Field->Reconstruction();
