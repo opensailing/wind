@@ -7,6 +7,7 @@
 #include "StudioAssets.h"
 #include "StudioMeshImport.h"
 #include "StudioGeometryEdit.h"
+#include "StudioRunSettings.h"
 #include "StudioDomain.h"
 #include "StudioLattice.h"
 #include "Async/Future.h"
@@ -236,6 +237,7 @@ public:
     bool SelectGeometry(const FGuid& Id);
     /** Apply a retained name/transform to a verified selected object in one case edit. */
     bool UpdateGeometry(FStudioGeometryEdit& Edit);
+    bool UpdateRunSettings(FStudioRunSettingsEdit& Edit);
     bool GeometryAssetForPreview(FStudioGeometryAsset& Asset,FString& Error) const;
     void GeometryOptionsChanged() { ++GeometryRevision; }
 
