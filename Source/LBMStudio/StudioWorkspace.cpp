@@ -138,6 +138,7 @@ namespace StudioUI
     const TCHAR* DomainSaveGuard=TEXT("Apply or revert the domain edits before saving or replacing this project.");
     const TCHAR* LatticeSaveGuard=TEXT("Apply or revert lattice edits before saving or replacing this project.");
     const TCHAR* BoundarySaveGuard=TEXT("Apply or revert boundary edits before saving or replacing this project.");
+    const TCHAR* RunSettingsSaveGuard=TEXT("Apply or revert run parameters before saving, replacing the project or starting a new control run.");
     void ResolveSaveNotice(FStudioModel& Model,const TCHAR* Guard,const FString& Resolution)
     {
         // Reverting a form resolves its own save warning without hiding a newer job or file error.
@@ -1136,7 +1137,12 @@ void SStudioWorkspace::Construct(const FArguments& A)
 }
 TSharedRef<SWidget> SStudioWorkspace::Header()
 {
-    auto Run=Button(TEXT("Run"),TEXT("run"),[this]{M->Control(EStudioJobCommand::Submit);},Green);Run->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanControl(EStudioJobCommand::Submit);}));
+    auto Run=Button(TEXT("Run"),TEXT("run"),[this]
+    {
+        if(M->Project.bControlHarness&&!M->Job().Can(EStudioJobCommand::Resume)&&!EnsureRunSettingsResolved())return;
+        M->Control(EStudioJobCommand::Submit);
+    },Green);Run->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanControl(EStudioJobCommand::Submit);}));
+    Run->SetTag(TEXT("RunControl"));
     auto Pause=Button(TEXT("Pause / Resume"),TEXT("pause"),[this]{M->Control(EStudioJobCommand::Pause);},Blue);Pause->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanControl(EStudioJobCommand::Pause);}));
     Pause->SetContent(SNew(SHorizontalBox)+SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Icon(TEXT("pause"),Blue,14)]
         +SHorizontalBox::Slot().AutoWidth().Padding(6,0).VAlign(VAlign_Center)[Live([this]{return (M->Project.bControlHarness?M->Job().State()==EStudioJobState::Paused:M->State==EStudioRunState::Paused)?TEXT("Resume"):TEXT("Pause");},10)]);
@@ -1384,6 +1390,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     RefreshDomain();
     RefreshBoundaries();
     RefreshLattice();
+    RefreshRunSettings();
     if(DisplayMenuProject!=M->Project.Id||DisplayMenuSource.Pin()!=M->Solver||DisplayMenuScalar!=M->ActiveScalar().Id)
         DisplayMenuDrafts.Empty(); // Release prior recording closures even if no editor is reopened.
     if(bProjectListsDirty || LastCatalogRevision!=M->CatalogRevision || DashboardProjectId!=M->Project.Id || DashboardRunCount!=M->Project.Runs.Num()) RefreshProjectLists();
@@ -2160,6 +2167,7 @@ TSharedRef<SWidget> SStudioWorkspace::CachedDisplayMenu(FName Kind,TFunction<TSh
 TSharedRef<SWidget> SStudioWorkspace::Settings()
 {
     auto Controls=SNew(SVerticalBox);
+    Controls->AddSlot().AutoHeight()[RunSettingsControls()];
     Controls->AddSlot().AutoHeight()[JobControls()];
     Controls->AddSlot().AutoHeight()[Section(TEXT("Recorded dataset"),SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SStudioMenuButton).Tag(TEXT("RecordingSelector")).ButtonStyle(&ButtonStyle()).OnGetMenuContent(this,&SStudioWorkspace::RecordingMenu)
@@ -2243,6 +2251,127 @@ TSharedRef<SWidget> SStudioWorkspace::Settings()
                 +SWidgetSwitcher::Slot()[Scroll(Physics,TEXT("PhysicsInspectorScroll"))]
                 +SWidgetSwitcher::Slot()[Scroll(Boundaries,TEXT("BoundaryInspectorScroll"))]
                 +SWidgetSwitcher::Slot()[Scroll(DisplayTools(),TEXT("DisplayInspectorScroll"))]]];
+}
+
+struct FStudioRunSettingsState
+{
+    FGuid Project;
+    int64 Revision=-1;
+    FStudioRunSettingsEdit Edit;
+    bool bConflict=false,bSynchronizing=false;
+    FString Notice;
+    TWeakPtr<SEditableTextBox> Inputs[FStudioRunSettingsEdit::FieldCount];
+    void Synchronize()
+    {
+        bSynchronizing=true;
+        for(int32 Index=0;Index<FStudioRunSettingsEdit::FieldCount;++Index)
+            if(auto Input=Inputs[Index].Pin())Input->SetText(FText::FromString(Edit.Values[Index]));
+        bSynchronizing=false;
+    }
+    void Focus(int32 Index=0)
+    {
+        if(Index>=0&&Index<FStudioRunSettingsEdit::FieldCount)
+            if(auto Input=Inputs[Index].Pin())FSlateApplication::Get().SetKeyboardFocus(Input,EFocusCause::Navigation);
+    }
+};
+void SStudioWorkspace::RefreshRunSettings()
+{
+    if(!RunSettingsState)return;
+    auto& State=*RunSettingsState;
+    if(State.Project!=M->Project.Id||State.Edit.CaseId!=M->Project.Draft.Id)
+    {
+        State.Project=M->Project.Id;State.Edit.Reset(M->Project.Draft);State.bConflict=false;State.Notice.Empty();
+        State.Revision=M->Project.Draft.Revision;State.Synchronize();return;
+    }
+    if(State.Revision==M->Project.Draft.Revision)return;
+    State.Revision=M->Project.Draft.Revision;
+    if(State.Edit.Matches(M->Project.Draft))return;
+    if(State.Edit.IsDirty()||State.bConflict)State.bConflict=true;
+    else {State.Edit.Reset(M->Project.Draft);State.Synchronize();State.Notice.Empty();}
+}
+bool SStudioWorkspace::EnsureRunSettingsResolved()
+{
+    RefreshRunSettings();
+    if(!RunSettingsState||(!RunSettingsState->bConflict&&!RunSettingsState->Edit.IsDirty()))return true;
+    if(!EnsurePlacementResolved())return false;
+    RunSettingsState->Notice=M->Notice=RunSettingsSaveGuard;
+    bInspectionOpen=false;CancelInspectionPlacement();M->bViewportExpanded=false;M->InspectorTab=0;
+    Navigate(EStudioWorkspace::Solve);RunSettingsState->Focus();return false;
+}
+
+// THESIS: Author next-run limits without changing the recorded flow or active job.
+// OWN-WORLD: Existing compact blue-black Solve inspector, exact fields and cyan actions.
+// STORY: Enter stop/output requests, apply once, undo or reopen, then submit the saved case.
+// FIRST VIEWPORT: Run parameters lead Setup; the flow and existing navigation remain visible.
+// FORM: Local Operate extension. Intervals are solver steps; backend execution is explicit.
+// FINISH: Native two-size evidence, scoped finish review and documentation are required.
+TSharedRef<SWidget> SStudioWorkspace::RunSettingsControls()
+{
+    RunSettingsState=MakeShared<FStudioRunSettingsState>();RefreshRunSettings();const auto State=RunSettingsState;
+    auto Available=[this]{return !M->IsProjectOpenPending()&&!M->IsRecordingLoadPending();};
+    auto Apply=[this,State,Available]
+    {
+        if(!Available())return;RefreshRunSettings();if(State->bConflict)return;
+        if(!M->UpdateRunSettings(State->Edit)){State->Focus(State->Edit.ErrorField);return;}
+        State->Edit.Reset(M->Project.Draft);State->Synchronize();State->Revision=M->Project.Draft.Revision;
+        State->Notice=TEXT("Run parameters applied. Save to keep this case.");
+        ResolveSaveNotice(*M,RunSettingsSaveGuard,State->Notice);
+    };
+    auto Input=[State,Apply,Available](int32 Index,const TCHAR* Hint)
+    {
+        auto Field=SNew(SProjectFilterBox).Tag(FName(*FString::Printf(TEXT("RunParameter%d"),Index)))
+            .Style(&InputStyle()).Font(Font(10)).Text(FText::FromString(State->Edit.Values[Index]))
+            .HintText(FText::FromString(Hint)).SelectAllTextWhenFocused(true).ClearKeyboardFocusOnCommit(false)
+            .IsEnabled_Lambda(Available).ToolTipText_Lambda([State,Index]{return FText::FromString(State->Edit.Values[Index]);})
+            .OnTextChanged_Lambda([State,Index](const FText& Value)
+            {
+                if(State->bSynchronizing)return;State->Edit.Values[Index]=Value.ToString();
+                State->Edit.Error.Empty();State->Edit.ErrorField=INDEX_NONE;
+                if(State->Notice!=RunSettingsSaveGuard)State->Notice.Empty();
+            })
+            .OnTextCommitted_Lambda([Apply](const FText&,ETextCommit::Type How){if(How==ETextCommit::OnEnter)Apply();});
+        State->Inputs[Index]=Field;return Field;
+    };
+    auto Fields=SNew(SVerticalBox);
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([this]
+    {return M->HasActiveJob()?TEXT("Next-run case. The active run keeps its submitted settings."):TEXT("Saved case requests. Recorded playback is independent.");},9,Muted,true)];
+    const TCHAR* Labels[]={TEXT("Maximum solver steps"),TEXT("Maximum physical time (s)"),TEXT("Output every (solver steps)"),TEXT("Checkpoint every (solver steps)")};
+    for(int32 Index=0;Index<FStudioRunSettingsEdit::FieldCount;++Index)
+    {
+        if(Index==FStudioRunSettingsEdit::CheckpointInterval)
+            Fields->AddSlot().AutoHeight().Padding(0,4,0,10)[SNew(SCheckBox).Tag(TEXT("RunCheckpoints")).IsEnabled_Lambda(Available)
+                .IsChecked_Lambda([State]{return State->Edit.bCheckpoints?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+                .OnCheckStateChanged_Lambda([State](ECheckBoxState Value)
+                {State->Edit.bCheckpoints=Value==ECheckBoxState::Checked;if(State->Notice!=RunSettingsSaveGuard)State->Notice.Empty();})
+                [Label(TEXT("Request scheduled checkpoints"),10)]];
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(Labels[Index],10,Muted)];
+        Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[Input(Index,Index==FStudioRunSettingsEdit::MaxPhysicalTime?TEXT("No physical-time limit"):TEXT("Whole-number steps"))];
+    }
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([State]
+    {return State->Edit.bCheckpoints?TEXT("Checkpoint interval is a request for the next run."):TEXT("Checkpoint scheduling is off. Its interval is retained.");},9,Muted,true)];
+    auto ApplyButton=Button(TEXT("Apply parameters"),TEXT("check"),Apply,Cyan);ApplyButton->SetTag(TEXT("RunParametersApply"));
+    ApplyButton->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&!State->bConflict&&State->Edit.IsDirty();}));
+    auto Revert=Button(TEXT("Revert edits"),TEXT("undo"),[this,State,Available]
+    {
+        if(!Available())return;State->Edit.Reset(M->Project.Draft);State->bConflict=false;State->Synchronize();
+        State->Revision=M->Project.Draft.Revision;State->Notice=TEXT("Applied run parameters restored.");ResolveSaveNotice(*M,RunSettingsSaveGuard,State->Notice);
+    });Revert->SetTag(TEXT("RunParametersRevert"));
+    Revert->SetEnabled(TAttribute<bool>::CreateLambda([State,Available]{return Available()&&(State->bConflict||State->Edit.IsDirty()||!State->Edit.Error.IsEmpty());}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[ApplyButton]+SHorizontalBox::Slot().FillWidth(1)[Revert]];
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,8)[Live([State]
+    {return State->bConflict?TEXT("Run parameters changed outside this form. Revert before applying."):
+        !State->Edit.Error.IsEmpty()?State->Edit.Error:!State->Notice.IsEmpty()?State->Notice:
+        State->Edit.IsDirty()?TEXT("Unapplied run parameters. Apply or revert these edits."):TEXT("");},9,Amber,true)];
+    auto Undo=Button(TEXT("Undo case"),TEXT("undo"),[this]{M->UndoCase();});Undo->SetTag(TEXT("RunParametersUndo"));
+    Undo->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&M->CanUndoCase();}));
+    auto Redo=Button(TEXT("Redo case"),TEXT("redo"),[this]{M->RedoCase();});Redo->SetTag(TEXT("RunParametersRedo"));
+    Redo->SetEnabled(TAttribute<bool>::CreateLambda([this,Available]{return Available()&&M->CanRedoCase();}));
+    Fields->AddSlot().AutoHeight().Padding(0,0,0,10)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Undo]+SHorizontalBox::Slot().FillWidth(1)[Redo]];
+    Fields->AddSlot().AutoHeight()[Live([]
+    {return TEXT("No numerical backend is connected. The control harness does not enforce these limits, write flow output or create scheduled restart files.");},9,Muted,true)];
+    return Section(TEXT("Run parameters"),Fields);
 }
 
 
@@ -2579,14 +2708,14 @@ TSharedRef<SWidget> SStudioWorkspace::ViewHistoryControls()
 }
 bool SStudioWorkspace::Save(bool bSaveAs)
 {
-    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
     FString Path=M->ProjectPath;
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
     M->Project.Camera=Scene->SavedCameraState(); return M->SaveProject(Path);
 }
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
-    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
     if(!M->CanReplaceProject())return false;
     if(!bAllowRecovery&&!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before switching projects.");return false;}
     M->Project.Camera=Scene->SavedCameraState();
@@ -2632,7 +2761,7 @@ void SStudioWorkspace::Execute(ECommand Command)
     case ECommand::SaveAs: Save(true); break;
     case ECommand::DuplicateProject:
     {
-        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved())break;
+        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())break;
         if(!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before duplicating a project.");break;}
         FString Path;
         if(!StudioFileDialog::Project(true,M->ProjectPath,M->Project.Name+TEXT(" copy"),Path)) break;

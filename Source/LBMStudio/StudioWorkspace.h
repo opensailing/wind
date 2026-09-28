@@ -22,6 +22,7 @@ struct FStudioDomainWorkspaceState;
 struct FStudioBoundaryWorkspaceState;
 struct FStudioLatticeWorkspaceState;
 struct FStudioGeometryWorkspaceState;
+struct FStudioRunSettingsState;
 class SStudioWorkspace : public SCompoundWidget
 {
 public:
@@ -90,6 +91,7 @@ private:
     TSharedPtr<FStudioDomainWorkspaceState> DomainState;
     TSharedPtr<FStudioBoundaryWorkspaceState> BoundaryState;
     TSharedPtr<FStudioLatticeWorkspaceState> LatticeState;
+    TSharedPtr<FStudioRunSettingsState> RunSettingsState;
     TSharedPtr<const FStudioProbeProfile> InspectionProfile;
     TMap<FGuid,TWeakPtr<SWidget>> InspectionRowButtons;
     FGuid InspectionProject,InspectionDetailId;
@@ -131,6 +133,9 @@ private:
     void LocateProject(const FString& OldPath);
     TSharedRef<SWidget> Settings();
     TSharedRef<SWidget> JobControls();
+    TSharedRef<SWidget> RunSettingsControls();
+    void RefreshRunSettings();
+    bool EnsureRunSettingsResolved();
     TSharedRef<SWidget> ViewTools();
     TSharedRef<SWidget> ViewToolbar();
     TSharedRef<SWidget> ViewportMenu();
