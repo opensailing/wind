@@ -313,6 +313,12 @@ The same reviewer opened all 30 final captures under `.impeccable/review/monitor
 
 `tmp/analysis/activity-log-20260928/finish-review.md` gives **ship for the scoped M05 Activity log addition**, with no material fixes. Its `ui-acceptance.json` pins package `55b65787383448bbb9a0549b1b1075de9b1a08398189a8edc80531fb5e01b858`, 17 source hashes and 22 captures under `.impeccable/review/activity-log/{1320,1280}/`. Two clean `Studio.LogUI.` cases at 1320 × 740 and 1280 × 720 and a clean `Studio.MonitorUI.` regression at 1280 × 720 use that same package; all exited 0 with no remaining owned processes. The final editor model report records 176 clean passes. The finish reviewer opened all 22 captures after two self-visual rounds; this documentation pass opened four representative captures and verified source pins, PNG payloads/dimensions and all three native manifests without launching builds, tests or applications. Physical OS input, clipboard delivery, native save-panel interaction, tooltip appearance, live solver log transport and current long-session/release gates remain unverified. The full UI plan and whole-product acceptance remain open.
 
+**Application command input — 2026-09-28.** M06 adds one command field below the expanded Activity log in the incumbent native Slate Operate workspace. Core commit `291c773` and UI commit `65b6dbc` retain the existing palette, type, focus treatment and sidebar navigation. Commands name their replay/control target, reuse application guards and keep local responses visible independently of journal filters or pause. Project schema remains 18.
+
+`tmp/analysis/commands-20260928/finish-review.md` is the original full scoped review and finding basis; `finish-verdict.md` gives **ship for F1**, with no listed material finding remaining. F1 keeps oversized-input rejection active when history navigation leaves the shortened draft unchanged. `f1-acceptance.json` pins package `3635805f25edb7724f011df0d211e9c762d8627864f0947928054e2970649792`, 16 source hashes, 22 captures under `.impeccable/review/commands/{1320,1280}/`, and four clean native cases: CommandUI at 1320 × 740 and 1280 × 720, plus LogUI and RunSettingsUI at 1280 × 720. All exited 0 with no remaining owned processes. The latest model report records 180 clean passes; it precedes only the final native-test layout-wait adjustment, with application/model sources unchanged. The earlier pre-F1 model warning remains historical evidence.
+
+This documentation pass read source, review and recorded evidence and verified all source/capture hashes, four native manifests and model totals; it performed no new visual review or app/build/test run. Routed Slate events and known-path saving bound this evidence. Physical OS input, native Save As, clipboard, tooltip appearance, broad accessibility, real backend transport, original crash diagnosis and current extended/release stability gates remain open. The full UI plan and whole-product/reference acceptance remain incomplete.
+
 **Key Characteristics:**
 
 - One settings action beside Vectors in the existing Display panel.
@@ -335,6 +341,7 @@ The same reviewer opened all 30 final captures under `.impeccable/review/monitor
 - Setup retains next-run stop/output/checkpoint requests with Apply/Revert, shared case history and visible backend limits.
 - Monitors preserves independent published source/time/units, exact-row export and a named single-series Solve preview.
 - Activity log keeps UTC observation/source identity, stable paused snapshots, recoverable clear and frozen-context export within Solve.
+- Command input keeps exact replay/control targets, guarded sending, bounded session recall and local responses inside the expanded log.
 
 ## Colors
 
@@ -384,6 +391,8 @@ Monitors uses a 22-point Bold workspace title, 12-point Bold source/series/prove
 
 Activity log reuses CoreStyle with an 18-point Bold title, 10-point controls/messages/details and 9-point row context/counts/export status. Severity is written as Info, Warning or Error beside UTC time and source; color reinforces that text.
 
+Command input reuses 10-point CoreStyle for the field, actions and wrapping response, with a bold 10-point label and muted 9-point keyboard/suggestion text. Result and Sent responses use Cyan; Cannot send and oversized-input recovery use Amber.
+
 ## Layout
 
 Measurements describe Slate layout units at application scale; frontmatter px values are portable representations. The earlier D05–D08 floating Display overlay was 180 units wide with 11-unit padding; D11/S01 supersedes that placement with Display inside the 322-unit right inspector. Vectors retains one row: checkbox at the left, a compact settings button at the right. Its muted, wrapping length key sits 5 units below and collapses when vectors are hidden.
@@ -417,6 +426,8 @@ Geometry keeps its 190-unit object list with 12-unit inset, flexible applied-mes
 Monitors uses an 18-unit workspace inset with the title/actions above the source/sample count and export status. A flexible left chart has 12-unit panel padding; the right source inspector is 326 units wide, separated by a 14-unit gutter, with 14-unit padding and instant focus scrolling with 12-unit navigation padding. Expand / Restore collapses only this source inspector and retains chart controls and selections. This local in-memory expansion differs from the existing saved Solve expansion preference. The compact Solve card retains its existing row allocation and adds source identity, a single-series picker/count and adjacent Linear/Log label above the chart. The reviewed 1320 × 740 and 1280 × 720 windows are evidence sizes, not breakpoints.
 
 Activity log uses the existing Solve content area with 18-unit horizontal and 16-unit vertical padding. Title, Pause view / Follow latest and Restore Solve lead; search/source/severity form one row, followed by project/run scope and clear/recovery/export actions. The virtualized list fills remaining height; selected details occupy a 108-unit read-only field above counts and export feedback. Source and severity menus are 164 and 170 units wide. Alternating Background/Panel rows use 10 × 7-unit padding, Raised hover/selection and a fine Cyan focus outline. The compact card shows the latest three visible entries with a separate Open log action. Accepted window sizes remain evidence sizes, not breakpoints or a new navigation surface.
+
+The command block sits 12 units below the log list and optional selected details, above the counts/export feedback. A flexible field precedes Send and Commands… with 8-unit gaps; keyboard guidance stays beside the label. Suggestions wrap below the field, and responses scroll within a 100-unit maximum desired height. The menu requests 450 units of width and a 360-unit maximum desired height with a scrolling list. These local dimensions reuse the existing native layout and add no breakpoint or workspace route.
 
 ## Elevation & Depth
 
@@ -700,6 +711,16 @@ Rows show a single-line message preview; selection exposes the complete retained
 
 Source authority is `StudioLog.h/.cpp`, `StudioLogExport.h/.cpp`, `StudioModelJobs.cpp`, the log card/`ActivityLogPanel`/`RefreshActivityLog`/`ExpandActivityLog` in `StudioWorkspace.cpp`, and the hidden-flow gate in `StudioScene.cpp`. `Tools/test-activity-log.sh [width height]` runs one packaged `Studio.LogUI.` case. The recorded scope in Overview bounds acceptance; existing portable snippets provide no native log behavior.
 
+### Application command input and local responses
+
+**The Explicit Command Target Rule.** Keep replay and control-harness command names explicit, revalidate mode/state/capabilities at every send, and distinguish a sent job request from its observed acknowledgement.
+
+The registry exposes 19 exact, argument-free names through help, completion and Commands…. Menu selection and Tab/Shift+Tab fill text without execution; Enter or Send dispatches. Up/Down recalls at most 64 recognized commands, collapsing consecutive duplicates and excluding unsupported text. Case and ordinary spaces normalize; unsupported names, tabs/newlines and arguments are rejected without shell or engine-console fallback. The 256-character input limit shortens oversized input and blocks sending until an actual edit or replacement; unchanged recall retains the guard.
+
+Success clears input; errors retain it with wrapped local recovery. Responses remain beside the field when journal pause/filters hide their copied application entries. Job responses say Sent and direct the user to status or following log entries. Project identity changes clear draft, suggestions and response while session recall persists; recalled commands must pass current validation. Pause/resume remain literal. Project saving uses the existing native workflow, view fit/undo/redo respect pending placement, and job submit shares the Run button's retained-parameter guard. These session controls add no schema or numerical-solver behavior.
+
+Source authority is `StudioCommands.h/.cpp`, `SStudioCommandInput.h/.cpp`, shared styles declared in `StudioTheme.h` and the `StudioWorkspace.cpp` handlers. `Tools/test-commands.sh [width height]` runs the packaged `Studio.CommandUI.` case. Native implementation and recorded evidence define behavior; existing portable snippets retain their original scope.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -708,7 +729,7 @@ Source authority is `StudioLog.h/.cpp`, `StudioLogExport.h/.cpp`, `StudioModelJo
 - Do identify original-row sampling, zero or missing samples, and equal-length direction-only meaning.
 - Do retain selected-scalar coloring independently of velocity direction and length.
 - Do preserve rejected drafts, Enter-to-apply behavior, and synchronization after valid edits or view restore.
-- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing, Setup run parameters, published-history Monitors and the M05 Activity log addition, retaining each review’s finding and package boundaries.
+- Do keep this record and its acceptance claims scoped to D05–D08, V10/D01, the D11/S01 foundation, the authoring supplement, Geometry object editing, Setup run parameters, published-history Monitors, the M05 Activity log and M06 command-input additions, retaining each review’s finding and package boundaries.
 - Do retain exact seed coordinates, physical units, full tube diameter, and atomic placement history.
 - Do label aggregate counts “All seed sets:” and preserve instantaneous/derived/work-limit meaning in frozen annotated exports.
 - Do retain a single bottom view-control owner and keep saved-camera management distinct from the active viewport camera.
@@ -729,6 +750,8 @@ Source authority is `StudioLog.h/.cpp`, `StudioLogExport.h/.cpp`, `StudioModelJo
 - Do name the compact trace, unit, position/count and scale while retaining the complete project selection.
 
 - Do keep log observation/source context, paused snapshot identity, reversible clear and frozen CSV provenance visible within the existing Solve owner.
+
+- Do keep command discovery and recall separate from sending, preserve recoverable input, and show job dispatch separately from observed state.
 
 ### Don't:
 
@@ -752,3 +775,4 @@ Source authority is `StudioLog.h/.cpp`, `StudioLogExport.h/.cpp`, `StudioModelJo
 - Don’t synchronize independent Nalu-Wind history to SU2 playback, invent residuals, or export reduced/log-filtered rows as the original history.
 - Don’t treat the Monitors F1–F3 correction verdict as physical hover/dialog acceptance, a final-package model rerun, current long-session/release acceptance or completion of live backend/history tooling.
 - Don’t treat session observations or the M05 log verdict as scientific history, live solver transport, physical input/clipboard/dialog acceptance or long-session/full-plan completion.
+- Don’t bypass command mode/state or shared save/run guards, or treat M06 acceptance as real backend transport, physical input or full-plan completion.

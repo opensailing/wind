@@ -62,6 +62,7 @@ Builds, packaged apps, logs, temporary plans, captures and Python caches stay ou
 | Export selected history rows | Monitors → Export history; saves original rows in the selected time window as CSV |
 | Choose the compact history preview | Solve → Selected history → series picker; one named series, unit, selection count and Linear/Log scale |
 | Inspect session activity | Solve → Activity log → Open log; search/filter, pause, select details, clear/restore retained entries or Export CSV…; Restore Solve returns to the scene |
+| Send application commands | Expanded Activity log → Command; Enter or Send executes, Commands… fills the field, Up/Down recalls, Tab/Shift+Tab completes, Esc clears |
 
 In Replay mode, Run plays each bundled 601-snapshot recording at 20 snapshots/second: **30 seconds of playback** at 1×. Replay speed ranges from 0.25× to 4×; optional looping restarts the same recording. The timeline exposes every frame immediately. Pause retains the current frame; Step advances one recorded snapshot; Run after reviewing starts from that selection. Follow replay returns to the playback cursor. Camera and supported display controls remain interactive throughout. The 8,000-frame NACA source plays for 399.95 seconds at 1× (about 100 seconds at 4×); its 19.9975-second source duration is shown separately.
 
@@ -135,6 +136,7 @@ The exact source airfoil boundary and 2D field are extruded into a 3D view. Sour
 - `StudioJobs` / `StudioModelJobs`: independent command/event controller, deterministic control harness, explicit toolbar routing and persisted lifecycle summaries. Commands carry run and command identities; replies are ordered and correlated, settings freeze at submission, and acknowledgement/completion timeouts require reconnect before another launch. Stop can interrupt preparation. The harness simulates control acknowledgements only: it produces no CFD, physical time, scientific telemetry or restart files. Active jobs protect project replacement and close.
 - `StudioScene`: Unreal scene capture, source-mesh airfoil extrusion, field planes, integrated streamlines and vectors. Geometry builds on one shared flow/preview worker using an immutable field snapshot. Explicit scrub/display/project/source changes cancel obsolete reads and geometry; publication checks project, source instance and render intent. Ordinary playback lets an in-flight frame complete so slow reads cannot starve presentation. Hidden/minimized work drains without GPU upload; camera captures remain independent. The flow texture redraws only when geometry, camera or viewport size changes; the covered game-world view is disabled.
 - `StudioWorkspace`: native Slate shell, settings, camera controls, timeline, monitors and Activity log.
+- `StudioCommands` / `SStudioCommandInput`: exact application-command registry, current-state validation, bounded session recall and local response field in the expanded log; workspace handlers reuse save, camera and run-submission guards.
 - `StudioLog` / `StudioLogExport`: bounded session observations, stable paused views, recoverable sequence filtering and frozen-context CSV export.
 - `StudioMonitor`, `StudioModelMonitor`, `StudioMonitorChart`, `StudioMonitorExport`: verified history selection, project settings, original-sample charts and frozen original-row CSV export.
 
@@ -159,6 +161,8 @@ Tools/test-monitors.sh     # Published history selection, chart controls, origin
 Tools/test-monitors.sh 1280 720 # Monitors and shared Solve preview at the minimum target size
 Tools/test-activity-log.sh # Search/source/severity/context filters, pause, recovery, details, frozen export and Solve isolation
 Tools/test-activity-log.sh 1280 720 # Activity log at the minimum target size
+Tools/test-commands.sh    # Exact commands, recall/completion, recovery, mode/state and shared save/run guards
+Tools/test-commands.sh 1280 720 # Command input at the minimum target size
 Tools/test-point-recordings.sh # Five reader suites plus three point/project integration suites
 Tools/test-colors.sh       # Palette/range controls, original-value preservation and exact persistence
 Tools/test-colors.sh 1280 720 # Color controls at the minimum target size
@@ -185,6 +189,8 @@ The Setup run-parameter form has a bounded **ship** review with no material fixe
 The Monitors correction verdict is **ship for F1–F3 only** in `tmp/analysis/monitors-20260928/finish-verdict.md`, following the initial bounded `finish-review.md`. `ui-acceptance.json` pins package `274d5cb8…`, 15 current source hashes, 30 final captures and three clean native cases: Monitors at 1320 × 740 and 1280 × 720, plus the shared Inspector regression at 1280 × 720. Each accepted native run exited 0 with no remaining owned processes. The earlier model report records 172 successful cases (171 clean and one with Unreal's bundled `idevice_id` CPU-architecture helper warning); it predates the final UI-only corrections and is not a final-package model rerun. The final captures show named compact series/counts, Linear/Log labels and distinct deep-zoom time ticks. Physical OS pointer/hover, tooltip appearance, native Save panels, broad accessibility and current-package long-session/release acceptance remain open; the captures do not establish the lower provenance content. Earlier source-reader/provenance evidence retains its separate scope.
 
 The Activity log has a scoped **ship** review with no material fixes in `tmp/analysis/activity-log-20260928/finish-review.md`. Its `ui-acceptance.json` pins package `55b65787…`, 17 source hashes and 22 captures at 1320 × 740 and 1280 × 720. Both `Studio.LogUI.` runs and the 1280 × 720 `Studio.MonitorUI.` regression passed on that package with exit 0 and no remaining owned processes. The final editor model report records 176 clean passes. Routed Slate controls and an injected CSV destination establish the reviewed M05 viewer behavior; physical OS input, clipboard delivery, native save-panel interaction, tooltip appearance, live solver log transport and current long-session/release acceptance remain open. This verdict does not accept the full UI plan.
+
+The M06 command input's original `tmp/analysis/commands-20260928/finish-review.md` records one finding; `finish-verdict.md` gives **ship for F1**, with no listed material finding remaining. `f1-acceptance.json` pins package `3635805f…`, 22 captures and four clean native cases: CommandUI at 1320 × 740 and 1280 × 720, plus Activity log and run-settings regressions at 1280 × 720. All exited 0 with no remaining owned processes. The latest model report records 180 clean passes; it precedes only the final native-test layout-wait adjustment, with application/model sources unchanged. F1 preserves oversized-input rejection across unchanged history navigation. This scoped evidence does not establish physical OS input, native Save As, clipboard, tooltips, broad accessibility, real backend transport or current long-session/release gates; the full UI plan remains incomplete.
 
 The dedicated mixed-use runner records the exact binary/source hashes, process inventory and ten-second resource samples in a timestamped `tmp/debug/stability-*` directory. It measures macOS physical footprint, cached and pinned frame allocations, reader/worker counts, retained mesh buffers, render-target size and Metal device allocations. Engine RHI object counts may be unavailable on Metal; zero is recorded as unavailable, never as zero GPU use. Short rehearsals validate the test driver and are not hour-long acceptance. The idle phase spends half its time visible and half actually minimized, including background playback; minimized views retain their texture and stop flow builds/captures. The runner restores and reopens the saved inspection state and cleans up only processes it launched. The baseline archived at `tmp/debug/stability-20260927T075811Z/` passed one clean 3,602.227-second suite on binary `fc888c07…`: 40 source switches, 598 scrub/display actions, no idle/minimized captures, exact saved-state restoration, bounded resources and clean shutdown. This evidence applies to that build and machine, does not establish a fix for the preceding system Metal fault, and does not replace the two-hour release gate.
 
@@ -213,6 +219,22 @@ Open **Solve → Activity log → Open log** to inspect application, playback an
 The viewer’s **Export CSV…** freezes the visible filtered entries before opening the destination panel, including a paused selection. Its atomic background write preserves observation order, ISO UTC time, severity, source, project/run IDs, source reference, truncation flag and quoted multiline messages. **Restore Solve** returns to the retained scene and camera; the hidden flow viewport stops captures while playback can continue. The sidebar remains the sole persistent workspace navigation.
 
 UTC is application observation time. These entries do not supply scientific histories, residuals or live numerical-solver transport. Published scientific histories remain in Monitors.
+
+### Application commands
+
+The **Command** field below the expanded log accepts these 19 commands without arguments. Type `help` or open **Commands…** to discover them; choosing a menu entry only fills the field. Enter or **Send** executes once.
+
+| Target | Commands |
+| --- | --- |
+| Information | `help`, `status` |
+| Project | `project save`, `project save-as` |
+| View | `view fit`, `view undo`, `view redo` |
+| Replay | `replay run`, `replay pause`, `replay resume`, `replay stop`, `replay step` |
+| Control harness | `job submit`, `job pause`, `job resume`, `job stop`, `job step`, `job checkpoint`, `job reconnect` |
+
+Case and ordinary spaces normalize; unsupported names, arguments, tabs and newlines are rejected. There is no shell or engine-console fallback. **Tab / Shift+Tab** cycles matching names, **Up / Down** recalls up to 64 recognized commands from this session, and **Esc** clears the field. Consecutive history duplicates collapse; unsupported text is not retained. Input beyond 256 characters is shortened and cannot be sent until edited or replaced; unchanged history navigation keeps that guard active.
+
+Each send checks the current project, selected Replay/Control harness mode, state and capabilities. Pause and resume are literal operations. Project save commands reuse the native save workflow; view commands respect pending placement; `job submit` uses the Run button's retained-parameter guard. Success clears input and errors retain it. The local response remains visible when the journal is paused or filtered, and command results are also recorded in the bounded application journal. **Sent** means a job request was dispatched; use `status` or subsequent log entries for its observed state. Project changes clear the draft and response while session recall persists. These controls add no project-schema change or numerical backend.
 
 ## Published scientific histories and Monitors
 
