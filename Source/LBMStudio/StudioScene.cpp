@@ -8,6 +8,8 @@
 #include "StudioVolume.h"
 #include "StudioVolumeComponent.h"
 #include "StudioSnapshot.h"
+#include "StudioSnapshotSource.h"
+#include "StudioPipelineRenderData.h"
 #include "SStudioSnapshotOverlay.h"
 #include "Slate/WidgetRenderer.h"
 #include "Misc/ScopeExit.h"
@@ -93,6 +95,20 @@ struct FRenderRequest
     FStudioLoadCancellation Cancellation;
     bool IsCancelled() const { return Cancellation&&Cancellation->load(std::memory_order_relaxed); }
 };
+static TSharedPtr<FStudioGeometry> BuildPipelineGeometry(const FRenderRequest& R,const FStudioPipelineOutput& Output)
+{
+    const double Start=FPlatformTime::Seconds();
+    auto Data=StudioPipelineRendering::Build(Output,R.ColorMapping,R.Cancellation);
+    if(Data.bCancelled)return {};
+    auto Out=MakeShared<FStudioGeometry>();Out->Error=Data.Error;Out->Scalar=R.Scalar;Out->ColorMapping=R.ColorMapping;
+    Out->Bounds=Data.Bounds.IsValid?Data.Bounds:R.Bounds;
+    auto MoveMesh=[](FStudioPipelineRenderMesh& From,FStudioSection& To)
+    {To.Vertices=MoveTemp(From.Vertices);To.Normals=MoveTemp(From.Normals);To.Colors=MoveTemp(From.Colors);To.Indices=MoveTemp(From.Indices);};
+    MoveMesh(Data.Glyphs,Out->Sections[0]);MoveMesh(Data.Contour,Out->Sections[7]);
+    auto& S=Out->Sections[2];S.Vertices=MoveTemp(Data.Surface.Vertices);S.Indices=MoveTemp(Data.Surface.Indices);S.UVs=MoveTemp(Data.Surface.TextureCoordinates);
+    Out->SurfaceScalars=MoveTemp(Data.Surface.Scalars);Out->ScalarTextureSize=Data.Surface.TextureSize;
+    Out->BuildMs=(FPlatformTime::Seconds()-Start)*1000.;return Out;
+}
 static void AppendVectorGlyphs(const TArray<FStudioVectorGlyph>& Glyphs,double ReferenceMeters,
     FStudioGeometry& Out,const FStudioLoadCancellation& Cancellation)
 {
@@ -466,6 +482,11 @@ void AStudioScene::Initialize(TSharedRef<FStudioModel> InModel)
     if(!bWasDirty) Model->AcceptLoadedView();
     RequestGeometry();
 }
+bool AStudioScene::InitializePipeline(TSharedRef<FStudioSnapshotSource,ESPMode::ThreadSafe> Snapshot)
+{
+    if(Model||!Snapshot->PipelineOutput())return false;
+    FrozenPipelineOutput=Snapshot->PipelineOutput();Initialize(MakeShared<FStudioModel>(Snapshot));return true;
+}
 void AStudioScene::FitCamera()
 {
     if(bGeometryView)
@@ -476,7 +497,8 @@ void AStudioScene::FitCamera()
         C.Orientation=(C.Focus-C.Position).Rotation().Quaternion();C.OrthoWidth=Radius*3.;RestoreCamera(C,TEXT("Fit geometry"));return;
     }
     if(!Model||!RenderTarget)return;
-    RestoreCamera(StudioView::FitBounds(SavedCameraState(),Model->Solver->Descriptor().DisplayBounds,
+    const FBox Bounds=FrozenPipelineOutput&&RenderedFlowBounds.IsValid?RenderedFlowBounds:Model->Solver->Descriptor().DisplayBounds;
+    RestoreCamera(StudioView::FitBounds(SavedCameraState(),Bounds,
         double(RenderTarget->SizeX)/RenderTarget->SizeY,
         (Capture->bOverride_CustomNearClippingPlane?Capture->CustomNearClippingPlane:GNearClippingPlane)/100.),TEXT("Fit camera"));
 }
@@ -601,14 +623,14 @@ void AStudioScene::RequestGeometry()
     BuildingRevision=M.Revision; bBuilding=true;
     // Keep the source alive across project changes and load/cache the frame on
     // this worker. Camera/UI input never waits for a frame's disk read.
-    PendingGeometry=Async(EAsyncExecution::ThreadPool,[R,Solver=M.Solver,Frame=M.SelectedFrame]() mutable -> TSharedPtr<FStudioGeometry>
+    PendingGeometry=Async(EAsyncExecution::ThreadPool,[R,Solver=M.Solver,Frame=M.SelectedFrame,Pipeline=FrozenPipelineOutput]() mutable -> TSharedPtr<FStudioGeometry>
     {
         if(R.IsCancelled())return {};
         const auto& Descriptor=Solver->Descriptor();
         const bool TraceVelocity=R.Streamlines&&(!Descriptor.bSourcePoints||(Descriptor.bPointVelocity&&(Solver->Reconstruction()||Solver->VolumeReconstruction())));
         R.Field=Solver->CaptureViewField(Frame,R.Scalar.Id,R.Vectors||TraceVelocity,R.Cancellation);
         if(R.IsCancelled())return {};
-        auto Geometry=BuildGeometry(R);
+        auto Geometry=Pipeline?BuildPipelineGeometry(R,*Pipeline):BuildGeometry(R);
         if(!Geometry||R.IsCancelled())return {};
         // Validity belongs to this immutable snapshot. Another successful read
         // may clear the source's latest error, but cannot validate this frame.
@@ -811,6 +833,7 @@ void AStudioScene::EndPlay(const EEndPlayReason::Type Reason)
     if(PendingGeometry.IsValid()) PendingGeometry.Wait();
     if(PendingPreview.IsValid())PendingPreview.Wait();
     PendingGeometry={};PendingPreview={};BuildingSolver.Reset();RenderedSolver.Reset();CapturedSolver.Reset();
+    FrozenPipelineOutput.Reset();
     ViewVisibility={};
     // Comparison views may be replaced many times before the next GC. Release
     // their pinned original arrays as soon as the scene is destroyed.

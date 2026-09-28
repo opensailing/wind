@@ -1,5 +1,7 @@
 #pragma once
 #include "StudioModel.h"
+struct FStudioPipelineEvaluationResult;
+struct FStudioPipelineOutput;
 
 /** A renderer source pinned to one verified original frame and scalar. The
  * descriptor keeps original ordinals, timestamps and provenance. Requests for
@@ -11,6 +13,11 @@ public:
     static TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> Create(const IStudioSolver& Source,
         int32 Ordinal,const FStudioScalarDescriptor& Scalar,
         TSharedPtr<const IStudioField,ESPMode::ThreadSafe> Field,FString& Error);
+    /** Worker-only adapter for one evaluated recipe. Retains its immutable
+     * output and selected scalar, including explicitly derived magnitudes. */
+    static TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> CreatePipeline(
+        const FStudioPipelineEvaluationResult& Result,FString& Error);
+    TSharedPtr<const FStudioPipelineOutput,ESPMode::ThreadSafe> PipelineOutput() const {return FrozenOutput;}
     int32 Ordinal() const { return FrozenOrdinal; }
     const FString& ScalarId() const { return FrozenScalar; }
     int32 FrameCount() const override { return Meta.Frames.Num(); }
@@ -29,6 +36,7 @@ private:
     FStudioSnapshotSource() = default;
     FStudioRecordingDescriptor Meta;
     TSharedPtr<const IStudioField,ESPMode::ThreadSafe> FrozenField;
+    TSharedPtr<const FStudioPipelineOutput,ESPMode::ThreadSafe> FrozenOutput;
     int32 FrozenOrdinal=INDEX_NONE;
     FString FrozenScalar;
 };

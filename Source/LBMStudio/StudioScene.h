@@ -19,6 +19,7 @@ class UStudioVolumeComponent;
 struct FStudioGeometry;
 struct FStudioSnapshot;
 struct FStudioProbeMarkerResult;
+struct FStudioPipelineOutput;
 
 struct FStudioSceneResourceStats
 {
@@ -34,6 +35,10 @@ class AStudioScene : public AActor
 public:
     AStudioScene();
     void Initialize(TSharedRef<FStudioModel> InModel);
+    /** An independent scene for evaluated output; ordinary source rendering
+     * never substitutes for a clipped/sliced/contoured pipeline result. */
+    bool InitializePipeline(TSharedRef<FStudioSnapshotSource,ESPMode::ThreadSafe> Snapshot);
+    TSharedPtr<const FStudioPipelineOutput,ESPMode::ThreadSafe> PipelineOutput() const {return FrozenPipelineOutput;}
     /** Additional visibility gate for independent inspection scenes. Evaluated
      * on the game thread even when their Slate workspace is hidden. */
     void SetViewVisibility(TFunction<bool()> Visible) { ViewVisibility=MoveTemp(Visible); }
@@ -95,6 +100,7 @@ public:
     bool bBuilding=false;
     double RenderMilliseconds=0;
 private:
+    TSharedPtr<const FStudioPipelineOutput,ESPMode::ThreadSafe> FrozenPipelineOutput;
     TFunction<bool()> ViewVisibility;
     TOptional<double> CaptureSubmitMs;
     double CapturedBuildMs=0;

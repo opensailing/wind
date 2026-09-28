@@ -49,6 +49,8 @@ public:
     int32 MeshTriangleCount() const override;
     bool MeshTriangle(int32 Index,FVector (&Positions)[3]) const override;
     bool Includes(const FVector& ScenePosition) const;
+    /** The immutable graph belongs to this exact operation list and source pin. */
+    bool MatchesRecipe(const FStudioSavedPipeline& Recipe) const;
     const FStudioScalarDescriptor& SelectedScalar() const {return Nodes[Selected].Scalar;}
     const TArray<FStudioPipelineScalarNode>& Scalars() const {return Nodes;}
     const FBox& DomainBounds() const {return Bounds;}
@@ -63,6 +65,7 @@ private:
     friend struct FStudioPipelineFieldBuilder;
     TArray<FStudioPipelineScalarNode> Nodes;
     FStudioFieldIdentity PinnedIdentity;
+    FStudioSavedPipeline PreparedRecipe;
     FBox Bounds=FBox(ForceInit);
     TOptional<FStudioPipelineOperation> Plane;
     int32 Selected=INDEX_NONE;

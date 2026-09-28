@@ -2,6 +2,7 @@
 #include "StudioPointRecording.h"
 #include "StudioSurfaceReconstruction.h"
 #include "StudioVolume.h"
+#include "StudioPipelineEvaluation.h"
 
 namespace
 {
@@ -61,6 +62,25 @@ TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> FStudioSnapshotSource::Cre
 }
 FStudioFrame FStudioSnapshotSource::EvaluateFrame(int32 Index) const
 {return Meta.Frames.IsValidIndex(Index)?Meta.Frames[Index]:FStudioFrame();}
+TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> FStudioSnapshotSource::CreatePipeline(
+    const FStudioPipelineEvaluationResult& Result,FString& Error)
+{
+    const auto& P=Result.Prepared;
+    auto Fail=[&]() -> TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe>
+    {Error=TEXT("The evaluated pipeline no longer matches its pinned source, frame or operations. Evaluate it again.");return {};};
+    if(!Result.Matches(P.ProjectId,P.Revision,P.Recipe))return Fail();
+    const auto& D=P.Source->Descriptor();const auto& S=P.Field->SelectedScalar();
+    TArray<FStudioPipelineStage> Stages;
+    if(!StudioPipelines::Compile(P.Recipe,D,Stages,Error)||Stages.IsEmpty()||Stages.Last().Field!=S.Id||Stages.Last().Unit!=S.Unit||
+        D.Frames.Num()>1000000||D.Frames.Num()!=P.Source->FrameCount()||!D.DisplayBounds.IsValid||
+        D.DisplayBounds.Min.ContainsNaN()||D.DisplayBounds.Max.ContainsNaN()||
+        !FMath::IsFinite(S.Minimum)||!FMath::IsFinite(S.Maximum)||S.Minimum>S.Maximum||
+        P.Source->Reconstruction()!=P.Field->Reconstruction()||P.Source->VolumeReconstruction()!=P.Field->VolumeReconstruction())return Fail();
+    TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> Out=MakeShareable(new FStudioSnapshotSource());
+    Out->Meta=D;Out->Meta.Scalars={S};Out->FrozenField=P.Field;Out->FrozenOutput=Result.Output;
+    Out->FrozenOrdinal=P.Recipe.Source.Identity.Ordinal;Out->FrozenScalar=S.Id;
+    Error.Empty();return Out;
+}
 TSharedRef<const IStudioField,ESPMode::ThreadSafe> FStudioSnapshotSource::CaptureField(int32 Index) const
 {return Index==FrozenOrdinal?FrozenField.ToSharedRef():UnavailableSnapshot();}
 TSharedRef<const IStudioField,ESPMode::ThreadSafe> FStudioSnapshotSource::CaptureViewField(int32 Index,
@@ -74,7 +94,7 @@ FStudioFieldReadResult FStudioSnapshotSource::ReadScalarFrame(int32 Index,const 
     const FStudioLoadCancellation& Cancellation) const
 {
     if(Cancellation&&Cancellation->load(std::memory_order_relaxed))return {{},TEXT("Snapshot read cancelled.")};
-    if(Index!=FrozenOrdinal||Scalar!=FrozenScalar)return {{},TEXT("This view contains one original frame and scalar. Select a new comparison to change them.")};
+    if(Index!=FrozenOrdinal||Scalar!=FrozenScalar)return {{},TEXT("This view contains one recorded frame and scalar. Evaluate a new view to change them.")};
     return {FrozenField,{}};
 }
 TSharedPtr<const FStudioSurfaceReconstruction,ESPMode::ThreadSafe> FStudioSnapshotSource::Reconstruction() const

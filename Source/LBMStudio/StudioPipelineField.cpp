@@ -139,7 +139,7 @@ struct FStudioPipelineFieldBuilder
     }
     bool Build()
     {
-        const auto& D=Result.Source->Descriptor();Field->PinnedIdentity=Result.Recipe.Source.Identity;Field->Bounds=D.DisplayBounds;
+        const auto& D=Result.Source->Descriptor();Field->PinnedIdentity=Result.Recipe.Source.Identity;Field->PreparedRecipe=Result.Recipe;Field->Bounds=D.DisplayBounds;
         if(Result.Source->FrameCount()!=D.Frames.Num()||!D.DisplayBounds.IsValid||D.DisplayBounds.Min.ContainsNaN()||D.DisplayBounds.Max.ContainsNaN())
             return Fail(TEXT("Pipeline source timeline or display bounds are invalid."));
         FString Reconstruction;auto Method=D.bSourcePoints?EStudioFieldInterpolation::None:EStudioFieldInterpolation::SourceTriangles;
@@ -202,8 +202,10 @@ FStudioPipelinePrepared StudioPipelineFields::Prepare(const FStudioPipelinePrepa
 bool FStudioPipelinePrepared::Matches(const FGuid& Project,uint64 CurrentRevision,const FStudioSavedPipeline& Current) const
 {
     return ProjectId==Project&&Revision==CurrentRevision&&!bCancelled&&Error.IsEmpty()&&Source&&Field&&Field->IsValid()&&
-        StudioPipelines::Equals(Recipe,Current)&&Field->Identity().IsSet()&&StudioSavedFieldViews::SameIdentity(*Field->Identity(),Current.Source.Identity);
+        StudioPipelines::Equals(Recipe,Current)&&Field->MatchesRecipe(Current)&&Field->Identity().IsSet()&&StudioSavedFieldViews::SameIdentity(*Field->Identity(),Current.Source.Identity);
 }
+bool FStudioPipelineField::MatchesRecipe(const FStudioSavedPipeline& Recipe) const
+{return StudioPipelines::Equals(PreparedRecipe,Recipe);}
 FStudioPipelinePrepareTask::~FStudioPipelinePrepareTask(){Shutdown();}
 bool FStudioPipelinePrepareTask::Start(FStudioPipelinePrepareRequest R,FString& Error)
 {
