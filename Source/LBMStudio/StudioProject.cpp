@@ -231,6 +231,7 @@ FString StudioProjectIO::Serialize(const FStudioProject& P)
     }
     O->SetArrayField(TEXT("cameras"),Bookmarks);
     O->SetObjectField(TEXT("draft"),StudioCaseIO::ToJSON(P.Draft));
+    O->SetObjectField(TEXT("monitor"),StudioMonitor::ToJSON(P.Monitor));
     TArray<TSharedPtr<FJsonValue>> Runs;
     for (const auto& Run : P.Runs) Runs.Add(MakeShared<FJsonValueObject>(Run.ToJSON()));
     O->SetArrayField(TEXT("runs"),Runs);
@@ -379,6 +380,11 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
             R.MetadataSHA256=R.MetadataSHA256.ToLower(); R.PayloadSHA256=R.PayloadSHA256.ToLower();
             Seen.Add(R.Id); P.Recordings.Add(MoveTemp(R));
         }
+    }
+    if(Version>=18)
+    {
+        const FObject* Monitor=nullptr;
+        if(!O->TryGetObjectField(TEXT("monitor"),Monitor)||!StudioMonitor::FromJSON(*Monitor,P.Monitor,Error))return false;
     }
     if (P.Dataset.IsEmpty() || P.Dataset.Len()>256)
     { Error=TEXT("Project recording identity is missing or too long."); return false; }

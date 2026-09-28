@@ -168,7 +168,8 @@ class FStudioModel : public FStudioViewSettings, public TSharedFromThis<FStudioM
 public:
     explicit FStudioModel(const FString& SessionDirectory=FString());
     ~FStudioModel() { if(AssetCancellation) *AssetCancellation=true; if(MeshCancellation) *MeshCancellation=true;
-        if(DomainCancellation) *DomainCancellation=true; if(LatticeCancellation) *LatticeCancellation=true; if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true; }
+        if(DomainCancellation) *DomainCancellation=true; if(LatticeCancellation) *LatticeCancellation=true; if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true;
+        if(MonitorCancellation)*MonitorCancellation=true; }
     static constexpr double PlaybackInterval = 0.05; // 20 snapshots/s; 601 snapshots play for 30 seconds.
     static constexpr double ColorMax = 400.0; // Fixed velocity legend across all source frames.
     TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> Solver;
@@ -269,6 +270,15 @@ public:
     void NewProject(const FString& Name);
     void OpenSession();
     void SaveSession();
+    /** Installed histories are selected explicitly and remain independent of spatial recordings. */
+    bool RequestMonitorHistory(const FString& Id);
+    void CancelMonitorHistory();
+    void ClearMonitorHistory();
+    bool UpdateMonitorSettings(const FStudioMonitorSettings& Settings);
+    bool IsMonitorLoading() const { return PendingMonitor.IsValid(); }
+    TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> MonitorHistory() const;
+    FString MonitorNotice;
+    uint64 MonitorRevision = 0;
     void WriteRecovery();
     bool RestoreRecovery();
     void DiscardRecovery();
@@ -463,6 +473,15 @@ private:
     FString LatticeKey;
     FStudioLatticePreviewSettings LatticeSettings;
     void PollLatticePreview();
+    void PollMonitor();
+    bool StartMonitorHistory(const FStudioMonitorSettings& Settings,bool bChoose);
+    TFuture<FStudioHistoryLoadResult> PendingMonitor;
+    TSharedPtr<std::atomic<bool>,ESPMode::ThreadSafe> MonitorCancellation;
+    TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> LoadedMonitor;
+    FGuid MonitorProject,ReadingMonitorProject;
+    FString MonitorId,MonitorHash;
+    FStudioMonitorSettings ReadingMonitorSettings;
+    bool bChooseMonitor = false;
     void InvalidateLatticePreview(bool bForce=false);
     void PollGeometry();
     void InvalidateGeometry();

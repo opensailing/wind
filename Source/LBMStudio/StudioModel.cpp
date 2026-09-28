@@ -84,6 +84,7 @@ void FStudioModel::Tick(double Delta)
     PollGeometry();
     PollDomainGeometry();
     PollLatticePreview();
+    PollMonitor();
     DirtyCheckSeconds+=Delta; AutosaveSeconds+=Delta;
     if(DirtyCheckSeconds>=.5) { bDirty=HasUnsavedChanges(); DirtyCheckSeconds=0; }
     if(AutosaveSeconds>=30) { WriteRecovery(); AutosaveSeconds=0; }

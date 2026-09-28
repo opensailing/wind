@@ -57,8 +57,8 @@ bool FStudioLifecycle::RunTest(const FString&)
     TestEqual(TEXT("Loop does not extend source history"),M.Frames.Num(),601);
     return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHistory,"Studio.CFD.ImmutableHistoryAndExport",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool FStudioHistory::RunTest(const FString&)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioImmutableFieldHistory,"Studio.CFD.ImmutableHistoryAndExport",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FStudioImmutableFieldHistory::RunTest(const FString&)
 {
     FStudioModel M(FPaths::ProjectDir()/TEXT("tmp/debug/cfd-test-session")); M.Run(); for(int32 I=0;I<4;++I)M.Tick(.25);
     M.Scrub(0); const auto Field=M.Solver->CaptureField(M.SelectedFrame);

@@ -6,6 +6,7 @@
 #include "StudioColor.h"
 #include "StudioInspectionObjects.h"
 #include "StudioStreamlines.h"
+#include "StudioMonitor.h"
 
 /** All coordinates in the document are solver-space meters. */
 struct FStudioCameraState
@@ -71,7 +72,7 @@ struct FStudioCameraBookmark
 
 struct FStudioProject
 {
-    static constexpr int32 CurrentVersion = 17;
+    static constexpr int32 CurrentVersion = 18;
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Airfoil SU2 009");
     FString Dataset = TEXT("MeshGraphNets_Airfoil_test009");
@@ -80,6 +81,7 @@ struct FStudioProject
     FStudioCameraState Camera;
     TArray<FStudioCameraBookmark> Cameras;
     FStudioCaseDraft Draft;
+    FStudioMonitorSettings Monitor;
     TArray<FStudioRunRecord> Runs = { FStudioRunRecord::Recording(TEXT("Airfoil SU2 009"),TEXT("MeshGraphNets_Airfoil_test009")) };
     TArray<FStudioJobHistory> JobHistory;
     bool bControlHarness = false;
