@@ -21,6 +21,12 @@ Verify launcher and reporter ownership without opening Unreal:
 PYTHONPATH=Tools python3 -m unittest test_studio_processes test_run_studio test_run_packaged_suite test_stability_driver -v
 ```
 
+## Development workflow
+
+Commit each completed feature or fix as one logical change, including the tests and documentation needed to understand it. Run the relevant build and checks before committing, review the staged diff, and use a descriptive commit message. Keep unrelated changes in separate commits.
+
+Builds, packaged apps, logs, temporary plans, captures and Python caches stay out of Git. Run Unreal builds and native tests serially through the scripts in `Tools/` so process ownership and cleanup remain controlled.
+
 ## Controls
 
 | Action | Control |
