@@ -81,6 +81,15 @@ bool StudioFileDialog::WriteAtomicBytes(const FString& Path,const TArray64<uint8
     SCOPED_AUTORELEASE_POOL;
     return WriteDataAtomic(Path,[NSData dataWithBytesNoCopy:const_cast<uint8*>(Bytes.GetData()) length:Bytes.Num() freeWhenDone:NO],Error);
 }
+bool StudioFileDialog::WriteAtomicFile(const FString& Path,const FString& StagedPath,FString& Error)
+{
+    SCOPED_AUTORELEASE_POOL;
+    NSError* ReadError=nil;
+    NSData* Data=[NSData dataWithContentsOfFile:[NSString stringWithUTF8String:TCHAR_TO_UTF8(*StagedPath)]
+        options:NSDataReadingMappedAlways error:&ReadError];
+    if(!Data){Error=ReadError?FString(UTF8_TO_TCHAR(ReadError.localizedDescription.UTF8String)):TEXT("Could not read the completed staged export.");return false;}
+    return WriteDataAtomic(Path,Data,Error);
+}
 
 bool StudioFileDialog::SnapshotPNG(const FString& SuggestedName,FString& OutPath)
 {

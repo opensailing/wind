@@ -33,6 +33,9 @@ namespace StudioFileDialog
     void RememberAccess(const FString& Path);
     bool WriteAtomic(const FString& Path, const FString& Text, FString& Error);
     bool WriteAtomicBytes(const FString& Path,const TArray64<uint8>& Bytes,FString& Error);
+    /** Publish a closed, caller-owned staging file through native safe-save.
+     * The staging file must remain immutable until this call returns. */
+    bool WriteAtomicFile(const FString& Path,const FString& StagedPath,FString& Error);
 }
 
 struct FStudioFileAccess

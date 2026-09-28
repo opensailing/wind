@@ -64,6 +64,8 @@ bool StudioFileDialog::ConsumeReconstructionFolderForAutomation(FString& Out,boo
 }
 #endif
 #if !PLATFORM_MAC
+bool StudioFileDialog::WriteAtomicFile(const FString&,const FString&,FString& Error)
+{Error=TEXT("Atomic field export is not available on this platform.");return false;}
 bool StudioFileDialog::SnapshotPNG(const FString&,FString&) { return false; }
 bool StudioFileDialog::WriteAtomicBytes(const FString&,const TArray64<uint8>&,FString& Error)
 {Error=TEXT("Snapshot file export is not available on this platform.");return false;}
