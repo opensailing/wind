@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-28T16:54:17.779541+00:00",
+  "generatedAt": "2026-09-28T17:41:13.530675+00:00",
   "title": "Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring",
   "extensions": {
     "colorMeta": {
@@ -2460,6 +2460,150 @@
       "persistence": "Session state; project schema remains 19.",
       "testEntry": "Tools/test-performance.sh [width height] → ScientificAcceptance.PerformanceUI.MeasurePauseCameraAndRestore.",
       "previewTranslation": "Existing normative frontmatter and portable snippets preserved. Native implementation/captures define performance behavior; no fabricated measurement plot is added to HTML previews."
+    },
+    "probeHistoryScope": {
+      "record": "M03 recorded point/line probe histories in Monitors, frozen CSV and exact source-frame links; local incumbent native macOS UE5.8 Slate Operate extension.",
+      "sourceCommit": "3b532558968a2c81f658bbb155f3eb43949cc702",
+      "backendCommit": "e5e022a56da2e9859c91f23d0fcd676ab1827ae4",
+      "visualAuthority": "Existing dense dark CFD reference, blue-black palette, CoreStyle hierarchy, cyan focus and sidebar-only navigation. No new design identity or system refresh.",
+      "qualityContract": "tmp/analysis/probe-history-20260928/quality-contract.md",
+      "initialVerification": "tmp/analysis/probe-history-20260928/ui-acceptance.json",
+      "verification": "tmp/analysis/probe-history-20260928/f1-acceptance.json",
+      "review": "tmp/analysis/probe-history-20260928/finish-review.md",
+      "verdict": "tmp/analysis/probe-history-20260928/finish-verdict.md",
+      "finishDisposition": "Ship for the scored F1 value-axis readability fix only. Original M03 review scope and evidence limits remain in force; no new whole-surface, whole-application or full-plan approval.",
+      "finding": {
+        "F1": "Shared linear/log Y ticks increase significant digits until adjacent labels differ; measured native label margin keeps plot reduction aligned with actual chart width. Five replacement probe/force/residual/compact Solve captures reviewed."
+      },
+      "packageSha256": "0a9dc534c75c9b6b737a6edec115ea99aafb5ecd64e7367a10695f1a019bc563",
+      "sourcePins": {
+        "Source/LBMStudio/StudioHistory.h": "f570b3aebbabff60c450f7f29f76512f225e7bb59f1ebfa56f20d027e49102f0",
+        "Source/LBMStudio/StudioMonitor.cpp": "4b0ec8023e4f3290e6ddd8813aec6cdfddf7088d351e3028e25b9ee4e3b2260e",
+        "Source/LBMStudio/StudioMonitor.h": "abd5fb915257d8ba3cba2bebd1319b171196ba7e6fba9621589102788880ffd2",
+        "Source/LBMStudio/StudioMonitorChart.cpp": "34de9d9e0b74223ce9ff0d7246c6dd584b87b06057096c195e69428045da3e18",
+        "Source/LBMStudio/StudioMonitorChart.h": "a60435ad1bc58a1cf3065915c5bf1e826ec776b8ed29d963438354c315745986",
+        "Source/LBMStudio/StudioMonitorExport.cpp": "b859ed058db97c6a5cbdcc52aa4c7e07167cd4ed1e8acab3eef10477de057ec0",
+        "Source/LBMStudio/StudioWorkspace.cpp": "397d16c2fcbca05c753ab3d00fe57998a07304427df94c36ab5d4d16591937fb",
+        "Source/LBMStudio/StudioWorkspace.h": "05df188a96266299398e910c9df6cc37532495eb30dcf109de611de1652dd53b",
+        "Tools/test.sh": "8ac8fbc1c5d633ba906f9e9c696a20604b4bb03a241aa85907e375501b276ec5",
+        "Source/LBMStudio/StudioProbeMonitor.cpp": "be68759f3951480744e5661c476478ca199f42dc6cdfd65d7e78b8cbe000d532",
+        "Source/LBMStudio/StudioProbeMonitor.h": "5a7be6b1616390d7b7d84225bac0da3f1ca8aa2614861d52c908d266f4f290ca",
+        "Source/LBMStudio/StudioProbeMonitorRenderTests.cpp": "26ca87743aca4cb4ab9fbc7f33852674de5034288b71fc823ad7832186e06a0e",
+        "Source/LBMStudio/StudioProbeMonitorTests.cpp": "c4024a3241fbdec98fb605a1d1d3e146a78ddc0e78962bd1a9272c49e8ce2721",
+        "Tools/test-probe-history.sh": "6ddd24167e49f15ac7202da931264c824e0b5cf85fae9172e2cfe427ba56c938"
+      },
+      "recordedVerification": {
+        "cleanModelCases": 206,
+        "modelWarningSuites": 0,
+        "failedModelCases": 0,
+        "cleanNativeCases": 4,
+        "nativeExitCodes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "ownedProcessesAfter": {},
+        "sourcePinCount": 14,
+        "reviewerOpenedInitialCaptures": 35,
+        "reviewerOpenedReplacementCaptures": 5,
+        "composition": "Probe history at 1320 × 740 and 1280 × 720; force and residual regressions at 1280 × 720.",
+        "input": "Programmatically routed Slate keyboard events and injected dialog paths; no physical OS-input or native-picker claim.",
+        "cancellation": "Synchronous cancellation before worker publication; no long-running cancellation stress acceptance.",
+        "startupProfile": "explicit-tracking",
+        "startupArguments": [
+          "-LLM"
+        ]
+      },
+      "nativeReports": [
+        "tmp/debug/probe-history-20260928T173539694595Z/manifest.json",
+        "tmp/debug/probe-history-20260928T173550113768Z/manifest.json",
+        "tmp/debug/monitors-20260928T173558791273Z/manifest.json",
+        "tmp/debug/probe-chart-residual-f1-20260928T173616798296Z/manifest.json"
+      ],
+      "replacementCaptures": [
+        "tmp/debug/probe-history-20260928T173539694595Z/captures/zoomed.png",
+        "tmp/debug/probe-history-20260928T173550113768Z/captures/zoomed.png",
+        "tmp/debug/monitors-20260928T173558791273Z/captures/coefficients.png",
+        "tmp/debug/probe-chart-residual-f1-20260928T173616798296Z/captures/residuals.png",
+        "tmp/debug/probe-chart-residual-f1-20260928T173616798296Z/captures/solve-both.png"
+      ],
+      "priorBackendEvidence": {
+        "verification": "tmp/analysis/probe-history-20260928/core-acceptance.json",
+        "successfulCases": 203,
+        "cleanCases": 202,
+        "casesWithWarnings": 1,
+        "warning": "Unrelated bundled Unreal helper warning.",
+        "scope": "Original-field histories and isolated scalar-frame reads; 135 independent NACA values, all 601 SU2 frames, three-frame original 3D fixture, reconstruction/gaps, bounded worker and read/identity failure isolation. Original source audits keep their own acceptance bounds; no UI/chart/export acceptance at that checkpoint."
+      },
+      "priorFailures": [
+        "Initial two-size tests assumed sample 1 after keyboard selection, ignoring existing hover; now assert immediate keyboard delta and exact selected source ordinal.",
+        "Follow-up native test read cached disabled Cancel attribute within the same latent step; test refreshes Slate attributes before routed actions. Product logic unchanged by this correction."
+      ],
+      "documenterActions": "Read incumbent docs, role/reference, direction contract, native implementation and recorded reviews/evidence. Verified all 14 final source/tool pins, four native manifests and 206 clean model totals. Merged only DESIGN.md and this sidecar, corrected README.md/PRODUCT.md current facts and wrote the requested temporary handoff. No context rerun, new visual review, app/build/test launch, code/tool edits or commit.",
+      "open": [
+        "Programmatically routed Slate keys/dialog injection; physical OS input and native picker not established by this slice",
+        "Cancellation exercised synchronously before worker publication; no long-running cancellation stress claim",
+        "No long-session or final release acceptance",
+        "Full five-milestone UI plan remains incomplete",
+        "Unrelated Solve/reference fidelity and whole-application acceptance."
+      ],
+      "priorEvidence": "Earlier tokens, component snippets, visual authority and review records preserved. Prior pending-probe statements remain historical checkpoints; this addition documents the implemented M03 controls/chart/export scope."
+    },
+    "nativeProbeHistories": {
+      "sources": [
+        "Source/LBMStudio/StudioProbeMonitor.h",
+        "Source/LBMStudio/StudioProbeMonitor.cpp",
+        "Source/LBMStudio/StudioProbeHistory.h",
+        "Source/LBMStudio/StudioProbeHistory.cpp",
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioMonitorChart.h",
+        "Source/LBMStudio/StudioMonitorChart.cpp",
+        "Source/LBMStudio/StudioMonitorExport.cpp",
+        "Source/LBMStudio/StudioProbeMonitorTests.cpp",
+        "Source/LBMStudio/StudioProbeMonitorRenderTests.cpp"
+      ],
+      "selection": "Choose history shares installed forces, saved residuals/import/Locate and saved point/line probes from the current original recording. Probe scalar freezes at selection: fixed probe field, otherwise current scalar.",
+      "generation": {
+        "explicitAction": "Generate history",
+        "uiFrames": "First/Last frame are one-based inclusive recording ordinals; source steps and physical times are separately labeled.",
+        "maximumFrames": 100000,
+        "maximumPositionSamples": 1000000,
+        "bounds": "Reject larger requests with recovery guidance; no silent decimation.",
+        "worker": "One owned worker reads one immutable scalar field at a time. Cancel signals and drains; cancellation or read/identity failure publishes no partial result."
+      },
+      "series": "Every saved position is available; at most 16 selected series. Linear/log, time window, Fit time and Expand / Restore reuse the existing chart. NaN is an internal gap marker only; unavailable/log-omitted values remain explicit and original values remain intact.",
+      "frameLink": "Hover or focused Up/Down selects an exact recorded sample. Show frame in Solve or Enter reveals its original recording ordinal and selects the saved probe while retaining camera and case.",
+      "ownership": "Generated history, range, position selection and chart settings are session-only. Saved probe definitions retain existing persistence. Project/source/probe edits invalidate history, selection, frame link and export eligibility; range edits clear the plot and require explicit regeneration. Remove clears derived history and retains the saved probe. Camera/playback and workspace navigation do not invalidate a matching request.",
+      "export": {
+        "freeze": "Immutable source, selected positions and inclusive time window freeze before the destination dialog.",
+        "layout": "Long form: selected positions × included original frames.",
+        "columns": [
+          "frame_ordinal",
+          "source_step",
+          "time_s",
+          "sample_index",
+          "distance_m",
+          "scene_x_m",
+          "scene_y_m",
+          "scene_z_m",
+          "source_x_m",
+          "source_y_m",
+          "source_z_m",
+          "original_point_id",
+          "status",
+          "value"
+        ],
+        "identity": "Zero-based frame_ordinal/sample_index; original source step/time, both coordinate systems, original point IDs, explicit status and 17-significant-digit values. Missing values have blank cells.",
+        "comments": "Project/probe/source/reconstruction/scalar identity, origin/units, source dimensions, sampling method and saved line endpoints.",
+        "maximumCharacters": 33554432,
+        "displayIndependence": "Chart reduction and log omissions never filter exported original values."
+      },
+      "layout": "Existing flexible plot and 326-unit source inspector; 440-unit-wide source menu now has a 440-unit maximum desired height and scrolling body. First/Last frame fields are 140 units wide. Exact-frame summary/action sits below the plot; positions/provenance use the retained inspector scroll. Evidence windows are 1320 × 740 and 1280 × 720, not breakpoints.",
+      "typeAndAxes": "Existing 10-point controls and 9-point wrapping interpretation/recovery. Shared main/compact Y ticks use their incumbent 9/8-point CoreStyle role, adapt significant digits until labels differ and reserve a measured left margin; reduction follows remaining plot width. No new token primitives.",
+      "testEntry": "Tools/test-probe-history.sh; minimum size: Tools/test-probe-history.sh --width 1280 --height 720",
+      "previewTranslation": "Native C++ and scoped evidence remain authoritative. Existing browser snippets are preserved; no new simulated chart or interaction snippet is introduced.",
+      "sampling": "Exact original-point probes retain supplied point IDs; spatial probes use the recording’s available interpolation with explicit source/reconstruction attribution. No temporal interpolation or fabricated fields."
     }
   },
   "components": [
@@ -2657,7 +2801,8 @@
       "Residuals retain original-log time/value lines, separate saved settings and a bounded three-trace Solve preview beside force history.",
       "Activity log keeps UTC observation/source identity, stable paused snapshots, recoverable clear and frozen-context export within Solve.",
       "Command input keeps exact replay/control targets, guarded sending, bounded session recall and local responses inside the expanded log.",
-      "Performance keeps measured application activity, source-attributed flow work and unavailable solver telemetry together in one inspector with a frozen UTC view."
+      "Performance keeps measured application activity, source-attributed flow work and unavailable solver telemetry together in one inspector with a frozen UTC view.",
+      "Recorded probe histories keep original frame/scalar/position identity through explicit generation, gap-aware charts, frame links and frozen CSV export."
     ],
     "rules": [
       {
@@ -2749,6 +2894,11 @@
         "name": "The Explicit Command Target Rule",
         "body": "Keep replay and control-harness command names explicit, revalidate mode/state/capabilities at every send, and distinguish a sent job request from its observed acknowledgement.",
         "section": "components"
+      },
+      {
+        "name": "The Recorded Probe Identity Rule",
+        "body": "Keep the selected scalar, original frame ordinal, source step/time, position and sampling status attached to every probe value. Rebuild explicitly after the project, recording, saved probe or frame range changes; never substitute missing values or publish a partial history.",
+        "section": "components"
       }
     ],
     "dos": [
@@ -2775,7 +2925,8 @@
       "Do keep residual and force sources/settings independent, with residual source lines, first-initial/last-final meaning and the compact shown/selected count visible.",
       "Do keep log observation/source context, paused snapshot identity, reversible clear and frozen CSV provenance visible within the existing Solve owner.",
       "Do keep command discovery and recall separate from sending, preserve recoverable input, and show job dispatch separately from observed state.",
-      "Do keep performance units, measurement ownership, missing values and frozen UTC state explicit while the flow remains available in the existing Solve inspector."
+      "Do keep performance units, measurement ownership, missing values and frozen UTC state explicit while the flow remains available in the existing Solve inspector.",
+      "Do keep recorded probe generation explicit, source/frame/scalar identity intact and gaps visible through chart inspection, exact-frame return and frozen CSV export."
     ],
     "donts": [
       "Don’t add a second persistent workspace navigation path.",
@@ -2800,7 +2951,8 @@
       "Don’t infer residual convergence, physical time units or redistribution rights, or treat the M01 ship verdict and native picker observations as broad physical-input, stability or full-plan acceptance.",
       "Don’t treat session observations or the M05 log verdict as scientific history, live solver transport, physical input/clipboard/dialog acceptance or long-session/full-plan completion.",
       "Don’t bypass command mode/state or shared save/run guards, or treat M06 acceptance as real backend transport, physical input or full-plan completion.",
-      "Don’t treat application CPU timings or allocation bytes as GPU workload/residency, or extend the performance verdict to active-replay freeze testing, full keyboard/accessibility, long-session or full-plan acceptance."
+      "Don’t treat application CPU timings or allocation bytes as GPU workload/residency, or extend the performance verdict to active-replay freeze testing, full keyboard/accessibility, long-session or full-plan acceptance.",
+      "Don’t treat a generated probe history as persistent project data, fill spatial gaps, silently decimate a request, or extend the F1-only verdict to physical input, native pickers, long-session/release or full-plan acceptance."
     ]
   }
 }
