@@ -73,3 +73,47 @@ bool FStudioModel::CommitGeometryImport()
     SelectedGeometry=Asset.Id;GeometrySource=Source;bReloadGeometry=false;bImportPreview=false;++GeometryRevision;
     GeometryNotice=TEXT("Geometry imported. Save to keep the case object. Recorded CFD is unchanged.");Notice=GeometryNotice;return true;
 }
+
+bool FStudioModel::UpdateGeometry(FStudioGeometryEdit& Edit)
+{
+    const auto Fail = [this, &Edit](const FString& Error)
+    {
+        Edit.Error = Error;
+        GeometryNotice = Notice = Error;
+        return false;
+    };
+    const auto* Current = Project.Draft.Geometry.FindByPredicate([&Edit](const auto& Asset){return Asset.Id == Edit.Saved.Id;});
+    if (!Current || !Edit.Matches(*Current))
+        return Fail(TEXT("This object changed or was removed. Revert to its applied values before editing."));
+    if (IsProjectOpenPending() || IsRecordingLoadPending() || bImportPreview || IsReadingGeometry() ||
+        SelectedGeometry != Current->Id || !GeometrySource.IsValid() ||
+        GeometrySource.Path != Current->SourcePath || !GeometrySource.SHA256.Equals(Current->SourceSHA256, ESearchCase::IgnoreCase))
+        return Fail(TEXT("Select this object and wait for its original mesh to be verified before applying."));
+
+    FStudioGeometryAsset Candidate;
+    if (!Edit.Build(Candidate)) return Fail(Edit.Error);
+    const FBox Bounds = StudioMeshImport::TransformedBounds(*GeometrySource.Mesh, Candidate);
+    if (!Bounds.IsValid || Bounds.Min.ContainsNaN() || Bounds.Max.ContainsNaN() ||
+        Bounds.Min.GetAbsMax() > 1.e8 || Bounds.Max.GetAbsMax() > 1.e8)
+        return Fail(TEXT("The transformed geometry exceeds the supported coordinate range. Reduce its position or scale."));
+
+    const auto Source = GeometrySource;
+    const int64 PreviousCaseRevision = Project.Draft.Revision;
+    if (!EditCase(TEXT("Edit geometry ") + Candidate.Name, [&Candidate](auto& Case)
+    {
+        auto* Asset = Case.Geometry.FindByPredicate([&Candidate](const auto& Item){return Item.Id == Candidate.Id;});
+        Asset->Name = Candidate.Name;
+        Asset->Translation = Candidate.Translation;
+        Asset->Rotation = Candidate.Rotation;
+        Asset->Scale = Candidate.Scale;
+    })) return Fail(Notice);
+    // Reuse the already verified immutable original. EditCase invalidates
+    // derived domain/lattice work; no reread is needed to transform this mesh.
+    if (Project.Draft.Revision != PreviousCaseRevision)
+    {
+        GeometrySource = Source;
+        bReloadGeometry = false;
+    }
+    GeometryNotice = Notice = TEXT("Object changes applied. Original mesh and saved run configurations are unchanged.");
+    return true;
+}
