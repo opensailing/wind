@@ -417,7 +417,7 @@ bool FStudioModel::ApplyAssetLocation(const FStudioAssetReference& Source,const 
 
 bool FStudioModel::IsWorkspaceAvailable(EStudioWorkspace Destination)
 {
-    return Destination==EStudioWorkspace::Dashboard || Destination==EStudioWorkspace::Projects || Destination==EStudioWorkspace::Solve || Destination==EStudioWorkspace::Geometry || Destination==EStudioWorkspace::Materials || Destination==EStudioWorkspace::Domain || Destination==EStudioWorkspace::BoundaryConditions || Destination==EStudioWorkspace::Meshing;
+    return Destination==EStudioWorkspace::Dashboard || Destination==EStudioWorkspace::Projects || Destination==EStudioWorkspace::Solve || Destination==EStudioWorkspace::Geometry || Destination==EStudioWorkspace::Materials || Destination==EStudioWorkspace::Domain || Destination==EStudioWorkspace::BoundaryConditions || Destination==EStudioWorkspace::Meshing || Destination==EStudioWorkspace::Monitors;
 }
 bool FStudioModel::Navigate(EStudioWorkspace Destination)
 {
