@@ -7,6 +7,8 @@ FORM: Operate extension of the established master/detail authoring pattern. Side
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 */
 #include "SStudioResultsWorkspace.h"
+#include "SStudioComparisonWorkspace.h"
+#include "StudioScene.h"
 #include "StudioModel.h"
 #include "StudioTheme.h"
 #include "Widgets/SBoxPanel.h"
@@ -71,7 +73,7 @@ bool SStudioResultsWorkspace::HasRecording() const
 void SStudioResultsWorkspace::Construct(const FArguments& Args)
 {
     using namespace StudioUI;
-    M=Args._Model;Inspect=Args._OnInspect;Import=Args._OnImport;Locate=Args._Locate;
+    M=Args._Model;Scene=Args._Scene;Inspect=Args._OnInspect;Import=Args._OnImport;Locate=Args._Locate;
     // The installed registry is small, but it is still file parsing and stays off Slate.
     InstalledTask=Async(EAsyncExecution::ThreadPool,[]{return StudioRecordings::Installed();});
     auto ImportButton=ResultButton(TEXT("ResultsImport"),TEXT("Import recording…"),[this]{SetRuns(false);Import.ExecuteIfBound();});
@@ -82,12 +84,15 @@ void SStudioResultsWorkspace::Construct(const FArguments& Args)
         B->SetContent(SNew(STextBlock).Font(Font(10)).Text(FText::FromString(Caption))
             .ColorAndOpacity_Lambda([this,Runs]{return bRuns==Runs?Cyan:Muted;}));return B;
     };
-    ChildSlot[SNew(SBorder).BorderImage(&PanelBrush).Padding(20)
+    auto CompareButton=ResultButton(TEXT("ResultsCompare"),TEXT("Compare recordings"),[this]{OpenComparison();});
+    CompareButton->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Available()&&HasRecording()&&!InstalledTask.IsValid();}));
+    Catalog=SNew(SBorder).BorderImage(&PanelBrush).Padding(20)
         [SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,16)[SNew(SHorizontalBox)
                 +SHorizontalBox::Slot().FillWidth(1)[SNew(SVerticalBox)
                     +SVerticalBox::Slot().AutoHeight()[Label(TEXT("Results"),18,Text,true)]
                     +SVerticalBox::Slot().AutoHeight().Padding(0,5)[ResultText(TEXT("Original recordings and saved run records"),10,Muted)]]
+                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,8,0)[CompareButton]
                 +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[ImportButton]]
             +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
                 +SHorizontalBox::Slot().AutoWidth().Padding(0,0,20,0)[SNew(SBox).WidthOverride(280)
@@ -102,7 +107,26 @@ void SStudioResultsWorkspace::Construct(const FArguments& Args)
                             .NavigationScrollPadding(12.f)+SScrollBox::Slot()[SAssignNew(Rows,SVerticalBox)]]]]
                 +SHorizontalBox::Slot().FillWidth(1)[SNew(SScrollBox).Tag(TEXT("ResultsDetailsScroll"))
                     .ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12.f)
-                    +SScrollBox::Slot()[SAssignNew(Details,SBox)]]]]];
+                    +SScrollBox::Slot()[SAssignNew(Details,SBox)]]]];
+    ChildSlot[SAssignNew(Body,SBox)[Catalog.ToSharedRef()]];
+}
+
+void SStudioResultsWorkspace::OpenComparison()
+{
+    if(!Available()||!HasRecording()||!Scene.IsValid())return;
+    TArray<FStudioRecordingEntry> Entries;
+    for(const auto& R:M->Project.Recordings)Entries.Add({R.Id,R.Title,R.Path});
+    for(const auto& R:Installed)if(!Entries.ContainsByPredicate([&](const auto& E){return E.Id==R.Id;}))Entries.Add(R);
+    if(!Entries.ContainsByPredicate([this](const auto& E){return E.Id==M->Project.Dataset;}))Entries.Add({M->Project.Dataset,M->Solver->Descriptor().Title,{}});
+    Comparison=SNew(SStudioComparisonWorkspace).Model(M).World(Scene->GetWorld()).Recordings(Entries)
+        .OnBack_Lambda([this]{CloseComparison();});
+    Body->SetContent(Comparison.ToSharedRef());
+    FSlateApplication::Get().SetKeyboardFocus(Comparison,EFocusCause::Navigation);
+}
+void SStudioResultsWorkspace::CloseComparison()
+{
+    Body->SetContent(Catalog.ToSharedRef());Comparison.Reset();
+    FSlateApplication::Get().SetKeyboardFocus(SearchBox,EFocusCause::Navigation);
 }
 
 void SStudioResultsWorkspace::SetRuns(bool Value)
@@ -119,7 +143,7 @@ void SStudioResultsWorkspace::Tick(const FGeometry& Geometry,double Time,float D
     if(InstalledTask.IsValid()&&InstalledTask.IsReady())
     {Installed=InstalledTask.Get();InstalledTask={};bRowsDirty=bDetailsDirty=true;}
     if(ProjectId!=M->Project.Id)
-    {ProjectId=M->Project.Id;RunId.Invalidate();Opening.Empty();bRuns=false;SearchBox->SetText(FText::GetEmpty());bRowsDirty=bDetailsDirty=true;}
+    {if(Comparison)CloseComparison();ProjectId=M->Project.Id;RunId.Invalidate();Opening.Empty();bRuns=false;SearchBox->SetText(FText::GetEmpty());bRowsDirty=bDetailsDirty=true;}
     if(LastSource.Pin()!=M->Solver||LastCatalog!=M->CatalogRevision||LastRunCount!=M->Project.Runs.Num())
     {
         LastSource=M->Solver;LastCatalog=M->CatalogRevision;LastRunCount=M->Project.Runs.Num();

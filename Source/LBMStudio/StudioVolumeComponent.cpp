@@ -98,10 +98,11 @@ void UStudioVolumeComponent::CameraChanged(const FStudioCameraState& Camera,FInt
     CreateMeshSection_LinearColor(0,Vertices,Indices,Normals,UVs,{}, {},false,false);
     SetMaterial(0,Material);
 }
-void UStudioVolumeComponent::ClearVolume()
+void UStudioVolumeComponent::ClearVolume(bool bReleaseResources)
 {
     ClearAllMeshSections();SetVisibility(false);Bounds=FBox(ForceInit);
     if(Material)Material->SetTextureParameterValue(TEXT("VolumeScalars"),nullptr);
+    if(bReleaseResources&&Texture)Texture->ReleaseResource();
     Texture=nullptr;
 }
 int64 UStudioVolumeComponent::TextureBytes() const

@@ -34,6 +34,9 @@ class AStudioScene : public AActor
 public:
     AStudioScene();
     void Initialize(TSharedRef<FStudioModel> InModel);
+    /** Additional visibility gate for independent inspection scenes. Evaluated
+     * on the game thread even when their Slate workspace is hidden. */
+    void SetViewVisibility(TFunction<bool()> Visible) { ViewVisibility=MoveTemp(Visible); }
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     void FitCamera();
@@ -92,6 +95,7 @@ public:
     bool bBuilding=false;
     double RenderMilliseconds=0;
 private:
+    TFunction<bool()> ViewVisibility;
     TOptional<double> CaptureSubmitMs;
     double CapturedBuildMs=0;
     UPROPERTY() TObjectPtr<UProceduralMeshComponent> Mesh;

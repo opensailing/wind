@@ -628,7 +628,7 @@ void AStudioScene::CancelBuild(const FStudioLoadCancellation& Cancellation)
 }
 bool AStudioScene::HasCurrentFrame() const
 {
-    return Model&&Model->Workspace==EStudioWorkspace::Solve&&CapturedRevision==Model->Revision&&
+    return Model&&(!ViewVisibility||ViewVisibility())&&Model->Workspace==EStudioWorkspace::Solve&&CapturedRevision==Model->Revision&&
         CapturedIntentRevision==Model->RenderIntentRevision&&CapturedProjectId==Model->Project.Id&&
         CapturedSolver.Pin()==Model->Solver&&PresentedDataset==Model->Project.Dataset;
 }
@@ -726,7 +726,7 @@ void AStudioScene::Tick(float Delta)
     const bool WantsDomain=Model->Workspace==EStudioWorkspace::Domain||WantsBoundary||WantsLattice;
     const bool WantsGeometry=Model->Workspace==EStudioWorkspace::Geometry||WantsDomain;
     const int32 WantedPreviewRevision=WantsDomain?Model->DomainPreviewRevision:Model->GeometryRevision;
-    const bool WantsFlow=Model->Workspace==EStudioWorkspace::Solve&&!Model->bActivityLogExpanded&&!bMinimized;
+    const bool WantsFlow=Model->Workspace==EStudioWorkspace::Solve&&!Model->bActivityLogExpanded&&!bMinimized&&(!ViewVisibility||ViewVisibility());
     if(bBuilding&&(!WantsFlow||!IsGeometryRequestCurrent()))CancelBuild(GeometryCancellation);
     if(PendingPreview.IsValid()&&(!WantsGeometry||bMinimized||BuildingPreviewRevision!=WantedPreviewRevision||bBuildingDomainPreview!=WantsDomain||bBuildingBoundaryPreview!=WantsBoundary||bBuildingLatticePreview!=WantsLattice||BuildingPreviewProjectId!=Model->Project.Id))CancelBuild(PreviewCancellation);
     if(WantsGeometry!=bGeometryView||WantsDomain!=bDomainView||WantsBoundary!=bBoundaryView||WantsLattice!=bLatticeView)
@@ -810,6 +810,19 @@ void AStudioScene::EndPlay(const EEndPlayReason::Type Reason)
     CancelBuild(GeometryCancellation);CancelBuild(PreviewCancellation);
     if(PendingGeometry.IsValid()) PendingGeometry.Wait();
     if(PendingPreview.IsValid())PendingPreview.Wait();
+    PendingGeometry={};PendingPreview={};BuildingSolver.Reset();RenderedSolver.Reset();CapturedSolver.Reset();
+    ViewVisibility={};
+    // Comparison views may be replaced many times before the next GC. Release
+    // their pinned original arrays as soon as the scene is destroyed.
+    if(Model&&Model->IsSnapshotView())
+    {
+        Mesh->ClearAllMeshSections();VolumeComponent->ClearVolume(true);
+        if(ScalarInstance)ScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
+        if(ScalarTexture){ScalarTexture->ReleaseResource();ScalarTexture=nullptr;}
+        Capture->TextureTarget=nullptr;
+        if(RenderTarget){RenderTarget->ReleaseResource();RenderTarget=nullptr;}
+        Model.Reset();
+    }
     Super::EndPlay(Reason);
 }
 

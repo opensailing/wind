@@ -18,7 +18,8 @@ public:
     bool Present(const FStudioVolumeRenderData& Data, const FStudioColorMapping& Mapping,
         const FStudioViewSettings& Settings, FString& Error);
     void CameraChanged(const FStudioCameraState& Camera, FIntPoint Viewport, double DefaultNearCentimeters);
-    void ClearVolume();
+    /** Release GPU storage immediately for a retired inspection scene. */
+    void ClearVolume(bool bReleaseResources=false);
     int64 TextureBytes() const;
 private:
     UPROPERTY(Transient) TObjectPtr<UVolumeTexture> Texture;

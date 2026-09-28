@@ -8,6 +8,8 @@ class SVerticalBox;
 class SBox;
 class SButton;
 class SEditableTextBox;
+class AStudioScene;
+class SStudioComparisonWorkspace;
 
 /** One source catalog for recordings and saved run records. Dataset selection
  * uses the model's transactional reader; metadata never borrows case values. */
@@ -16,6 +18,7 @@ class SStudioResultsWorkspace final : public SCompoundWidget
 public:
     SLATE_BEGIN_ARGS(SStudioResultsWorkspace) {}
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
+        SLATE_ARGUMENT(AStudioScene*,Scene)
         SLATE_EVENT(FSimpleDelegate,OnInspect)
         SLATE_EVENT(FSimpleDelegate,OnImport)
         SLATE_ARGUMENT(TFunction<void(const FString&,const FString&)>,Locate)
@@ -26,11 +29,17 @@ private:
     bool Available() const;
     bool HasRecording() const;
     void SetRuns(bool Value);
+    void OpenComparison();
+    void CloseComparison();
     void OpenDataset(const FString& Id);
     void RefreshRows();
     TSharedRef<SWidget> RecordingDetails();
     TSharedRef<SWidget> RunDetails();
     TSharedPtr<FStudioModel> M;
+    TWeakObjectPtr<AStudioScene> Scene;
+    TSharedPtr<SBox> Body;
+    TSharedPtr<SWidget> Catalog;
+    TSharedPtr<SStudioComparisonWorkspace> Comparison;
     FSimpleDelegate Inspect,Import;
     TFunction<void(const FString&,const FString&)> Locate;
     TSharedPtr<SVerticalBox> Rows;

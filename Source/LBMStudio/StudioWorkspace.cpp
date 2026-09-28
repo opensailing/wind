@@ -11,6 +11,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "SStudioCommandInput.h"
 #include "SStudioPerformancePanel.h"
 #include "SStudioResultsWorkspace.h"
+#include "StudioFlowViewport.h"
+#include "StudioMenuButton.h"
 #include "StudioScene.h"
 #include "StudioOrientation.h"
 #include "StudioSurfaceReconstruction.h"
@@ -66,36 +68,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include <charconv>
 #include "HAL/PlatformProcess.h"
 #include <limits>
-
-/** Form menus need a focusable child, not their non-focusable layout box. */
-class SStudioMenuButton final : public SComboButton
-{
-public:
-    using FArguments=SComboButton::FArguments;
-    void Construct(const FArguments& InArgs)
-    {
-        auto Args=InArgs;
-        const auto BuildContent=InArgs._OnGetMenuContent;
-        if(InArgs._IsFocusable&&BuildContent.IsBound())
-            Args.OnGetMenuContent_Lambda([this,BuildContent]
-            {
-                const auto Content=BuildContent.Execute();
-                SetMenuContentWidgetToFocus(FirstFocusable(Content));
-                return Content;
-            });
-        SComboButton::Construct(Args);
-    }
-private:
-    static TSharedPtr<SWidget> FirstFocusable(const TSharedRef<SWidget>& Widget)
-    {
-        if(!Widget->GetVisibility().IsVisible()||!Widget->IsEnabled())return {};
-        if(Widget->SupportsKeyboardFocus())return Widget;
-        auto* Children=Widget->GetChildren();
-        for(int32 I=0;I<Children->Num();++I)
-            if(const auto Child=FirstFocusable(Children->GetChildAt(I)))return Child;
-        return {};
-    }
-};
 
 // Retained inspector forms can be hidden while a deferred focus-scroll is queued.
 // A request for a control in a closed category/menu no longer belongs to the visible form.
@@ -838,6 +810,9 @@ public:
     }
     virtual FReply OnKeyDown(const FGeometry&,const FKeyEvent& E) override
     {
+        if(!Scene.IsValid()||!Scene->Model)return FReply::Unhandled();
+        if(Scene->Model->IsSnapshotView()&&(E.IsCommandDown()||E.IsControlDown())&&E.GetKey()==EKeys::Z)
+        {EndGesture();if(E.IsShiftDown())Scene->Model->RedoView();else Scene->Model->UndoView();return FReply::Handled();}
         if(E.IsCommandDown()||E.IsControlDown()||E.GetKey()==EKeys::Tab) return FReply::Unhandled();
         if(E.GetKey()==EKeys::Escape&&!Scene->Model->CameraPlacement()&&CancelInspection.IsBound())
         {CancelInspection.Execute();ReleaseOwnCapture();return FReply::Handled();}
@@ -858,6 +833,8 @@ public:
     }
     virtual FReply OnKeyUp(const FGeometry&,const FKeyEvent& E) override {Held.Remove(E.GetKey());return FReply::Handled();}
 };
+TSharedRef<SWidget> MakeStudioFlowViewport(AStudioScene* Scene,FName Tag)
+{return SNew(SFlowViewport).Scene(Scene).Tag(Tag);}
 
 class SOrientationAxes : public SLeafWidget
 {
@@ -1151,7 +1128,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[BoundaryWorkspace()]
                 +SWidgetSwitcher::Slot()[LatticeWorkspace()]
                 +SWidgetSwitcher::Slot()[MonitorWorkspace()]
-                +SWidgetSwitcher::Slot()[SNew(SStudioResultsWorkspace).Model(M)
+                +SWidgetSwitcher::Slot()[SNew(SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
                     .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]]]
