@@ -219,7 +219,9 @@ public:
     bool bCatalogLoading = false;
     bool bRecordingLoading = false;
     bool IsRecordingLoadPending() const { return PendingRecording.IsValid(); }
-    bool RequestRecording(const FString& Id);
+    /** Open an exact zero-based recording ordinal asynchronously. Invalid or
+     * unreadable frames never replace the current source, camera or case. */
+    bool RequestRecording(const FString& Id,int32 Ordinal=0);
     bool RequestExternalRecording(const FString& Path);
     bool RequestRecordingRelink(const FString& Id,const FString& Path);
     bool RequestReconstruction(const FString& Path, bool bRelocate = false);
@@ -271,6 +273,9 @@ public:
     // Explicit development actions, never claims about the recorded CFD.
     bool SimulateJobEvent(EStudioJobState State);
     bool CanSimulateJobEvent(EStudioJobState State) const;
+    /** Review one exact ordinal in the loaded recording, retaining the playback
+     * cursor for ReturnToLive. Source step IDs and times are never ordinals. */
+    bool ReviewRecordedFrame(int32 Ordinal);
     void Scrub(double Fraction); void ReturnToLive(); void Reset();
     void AddLog(const FString& Message,EStudioLogSeverity Severity=EStudioLogSeverity::Info,
         EStudioLogSource Source=EStudioLogSource::Application,const FGuid& RunId={},const FString& SourceReference={});
@@ -455,10 +460,11 @@ private:
     FStudioLoadCancellation RecordingCancellation;
     FGuid RecordingProjectId;
     FString RequestedRecordingId;
+    int32 RequestedRecordingFrame=INDEX_NONE;
     bool bRelinkingRecording = false;
     enum class ERecordingChange { Select, Import, Relink, ImportSurface, RelinkSurface, RemoveSurface };
     ERecordingChange RecordingChange=ERecordingChange::Select;
-    bool StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change);
+    bool StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal=0);
     void PollRecording();
     TFuture<FStudioProjectLoadResult> PendingProjectOpen;
     FStudioLoadCancellation ProjectLoadCancellation;

@@ -95,8 +95,17 @@ void FStudioModel::Tick(double Delta)
     WallSeconds+=Delta; Accumulator+=FMath::Min(Delta,0.25)*PlaybackRate;
     while(Accumulator+1e-9>=PlaybackInterval && State==EStudioRunState::Running) { Accumulator-=PlaybackInterval; Advance(); }
 }
+bool FStudioModel::ReviewRecordedFrame(int32 Ordinal)
+{
+    if(!Solver||Ordinal<0||Ordinal>=Solver->FrameCount()||!Frames.IsValidIndex(Ordinal))
+    {Notice=TEXT("The requested recording frame is unavailable. Current view retained.");return false;}
+    bReviewing=true;SelectedFrame=Ordinal;DisplayChanged();return true;
+}
 void FStudioModel::Scrub(double Fraction)
-{ bReviewing=true; SelectedFrame=FMath::Clamp(FMath::RoundToInt(Fraction*(Frames.Num()-1)),0,Frames.Num()-1); DisplayChanged(); }
+{
+    if(!FMath::IsFinite(Fraction))return;
+    ReviewRecordedFrame(FMath::RoundToInt(FMath::Clamp(Fraction,0.,1.)*(Frames.Num()-1)));
+}
 void FStudioModel::ReturnToLive() { bReviewing=false; SelectedFrame=PlaybackFrame; DisplayChanged(); }
 void FStudioModel::Reset() { State=EStudioRunState::Ready; BeginRun(); }
 const FStudioFrame& FStudioModel::DisplayFrame() const { return Frames[FMath::Clamp(SelectedFrame,0,Frames.Num()-1)]; }
@@ -562,9 +571,9 @@ bool FStudioModel::SetScalarStyle(int32 Palette,bool bManual,double Minimum,doub
         else S.Display.ScalarStyles.Add(Style);
     });
 }
-bool FStudioModel::RequestRecording(const FString& Id)
+bool FStudioModel::RequestRecording(const FString& Id,int32 Ordinal)
 {
-    return StartRecordingRequest(Id,FString(),ERecordingChange::Select);
+    return StartRecordingRequest(Id,FString(),ERecordingChange::Select,Ordinal);
 }
 bool FStudioModel::RequestExternalRecording(const FString& Path)
 {
@@ -582,11 +591,12 @@ bool FStudioModel::RequestReconstruction(const FString& Path,bool bRelocate)
 }
 bool FStudioModel::RemoveReconstruction()
 {return StartRecordingRequest(Project.Dataset,FString(),ERecordingChange::RemoveSurface);}
-bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change)
+bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal)
 {
     const bool bImport=Change==ERecordingChange::Import;
     const bool bSurface=Change==ERecordingChange::ImportSurface||Change==ERecordingChange::RelinkSurface||Change==ERecordingChange::RemoveSurface;
     const bool bRelink=Change==ERecordingChange::Relink||bSurface;
+    if(Ordinal<0) {Notice=TEXT("Choose an available recording frame. Current view retained.");return false;}
     if(IsProjectOpenPending()) { Notice=TEXT("Wait for project opening to finish, or cancel it before changing recordings."); return false; }
     if(PendingRecording.IsValid()) { Notice=TEXT("Wait for the pending recording read to finish, or cancel it."); return false; }
     if(!bImport&&!Project.Recordings.ContainsByPredicate([&](const auto& R){return R.Id==Id;})&&
@@ -606,7 +616,8 @@ bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,E
     Notice=bSurface?TEXT("Verifying display reconstruction; current source, camera and playback remain available."):bRelink?TEXT("Verifying replacement recording; the current view remains available."):
         TEXT("Loading and verifying recording; your current camera and view remain available.");
     RecordingCancellation=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
-    const int32 Frame=bRelink&&Id==Project.Dataset?SelectedFrame:0;
+    const int32 Frame=bRelink&&Id==Project.Dataset?SelectedFrame:Ordinal;
+    RequestedRecordingFrame=Frame;
     PendingRecording=Async(EAsyncExecution::ThreadPool,[Id,Path,bImport,bSurface,Change,Frame,Refs=Project.Recordings,Cancel=RecordingCancellation]
     {
         if(bSurface)
@@ -640,7 +651,7 @@ bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,E
 }
 void FStudioModel::CancelRecording()
 {
-    bRecordingLoading=false;RequestedRecordingId.Empty();
+    bRecordingLoading=false;RequestedRecordingId.Empty();RequestedRecordingFrame=INDEX_NONE;
     if(RecordingCancellation) RecordingCancellation->store(true);
     // Drain the one cancellable worker before accepting another request.
 }
@@ -649,10 +660,11 @@ void FStudioModel::PollRecording()
     if(!PendingRecording.IsValid()||!PendingRecording.IsReady()) return;
     auto Result=PendingRecording.Get();PendingRecording=TFuture<FStudioRecordingLoadResult>();
     const bool Accept=bRecordingLoading&&RecordingProjectId==Project.Id;
-    const bool Relink=bRelinkingRecording;const FString RequestedId=RequestedRecordingId;const auto Change=RecordingChange;CancelRecording();
+    const bool Relink=bRelinkingRecording;const FString RequestedId=RequestedRecordingId;const auto Change=RecordingChange;
+    const int32 Frame=RequestedRecordingFrame;CancelRecording();
     if(!Accept) return;
     auto Source=MoveTemp(Result.Source);
-    if(!Source||Source->FrameCount()==0||!Source->LoadError().IsEmpty()||
+    if(!Source||Frame<0||Frame>=Source->FrameCount()||!Source->Descriptor().Frames.IsValidIndex(Frame)||!Source->LoadError().IsEmpty()||
         (!RequestedId.IsEmpty()&&Source->Descriptor().Id!=RequestedId))
     {Notice=Result.Error.IsEmpty()?TEXT("Recording validation failed; current view retained."):Result.Error;AddLog(Notice,EStudioLogSeverity::Error,EStudioLogSource::Playback);return;}
     const FString Id=Source->Descriptor().Id;
@@ -664,7 +676,7 @@ void FStudioModel::PollRecording()
     }
     if(!Relink)
     {
-        Candidate.Dataset=Id;Candidate.SelectedFrame=0;
+        Candidate.Dataset=Id;Candidate.SelectedFrame=Frame;
         if(!Candidate.Runs.ContainsByPredicate([&](const auto& Run){return Run.GetDatasetId()==Id;}))
             Candidate.Runs.Add(FStudioRunRecord::Recording(Source->Descriptor().Title.Left(120),Id,!Result.Reference.IsSet()));
     }
@@ -674,10 +686,10 @@ void FStudioModel::PollRecording()
     Project.Recordings=MoveTemp(Candidate.Recordings);Project.Runs=MoveTemp(Candidate.Runs);
     if(!Relink)
     {
-        UseRecording(Source);bVolumeThreshold=false;bVolumeIsosurface=false;Project.Dataset=Id;Project.SelectedFrame=0;
+        UseRecording(Source);bVolumeThreshold=false;bVolumeIsosurface=false;Project.Dataset=Id;Project.SelectedFrame=Frame;
         const auto& Scalar=ActiveScalar();VolumeThresholdMinimum=Scalar.Minimum;VolumeThresholdMaximum=Scalar.Maximum;
         VolumeIsovalue=(Scalar.Minimum+Scalar.Maximum)*.5;
-        SelectedFrame=PlaybackFrame=0;State=EStudioRunState::Paused;bReviewing=true;Accumulator=WallSeconds=0;
+        SelectedFrame=PlaybackFrame=Frame;State=EStudioRunState::Paused;bReviewing=true;Accumulator=WallSeconds=0;
         DisplayChanged();
     }
     else if(Id==Project.Dataset)
