@@ -39,6 +39,12 @@ namespace StudioFileDialog
     /** Publish a closed, caller-owned staging file through native safe-save.
      * The staging file must remain immutable until this call returns. */
     bool WriteAtomicFile(const FString& Path,const FString& StagedPath,FString& Error);
+    /** Exclusively create a private sibling directory below an existing parent.
+     * Caller owns cleanup and must hold native access to Parent. */
+    bool CreateExportStage(const FString& Parent,FString& OutDirectory,FString& Error);
+    /** Atomic, exclusive rename of a completed sibling directory. Never replaces
+     * an existing destination; caller retains cleanup responsibility on failure. */
+    bool PublishExportDirectory(const FString& Stage,const FString& Destination,FString& Error);
 }
 
 struct FStudioFileAccess

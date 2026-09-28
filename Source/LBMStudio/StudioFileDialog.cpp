@@ -75,6 +75,10 @@ bool StudioFileDialog::ConsumeReconstructionFolderForAutomation(FString& Out,boo
 }
 #endif
 #if !PLATFORM_MAC
+bool StudioFileDialog::CreateExportStage(const FString&,FString&,FString& Error)
+{Error=TEXT("Frame sequence publication is not available on this platform.");return false;}
+bool StudioFileDialog::PublishExportDirectory(const FString&,const FString&,FString& Error)
+{Error=TEXT("Frame sequence publication is not available on this platform.");return false;}
 bool StudioFileDialog::FieldVTK(const FString&,FString&) { return false; }
 bool StudioFileDialog::WriteAtomicFile(const FString&,const FString&,FString& Error)
 {Error=TEXT("Atomic field export is not available on this platform.");return false;}

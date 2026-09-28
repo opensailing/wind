@@ -10,6 +10,9 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <errno.h>
 
 namespace
 {
@@ -89,6 +92,32 @@ bool StudioFileDialog::WriteAtomicFile(const FString& Path,const FString& Staged
         options:NSDataReadingMappedAlways error:&ReadError];
     if(!Data){Error=ReadError?FString(UTF8_TO_TCHAR(ReadError.localizedDescription.UTF8String)):TEXT("Could not read the completed staged export.");return false;}
     return WriteDataAtomic(Path,Data,Error);
+}
+
+bool StudioFileDialog::CreateExportStage(const FString& Parent,FString& OutDirectory,FString& Error)
+{
+    SCOPED_AUTORELEASE_POOL;
+    OutDirectory.Empty();
+    const FString Candidate=Parent/(TEXT(".lbm-export-")+FGuid::NewGuid().ToString(EGuidFormats::Digits)+TEXT(".partial"));
+    if(mkdir(TCHAR_TO_UTF8(*Candidate),0700)!=0)
+    {Error=FString::Printf(TEXT("Could not create frame-export staging: %s"),UTF8_TO_TCHAR(strerror(errno)));return false;}
+    OutDirectory=Candidate;Error.Empty();return true;
+}
+bool StudioFileDialog::PublishExportDirectory(const FString& Stage,const FString& Destination,FString& Error)
+{
+    SCOPED_AUTORELEASE_POOL;
+    if(FPaths::GetPath(Stage)!=FPaths::GetPath(Destination)||Stage==Destination)
+    {Error=TEXT("The completed export must be published beside its staging directory.");return false;}
+    // RENAME_EXCL is the atomic no-replace operation; a preflight Exists check
+    // would race with another export or a user-created destination.
+    if(renameatx_np(AT_FDCWD,TCHAR_TO_UTF8(*Stage),AT_FDCWD,TCHAR_TO_UTF8(*Destination),RENAME_EXCL)!=0)
+    {
+        const int Failure=errno;
+        Error=Failure==EEXIST?TEXT("That destination already exists. Choose a new export folder name."):
+            FString::Printf(TEXT("Could not publish the completed frame export: %s"),UTF8_TO_TCHAR(strerror(Failure)));
+        return false;
+    }
+    Error.Empty();return true;
 }
 
 bool StudioFileDialog::FieldVTK(const FString& SuggestedName,FString& OutPath)
