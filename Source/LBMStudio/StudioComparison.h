@@ -73,6 +73,7 @@ struct FStudioComparisonResult
 namespace StudioComparison
 {
     constexpr int32 MaxTimelineFrames=1000000;
+    bool IsValidAlignment(const FStudioComparisonAlignment& Alignment);
     /** Metadata-only matching. Original source steps are never used as ordinals.
      * Exact matching means equal represented timestamps, without hidden epsilon.
      * Call off Slate for large timelines; validation is linear and bounded. */

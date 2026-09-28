@@ -58,6 +58,9 @@ bool FStudioComparisonAlignment::operator==(const FStudioComparisonAlignment& Ot
         MaximumMismatchSeconds==Other.MaximumMismatchSeconds;
 }
 
+bool StudioComparison::IsValidAlignment(const FStudioComparisonAlignment& Alignment)
+{return ComparisonSettingsValid(Alignment);}
+
 bool FStudioComparisonResult::Matches(const FStudioComparisonRequest& Current) const
 {
     return Frames.Status==EStudioComparisonStatus::Ready&&Primary.Field&&Secondary.Field&&Primary.Snapshot&&Secondary.Snapshot&&ProjectId==Current.ProjectId&&Scalar==Current.Scalar&&

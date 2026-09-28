@@ -1,5 +1,6 @@
 #include "StudioProject.h"
 #include "StudioView.h"
+#include "StudioSavedComparison.h"
 #include "StudioAssetPaths.h"
 #include "StudioFileDialog.h"
 #include "Dom/JsonObject.h"
@@ -195,6 +196,15 @@ namespace
 TSharedRef<FJsonObject> StudioProjectIO::ViewToJSON(const FStudioViewSettings& View)
 {return ViewJSON(View).ToSharedRef();}
 
+TSharedRef<FJsonObject> StudioProjectIO::CameraToJSON(const FStudioCameraState& Camera)
+{return CameraJSON(Camera).ToSharedRef();}
+bool StudioProjectIO::CameraFromJSON(const TSharedPtr<FJsonObject>& Object,FStudioCameraState& Camera)
+{
+    FStudioCameraState Candidate;
+    if(!Object||!ReadCamera(Object,Candidate,true))return false;
+    Camera=Candidate;return true;
+}
+
 FString StudioProjectIO::Serialize(const FStudioProject& P)
 {
     auto O = MakeShared<FJsonObject>();
@@ -230,6 +240,7 @@ FString StudioProjectIO::Serialize(const FStudioProject& P)
         Item->SetObjectField(TEXT("camera"),CameraJSON(B.Camera)); Bookmarks.Add(MakeShared<FJsonValueObject>(Item));
     }
     O->SetArrayField(TEXT("cameras"),Bookmarks);
+    O->SetArrayField(TEXT("comparisons"),StudioSavedComparisons::ToJSON(P.Comparisons));
     O->SetObjectField(TEXT("draft"),StudioCaseIO::ToJSON(P.Draft));
     O->SetObjectField(TEXT("monitor"),StudioMonitor::ToJSON(P.Monitor));
     O->SetObjectField(TEXT("residual"),StudioResidualSettings::ToJSON(P.Residual));
@@ -393,6 +404,13 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
         if(!O->TryGetObjectField(TEXT("residual"),Residual))
         {Error=TEXT("Residual history settings are missing from the project.");return false;}
         if(!StudioResidualSettings::FromJSON(*Residual,P.Residual,Error))return false;
+    }
+    if(Version>=20)
+    {
+        const TArray<TSharedPtr<FJsonValue>>* Comparisons=nullptr;
+        if(!O->TryGetArrayField(TEXT("comparisons"),Comparisons))
+        {Error=TEXT("Saved comparisons are missing from the project.");return false;}
+        if(!StudioSavedComparisons::FromJSON(*Comparisons,P.Comparisons,Error))return false;
     }
     if (P.Dataset.IsEmpty() || P.Dataset.Len()>256)
     { Error=TEXT("Project recording identity is missing or too long."); return false; }

@@ -23,6 +23,12 @@ namespace
             if (!Map(Recording.Path, Error)) return false;
             if (Recording.Reconstruction.IsSet() && !Map(Recording.Reconstruction->Path, Error)) return false;
         }
+        for(auto& Comparison:Project.Comparisons)for(auto* Side:{&Comparison.Primary,&Comparison.Secondary})
+        {
+            if(!Side->Reference.IsSet())continue;
+            if(!Map(Side->Reference->Path,Error))return false;
+            if(Side->Reference->Reconstruction.IsSet()&&!Map(Side->Reference->Reconstruction->Path,Error))return false;
+        }
         if (!MapDraft(Project.Draft, Map, Error)) return false;
         for (auto& Run : Project.Runs)
         {

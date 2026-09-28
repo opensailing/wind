@@ -7,6 +7,7 @@
 #include "StudioInspectionObjects.h"
 #include "StudioStreamlines.h"
 #include "StudioMonitor.h"
+#include "StudioComparison.h"
 
 /** All coordinates in the document are solver-space meters. */
 struct FStudioCameraState
@@ -70,9 +71,28 @@ struct FStudioCameraBookmark
     FStudioCameraState Camera;
 };
 
+/** Each side owns its source location as well as the exact original-frame pin.
+ * An installed source needs no external reference. Paths rebase with the project. */
+struct FStudioSavedComparisonSide
+{
+    FString Title;
+    FStudioFieldIdentity Identity;
+    TOptional<FStudioRecordingReference> Reference;
+    FStudioCameraState Camera;
+};
+
+struct FStudioSavedComparison
+{
+    FGuid Id=FGuid::NewGuid();
+    FString Name,Scalar,Unit;
+    FStudioComparisonAlignment Alignment;
+    FStudioSavedComparisonSide Primary,Secondary;
+    bool bSharedRange=true;
+};
+
 struct FStudioProject
 {
-    static constexpr int32 CurrentVersion = 19;
+    static constexpr int32 CurrentVersion = 20;
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Airfoil SU2 009");
     FString Dataset = TEXT("MeshGraphNets_Airfoil_test009");
@@ -80,6 +100,7 @@ struct FStudioProject
     FStudioViewSettings View;
     FStudioCameraState Camera;
     TArray<FStudioCameraBookmark> Cameras;
+    TArray<FStudioSavedComparison> Comparisons;
     FStudioCaseDraft Draft;
     FStudioMonitorSettings Monitor;
     FStudioResidualSettings Residual;
@@ -97,6 +118,8 @@ struct FStudioProject
 
 namespace StudioProjectIO
 {
+    TSharedRef<FJsonObject> CameraToJSON(const FStudioCameraState& Camera);
+    bool CameraFromJSON(const TSharedPtr<FJsonObject>& Object,FStudioCameraState& Camera);
     /** The same versioned display settings stored in project documents. */
     TSharedRef<FJsonObject> ViewToJSON(const FStudioViewSettings& View);
     FString Serialize(const FStudioProject& Project);

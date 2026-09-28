@@ -345,6 +345,19 @@ public:
     int32 CameraCollectionRevision = 0;
     FString CameraCollectionNotice;
     bool bCameraCollectionError = false;
+    /** Saved comparisons edit their own collection, never the active Solve view. */
+    const FStudioSavedComparison* FindComparison(const FGuid& Id) const;
+    bool AddComparison(FStudioSavedComparison Saved);
+    bool UpdateComparison(const FGuid& Id,FStudioSavedComparison Saved);
+    bool RenameComparison(const FGuid& Id,const FString& Name);
+    bool DeleteComparison(const FGuid& Id);
+    bool UndoComparisons();
+    bool RedoComparisons();
+    bool CanUndoComparisons() const {return !ComparisonUndo.IsEmpty();}
+    bool CanRedoComparisons() const {return !ComparisonRedo.IsEmpty();}
+    uint64 ComparisonRevision=0;
+    FString ComparisonNotice;
+    bool bComparisonError=false;
     FStudioInspectionState InspectionState() const;
     FStudioInspectionSource InspectionSource() const;
     const FStudioInspectionObject* FindInspectionObject(const FGuid& Id) const;
@@ -449,7 +462,18 @@ private:
     bool ApplyCameraCollectionHistory(bool bRedo);
     bool CameraCollectionMessage(const FString& Message,bool bError = false);
     void ClearCameraCollectionHistory();
-    void ClearViewHistory() { InvalidateMonitorSession(); InvalidateResidualSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();
+    struct FComparisonCollectionEdit
+    {
+        FString Label;
+        TArray<FStudioSavedComparison> Before,After;
+        int64 Bytes=0;
+    };
+    TArray<FComparisonCollectionEdit> ComparisonUndo,ComparisonRedo;
+    bool CommitComparisons(const FString& Label,TArray<FStudioSavedComparison> Comparisons);
+    bool ComparisonMessage(const FString& Message,bool bError=false);
+    bool ApplyComparisonHistory(bool bRedo);
+    void ClearComparisonHistory();
+    void ClearViewHistory() { InvalidateMonitorSession(); InvalidateResidualSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();ClearComparisonHistory();
         SelectedInspectionObject.Invalidate();++InspectionObjectsRevision;++InspectionSelectionRevision;InspectionNotice.Empty();bInspectionError=false; }
     bool CommitInspectionObjects(const FString& Label,FStudioInspectionObjects Objects,bool bContinueGesture=false,bool bUseSavedSeeds=false);
     bool PrepareInspectionObject(FStudioInspectionObject& Object,const TCHAR* BaseName);
