@@ -7,6 +7,8 @@ FORM: Local Operate extension of the approved screenshot; no new visual world or
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 */
 #include "StudioWorkspace.h"
+#include "StudioTheme.h"
+#include "SStudioCommandInput.h"
 #include "StudioScene.h"
 #include "StudioOrientation.h"
 #include "StudioSurfaceReconstruction.h"
@@ -149,7 +151,7 @@ namespace StudioUI
         // Reverting a form resolves its own save warning without hiding a newer job or file error.
         if(Model.Notice==Guard)Model.Notice=Resolution;
     }
-    FSlateFontInfo Font(int32 Size=10,bool Bold=false) { return FCoreStyle::GetDefaultFontStyle(Bold?"Bold":"Regular",Size); }
+    FSlateFontInfo Font(int32 Size,bool Bold) { return FCoreStyle::GetDefaultFontStyle(Bold?"Bold":"Regular",Size); }
     const FButtonStyle& ButtonStyle()
     {
         static FButtonStyle S=FButtonStyle()
@@ -371,7 +373,7 @@ namespace StudioUI
         TFunction<FString()> Read;TFunction<int32()> Revision;TFunction<void(const FString&)> Commit;
         FString SynchronizedText;int32 EditRevision=0,ObservedRevision=0;bool bEdited=false,bSynchronizing=false;
     };
-    TSharedRef<STextBlock> Label(const FString& Value,int32 Size=10,FLinearColor Color=Text,bool Bold=false)
+    TSharedRef<STextBlock> Label(const FString& Value,int32 Size,FLinearColor Color,bool Bold)
     { return SNew(STextBlock).Text(FText::FromString(Value)).Font(Font(Size,Bold)).ColorAndOpacity(Color); }
     TSharedRef<STextBlock> Live(TFunction<FString()> Value,int32 Size=10,FLinearColor Color=Text,bool Wrap=false)
     { return SNew(STextBlock).Text_Lambda([Value]{return FText::FromString(Value());}).Font(Font(Size)).ColorAndOpacity(Color).AutoWrapText(Wrap); }
@@ -1165,8 +1167,7 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
 {
     auto Run=Button(TEXT("Run"),TEXT("run"),[this]
     {
-        if(M->Project.bControlHarness&&!M->Job().Can(EStudioJobCommand::Resume)&&!EnsureRunSettingsResolved())return;
-        M->Control(EStudioJobCommand::Submit);
+        DispatchControl(EStudioJobCommand::Submit);
     },Green);Run->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanControl(EStudioJobCommand::Submit);}));
     Run->SetTag(TEXT("RunControl"));
     auto Pause=Button(TEXT("Pause / Resume"),TEXT("pause"),[this]{M->Control(EStudioJobCommand::Pause);},Blue);Pause->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->CanControl(EStudioJobCommand::Pause);}));
@@ -2339,6 +2340,8 @@ TSharedRef<SWidget> SStudioWorkspace::ActivityLogPanel()
             .Visibility_Lambda([S]{return S->Detail.IsEmpty()?EVisibility::Collapsed:EVisibility::Visible;})
             [SNew(SMultiLineEditableTextBox).Tag(TEXT("LogDetail")).Style(&LogDetailStyle).Font(Font(10)).ForegroundColor(Text).ReadOnlyForegroundColor(Text)
                 .IsReadOnly(true).AutoWrapText(true).Text_Lambda([S]{return FText::FromString(S->Detail);})]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,0)[SNew(SStudioCommandInput).Model(M)
+            .Execute([this](EStudioCommand Command,FString& Response){return ExecuteApplicationCommand(Command,Response);})]
         +SVerticalBox::Slot().AutoHeight().Padding(0,9,0,0)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1)[Live([this,S]
             {
@@ -2672,7 +2675,7 @@ bool SStudioWorkspace::EnsureRunSettingsResolved()
     if(!RunSettingsState||(!RunSettingsState->bConflict&&!RunSettingsState->Edit.IsDirty()))return true;
     if(!EnsurePlacementResolved())return false;
     RunSettingsState->Notice=M->Notice=RunSettingsSaveGuard;
-    bInspectionOpen=false;CancelInspectionPlacement();M->bViewportExpanded=false;M->InspectorTab=0;
+    bInspectionOpen=false;CancelInspectionPlacement();M->bViewportExpanded=false;M->bActivityLogExpanded=false;M->InspectorTab=0;
     Navigate(EStudioWorkspace::Solve);RunSettingsState->Focus();return false;
 }
 
@@ -3090,6 +3093,35 @@ bool SStudioWorkspace::Save(bool bSaveAs)
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
     M->Project.Camera=Scene->SavedCameraState(); return M->SaveProject(Path);
 }
+bool SStudioWorkspace::DispatchControl(EStudioJobCommand Command)
+{
+    if(Command==EStudioJobCommand::Submit&&M->Project.bControlHarness&&
+        !M->Job().Can(EStudioJobCommand::Resume)&&!EnsureRunSettingsResolved())return false;
+    return M->Control(Command);
+}
+bool SStudioWorkspace::ExecuteApplicationCommand(EStudioCommand Command,FString& Response)
+{
+    if(!StudioCommands::Validate(*M,Command,Response))return false;
+    switch(Command)
+    {
+    case EStudioCommand::ProjectSave:case EStudioCommand::ProjectSaveAs:
+    {
+        const FString PreviousNotice=M->Notice;
+        const bool OK=Save(Command==EStudioCommand::ProjectSaveAs);
+        Response=OK?TEXT("Project saved."):M->Notice!=PreviousNotice?M->Notice:TEXT("Project was not saved. Resolve pending edits or choose a save destination.");
+        return OK;
+    }
+    case EStudioCommand::ViewFit:case EStudioCommand::ViewUndo:case EStudioCommand::ViewRedo:
+        if(!EnsurePlacementResolved()){Response=M->Notice;return false;}
+        Execute(Command==EStudioCommand::ViewFit?ECommand::FitCamera:Command==EStudioCommand::ViewUndo?ECommand::UndoView:ECommand::RedoView);
+        Response=Command==EStudioCommand::ViewFit?TEXT("Camera fitted to the flow domain."):Command==EStudioCommand::ViewUndo?TEXT("View edit undone."):TEXT("View edit redone.");return true;
+    case EStudioCommand::JobSubmit:
+    {
+        const bool OK=DispatchControl(EStudioJobCommand::Submit);Response=M->Notice;return OK;
+    }
+    default:return StudioCommands::ExecuteModel(*M,Command,Response);
+    }
+}
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
     if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
@@ -3105,6 +3137,7 @@ bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 bool SStudioWorkspace::EnsurePlacementResolved()
 {
     if(!M->CameraPlacement())return true;
+    M->bActivityLogExpanded=false;
     M->Notice=TEXT("Apply or cancel camera placement before saving, closing or replacing the project.");
     if(M->IsCameraPlacementCurrent())M->CameraPlacementNotice=M->Notice;
     Navigate(EStudioWorkspace::Solve);
@@ -3180,7 +3213,7 @@ FReply SStudioWorkspace::OnKeyDown(const FGeometry& Geometry,const FKeyEvent& Ev
 }
 FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEvent& Event)
 {
-    if(Event.GetKey()==EKeys::Escape&&InspectionPlacement.IsSet())
+    if(Event.GetKey()==EKeys::Escape&&InspectionPlacement.IsSet()&&!M->bActivityLogExpanded)
     {CancelInspectionPlacement();M->InspectionNotice=TEXT("Placement cancelled. Saved coordinates retained.");return FReply::Unhandled();}
     // Only global shortcuts tunnel ahead of focused controls. The base key
     // handler turns arrows into navigation; calling it during preview would

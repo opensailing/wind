@@ -84,7 +84,7 @@ bool StudioCommands::Validate(const FStudioModel& M,EStudioCommand C,FString& Er
     if(const auto J=JobCommand(C))
     {
         if(!M.Project.bControlHarness)
-        {Error=TEXT("Select Control harness in the project controls before using job commands.");return false;}
+        {Error=TEXT("Select Control harness in Solve > Setup before using job commands.");return false;}
         // The toolbar's Run/Pause controls toggle to Resume. Literal commands
         // must instead satisfy the controller's exact operation and capability.
         if(M.Job().Can(J.GetValue())&&M.CanControl(J.GetValue()))return true;
@@ -94,7 +94,7 @@ bool StudioCommands::Validate(const FStudioModel& M,EStudioCommand C,FString& Er
     if(C>=EStudioCommand::ReplayRun&&C<=EStudioCommand::ReplayStep)
     {
         if(M.Project.bControlHarness)
-        {Error=TEXT("Select Recorded playback in the project controls before using replay commands.");return false;}
+        {Error=TEXT("Select Replay in Solve > Setup before using replay commands.");return false;}
         bool OK=false;
         switch(C)
         {

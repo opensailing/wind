@@ -4,6 +4,7 @@
 #include "StudioModel.h"
 #include "StudioInspectionPlacement.h"
 #include "StudioSnapshot.h"
+#include "StudioCommands.h"
 
 class AStudioScene;
 class SVerticalBox;
@@ -174,6 +175,8 @@ private:
     TSharedRef<SWidget> ActivityLogPanel();
     void RefreshActivityLog();
     void ExpandActivityLog(bool bExpand);
+    bool DispatchControl(EStudioJobCommand Command);
+    bool ExecuteApplicationCommand(EStudioCommand Command,FString& Response);
     TSharedRef<SWidget> ProjectMenu();
     TSharedRef<SWidget> CameraMenu();
     TSharedRef<SWidget> CameraClippingControls();
