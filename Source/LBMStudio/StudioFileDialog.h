@@ -6,6 +6,8 @@ namespace StudioFileDialog
     bool Project(bool bSave, const FString& CurrentPath, const FString& SuggestedName, FString& OutPath);
     bool Geometry(const FString& CurrentPath, FString& OutPath);
     bool ImportGeometry(FString& OutPath);
+    /** Choose an original completed OpenFOAM log and retain native file access. */
+    bool ResidualLog(const FString& CurrentPath,FString& OutPath);
     /** Choose a directory so macOS grants access to metadata and member files. */
     bool RecordingFolder(const FString& CurrentPath,FString& OutPayloadPath);
     bool ReconstructionFolder(const FString& CurrentPath,FString& OutDescriptorPath);
@@ -19,6 +21,8 @@ namespace StudioFileDialog
     bool ConsumeRecordingFolderForAutomation(FString& OutPayloadPath,bool& bAccepted);
     void SetNextReconstructionFolderForAutomation(const FString& Folder);
     bool ConsumeReconstructionFolderForAutomation(FString& OutDescriptorPath,bool& bAccepted);
+    void SetNextResidualLogForAutomation(const FString& Path);
+    bool ConsumeResidualLogForAutomation(FString& OutPath,bool& bAccepted);
     void SetNextProbeCSVForAutomation(const FString& Path);
     bool ConsumeProbeCSVForAutomation(FString& OutPath,bool& bAccepted);
     void SetNextSnapshotPNGForAutomation(const FString& Path);

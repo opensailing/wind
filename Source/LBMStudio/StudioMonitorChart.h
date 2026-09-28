@@ -8,7 +8,7 @@ class SStudioMonitorChart final : public SLeafWidget
 {
 public:
     SLATE_BEGIN_ARGS(SStudioMonitorChart){} SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
-        SLATE_ARGUMENT(bool,Compact) SLATE_ATTRIBUTE(FString,Series) SLATE_END_ARGS()
+        SLATE_ARGUMENT(bool,Compact) SLATE_ATTRIBUTE(bool,Residual) SLATE_ATTRIBUTE(FString,Series) SLATE_END_ARGS()
     void Construct(const FArguments& Args);
     void Tick(const FGeometry&,double,float) override;
     FVector2D ComputeDesiredSize(float) const override;
@@ -21,12 +21,18 @@ public:
     FReply OnKeyDown(const FGeometry&,const FKeyEvent&) override;
     void OnMouseLeave(const FPointerEvent&) override;
 private:
+    TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> Source() const;
+    const FStudioMonitorSettings& Settings() const;
+    uint64 SourceRevision() const;
+    void UpdateSettings(const FStudioMonitorSettings& Value);
+    TArray<FString> VisibleSeries() const;
     void Refresh(const FGeometry&) const;
     FSlateRect PlotRect(const FGeometry&) const;
     void ChangeWindow(double Minimum,double Maximum);
     TSharedPtr<FStudioModel> Model;
     bool bCompact=false;
     TAttribute<FString> SelectedSeries;
+    TAttribute<bool> Residual;
     mutable FString CachedSeries;
     mutable FStudioMonitorPlot Plot;
     mutable uint64 Revision=MAX_uint64;

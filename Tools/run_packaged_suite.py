@@ -38,13 +38,14 @@ def main():
     parser.add_argument('--volume-reconstruction', type=Path)
     parser.add_argument('--volume-phase-seconds', type=int, default=1200)
     parser.add_argument('--residual-log', type=Path,
-                        help='Original published OpenFOAM log for the complete residual reader audit')
+                        help='Original published OpenFOAM log for the complete residual reader audit or native UI acceptance')
     args = parser.parse_args()
     full_surface_gate = args.suite in {'ScientificAcceptance.Surface.FullSequence', 'ScientificAcceptance.Inspection.FullSequence'}
     full_point_gate = args.suite in {'ScientificAcceptance.PointRecording.FullSequence',
                                     'ScientificAcceptance.PointRecording.ViewportFullSequence',
                                     'ScientificAcceptance.PointRecording.ViewportControls'} or full_surface_gate
-    residual_gate = args.suite == 'ScientificAcceptance.Residuals.PublishedFullLog'
+    residual_gate = args.suite in {'ScientificAcceptance.Residuals.PublishedFullLog',
+                                  'ScientificAcceptance.ResidualUI.SourceChartExportAndReopen'}
     if (not args.suite.startswith('Studio.') and not full_point_gate and not residual_gate) or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._' for c in args.suite):
         parser.error('Use one Studio automation suite prefix.')
     extra = []

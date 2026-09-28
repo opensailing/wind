@@ -4,7 +4,18 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
-namespace { TOptional<FString> AutomationRecordingFolder,AutomationReconstructionFolder,AutomationProbeCSV,AutomationSnapshotPNG; }
+namespace { TOptional<FString> AutomationRecordingFolder,AutomationReconstructionFolder,AutomationProbeCSV,AutomationSnapshotPNG,AutomationResidualLog; }
+void StudioFileDialog::SetNextResidualLogForAutomation(const FString& Path)
+{
+    check(IsInGameThread());
+    if(FParse::Param(FCommandLine::Get(),TEXT("StudioAutomation")))AutomationResidualLog=Path;
+}
+bool StudioFileDialog::ConsumeResidualLogForAutomation(FString& Out,bool& bAccepted)
+{
+    if(!AutomationResidualLog.IsSet())return false;
+    bAccepted=!AutomationResidualLog->IsEmpty();if(bAccepted)Out=*AutomationResidualLog;
+    AutomationResidualLog.Reset();return true;
+}
 void StudioFileDialog::SetNextSnapshotPNGForAutomation(const FString& Path)
 {
     check(IsInGameThread());
@@ -61,6 +72,7 @@ bool StudioFileDialog::CSV(const FString&,FString&,const FString&,const FString&
 bool StudioFileDialog::RecordingFolder(const FString&,FString&) { return false; }
 bool StudioFileDialog::ReconstructionFolder(const FString&,FString&) { return false; }
 bool StudioFileDialog::ImportGeometry(FString&) { return false; }
+bool StudioFileDialog::ResidualLog(const FString&,FString&) { return false; }
 void* StudioFileDialog::BeginAccess(const FString&) { return nullptr; }
 void StudioFileDialog::EndAccess(void*) {}
 void StudioFileDialog::RememberAccess(const FString&) {}

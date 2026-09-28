@@ -16,24 +16,44 @@ FLinearColor Color(int32 Index)
 FSlateFontInfo Font(int32 Size){return FCoreStyle::GetDefaultFontStyle(TEXT("Regular"),Size);}
 }
 void SStudioMonitorChart::Construct(const FArguments& A)
-{Model=A._Model;bCompact=A._Compact;SelectedSeries=A._Series;SetClipping(EWidgetClipping::ClipToBounds);SetCanTick(true);}
+{Model=A._Model;bCompact=A._Compact;SelectedSeries=A._Series;Residual=A._Residual;SetClipping(EWidgetClipping::ClipToBounds);SetCanTick(true);}
+TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> SStudioMonitorChart::Source() const
+{return Residual.Get(false)?Model->ResidualHistory():Model->MonitorHistory();}
+const FStudioMonitorSettings& SStudioMonitorChart::Settings() const
+{return Residual.Get(false)?Model->Project.Residual.Chart:Model->Project.Monitor;}
+uint64 SStudioMonitorChart::SourceRevision() const
+{return Residual.Get(false)?Model->ResidualRevision:Model->MonitorRevision;}
+void SStudioMonitorChart::UpdateSettings(const FStudioMonitorSettings& Value)
+{if(Residual.Get(false))Model->UpdateResidualSettings(Value);else Model->UpdateMonitorSettings(Value);}
+TArray<FString> SStudioMonitorChart::VisibleSeries() const
+{
+    auto Series=Settings().Series;
+    if(bCompact&&!Series.IsEmpty())
+    {
+        if(Residual.Get(false)){if(Series.Num()>3)Series.SetNum(3);}
+        else Series={Series.Contains(SelectedSeries.Get(FString()))?SelectedSeries.Get():Series[0]};
+    }
+    return Series;
+}
 void SStudioMonitorChart::Tick(const FGeometry&,double,float)
 {
-    if(Model->MonitorHistory()!=History){HoverSample=INDEX_NONE;SetToolTipText(FText::GetEmpty());}
-    if(Model->MonitorHistory()!=History||Revision!=Model->MonitorRevision||CachedSeries!=SelectedSeries.Get(FString()))Invalidate(EInvalidateWidgetReason::Paint);
+    if(Source()!=History){HoverSample=INDEX_NONE;SetToolTipText(FText::GetEmpty());}
+    if(Source()!=History||Revision!=SourceRevision()||CachedSeries!=SelectedSeries.Get(FString()))Invalidate(EInvalidateWidgetReason::Paint);
 }
 FVector2D SStudioMonitorChart::ComputeDesiredSize(float) const{return bCompact?FVector2D(210,110):FVector2D(500,320);}
 FSlateRect SStudioMonitorChart::PlotRect(const FGeometry& G) const
-{return FSlateRect(bCompact?60:64,bCompact?8:24,FMath::Max(double(bCompact?61:65),G.GetLocalSize().X-14),FMath::Max(25.,G.GetLocalSize().Y-(bCompact?40:44)));}
+{const int32 Columns=FMath::Max(1,int32((G.GetLocalSize().X-16)/(bCompact?52:190)));
+    const bool Legend=!bCompact||Residual.Get(false);
+    const double Top=Legend?8+16*FMath::DivideAndRoundUp(VisibleSeries().Num(),Columns):8;
+    return FSlateRect(bCompact?60:64,Top,FMath::Max(double(bCompact?61:65),G.GetLocalSize().X-14),FMath::Max(Top+1,G.GetLocalSize().Y-(bCompact?40:44)));}
 void SStudioMonitorChart::Refresh(const FGeometry& G) const
 {
-    const auto Source=Model->MonitorHistory();const auto R=PlotRect(G);const int32 NewWidth=FMath::Clamp(int32(R.Right-R.Left),1,4096);
+    const auto NewSource=Source();const auto R=PlotRect(G);const int32 NewWidth=FMath::Clamp(int32(R.Right-R.Left),1,4096);
     const FString Series=SelectedSeries.Get(FString());
-    if(Revision==Model->MonitorRevision&&History==Source&&Width==NewWidth&&CachedSeries==Series)return;
-    Revision=Model->MonitorRevision;History=Source;Width=NewWidth;CachedSeries=Series;
-    auto Settings=Model->Project.Monitor;
-    if(bCompact&&!Settings.Series.IsEmpty())Settings.Series={Settings.Series.Contains(Series)?Series:Settings.Series[0]};
-    Plot=History?StudioMonitor::BuildPlot(*History,Settings,Width):FStudioMonitorPlot();
+    if(Revision==SourceRevision()&&History==NewSource&&Width==NewWidth&&CachedSeries==Series)return;
+    Revision=SourceRevision();History=NewSource;Width=NewWidth;CachedSeries=Series;
+    auto ChartSettings=Settings();ChartSettings.Series=VisibleSeries();
+    Plot=History?StudioMonitor::BuildPlot(*History,ChartSettings,Width):FStudioMonitorPlot();
 }
 int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool) const
 {
@@ -45,8 +65,8 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
     {FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Color,true,Thickness);};
     if(!History)
     {
-        Text(Model->IsMonitorLoading()?TEXT("Verifying history…"):TEXT("No history selected"),FVector2D(8,Size.Y*.35),bCompact?9:13,Muted);
-        if(!bCompact)Text(TEXT("Choose a published history in the source panel."),FVector2D(8,Size.Y*.35+25),10,Muted);
+        Text((Residual.Get(false)?Model->IsResidualLoading():Model->IsMonitorLoading())?TEXT("Verifying history…"):Settings().HistoryId.IsEmpty()?TEXT("No history selected"):TEXT("History unavailable"),FVector2D(8,Size.Y*.35),bCompact?9:13,Muted);
+        if(!bCompact)Text(TEXT("Choose history to load or locate a source."),FVector2D(8,Size.Y*.35+25),10,Muted);
         return Layer+2;
     }
     if(!Plot.Error.IsEmpty())
@@ -85,7 +105,7 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
     const double H=R.Bottom-R.Top;
     auto X=[&](double Value){return R.Left+(Value-Plot.TimeMinimum)/(Plot.TimeMaximum-Plot.TimeMinimum)*W;};
     auto Y=[&](double Value){return R.Bottom-(Value-Plot.ValueMinimum)/(Plot.ValueMaximum-Plot.ValueMinimum)*H;};
-    const int32 Ticks=bCompact?2:4;
+    const int32 Ticks=bCompact?FMath::Clamp(int32(H/22),1,2):4;
     for(int32 I=0;I<=Ticks;++I)
     {
         const double Fraction=double(I)/Ticks,Value=Plot.ValueMinimum+(Plot.ValueMaximum-Plot.ValueMinimum)*Fraction;
@@ -99,7 +119,7 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
         Line({{TimeX,R.Top},{TimeX,R.Bottom}},Grid);
         Text(TimeLabels[I],{TimeLabelX[I],R.Bottom+5+(StaggerTime&&I?12:0)},TimePoints,Muted);
     }
-    double LegendX=R.Left;
+    const int32 LegendColumns=FMath::Max(1,int32((Size.X-16)/(bCompact?52:190)));
     for(int32 I=0;I<Plot.Traces.Num();++I)
     {
         const auto& Trace=Plot.Traces[I];const auto& C=*History->FindColumn(Trace.Id);const auto Tint=Color(I);
@@ -116,8 +136,15 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
             const double V=Plot.bLogY?FMath::LogX(10.,C.Values[Index]):C.Values[Index];Points.Add({X(History->Times[Index]),Y(V)});
         }
         Flush();
-        const FString Name=Trace.Id;const auto E=Measure->Measure(Name,Font(9));
-        if(!bCompact&&LegendX+E.X+20<R.Right){Line({{LegendX,11},{LegendX+10,11}},Tint,2);Text(Name,{LegendX+14,4},9,Ink);LegendX+=E.X+30;}
+        if(!bCompact||Residual.Get(false))
+        {
+            FString Name=Trace.Id;
+            if(Residual.Get(false))Name=Name.Replace(TEXT(".InitialFirst"),bCompact?TEXT(" i"):TEXT(" · first initial"))
+                .Replace(TEXT(".FinalLast"),bCompact?TEXT(" f"):TEXT(" · last final"));
+            const double Cell=(Size.X-16)/LegendColumns,X0=8+(I%LegendColumns)*Cell,Y0=4+(I/LegendColumns)*16;
+            while(Name.Len()>1&&Measure->Measure(Name,Font(bCompact?8:9)).X>Cell-22)Name=Name.LeftChop(Name.EndsWith(TEXT("…"))?2:1)+TEXT("…");
+            Line({{X0,Y0+7},{X0+10,Y0+7}},Tint,2);Text(Name,{X0+14,Y0},bCompact?8:9,Ink);
+        }
     }
     {
         const FString Axis=(bCompact?TEXT("Time ("):TEXT("Original solver time ("))+History->TimeUnit+TEXT(")");
@@ -131,12 +158,12 @@ int32 SStudioMonitorChart::OnPaint(const FPaintArgs&,const FGeometry& G,const FS
 }
 void SStudioMonitorChart::ChangeWindow(double Minimum,double Maximum)
 {
-    const auto H=Model->MonitorHistory();if(!H||H->Times.Num()<2)return;
+    const auto H=Source();if(!H||H->Times.Num()<2)return;
     const double Full=H->Times.Last()-H->Times[0],Span=FMath::Min(Maximum-Minimum,Full);
     if(!FMath::IsFinite(Span)||Span<Full*1.e-8)return;
     Minimum=FMath::Clamp(Minimum,H->Times[0],H->Times.Last()-Span);Maximum=Minimum+Span;
-    auto S=Model->Project.Monitor;FString Error;
-    if(StudioMonitor::SetTimeWindow(*H,Minimum,Maximum,S,Error))Model->UpdateMonitorSettings(S);
+    auto S=Settings();FString Error;
+    if(StudioMonitor::SetTimeWindow(*H,Minimum,Maximum,S,Error))UpdateSettings(S);
 }
 FReply SStudioMonitorChart::OnMouseMove(const FGeometry& G,const FPointerEvent& E)
 {
@@ -147,7 +174,12 @@ FReply SStudioMonitorChart::OnMouseMove(const FGeometry& G,const FPointerEvent& 
     const double Fraction=FMath::Clamp((Local.X-R.Left)/(R.Right-R.Left),0.,1.);
     HoverSample=StudioMonitor::NearestSample(History->Times,Plot.TimeMinimum+(Plot.TimeMaximum-Plot.TimeMinimum)*Fraction);
     FString Tip=History->Title+FString::Printf(TEXT("\nOriginal sample %d · %.17g %s"),HoverSample,History->Times[HoverSample],*History->TimeUnit);
-    for(const auto& Trace:Plot.Traces){const auto* C=History->FindColumn(Trace.Id);Tip+=FString::Printf(TEXT("\n%s: %.17g %s"),*C->Label,C->Values[HoverSample],*C->Unit);}
+    if(History->bResiduals)Tip+=FString::Printf(TEXT(" · Time line %d"),History->TimeSourceLines[HoverSample]);
+    for(const auto& Trace:Plot.Traces)
+    {
+        const auto* C=History->FindColumn(Trace.Id);Tip+=FString::Printf(TEXT("\n%s: %.17g %s"),*C->Label,C->Values[HoverSample],*C->Unit);
+        if(History->bResiduals)Tip+=FString::Printf(TEXT(" · log line %d"),C->SourceLines[HoverSample]);
+    }
     SetToolTipText(FText::FromString(Tip));Invalidate(EInvalidateWidgetReason::Paint);return FReply::Handled();
 }
 FReply SStudioMonitorChart::OnMouseWheel(const FGeometry& G,const FPointerEvent& E)
@@ -169,7 +201,7 @@ FReply SStudioMonitorChart::OnKeyDown(const FGeometry& G,const FKeyEvent& E)
 {
     Refresh(G);if(bCompact||!History)return FReply::Unhandled();
     const double Span=Plot.TimeMaximum-Plot.TimeMinimum,Center=(Plot.TimeMinimum+Plot.TimeMaximum)*.5;
-    if(E.GetKey()==EKeys::Home){auto S=Model->Project.Monitor;S.bManualTime=false;Model->UpdateMonitorSettings(S);}
+    if(E.GetKey()==EKeys::Home){auto S=Settings();S.bManualTime=false;UpdateSettings(S);}
     else if(E.GetKey()==EKeys::Left)ChangeWindow(Plot.TimeMinimum-Span*.1,Plot.TimeMaximum-Span*.1);
     else if(E.GetKey()==EKeys::Right)ChangeWindow(Plot.TimeMinimum+Span*.1,Plot.TimeMaximum+Span*.1);
     else if(E.GetKey()==EKeys::Add||E.GetKey()==EKeys::Equals)ChangeWindow(Center-Span*.4,Center+Span*.4);

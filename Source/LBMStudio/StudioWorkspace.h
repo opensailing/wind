@@ -98,6 +98,13 @@ private:
     TSharedPtr<SVerticalBox> MonitorSeriesRows;
     TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> MonitorSeriesHistory;
     bool bMonitorExpanded=false;
+    bool bMonitorResidual=false;
+    FGuid MonitorSessionProject;
+    TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> ActiveMonitorHistory() const;
+    const FStudioMonitorSettings& ActiveMonitorSettings() const;
+    bool IsActiveMonitorLoading() const;
+    void UpdateActiveMonitor(const FStudioMonitorSettings& Settings);
+    void PickResidualLog(bool bLocate);
     TSharedPtr<FStudioMonitorExportTask> MonitorExport;
     FString MonitorExportNotice;
     FString MonitorExportPath,MonitorExportSeries;

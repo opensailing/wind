@@ -1475,7 +1475,7 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
             +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[ViewToolbar()]]]]
     +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Timeline()]
     +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,3)[SNew(SBox).Visibility_Lambda([this]{return M->bViewportExpanded?EVisibility::Collapsed:EVisibility::Visible;})
-        .HeightOverride_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?195.f:239.f;})[Monitors()]];
+        .HeightOverride_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?(M->ResidualHistory()?225.f:195.f):239.f;})[Monitors()]];
 }
 TSharedRef<SWidget> SStudioWorkspace::ViewTools()
 {
@@ -2113,7 +2113,20 @@ TSharedRef<SWidget> SStudioWorkspace::Monitors()
         +SVerticalBox::Slot().AutoHeight().Padding(0,8)[SNew(STextBlock).Text(FText::FromString(Detail)).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)]
         +SVerticalBox::Slot().FillHeight(1)[SNew(SSpacer)]; };
     return SNew(SHorizontalBox)
-        +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Card(TEXT("Residuals"),Missing(TEXT("This dataset contains flow snapshots, without convergence history.")))]
+        +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Card(TEXT("Residuals"),SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->ResidualHistory()?1:0;})
+            +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
+                +SVerticalBox::Slot().FillHeight(1)[SNew(SSpacer)]
+                +SVerticalBox::Slot().AutoHeight()[Live([this]{return M->IsResidualLoading()?TEXT("Verifying residual log…"):M->Project.Residual.Path.IsEmpty()?TEXT("Not supplied"):TEXT("Source unavailable");},11,Muted)]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,8)[Live([this]{return M->ResidualNotice.IsEmpty()?TEXT("Import a completed OpenFOAM log in Monitors."):M->ResidualNotice;},9,Muted,true)]
+                +SVerticalBox::Slot().FillHeight(1)[SNew(SSpacer)]]
+            +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
+                +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(Font(8)).ColorAndOpacity(Amber).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+                    .Text_Lambda([this]{return FText::FromString(TEXT("Independent · ")+FPaths::GetCleanFilename(M->Project.Residual.Path));})
+                    .ToolTipText_Lambda([this]{return FText::FromString(M->Project.Residual.Path);})]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,3,0,0)[Live([this]
+                    {const auto& C=M->Project.Residual.Chart;return FString::Printf(TEXT("%d of %d series · %s"),FMath::Min(3,C.Series.Num()),C.Series.Num(),C.bLogY?TEXT("Log"):TEXT("Linear"));},8,Muted)]
+                +SVerticalBox::Slot().FillHeight(1)[SNew(SStudioMonitorChart).Model(M).Compact(true).Residual(true).Tag(TEXT("ResidualPreviewChart"))]
+                +SVerticalBox::Slot().AutoHeight()[Label(TEXT("i: first initial · f: last final"),8,Muted)]] )]
         +SHorizontalBox::Slot().FillWidth(.9).Padding(0,0,6,0)[Card(TEXT("Selected history"),SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->MonitorHistory()?1:0;})
             +SWidgetSwitcher::Slot()[Missing(TEXT("Choose a published history in Monitors. This recording has no force history."))]
             +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
@@ -2353,45 +2366,75 @@ TSharedRef<SWidget> SStudioWorkspace::ActivityLogPanel()
             .Text_Lambda([S]{return FText::FromString(S->ExportNotice);}).ToolTipText_Lambda([S]{return FText::FromString(S->ExportPath);})]];
 }
 
+TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> SStudioWorkspace::ActiveMonitorHistory() const
+{return bMonitorResidual?M->ResidualHistory():M->MonitorHistory();}
+const FStudioMonitorSettings& SStudioWorkspace::ActiveMonitorSettings() const
+{return bMonitorResidual?M->Project.Residual.Chart:M->Project.Monitor;}
+bool SStudioWorkspace::IsActiveMonitorLoading() const
+{return bMonitorResidual?M->IsResidualLoading():M->IsMonitorLoading();}
+void SStudioWorkspace::UpdateActiveMonitor(const FStudioMonitorSettings& Settings)
+{if(bMonitorResidual)M->UpdateResidualSettings(Settings);else M->UpdateMonitorSettings(Settings);}
+void SStudioWorkspace::PickResidualLog(bool bLocate)
+{
+    FString Path;
+    if(!StudioFileDialog::ResidualLog(M->Project.Residual.Path,Path))return;
+    if(M->RequestResidualLog(Path,bLocate))bMonitorResidual=true;
+}
+
+// THESIS: Trace residual values back to their original completed solver log.
+// OWN-WORLD: Native blue-black Slate workspace, existing source inspector and fine chart axes.
+// STORY: Import, select first-initial or last-final values, inspect source lines, export and reopen.
+// FIRST VIEWPORT: One chart and source selector in Monitors; separate residual and force cards in Solve.
+// FORM: Local Operate extension; no additional workspace navigation or implied run association.
+// FINISH: Verified original data, both desktop sizes, fresh finish review and recorded behavior.
 TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
 {
     auto Source=SNew(SStudioMenuButton).Tag(TEXT("MonitorSource")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,7))
-        .IsEnabled_Lambda([this]{return !M->IsMonitorLoading()&&!M->IsProjectOpenPending();})
+        .IsEnabled_Lambda([this]{return !M->IsMonitorLoading()&&!M->IsResidualLoading()&&!M->IsProjectOpenPending();})
         .OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
         {
             auto Rows=SNew(SVerticalBox);
             for(const auto& E:StudioHistories::Installed())
             {
-                auto Pick=Button(E.Title,TEXT("chart"),[this,Id=E.Id]{FSlateApplication::Get().DismissAllMenus();M->RequestMonitorHistory(Id);});
+                auto Pick=Button(E.Title,TEXT("chart"),[this,Id=E.Id]{FSlateApplication::Get().DismissAllMenus();bMonitorResidual=false;M->RequestMonitorHistory(Id);});
                 Pick->SetTag(FName(*(TEXT("MonitorSource_")+E.Id)));Rows->AddSlot().AutoHeight().Padding(0,3)[Pick];
             }
+            if(!M->Project.Residual.Path.IsEmpty())
+            {
+                auto Pick=Button(TEXT("Residuals · ")+FPaths::GetCleanFilename(M->Project.Residual.Path),TEXT("chart"),[this]{bMonitorResidual=true;FSlateApplication::Get().DismissAllMenus();});
+                Pick->SetTag(TEXT("MonitorSource_Residual"));Rows->AddSlot().AutoHeight().Padding(0,3)[Pick];
+            }
+            auto Import=Button(TEXT("Import residual log…"),TEXT("import"),[this]{FSlateApplication::Get().DismissAllMenus();PickResidualLog(false);});
+            Import->SetTag(TEXT("MonitorImportResidual"));Rows->AddSlot().AutoHeight().Padding(0,10,0,3)[Import];
+            auto Locate=Button(TEXT("Locate exact residual source…"),TEXT("folder"),[this]{FSlateApplication::Get().DismissAllMenus();PickResidualLog(true);});
+            Locate->SetTag(TEXT("MonitorLocateResidual"));Locate->SetEnabled(!M->Project.Residual.Path.IsEmpty());Rows->AddSlot().AutoHeight().Padding(0,3)[Locate];
             return SNew(SBox).WidthOverride(440)[SNew(SBorder).BorderImage(&PanelBrush).Padding(10)[Rows]];
-        }).ButtonContent()[Label(TEXT("Choose published history"),10,Cyan)];
-    auto Cancel=Button(TEXT("Cancel loading"),TEXT("stop"),[this]{M->CancelMonitorHistory();});Cancel->SetTag(TEXT("MonitorCancel"));
-    Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->IsMonitorLoading();}));
-    auto Remove=Button(TEXT("Remove"),TEXT("stop"),[this]{M->ClearMonitorHistory();});Remove->SetTag(TEXT("MonitorRemove"));
-    Remove->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !M->IsProjectOpenPending()&&!M->Project.Monitor.HistoryId.IsEmpty();}));
-    auto Fit=Button(TEXT("Fit time"),TEXT("fit"),[this]{auto S=M->Project.Monitor;S.bManualTime=false;M->UpdateMonitorSettings(S);});Fit->SetTag(TEXT("MonitorFit"));
-    Fit->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->MonitorHistory().IsValid()&&!M->IsMonitorLoading();}));
+        }).ButtonContent()[Label(TEXT("Choose history"),10,Cyan)];
+    auto Cancel=Button(TEXT("Cancel loading"),TEXT("stop"),[this]{if(bMonitorResidual)M->CancelResidualLog();else M->CancelMonitorHistory();});Cancel->SetTag(TEXT("MonitorCancel"));
+    Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return IsActiveMonitorLoading();}));
+    auto Remove=Button(TEXT("Remove"),TEXT("stop"),[this]{if(bMonitorResidual)M->ClearResidualLog();else M->ClearMonitorHistory();});Remove->SetTag(TEXT("MonitorRemove"));
+    Remove->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !M->IsProjectOpenPending()&&!ActiveMonitorSettings().HistoryId.IsEmpty();}));
+    auto Fit=Button(TEXT("Fit time"),TEXT("fit"),[this]{auto S=ActiveMonitorSettings();S.bManualTime=false;UpdateActiveMonitor(S);});Fit->SetTag(TEXT("MonitorFit"));
+    Fit->SetEnabled(TAttribute<bool>::CreateLambda([this]{return ActiveMonitorHistory().IsValid()&&!IsActiveMonitorLoading();}));
     auto Expand=Button(TEXT("Expand / Restore"),TEXT("expand"),[this]{bMonitorExpanded=!bMonitorExpanded;});Expand->SetTag(TEXT("MonitorExpand"));
     Expand->SetToolTipText(FText::FromString(TEXT("Expand the chart within Monitors. The source and series choices are retained.")));
     auto Export=Button(TEXT("Export history"),TEXT("export"),[this]
     {
-        const auto H=M->MonitorHistory();if(!H||MonitorExport->IsBusy())return;
-        const auto Settings=M->Project.Monitor;FString Path;
+        const auto H=ActiveMonitorHistory();if(!H||MonitorExport->IsBusy())return;
+        const auto Settings=ActiveMonitorSettings();FString Path;
         MonitorExportProject=M->Project.Id;MonitorExportHistory=H;MonitorExportPath.Empty();MonitorExportSeries=FString::Join(Settings.Series,TEXT(", "));
         if(!StudioFileDialog::ProbeCSV(TEXT("history-" )+H->Id+TEXT(".csv"),Path)){MonitorExportNotice=TEXT("CSV export cancelled.");return;}
         if(MonitorExport->Start(H,Settings,Path)){MonitorExportPath=Path;MonitorExportNotice=TEXT("Writing original history rows…");}
     });Export->SetTag(TEXT("MonitorExport"));
-    Export->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->MonitorHistory().IsValid()&&!M->Project.Monitor.Series.IsEmpty()&&!MonitorExport->IsBusy();}));
-    auto ClearSeries=Button(TEXT("Clear series"),TEXT("stop"),[this]{auto S=M->Project.Monitor;S.Series.Reset();M->UpdateMonitorSettings(S);});
-    ClearSeries->SetTag(TEXT("MonitorClearSeries"));ClearSeries->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->MonitorHistory().IsValid()&&!M->Project.Monitor.Series.IsEmpty();}));
+    Export->SetEnabled(TAttribute<bool>::CreateLambda([this]{return ActiveMonitorHistory().IsValid()&&!ActiveMonitorSettings().Series.IsEmpty()&&!MonitorExport->IsBusy();}));
+    auto ClearSeries=Button(TEXT("Clear series"),TEXT("stop"),[this]{auto S=ActiveMonitorSettings();S.Series.Reset();UpdateActiveMonitor(S);});
+    ClearSeries->SetTag(TEXT("MonitorClearSeries"));ClearSeries->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !IsActiveMonitorLoading()&&ActiveMonitorHistory().IsValid()&&!ActiveMonitorSettings().Series.IsEmpty();}));
     auto SourceTitle=Live([this]
-        {const auto H=M->MonitorHistory();return H?H->Title:M->Project.Monitor.HistoryId.IsEmpty()?TEXT("No published history selected."):M->Project.Monitor.HistoryId;},10,Text,true);
+        {const auto H=ActiveMonitorHistory();return H?H->Title:bMonitorResidual&&!M->Project.Residual.Path.IsEmpty()?FPaths::GetCleanFilename(M->Project.Residual.Path):TEXT("No history selected.");},10,Text,true);
     SourceTitle->SetWrapTextAt(284);
     auto OpenSource=Button(TEXT("Open published source"),TEXT("export"),[this]
-        {const auto H=M->MonitorHistory();if(H&&H->SourceURL.StartsWith(TEXT("https://")))FPlatformProcess::LaunchURL(*H->SourceURL,nullptr,nullptr);});
-    OpenSource->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->MonitorHistory().IsValid();}));
+        {const auto H=ActiveMonitorHistory();if(H&&H->SourceURL.StartsWith(TEXT("https://")))FPlatformProcess::LaunchURL(*H->SourceURL,nullptr,nullptr);});
+    OpenSource->SetVisibility(TAttribute<EVisibility>::CreateLambda([this]{const auto H=ActiveMonitorHistory();return H&&H->SourceURL.StartsWith(TEXT("https://"))?EVisibility::Visible:EVisibility::Collapsed;}));
     auto ExportStatus=Live([this]{return MonitorExportNotice;},9,Amber,true);
     ExportStatus->SetToolTipText(TAttribute<FText>::CreateLambda([this]{return FText::FromString(MonitorExportPath);}));
     auto Controls=SNew(SVerticalBox)
@@ -2399,12 +2442,14 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Source]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SourceTitle]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Live([this]
-        {const auto H=M->MonitorHistory();return H?(H->FieldRecordingId.IsSet()&&*H->FieldRecordingId==M->Project.Dataset?
+        {const auto H=ActiveMonitorHistory();return H?(H->FieldRecordingId.IsSet()&&*H->FieldRecordingId==M->Project.Dataset?
             TEXT("Source declares an association with the current recording."):TEXT("Independent run. Its time and values are not synchronized to the flow recording.")):
             TEXT("Histories keep their own source, time and normalization.");},9,Amber,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,6,0)[Cancel]+SHorizontalBox::Slot().FillWidth(1)[Remove]]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]{return M->MonitorNotice;},9,Amber,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]{return bMonitorResidual?M->ResidualNotice:M->MonitorNotice;},9,Amber,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[SNew(SBox).Visibility_Lambda([this]{return bMonitorResidual?EVisibility::Visible:EVisibility::Collapsed;})
+            [Live([]{return TEXT("First initial: first solve per time block. Last final: last solve per time block. No convergence threshold is assumed. To restore a moved source, choose Locate exact residual source.");},9,Muted,true)]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Series"),12,Text,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[Live([]{return TEXT("One unit per value axis. Clear the selection to choose another unit.");},9,Muted,true)]
         +SVerticalBox::Slot().AutoHeight()[SAssignNew(MonitorSeriesRows,SVerticalBox)]
@@ -2412,10 +2457,11 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
         +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,6)[Label(TEXT("Provenance & normalization"),12,Text,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]
         {
-            const auto H=M->MonitorHistory();if(!H)return FString(TEXT("Select a history to view its provenance."));
-            FString T=H->TimeNote+TEXT("\n");TArray<FString> Keys;H->ReferenceValues.GetKeys(Keys);Keys.Sort();
+            const auto H=ActiveMonitorHistory();if(!H)return FString(TEXT("Select a history to view its provenance."));
+            FString T=H->TimeNote+TEXT("\n");
+            if(H->bResiduals)T+=H->SourcePath+TEXT("\n\nSHA-256: ")+H->SourceSHA256;TArray<FString> Keys;H->ReferenceValues.GetKeys(Keys);Keys.Sort();
             for(const auto& Key:Keys)T+=FString::Printf(TEXT("\n%s = %.17g"),*Key,H->ReferenceValues[Key]);
-            for(const auto& Id:M->Project.Monitor.Series)if(const auto* C=H->FindColumn(Id))
+            for(const auto& Id:ActiveMonitorSettings().Series)if(const auto* C=H->FindColumn(Id))
                 T+=TEXT("\n\n")+C->Label+TEXT(" · ")+C->Origin+(C->Expression.IsEmpty()?FString():TEXT("\n")+C->Expression);
             for(const auto& Note:H->Limitations)T+=TEXT("\n\n")+Note;
             return T;
@@ -2429,33 +2475,38 @@ TSharedRef<SWidget> SStudioWorkspace::MonitorWorkspace()
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,6,0)[Fit]
             +SHorizontalBox::Slot().AutoWidth()[Expand]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Live([this]
-        {const auto H=M->MonitorHistory();return H?H->Title+FString::Printf(TEXT(" · %d original samples"),H->Times.Num()):TEXT("Select a published history. No solver metrics are synthesized.");},10,Muted,true)]
+        {const auto H=ActiveMonitorHistory();return H?H->Title+FString::Printf(TEXT(" · %d original samples"),H->Times.Num()):TEXT("Choose a published history or import a completed residual log.");},10,Muted,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[ExportStatus]
         +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)
                 [SNew(SVerticalBox)
                     +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
                         +SHorizontalBox::Slot().FillWidth(1)[Live([this]
-                        {const auto H=M->MonitorHistory();FString Unit;if(H)for(const auto& Id:M->Project.Monitor.Series)if(const auto* C=H->FindColumn(Id)){Unit=C->Unit;break;}
-                            return Unit.IsEmpty()?TEXT("No series selected"):TEXT("Value (")+Unit+TEXT(")")+(M->Project.Monitor.bLogY?TEXT(" · logarithmic"):TEXT(" · linear"));},11,Text,true)]
+                        {const auto H=ActiveMonitorHistory();FString Unit;if(H)for(const auto& Id:ActiveMonitorSettings().Series)if(const auto* C=H->FindColumn(Id)){Unit=C->Unit;break;}
+                            return Unit.IsEmpty()?TEXT("No series selected"):TEXT("Value (")+Unit+TEXT(")")+(ActiveMonitorSettings().bLogY?TEXT(" · logarithmic"):TEXT(" · linear"));},11,Text,true)]
                         +SHorizontalBox::Slot().AutoWidth()[SNew(SCheckBox).Tag(TEXT("MonitorLog"))
-                            .IsEnabled_Lambda([this]{return M->MonitorHistory().IsValid()&&!M->IsMonitorLoading();})
-                            .IsChecked_Lambda([this]{return M->Project.Monitor.bLogY?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
-                            .OnCheckStateChanged_Lambda([this](ECheckBoxState State){auto S=M->Project.Monitor;S.bLogY=State==ECheckBoxState::Checked;M->UpdateMonitorSettings(S);})
+                            .IsEnabled_Lambda([this]{return ActiveMonitorHistory().IsValid()&&!IsActiveMonitorLoading();})
+                            .IsChecked_Lambda([this]{return ActiveMonitorSettings().bLogY?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+                            .OnCheckStateChanged_Lambda([this](ECheckBoxState State){auto S=ActiveMonitorSettings();S.bLogY=State==ECheckBoxState::Checked;UpdateActiveMonitor(S);})
                             [Label(TEXT("Log scale"),10)]]]
-                    +SVerticalBox::Slot().FillHeight(1)[SNew(SStudioMonitorChart).Model(M).Compact(false).Tag(TEXT("MonitorChart"))]
+                    +SVerticalBox::Slot().FillHeight(1)[SNew(SStudioMonitorChart).Model(M).Compact(false).Residual_Lambda([this]{return bMonitorResidual;}).Tag(TEXT("MonitorChart"))]
                     +SVerticalBox::Slot().AutoHeight().Padding(0,8,0,0)[Live([this]
-                    {return M->Project.Monitor.bLogY?TEXT("Log scale omits nonpositive samples and breaks the trace at gaps. Values are unchanged."):
+                    {return ActiveMonitorSettings().bLogY?TEXT("Log scale omits nonpositive samples and breaks the trace at gaps. Values are unchanged."):
                         TEXT("Original samples; pixel reduction preserves extrema. No smoothing or time offset.");},9,Muted,true)]
                     +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[Live([]{return TEXT("Hover: exact sample · Scroll: zoom time · Drag: pan · + / −: zoom · ← / →: pan · Home: fit");},9,Muted,true)]]]
             +SHorizontalBox::Slot().AutoWidth().Padding(14,0,0,0)[SNew(SBox).WidthOverride(326)
                 .Visibility_Lambda([this]{return bMonitorExpanded?EVisibility::Collapsed:EVisibility::Visible;})
-                [SNew(SBorder).BorderImage(&PanelBrush).Padding(14)[SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
+                [SNew(SBorder).BorderImage(&PanelBrush).Padding(14)[SNew(SRetainedFormScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
                     .NavigationScrollPadding(12)+SScrollBox::Slot()[Controls]]]]]];
 }
 void SStudioWorkspace::RefreshMonitors()
 {
-    const auto H=M->MonitorHistory();
+    if(MonitorSessionProject!=M->Project.Id)
+    {
+        MonitorSessionProject=M->Project.Id;
+        bMonitorResidual=M->Project.Monitor.HistoryId.IsEmpty()&&!M->Project.Residual.Path.IsEmpty();
+    }
+    const auto H=ActiveMonitorHistory();
     if(MonitorExportProject!=M->Project.Id||MonitorExportHistory.Pin()!=H){MonitorExportNotice.Empty();MonitorExportPath.Empty();}
     if(MonitorExport)if(const auto R=MonitorExport->Poll();R.IsSet())
         if(MonitorExportProject==M->Project.Id&&MonitorExportHistory.Pin()==H)
@@ -2468,14 +2519,14 @@ void SStudioWorkspace::RefreshMonitors()
         MonitorSeriesRows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SCheckBox).Tag(FName(*(TEXT("MonitorSeries_")+Id)))
             .IsEnabled_Lambda([this,H,Id,Unit]
             {
-                if(M->MonitorHistory()!=H||M->IsMonitorLoading())return false;
-                for(const auto& Selected:M->Project.Monitor.Series)if(const auto* C=H->FindColumn(Selected))if(C->Unit!=Unit)return false;
+                if(ActiveMonitorHistory()!=H||IsActiveMonitorLoading())return false;
+                for(const auto& Selected:ActiveMonitorSettings().Series)if(const auto* C=H->FindColumn(Selected))if(C->Unit!=Unit)return false;
                 return true;
             })
-            .IsChecked_Lambda([this,Id]{return M->Project.Monitor.Series.Contains(Id)?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+            .IsChecked_Lambda([this,Id]{return ActiveMonitorSettings().Series.Contains(Id)?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
             .OnCheckStateChanged_Lambda([this,Id](ECheckBoxState State)
-            {auto S=M->Project.Monitor;if(State==ECheckBoxState::Checked)S.Series.AddUnique(Id);else S.Series.Remove(Id);M->UpdateMonitorSettings(S);})
-            [Label(Column.Label+TEXT(" (")+Unit+TEXT(")"),10)]];
+            {auto S=ActiveMonitorSettings();if(State==ECheckBoxState::Checked)S.Series.AddUnique(Id);else S.Series.Remove(Id);UpdateActiveMonitor(S);})
+            [SNew(STextBlock).Text(FText::FromString(Column.Label+TEXT(" (")+Unit+TEXT(")"))).Font(Font(10)).ColorAndOpacity(Text).AutoWrapText(true)]];
     }
 }
 // THESIS: Explicit toolbar mode tests job control while retaining an honest recorded view.

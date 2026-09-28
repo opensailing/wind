@@ -235,6 +235,34 @@ bool StudioFileDialog::ImportGeometry(FString& OutPath)
     return Accepted;
 }
 
+bool StudioFileDialog::ResidualLog(const FString& CurrentPath,FString& OutPath)
+{
+#if WITH_DEV_AUTOMATION_TESTS
+    bool bAutomationAccepted=false;
+    if(ConsumeResidualLogForAutomation(OutPath,bAutomationAccepted))return bAutomationAccepted;
+#endif
+    MacApplication->SetCapture(nullptr);
+#if WITH_EDITOR
+    FCoreDelegates::PreModal.Broadcast();
+#endif
+    MacApplication->SystemModalMode(true);
+    const bool Accepted=MainThreadReturn(^{
+        SCOPED_AUTORELEASE_POOL;
+        NSOpenPanel* Panel=[NSOpenPanel openPanel];Panel.title=@"Choose Residual Log";
+        Panel.message=@"Choose an original completed OpenFOAM log, such as log.pimpleFoam. Its reported residuals and original line numbers will be verified.";
+        Panel.canChooseFiles=YES;Panel.canChooseDirectories=NO;Panel.allowsMultipleSelection=NO;
+        // OpenFOAM logs have arbitrary names and extensions; the reader validates content.
+        if(!CurrentPath.IsEmpty())Panel.directoryURL=[NSURL fileURLWithPath:[NSString stringWithUTF8String:TCHAR_TO_UTF8(*FPaths::GetPath(CurrentPath))]];
+        const bool OK=[Panel runModal]==NSModalResponseOK;
+        if(OK){OutPath=UTF8_TO_TCHAR(Panel.URL.path.UTF8String);RememberAccess(OutPath);}[Panel close];return OK;
+    });
+    MacApplication->SystemModalMode(false);MacApplication->ResetModifierKeys();
+#if WITH_EDITOR
+    FCoreDelegates::PostModal.Broadcast();
+#endif
+    return Accepted;
+}
+
 bool StudioFileDialog::RecordingFolder(const FString& CurrentPath,FString& OutPath)
 {
 #if WITH_DEV_AUTOMATION_TESTS
