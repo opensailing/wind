@@ -17,6 +17,18 @@ from studio_processes import same_process, track_processes
 from runtime_lane import serialized
 
 
+def automation_interruptions(report):
+    """Retain foreground interruptions separately from failed UI assertions."""
+    interruptions = []
+    for test in report.get('tests', []):
+        for entry in test.get('entries', []):
+            event = entry.get('event', {})
+            message = event.get('message', '')
+            if event.get('type') == 'Error' and message.startswith('STUDIO_AUTOMATION_INTERRUPTED:'):
+                interruptions.append({'test': test.get('fullTestPath', ''), 'message': message})
+    return interruptions
+
+
 @serialized('Packaged acceptance')
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -229,6 +241,9 @@ def main():
         if (report/'index.json').is_file():
             shutil.copy2(report/'index.json', output/'automation.json')
             result = json.loads((output/'automation.json').read_text(encoding='utf-8-sig'))
+            manifest['interruptions'] = automation_interruptions(result)
+            if manifest['interruptions']:
+                manifest['errors'].append('Native UI automation interrupted by loss of application focus')
             if result['succeeded'] != args.count or result['failed'] or result.get('notRun', 0) or result.get('succeededWithWarnings', 0):
                 manifest['errors'].append('Automation did not finish the expected clean suites')
         else:

@@ -1,6 +1,7 @@
 #include "StudioScene.h"
 #include "StudioPipelineEvaluation.h"
 #include "StudioAuthoringTestCapture.h"
+#include "StudioAutomationForeground.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
@@ -29,6 +30,7 @@ public:
     {
         const double Now=FPlatformTime::Seconds();if(!Started)Started=Now;
         if(Test->HasAnyErrors())return true;
+        if(Foreground.WasInterrupted()){Test->AddError(Foreground.Describe(Phase));return true;}
         if(Now-Started>180){Test->AddError(FString::Printf(TEXT("Pipeline UI timed out at phase %d"),Phase));return true;}
         if(!Scene.IsValid())for(const auto& C:GEngine->GetWorldContexts())if(C.World()&&C.World()->IsGameWorld())
             for(TActorIterator<AStudioScene> It(C.World());It;++It)if(It->Model&&!It->Model->IsSnapshotView())Scene=*It;
@@ -61,6 +63,7 @@ public:
             Root=FPaths::ProjectSavedDir()/TEXT("Automation/PipelineUI");IFileManager::Get().MakeDirectory(*Root,true);Work=Root/FGuid::NewGuid().ToString();FString Error;
             Test->TestTrue(TEXT("Preserve prior project"),StudioProjectIO::Save(Work/TEXT("prior.lbms"),M.SnapshotProject(),Error));
             bTooltips=App.GetAllowTooltips();bCaptured=true;App.SetAllowTooltips(false);StudioAuthoringTestCapture::DismissTooltips();
+            Foreground.Begin();
             M.NewProject(TEXT("Wing · ordered analysis"));M.ReviewRecordedFrame(420);
             const FString Samples=FPaths::ProjectContentDir()/TEXT("Samples");
             auto R=StudioRecordings::Import(Samples/TEXT("NACA0018_ReaderFixture/recording.json"),0,{});
@@ -289,6 +292,7 @@ private:
         else for(TCHAR C:Value)FSlateApplication::Get().ProcessKeyCharEvent(FCharacterEvent(C,FModifierKeysState(),0,false));
         Key(EKeys::Enter);
     }
+    FStudioAutomationForeground Foreground;
     FAutomationTestBase* Test;TWeakObjectPtr<AStudioScene> Scene;TStrongObjectPtr<AStudioScene> OldView;
     TWeakPtr<FStudioModel> OldModel;TWeakPtr<const IStudioField,ESPMode::ThreadSafe> OldField;
     FString Root,Work,Baseline,FixtureId,MenuTrace;FStudioSavedPipeline SavedRecipe;FName PendingMenu;

@@ -32,7 +32,7 @@ class PackagedProcessOwnership(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_fixture(self, child=False, active=False, point_recording=False, application_default=False, startup_log=True,
-                    surface_reconstruction=False, volume=False, missing_volume=False, performance=False):
+                    surface_reconstruction=False, volume=False, missing_volume=False, performance=False, interrupted=False):
         program = '''import json, pathlib, subprocess, sys, time
 pathlib.Path(__file__).with_suffix('.args.json').write_text(json.dumps(sys.argv))
 report = pathlib.Path(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('-ReportExportPath=')))
@@ -40,8 +40,11 @@ report.mkdir(parents=True)
 CHILD
 STARTUP
 time.sleep(1.2)
-(report/'index.json').write_text(json.dumps({'succeeded': 1, 'failed': 0, 'notRun': 0, 'succeededWithWarnings': 0}))
+(report/'index.json').write_text(json.dumps({'succeeded': 1, 'failed': 0, 'notRun': 0, 'succeededWithWarnings': 0, 'tests': TESTS}))
 '''.replace('CHILD', "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])" if child else '')
+        tests = [{'fullTestPath': 'Studio.Fixture.Foreground', 'entries': [{'event': {
+            'type': 'Error', 'message': 'STUDIO_AUTOMATION_INTERRUPTED: application lost foreground focus'}}]}] if interrupted else []
+        program = program.replace('TESTS', repr(tests))
         program = program.replace('STARTUP', '''print('Studio startup: retaining memory tracking before engine initialization.')
 print('LLM enabled CsvWriter: off TraceWriter: off')''' if application_default and startup_log else '')
         self.binary.write_text(f'#!{sys.executable}\n'+program)
@@ -100,6 +103,14 @@ print('LLM enabled CsvWriter: off TraceWriter: off')''' if application_default a
         code, report = self.run_fixture(performance=True)
         self.assertEqual(code, 0)
         self.assertTrue(report['passed'])
+        self.assertEqual(report['owned_processes_after'], {})
+
+    def test_foreground_interruption_cannot_pass_even_with_success_totals(self):
+        code, report = self.run_fixture(interrupted=True)
+        self.assertEqual(code, 1)
+        self.assertFalse(report['passed'])
+        self.assertEqual(report['interruptions'][0]['test'], 'Studio.Fixture.Foreground')
+        self.assertIn('Native UI automation interrupted by loss of application focus', report['errors'])
         self.assertEqual(report['owned_processes_after'], {})
 
     def test_reparented_child_is_cleaned_and_fails_acceptance(self):

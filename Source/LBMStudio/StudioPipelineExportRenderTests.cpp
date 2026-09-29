@@ -3,6 +3,7 @@
 #include "StudioScene.h"
 #include "StudioFileDialog.h"
 #include "StudioAuthoringTestCapture.h"
+#include "StudioAutomationForeground.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
@@ -38,6 +39,7 @@ public:
     {
         const double Now=FPlatformTime::Seconds();if(!Started)Started=Now;
         if(Test->HasAnyErrors())return true;
+        if(Foreground.WasInterrupted()){Test->AddError(Foreground.Describe(Phase));return true;}
         if(Now-Started>180){Test->AddError(FString::Printf(TEXT("Pipeline export timed out at phase %d"),Phase));return true;}
         if(!Scene.IsValid())for(const auto& C:GEngine->GetWorldContexts())if(C.World()&&C.World()->IsGameWorld())
             for(TActorIterator<AStudioScene> It(C.World());It;++It)if(It->Model&&!It->Model->IsSnapshotView())Scene=*It;
@@ -61,6 +63,7 @@ public:
             Work=Root/FGuid::NewGuid().ToString();FString Error;
             Test->TestTrue(TEXT("Preserve prior project"),StudioProjectIO::Save(Work/TEXT("prior.lbms"),M.SnapshotProject(),Error));
             bTooltips=App.GetAllowTooltips();bCaptured=true;App.SetAllowTooltips(false);StudioAuthoringTestCapture::DismissTooltips();
+            Foreground.Begin();
             M.NewProject(TEXT("Evaluated flow exports"));Press(TEXT("Workspace10"));Open();Next();break;
         }
         case 1:
@@ -261,6 +264,7 @@ private:
         TArray<FColor> Pixels;FIntVector Size;if(!Test->TestTrue(TEXT("Capture pipeline export"),FSlateApplication::Get().TakeScreenshot(GEngine->GameViewport->GetWindow().ToSharedRef(),Pixels,Size)))return;
         TArray64<uint8> PNG;FImageUtils::PNGCompressImageArray(Size.X,Size.Y,Pixels,PNG);Test->TestTrue(TEXT("Save export capture"),FFileHelper::SaveArrayToFile(PNG,*(Root/Name)));
     }
+    FStudioAutomationForeground Foreground;
     FAutomationTestBase* Test;TWeakObjectPtr<AStudioScene> Scene;TSharedPtr<FPublishGate,ESPMode::ThreadSafe> Gate;
     FString Root,Work,Baseline;int32 Phase=0;uint64 Changed=0;double Started=0,LastActivation=0;bool bTooltips=true,bCaptured=false,bOpenExport=false;
 };

@@ -2,6 +2,7 @@
 #include "StudioScene.h"
 #include "StudioFileDialog.h"
 #include "StudioAuthoringTestCapture.h"
+#include "StudioAutomationForeground.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
@@ -34,6 +35,7 @@ public:
     {
         const double Now=FPlatformTime::Seconds();if(!Started)Started=Now;
         if(Test->HasAnyErrors())return true;
+        if(Foreground.WasInterrupted()){Test->AddError(Foreground.Describe(Phase));return true;}
         if(Now-Started>150){Test->AddError(FString::Printf(TEXT("Field export UI timed out at phase %d"),Phase));return true;}
         if(!Scene.IsValid())for(const auto& C:GEngine->GetWorldContexts())if(C.World()&&C.World()->IsGameWorld())
             for(TActorIterator<AStudioScene> It(C.World());It;++It)if(It->Model&&!It->Model->IsSnapshotView())Scene=*It;
@@ -53,6 +55,7 @@ public:
             Work=Root/FGuid::NewGuid().ToString();FString Error;
             Test->TestTrue(TEXT("Preserve original project"),StudioProjectIO::Save(Work/TEXT("prior.lbms"),M.SnapshotProject(),Error));
             bTooltips=App.GetAllowTooltips();bCaptured=true;App.SetAllowTooltips(false);StudioAuthoringTestCapture::DismissTooltips();
+            Foreground.Begin();
             M.NewProject(TEXT("Original field export"));M.ReviewRecordedFrame(420);Next();break;
         }
         case 1:if(!Scene->HasCurrentFrame())return false;Press(TEXT("ExportMenu"));Next();break;
@@ -253,6 +256,7 @@ private:
         TArray64<uint8> PNG;FImageUtils::PNGCompressImageArray(Size.X,Size.Y,Pixels,PNG);
         Test->TestTrue(TEXT("Save field export capture"),FFileHelper::SaveArrayToFile(PNG,*(Root/Name)));
     }
+    FStudioAutomationForeground Foreground;
     FAutomationTestBase* Test;TWeakObjectPtr<AStudioScene> Scene;TSharedPtr<FPublishGate,ESPMode::ThreadSafe> Gate;
     FString Root,Work;int32 Phase=0;uint64 Changed=0;double Started=0,LastActivation=0;bool bTooltips=true,bCaptured=false;
 };
