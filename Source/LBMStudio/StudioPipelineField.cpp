@@ -206,6 +206,12 @@ bool FStudioPipelinePrepared::Matches(const FGuid& Project,uint64 CurrentRevisio
 }
 bool FStudioPipelineField::MatchesRecipe(const FStudioSavedPipeline& Recipe) const
 {return StudioPipelines::Equals(PreparedRecipe,Recipe);}
+TSharedPtr<const FStudioPipelineField,ESPMode::ThreadSafe> FStudioPipelineField::WithPresentation(const FStudioSavedPipeline& Recipe) const
+{
+    auto Expected=PreparedRecipe;Expected.Name=Recipe.Name;Expected.Source.Camera=Recipe.Source.Camera;FString Error;
+    if(!StudioPipelines::Equals(Expected,Recipe)||!StudioPipelines::IsValid(Recipe,Error))return {};
+    auto Copy=MakeShared<FStudioPipelineField,ESPMode::ThreadSafe>(*this);Copy->PreparedRecipe=Recipe;return Copy;
+}
 FStudioPipelinePrepareTask::~FStudioPipelinePrepareTask(){Shutdown();}
 bool FStudioPipelinePrepareTask::Start(FStudioPipelinePrepareRequest R,FString& Error)
 {

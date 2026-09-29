@@ -103,6 +103,14 @@ bool FPipelineOriginalFields::RunTest(const FString&)
     TestEqual(TEXT("Inputs retain only two original scalar arrays"),P.InputValueBytes(),int64(P.OriginalPointCount())*16);
     TestEqual(TEXT("Derived scalar is labeled"),P.SelectedScalar().Origin,FString(TEXT("pipeline-derived")));
     TestTrue(TEXT("Expression states interpolation order"),P.ScalarExpression(TEXT("derived.speed")).Contains(TEXT("interpolated before magnitude")));
+    auto Presentation=F.Request.Recipe;Presentation.Name=TEXT("Renamed analysis");Presentation.Source.Camera.Position.X+=.1;
+    const auto Shared=P.WithPresentation(Presentation);
+    TestTrue(TEXT("Name and camera update share immutable numerical inputs"),Shared&&Shared->MatchesRecipe(Presentation)&&
+        Shared->Scalars()[0].Original==P.Scalars()[0].Original&&Shared->InputValueBytes()==P.InputValueBytes()&&P.MatchesRecipe(F.Request.Recipe));
+    Presentation.Operations[0].Components={TEXT("velocity_u"),TEXT("pressure")};
+    TestFalse(TEXT("Presentation rebinding cannot change numerical operations"),P.WithPresentation(Presentation).IsValid());
+    Presentation=F.Request.Recipe;++Presentation.Source.Identity.Ordinal;
+    TestFalse(TEXT("Presentation rebinding cannot change source frame"),P.WithPresentation(Presentation).IsValid());
     auto Q=F.Request;auto Next=Op(EStudioPipelineOperation::Magnitude,TEXT("Norm of prior output and U"));
     Next.Field=TEXT("derived.combined");Next.Unit=TEXT("m/s");Next.Components={TEXT("derived.speed"),TEXT("velocity_u")};Q.Recipe.Operations.Add(Next);
     const auto Combined=StudioPipelineFields::Prepare(Q);if(!TestTrue(*Combined.Error,Combined.Field.IsValid()))return false;

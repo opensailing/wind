@@ -51,6 +51,9 @@ public:
     bool Includes(const FVector& ScenePosition) const;
     /** The immutable graph belongs to this exact operation list and source pin. */
     bool MatchesRecipe(const FStudioSavedPipeline& Recipe) const;
+    /** Share immutable numerical inputs with an updated name/camera only.
+     * Any source, operation or other recipe change requires fresh evaluation. */
+    TSharedPtr<const FStudioPipelineField,ESPMode::ThreadSafe> WithPresentation(const FStudioSavedPipeline& Recipe) const;
     const FStudioScalarDescriptor& SelectedScalar() const {return Nodes[Selected].Scalar;}
     const TArray<FStudioPipelineScalarNode>& Scalars() const {return Nodes;}
     const FBox& DomainBounds() const {return Bounds;}
