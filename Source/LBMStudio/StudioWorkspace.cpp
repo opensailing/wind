@@ -693,7 +693,9 @@ public:
             PaintedCapture=Scene->GetCaptureCount();Invalidate(EInvalidateWidgetReason::Paint);
         }
         if((PlacementDrag.IsSet()&&!IsPlacementDragCurrent(G))||(HasOwnCapture()&&!Drag.IsValid()))ReleaseOwnCapture();
-        Scene->ResizeViewport(FMath::RoundToInt(G.GetLocalSize().X),FMath::RoundToInt(G.GetLocalSize().Y));
+        // Two samples per Slate unit keep the original mesh and thin traces smooth.
+        // Scene caps both dimensions; idle views still submit no captures.
+        Scene->ResizeViewport(FMath::RoundToInt(G.GetLocalSize().X*2),FMath::RoundToInt(G.GetLocalSize().Y*2));
         if(WheelSeconds>0) { WheelSeconds-=D; if(WheelSeconds<=0) EndGesture(); }
         if(!PlacementDrag.IsSet()&&(Drag==EKeys::RightMouseButton||Scene->bFreeCamera)&&HasKeyboardFocus())
         {
@@ -1465,12 +1467,12 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
                     .ToolTipText_Lambda([this]{return FText::FromString(Scene->PresentedSource());})]]]
             +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12,61)[ViewTools()]
             +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(12,12)[SNew(SOrientationCube).Scene(Scene.Get()).Tag(TEXT("OrientationCube"))]
-            +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(72,0,0,94)
+            +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(14,0,0,14)
             [ColorLegend()]
             +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0,0,0,12)
             [SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,0,0,6)
-            [SNew(SBorder).Tag(TEXT("InspectionPlacementHint")).BorderImage(&PanelBrush).Padding(10,7)[Live([this]() -> FString
+            [SNew(SBorder).Tag(TEXT("InspectionPlacementHint")).Visibility_Lambda([this]{return IsInspectionPlacementCurrent()||bInspectionOpen||Scene->bFreeCamera?EVisibility::Visible:EVisibility::Collapsed;}).BorderImage(&PanelBrush).Padding(10,7)[Live([this]() -> FString
             {if(IsInspectionPlacementCurrent())return FString::Printf(TEXT("PLACE  ·  Click %c  ·  Right-drag to look  ·  Esc cancels"),TEXT("ABC")[InspectionPlacement->Accepted.Num()]);
                 if(bInspectionOpen)return FString(TEXT("INSPECT  ·  Click a marker or edge  ·  Right-drag to look"));
                 return Scene->bFreeCamera?TEXT("FLY  ·  Drag to look  ·  WASD + Q/E  ·  Shift boost"):TEXT("ORBIT  ·  Drag to rotate  ·  Middle-drag pan  ·  Scroll zoom  ·  F fit");},9,Muted)]]
@@ -1516,6 +1518,11 @@ TSharedRef<SWidget> SStudioWorkspace::ViewToolbar()
 {
     return SNew(SBorder).Tag(TEXT("ViewToolbar")).BorderImage(&PanelBrush).Padding(5)
     [SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)[SNew(SButton).Tag(TEXT("FlowOverview"))
+            .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,4))
+            .IsEnabled_Lambda([this]{return Scene->HasCurrentFrame()&&!M->CameraPlacement()&&!IsInspectionPlacementCurrent();})
+            .ToolTipText(FText::FromString(TEXT("Frame the wing and wake, simplify layers, and freeze a custom color range sampled from this frame. Undo view restores every prior setting.")))
+            .OnClicked_Lambda([this]{Scene->FlowOverview();return FReply::Handled();})[Label(TEXT("Flow overview"),9,Cyan)]]
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)[OrientationViews(Scene.Get())]
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)[SNew(SButton).Tag(TEXT("ViewProjection"))
             .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,4))
@@ -1956,8 +1963,8 @@ TSharedRef<SWidget> SStudioWorkspace::ColorLegend()
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,7)[Live([this]
                 {const auto& F=Scene->HasPresentedFrame()?Scene->PresentedScalar():M->ActiveScalar();return F.Label+TEXT(" (")+F.Unit+TEXT(")");},9)]
             +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
-                +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(13).HeightOverride(108)[Bar]]
-                +SHorizontalBox::Slot().AutoWidth().Padding(7,0)[SNew(SBox).HeightOverride(108)[Values]]]
+                +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(11).HeightOverride(64)[Bar]]
+                +SHorizontalBox::Slot().AutoWidth().Padding(7,0)[SNew(SBox).HeightOverride(64)[Values]]]
             +SVerticalBox::Slot().AutoHeight().Padding(0,7,0,0)[Live([Mapping]
                 {const auto C=Mapping();return FString(C.bManualRange?TEXT("Custom range"):TEXT("Source range"))+TEXT(" · ")+StudioColor::PaletteName(C.Palette);},8,Muted)]
             +SVerticalBox::Slot().AutoHeight()[SNew(SBox).WidthOverride(166)

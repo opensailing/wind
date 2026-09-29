@@ -45,6 +45,8 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     void FitCamera();
+    /** Undoable presentation of the current original field; never changes its frame or values. */
+    void FlowOverview();
     void Orbit(double DX,double DY);
     void Pan(double DX,double DY);
     void Zoom(double Amount);
@@ -105,6 +107,7 @@ private:
     TOptional<double> CaptureSubmitMs;
     double CapturedBuildMs=0;
     UPROPERTY() TObjectPtr<UProceduralMeshComponent> Mesh;
+    UPROPERTY() TObjectPtr<UProceduralMeshComponent> Backdrop;
     UPROPERTY() TObjectPtr<UStudioVolumeComponent> VolumeComponent;
     UPROPERTY() TObjectPtr<USceneCaptureComponent2D> Capture;
     UPROPERTY() TObjectPtr<UTextureRenderTarget2D> RenderTarget;
@@ -114,6 +117,7 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInterface> ScalarMaterial;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> ScalarInstance;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> InspectionInstance;
+    UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> OriginalSliceInstance;
     TMap<FGuid,FString> GeometrySliceNotices,CapturedSliceNotices;
     UPROPERTY(Transient) TObjectPtr<UTexture2D> ScalarTexture;
     TFuture<TSharedPtr<FStudioGeometry>> PendingGeometry;
@@ -148,6 +152,7 @@ private:
     int32 PreviewRevision=-1,BuildingPreviewRevision=-1;
     bool bFitPreview=true;
     void UpdateGeometryPreview();
+    void UpdateBackdrop();
     void UpdateDomainPreview();
     uint64 CaptureCount=0;
     uint64 CancelledBuildCount=0,DiscardedBuildCount=0;

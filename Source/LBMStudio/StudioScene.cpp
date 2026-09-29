@@ -1,4 +1,5 @@
 #include "StudioScene.h"
+#include "StudioFlowPresentation.h"
 #include "StudioWorkspace.h"
 #include "StudioPointRecording.h"
 #include "StudioOrientation.h"
@@ -38,7 +39,7 @@ struct FStudioSection
     TArray<int32> Indices;
     TArray<FLinearColor> Colors;
     TArray<FVector> Normals;
-    TArray<FVector2D> UVs;
+    TArray<FVector2D> UVs,VelocityUVs;
     void Triangle(const FVector& A,const FVector& B,const FVector& C,const FLinearColor& Color)
     {
         const int32 N=Vertices.Num(); Vertices.Append({A,B,C}); Colors.Append({Color,Color,Color}); Indices.Append({N,N+1,N+2});
@@ -61,6 +62,7 @@ struct FStudioSection
 struct FStudioGeometry
 {
     FStudioSection Sections[10];
+    bool bOriginalSlice=false;
     TMap<FGuid,FString> SliceNotices;
     TSet<FGuid> RenderedSlices;
     TArray<float> SurfaceScalars;
@@ -334,19 +336,22 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
         const FVector A(P.X*100.,SpanMin,P.Y*100.),B(Q.X*100.,SpanMin,Q.Y*100.);
         const FVector C(Q.X*100.,SpanMax,Q.Y*100.),D(P.X*100.,SpanMax,P.Y*100.);
-        Out->Sections[0].Triangle(A,B,C,FLinearColor(.055,.08,.11));
-        Out->Sections[0].Triangle(A,C,D,FLinearColor(.055,.08,.11));
+        const FVector Normal=FVector::CrossProduct(B-A,D-A).GetSafeNormal();
+        const double Shade=.65+.35*FMath::Abs(FVector::DotProduct(Normal,FVector(.25,.4,1).GetSafeNormal()));
+        const FLinearColor Solid=FLinearColor(.015,.027,.04)*Shade;
+        Out->Sections[0].Triangle(A,B,C,Solid);
+        Out->Sections[0].Triangle(A,C,D,Solid);
         for(double Y:{SpanMin,SpanMax})
         {
             const FVector U(P.X*100.,Y,P.Y*100.),V(Q.X*100.,Y,Q.Y*100.);
-            Out->Sections[5].Tube(U,V,Stroke*.000875,FLinearColor(.38,.49,.58));
+            Out->Sections[5].Tube(U,V,Stroke*.000875,FLinearColor(.2,.3,.4));
         }
     }
     for(double Y:{SpanMin,SpanMax})for(const auto& T:Field.BoundaryTriangles())
     {
         if(R.IsCancelled())return {};
         const auto P=Boundary[T.X],Q=Boundary[T.Y],S=Boundary[T.Z];
-        Out->Sections[0].Triangle(FVector(P.X*100.,Y,P.Y*100.),FVector(Q.X*100.,Y,Q.Y*100.),FVector(S.X*100.,Y,S.Y*100.),FLinearColor(.065,.085,.11));
+        Out->Sections[0].Triangle(FVector(P.X*100.,Y,P.Y*100.),FVector(Q.X*100.,Y,Q.Y*100.),FVector(S.X*100.,Y,S.Y*100.),FLinearColor(.012,.024,.036));
     }
     auto Plane=[&](int32 Section,int32 Axis,double Position,double Alpha)
     {
@@ -365,7 +370,16 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         { const int32 N=Base+J*(NX+1)+I; Out->Sections[Section].Indices.Append({N,N+1,N+NX+2,N,N+NX+2,N+NX+1}); }
     };
     if(!MeshOnly&&R.Volume) for(double T:{.225,.3625,.6375,.775}) Plane(1,1,FMath::Lerp(Bounds.Min.Y,Bounds.Max.Y,T),R.Opacity*0.12);
-    if(!MeshOnly&&R.CutPlane&&R.SlicePosition>=Bounds.Min[R.SliceAxis]&&R.SlicePosition<=Bounds.Max[R.SliceAxis]) Plane(2,R.SliceAxis,R.SlicePosition,0.28);
+    if(!MeshOnly&&R.CutPlane&&R.SlicePosition>=Bounds.Min[R.SliceAxis]&&R.SlicePosition<=Bounds.Max[R.SliceAxis])
+    {
+        if(R.SliceAxis==1&&Field.OriginalTriangleCount()>0&&Field.OriginalTriangleCount()<=131072)
+        {
+            auto Slice=StudioFlowPresentation::OriginalSlice(Field,Bounds,R.SlicePosition,R.ColorMapping,R.Scalar.Id,R.Cancellation);
+            auto& S=Out->Sections[2];S.Vertices=MoveTemp(Slice.Positions);S.UVs=MoveTemp(Slice.ScalarOpacity);S.Indices=MoveTemp(Slice.Indices);S.VelocityUVs=MoveTemp(Slice.Velocity);
+            Out->bOriginalSlice=true;
+        }
+        else Plane(2,R.SliceAxis,R.SlicePosition,0.28);
+    }
     if(R.Vectors)
     {
         const auto Positions=StudioFieldDisplay::VectorGrid(Bounds,R.VolumeSettings.VectorCount);
@@ -403,8 +417,11 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                     if(R.IsCancelled())return {};
                     const FVector A=Path.PositionsMeters[I-1],B=Path.PositionsMeters[I],Delta=B-A;
                     const FVector Direction=Delta/Delta.Size();
-                    Out->Sections[3].Tube(A*100.,B*100.,Stream.WidthMeters*50.,
-                        StudioColor::Map(Path.Scalars[I-1],R.ColorMapping),&Direction);
+                    auto& S=Out->Sections[3];const int32 First=S.Vertices.Num();
+                    const auto StartColor=StudioColor::Map(Path.Scalars[I-1],R.ColorMapping),EndColor=StudioColor::Map(Path.Scalars[I],R.ColorMapping);
+                    S.Tube(A*100.,B*100.,Stream.WidthMeters*50.,StartColor,&Direction);
+                    // Continuous endpoint color along each unchanged integration segment.
+                    for(int32 V=First;V<S.Vertices.Num();++V)if((V-First)%6==1||(V-First)%6==2||(V-First)%6==4)S.Colors[V]=EndColor;
                 }
             }
             if(!Summary.Lines)Summary.Notice=Summary.Seeds?TEXT("No traces at these seeds. Check coverage, source plane and recorded velocity."):
@@ -413,7 +430,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
     }
     if(R.IsCancelled())return {};
     FVector Corners[8]; for(int32 I=0;I<8;++I) Corners[I]=FVector(I&1?Bounds.Max.X:Bounds.Min.X,I&2?Bounds.Max.Y:Bounds.Min.Y,I&4?Bounds.Max.Z:Bounds.Min.Z)*100.;
-    for(int32 I=0;I<8;++I) for(int32 Bit=0;Bit<3;++Bit) if(!(I&(1<<Bit))) Out->Sections[5].Tube(Corners[I],Corners[I|(1<<Bit)],Stroke*.0008125,FLinearColor(0.13,0.20,0.27));
+    for(int32 I=0;I<8;++I) for(int32 Bit=0;Bit<3;++Bit) if(!(I&(1<<Bit))) Out->Sections[5].Tube(Corners[I],Corners[I|(1<<Bit)],Stroke*.0013,FLinearColor(0.075,0.12,0.17));
     if(R.Mesh)
     {
         for(int32 I=0;I<=32;++I) { const double X=Bounds.Min.X+Size.X*I/32.; Out->Sections[6].Tube(FVector(X,Bounds.Min.Y,Bounds.Min.Z)*100.,FVector(X,Bounds.Max.Y,Bounds.Min.Z)*100.,Stroke*.000375,FLinearColor(0.05,0.13,0.17)); }
@@ -446,6 +463,8 @@ AStudioScene::AStudioScene()
     PrimaryActorTick.bCanEverTick=true;
     Mesh=CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("FlowScene")); SetRootComponent(Mesh);
     Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision); Mesh->SetCastShadow(false);
+    Backdrop=CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("ViewportBackdrop"));
+    Backdrop->SetupAttachment(RootComponent);Backdrop->SetCollisionEnabled(ECollisionEnabled::NoCollision);Backdrop->SetCastShadow(false);
     VolumeComponent=CreateDefaultSubobject<UStudioVolumeComponent>(TEXT("ScientificVolume"));
     VolumeComponent->SetupAttachment(RootComponent);VolumeComponent->SetVisibility(false);
     Capture=CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("ViewportCamera"));
@@ -472,10 +491,11 @@ void AStudioScene::Initialize(TSharedRef<FStudioModel> InModel)
     Mesh->SetMaterial(7,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_FlowIsosurface.M_FlowIsosurface")));
     if(ScalarMaterial)ScalarInstance=UMaterialInstanceDynamic::Create(ScalarMaterial,this);
     if(auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_InspectionScalar.M_InspectionScalar")))
-        InspectionInstance=UMaterialInstanceDynamic::Create(Material,this);
+        {InspectionInstance=UMaterialInstanceDynamic::Create(Material,this);OriginalSliceInstance=UMaterialInstanceDynamic::Create(Material,this);}
     RenderTarget=NewObject<UTextureRenderTarget2D>(this);
     RenderTarget->ClearColor=FLinearColor(0.003,0.009,0.016,1);
     RenderTarget->InitCustomFormat(1280,720,PF_B8G8R8A8,false); RenderTarget->UpdateResourceImmediate(true);
+    Backdrop->SetMaterial(0,OpaqueMaterial);
     Capture->TextureTarget=RenderTarget; Capture->ShowOnlyActorComponents(this);
     const bool bWasDirty=Model->HasUnsavedChanges();
     ApplyCamera(Model->Project.Camera);
@@ -501,6 +521,32 @@ void AStudioScene::FitCamera()
     RestoreCamera(StudioView::FitBounds(SavedCameraState(),Bounds,
         double(RenderTarget->SizeX)/RenderTarget->SizeY,
         (Capture->bOverride_CustomNearClippingPlane?Capture->CustomNearClippingPlane:GNearClippingPlane)/100.),TEXT("Fit camera"));
+}
+void AStudioScene::FlowOverview()
+{
+    if(!HasCurrentFrame()||!CapturedField||FrozenPipelineOutput||Model->IsSnapshotView())return;
+    FStudioInspectionState Next;
+    if(!StudioFlowPresentation::Overview(*CapturedField,RenderedFlowBounds,CapturedScalar.Id,
+        double(RenderTarget->SizeX)/RenderTarget->SizeY,Model->InspectionState(),Next))
+    {Model->Notice=TEXT("This field does not support a flow overview. Use the camera and Display controls.");return;}
+    Model->EndViewEdit();
+    Model->EditView(TEXT("Flow overview"),[&](auto& State){State=Next;});ApplyCamera(Next.Camera);
+    Model->Notice=TEXT("Flow overview · custom range from the displayed field · Undo view restores the previous view.");
+}
+void AStudioScene::UpdateBackdrop()
+{
+    if(!Backdrop||!Model)return;
+    const bool Show=!bGeometryView&&!FrozenPipelineOutput&&!Model->Solver->Descriptor().bSourcePoints&&!bCameraDepthClipping;
+    Backdrop->SetVisibility(Show);if(!Show)return;
+    const auto& B=Model->Solver->Descriptor().DisplayBounds;const auto C=CameraState();
+    const double Depth=FMath::Max(1.,(C.Position-B.GetCenter()).Size()+B.GetExtent().Size()*2.)*100.;
+    const FVector Forward=C.Orientation.GetForwardVector(),Right=C.Orientation.GetRightVector(),Up=C.Orientation.GetUpVector();
+    const double Width=C.bOrthographic?C.OrthoWidth*60.:Depth*FMath::Tan(FMath::DegreesToRadians(C.FieldOfView*.5))*1.2;
+    const double Height=Width*RenderTarget->SizeY/RenderTarget->SizeX;
+    const FVector Center=C.Position*100.+Forward*Depth;
+    TArray<FVector> P={Center-Right*Width-Up*Height,Center+Right*Width-Up*Height,Center+Right*Width+Up*Height,Center-Right*Width+Up*Height};
+    TArray<FLinearColor> Colors={FLinearColor(.001,.004,.01),FLinearColor(.001,.004,.01),FLinearColor(.0015,.008,.016),FLinearColor(.0015,.008,.016)};
+    Backdrop->CreateMeshSection_LinearColor(0,P,{0,1,2,0,2,3},{},{},Colors,{},false,false);
 }
 void AStudioScene::Orbit(double DX,double DY)
 {
@@ -607,7 +653,7 @@ void AStudioScene::UpdateProjection()
 }
 void AStudioScene::ResizeViewport(int32 W,int32 H)
 {
-    W=FMath::Clamp(W,320,1920); H=FMath::Clamp(H,240,1200);
+    W=FMath::Clamp(W,320,3840); H=FMath::Clamp(H,240,2400);
     if(RenderTarget&&(FMath::Abs(RenderTarget->SizeX-W)>8||FMath::Abs(RenderTarget->SizeY-H)>8))
     { RenderTarget->ResizeTarget(W,H);UpdateProjection();bCaptureDirty=true; }
 }
@@ -705,12 +751,18 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
         if(ScalarInstance)ScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
         ScalarTexture=nullptr;
     }
-    if(InspectionInstance)
+    for(auto* Instance:{InspectionInstance.Get(),OriginalSliceInstance.Get()})if(Instance)
     {
-        InspectionInstance->SetScalarParameterValue(TEXT("Palette"),G.ColorMapping.Palette);
-        InspectionInstance->SetVectorParameterValue(TEXT("LowColor"),G.ColorMapping.LowColor);
-        InspectionInstance->SetVectorParameterValue(TEXT("MiddleColor"),G.ColorMapping.MiddleColor);
-        InspectionInstance->SetVectorParameterValue(TEXT("HighColor"),G.ColorMapping.HighColor);
+        Instance->SetScalarParameterValue(TEXT("Palette"),G.ColorMapping.Palette);
+        Instance->SetVectorParameterValue(TEXT("LowColor"),G.ColorMapping.LowColor);
+        Instance->SetVectorParameterValue(TEXT("MiddleColor"),G.ColorMapping.MiddleColor);
+        Instance->SetVectorParameterValue(TEXT("HighColor"),G.ColorMapping.HighColor);
+    }
+    if(OriginalSliceInstance)
+    {
+        OriginalSliceInstance->SetScalarParameterValue(TEXT("UseVelocity"),G.Scalar.Id==TEXT("velocity_magnitude")?1:0);
+        OriginalSliceInstance->SetScalarParameterValue(TEXT("RangeMinimum"),G.ColorMapping.Minimum);
+        OriginalSliceInstance->SetScalarParameterValue(TEXT("RangeSpan"),G.ColorMapping.Maximum-G.ColorMapping.Minimum);
     }
     GeometrySliceNotices=G.SliceNotices;
     if(!InspectionInstance)
@@ -718,11 +770,11 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
             GeometrySliceNotices.Add(Id,TEXT("Slice rendering is unavailable. Repair or reinstall the application to restore its rendering assets."));
     for(int32 I=0;I<10;++I)
     {
-        if(I==8&&!InspectionInstance){Mesh->ClearMeshSection(I);continue;}
+        if((I==8||(I==2&&G.bOriginalSlice))&&!InspectionInstance){Mesh->ClearMeshSection(I);continue;}
         const auto& S=G.Sections[I]; if(S.Vertices.IsEmpty()) { Mesh->ClearMeshSection(I); continue; }
         TArray<FVector> Normals=S.Normals;if(Normals.IsEmpty())Normals.Init(FVector::UpVector,S.Vertices.Num());
-        Mesh->CreateMeshSection_LinearColor(I,S.Vertices,S.Indices,Normals,S.UVs,S.Colors,TArray<FProcMeshTangent>(),false,false);
-        if(I!=7)Mesh->SetMaterial(I,I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():I==2&&bSurface?ScalarInstance.Get():(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
+        Mesh->CreateMeshSection_LinearColor(I,S.Vertices,S.Indices,Normals,S.UVs,S.VelocityUVs,{},{},S.Colors,TArray<FProcMeshTangent>(),false,false);
+        if(I!=7)Mesh->SetMaterial(I,I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?ScalarInstance.Get():(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
     }
     RenderMilliseconds=G.BuildMs;
     if(!G.Dataset.IsEmpty())RenderedFlowBounds=G.Bounds;
@@ -790,8 +842,8 @@ FStudioSceneResourceStats AStudioScene::ResourceStats() const
     if(RenderTarget)Stats.RenderTargetBytes=RenderTarget->GetResourceSizeBytes(EResourceSizeMode::Exclusive);
     if(ScalarTexture)Stats.ScalarTextureBytes=ScalarTexture->GetResourceSizeBytes(EResourceSizeMode::Exclusive);
     if(VolumeComponent)Stats.ScalarTextureBytes+=VolumeComponent->TextureBytes();
-    if(Mesh)for(int32 I=0;I<Mesh->GetNumSections();++I)
-        if(const auto* S=Mesh->GetProcMeshSection(I);S&&!S->ProcVertexBuffer.IsEmpty())
+    for(auto* Component:{Mesh.Get(),Backdrop.Get()})if(Component)for(int32 I=0;I<Component->GetNumSections();++I)
+        if(const auto* S=Component->GetProcMeshSection(I);S&&!S->ProcVertexBuffer.IsEmpty())
         {
             ++Stats.Sections;Stats.Vertices+=S->ProcVertexBuffer.Num();Stats.Indices+=S->ProcIndexBuffer.Num();
             Stats.MeshBytes+=S->ProcVertexBuffer.GetAllocatedSize()+S->ProcIndexBuffer.GetAllocatedSize();
@@ -813,6 +865,7 @@ void AStudioScene::CaptureIfChanged()
     // CaptureScene flushes deferred component changes before rendering. Deferred
     // captures depend on a main world view, which this Slate application omits.
     const double CaptureStart=FPlatformTime::Seconds();
+    UpdateBackdrop();
     Capture->CaptureScene();
     CaptureSubmitMs=(FPlatformTime::Seconds()-CaptureStart)*1000.;
     CapturedBuildMs=RenderMilliseconds;
@@ -839,7 +892,7 @@ void AStudioScene::EndPlay(const EEndPlayReason::Type Reason)
     // their pinned original arrays as soon as the scene is destroyed.
     if(Model&&Model->IsSnapshotView())
     {
-        Mesh->ClearAllMeshSections();VolumeComponent->ClearVolume(true);
+        Mesh->ClearAllMeshSections();Backdrop->ClearAllMeshSections();VolumeComponent->ClearVolume(true);
         if(ScalarInstance)ScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
         if(ScalarTexture){ScalarTexture->ReleaseResource();ScalarTexture=nullptr;}
         Capture->TextureTarget=nullptr;

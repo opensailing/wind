@@ -121,12 +121,22 @@ slice_color = edit.create_material_expression(material, unreal.MaterialExpressio
 slice_color.set_editor_property('description', 'Interpolate sampled scalar before color mapping')
 slice_color.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
 inputs = []
-for name in ('Scalar', 'Palette', 'LowColor', 'MiddleColor', 'HighColor'):
+for name in ('Scalar', 'Palette', 'LowColor', 'MiddleColor', 'HighColor', 'Velocity', 'UseVelocity', 'RangeMinimum', 'RangeSpan'):
     item = unreal.CustomInput()
     item.set_editor_property('input_name', name)
     inputs.append(item)
 slice_color.set_editor_property('inputs', inputs)
-slice_color.set_editor_property('code', slice_code)
+slice_color.set_editor_property('code', '''
+if (UseVelocity > .5) Scalar = RangeSpan > 0 ? (length(Velocity) - RangeMinimum) / RangeSpan : .5;
+''' + slice_code)
+velocity_uv = edit.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate)
+velocity_uv.set_editor_property('coordinate_index', 1)
+assert edit.connect_material_expressions(velocity_uv, '', slice_color, 'Velocity')
+for name, value in {'UseVelocity': 0, 'RangeMinimum': 0, 'RangeSpan': 1}.items():
+    param = edit.create_material_expression(material, unreal.MaterialExpressionScalarParameter)
+    param.set_editor_property('parameter_name', name)
+    param.set_editor_property('default_value', value)
+    assert edit.connect_material_expressions(param, '', slice_color, name)
 assert edit.connect_material_expressions(scalar, '', slice_color, 'Scalar')
 palette = edit.create_material_expression(material, unreal.MaterialExpressionScalarParameter)
 palette.set_editor_property('parameter_name', 'Palette')
