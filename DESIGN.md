@@ -909,6 +909,18 @@ Solver job values come only from the separate `StudioJobTelemetry` view, with pr
 
 Source authority is `StudioPerformance.h/.cpp`, `SStudioPerformancePanel.h/.cpp`, the timing/resource hooks in `StudioScene.h/.cpp`, and the root sampler/inspector ownership in `StudioWorkspace.cpp`. `Tools/test-performance.sh [width height]` runs the packaged `ScientificAcceptance.PerformanceUI.MeasurePauseCameraAndRestore` case. The recorded evidence and input/replay limits in Overview bound its acceptance; existing portable snippets do not simulate native performance measurements.
 
+### Flow overview and movable viewport panels
+
+The Solve viewport retains the incumbent navy palette and native Slate controls. Flow overview fits the complete displayed domain, simplifies the airfoil view to its original-mesh slice plus integrated streamlines, and applies a clearly labeled custom scalar range. Original visible nodes determine the range with 15% padding and a deterministic 50,000-node sampling limit. Speed is derived after interpolation of original velocity components in the pixel shader, matching field probes. Source data, topology, exports, selected frame and the existing palette stay intact. The operation belongs to view history; saved cameras remain freely editable.
+
+The airfoil slice uses its exact original 2D triangles, clipped to the display bounds, at 0.18 opacity; sources above 131,072 triangles retain bounded grid sampling. Streamline endpoint colors follow their actual samples. A camera-aligned navy backdrop and subdued domain edges establish depth without lighting scalar colors. Solve captures at twice its Slate dimensions, capped at 3840 × 2400; captures remain on demand. This is a presentation of published 2D CFD, not newly simulated spanwise flow or the mockup's illustrated wake.
+
+Playback, Tools, Axes, Color scale and View are independent floating panels. Compact title handles drag; minus hides the body and plus restores it. Clicking raises the panel. Arrow keys move a focused handle by 10 Slate units, or 1 with Shift. Escape and capture loss cancel a tentative drag. The View body owns contextual Fly/Inspect/placement hints. The small-window Tools rail uses icons with tooltips so the lower-left legend remains clear.
+
+Positions use fractions of available panel travel and clamp to the viewport during resize, minimize and restore. Only committed positions enter `StudioSession.json`; these preferences stay outside project serialization and view history and do not invalidate CFD rendering. Display's Reset panels restores all default positions and open bodies. Inspection-label layout reserves actual panel rectangles, not the transparent floating layer.
+
+Source authority: `StudioFlowPresentation`, `SStudioFloatingLayer`, `StudioFloatingPanes`, `StudioScene`, the Solve center in `StudioWorkspace`, and `StudioModel` session serialization. Model and packaged tests cover range/source isolation, original-scalar transport, view undo/save, pointer minimize, keyboard restore, dragging and clamping, canceled drag persistence, reset, and camera/frame isolation. The supplied dataset determines the flow's shape and color distribution; screenshot fidelity does not authorize invented CFD values.
+
 ## Do's and Don'ts
 
 ### Do:

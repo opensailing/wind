@@ -49,11 +49,15 @@ The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexp
 | Browse local projects | Projects in the sidebar; filter recent files, favorite, duplicate or remove from recents |
 | Project overview | Dashboard shows the active source and saved-run count; Open Solve returns to the retained scene and camera |
 | More viewport space | Collapse/expand at the bottom of the sidebar |
+| Flow overview | View panel → Flow overview: frame the domain, simplify layers and freeze a custom color range from visible source nodes; Undo view restores the previous settings |
+| Move floating panels | Drag the title of Playback, Tools, Axes, Color scale or View; click a panel to bring it forward |
+| Minimize / restore panels | Click **−** / **+**; minimized titles remain draggable. Display inspector → **Reset panels** restores the default layout |
+| Precise panel placement | Focus a title: arrow keys move 10 Slate units; Shift + arrow moves 1. Escape cancels a drag |
 | Choose or import recordings | Results → Recordings → filter included/external sources or Import recording…; choose a folder containing `recording.json` and its referenced arrays (v3), or `flow.bin` plus `recording.json` (v2) |
-| Field colors | Floating Display panel → settings beside the scalar → palette and source/custom range; Apply range commits bounds |
-| Choose point-source fields | Floating Display panel → scalar selector; source points, point size and supplied vectors have independent controls |
+| Field colors | Solve inspector → Display → settings beside the scalar → palette and source/custom range; Apply range commits bounds |
+| Choose point-source fields | Solve inspector → Display → scalar selector; source points, point size and supplied vectors have independent controls |
 | Attach a reconstructed surface | Solve inspector → Setup → Recorded dataset → Surface reconstruction… → Import surface…; choose a verified reconstruction folder |
-| Switch surface/points | Floating Display panel → Reconstructed surface; original-point controls return when it is unchecked |
+| Switch surface/points | Solve inspector → Display → Reconstructed surface; original-point controls return when it is unchecked |
 | Repair a moved recording | Results → Recordings → Locate… beside the external source, or Locate recording… after a project-open failure; original source hashes must match |
 | Review recorded frames | Timeline; Follow replay selects the latest played snapshot |
 | Inspect an exact recording frame | Results → Frame (one-based) → Inspect in Solve; Follow playback restores the playback cursor |
@@ -226,6 +230,12 @@ The audit uses Python's CSV parser and direct original binary arrays through the
 `Tools/import_airfoil_sample.py` verifies source SHA-256 hashes and TFRecord CRC32C checksums before conversion. The paper defines the Airfoil state as momentum and density, and its visualization footnote divides momentum by density; accordingly, the source vector under the generic key `velocity` is divided by density. Pressure and density remain unchanged. Float32 storage preserves source precision. Original mesh connectivity is retained for barycentric spatial interpolation.
 
 The exact source airfoil boundary and 2D field are extruded into a 3D view. Source `(x,y)` maps to scene `(X=x−0.5, Z=y)`; scene Y has no spanwise CFD variation. Each recording descriptor defines the viewing box; the bundled box is a crop of the larger computational domain. Fit frames that box while preserving orientation, and source switching retains the current camera. A saved slice outside new bounds remains explicit instead of being silently moved. Streamlines integrate the recorded velocity field. The default speed range is 0–400 m/s across all snapshots; per-source/field palette and range settings can override the display mapping. Camera and visualization controls do not change the CFD data. The prior three-frame SU2 tutorial sample is retained separately but is no longer the active or packaged fixture.
+
+### Flow presentation and movable panels
+
+Flow overview uses the published airfoil boundary and field: original triangles define the slice, and the shader interpolates velocity components before deriving speed, matching probes. The custom range samples visible original nodes (up to 50,000 with a deterministic stride), adds 15% range padding, and remains fixed during playback. Values outside that range use its endpoint colors; original values and exports are unchanged. The previous palette is retained. Other recordings keep their own display controls. Full-domain framing, thinner continuous-color streamlines, a subdued slice, dark backdrop and bounded double-resolution capture make the scene easier to inspect. The view is one undoable change and remains freely orbitable or flyable.
+
+The five floating panels stay within the viewport as its size changes. Positions and minimized states save automatically as application preferences; panel gestures do not change the camera, selected frame, project document or CFD geometry. Escape or lost mouse capture discards an unfinished drag. Contextual camera/inspection help moves with the View panel. At smaller window heights, Tools uses compact icons with tooltips.
 
 ## Architecture
 
