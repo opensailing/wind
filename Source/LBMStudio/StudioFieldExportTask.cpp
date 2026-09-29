@@ -1,5 +1,6 @@
 #include "StudioFieldExportTask.h"
 #include "StudioCSVExport.h"
+#include "StudioPipelineExport.h"
 #include "StudioFileDialog.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
@@ -17,8 +18,21 @@ bool FStudioFieldExportTask::Start(FStudioFieldExportRequest Request,const FStri
 {
     if(bShutdown||Pending.IsValid()||!Request.Field||Path.IsEmpty()||
         (Request.Format!=EStudioFieldExportFormat::VTK&&Request.Format!=EStudioFieldExportFormat::CSV))return false;
+    return StartWriter([Request=MoveTemp(Request)](FArchive& Archive,const FStudioLoadCancellation& Cancellation,TFunction<void(int64,int64)> Progress)
+    {return Request.Format==EStudioFieldExportFormat::CSV?StudioCSVExport::Write(Request,Archive,Cancellation,MoveTemp(Progress)):
+        StudioVTKExport::Write(Request,Archive,Cancellation,MoveTemp(Progress));},Path);
+}
+bool FStudioFieldExportTask::Start(FStudioPipelineExportRequest Request,const FString& Path)
+{
+    if(bShutdown||Pending.IsValid()||!Request.Evaluation.Output||Path.IsEmpty()||
+        (Request.Format!=EStudioFieldExportFormat::VTK&&Request.Format!=EStudioFieldExportFormat::CSV))return false;
+    return StartWriter([Request=MoveTemp(Request)](FArchive& Archive,const FStudioLoadCancellation& Cancellation,TFunction<void(int64,int64)> Progress)
+    {return StudioPipelineExport::Write(Request,Archive,Cancellation,MoveTemp(Progress));},Path);
+}
+bool FStudioFieldExportTask::StartWriter(FWriter Writer,const FString& Path)
+{
     Work=MakeShared<FStudioFieldExportWork,ESPMode::ThreadSafe>();
-    Pending=Async(EAsyncExecution::ThreadPool,[Request=MoveTemp(Request),Path,State=Work
+    Pending=Async(EAsyncExecution::ThreadPool,[Writer=MoveTemp(Writer),Path,State=Work
 #if WITH_DEV_AUTOMATION_TESTS
         ,BeforePublish=MoveTemp(BeforePublishForAutomation)
 #endif
@@ -27,7 +41,7 @@ bool FStudioFieldExportTask::Start(FStudioFieldExportRequest Request,const FStri
         const FString Directory=FPaths::ProjectSavedDir()/TEXT("ExportStaging");
         const FString Staged=Directory/(FGuid::NewGuid().ToString(EGuidFormats::Digits)+TEXT(".field.partial"));
         FStudioFieldExportResult Result;Result.Path=Path;
-        ON_SCOPE_EXIT{IFileManager::Get().Delete(*Staged,false,true);Request.Field.Reset();};
+        ON_SCOPE_EXIT{IFileManager::Get().Delete(*Staged,false,true);Writer=nullptr;};
         auto FinishFailure=[&]()
         {
             auto Expected=EStudioFieldExportState::Writing;
@@ -41,8 +55,7 @@ bool FStudioFieldExportTask::Start(FStudioFieldExportRequest Request,const FStri
         TUniquePtr<FArchive> Archive(IFileManager::Get().CreateFileWriter(*Staged,FILEWRITE_NoReplaceExisting));
         if(!Archive){Result.Error=TEXT("Could not open the field-export staging file. Check free space and application storage access.");return FinishFailure();}
         auto Progress=[State](int64 Done,int64 Total){State->Total.store(Total);State->Completed.store(Done);};
-        Result=Request.Format==EStudioFieldExportFormat::CSV?StudioCSVExport::Write(Request,*Archive,State->Cancellation,Progress):
-            StudioVTKExport::Write(Request,*Archive,State->Cancellation,Progress);Result.Path=Path;
+        Result=Writer(*Archive,State->Cancellation,Progress);Result.Path=Path;
         const bool Closed=Archive->Close()&&!Archive->IsError();Archive.Reset();
         if(!Closed){Result.bSuccess=false;Result.Error=TEXT("Could not close the staged field export. Check free space.");}
         if(!Result.bSuccess)return FinishFailure();

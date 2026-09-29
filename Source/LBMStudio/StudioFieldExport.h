@@ -22,7 +22,9 @@ struct FStudioFieldExportResult
     bool bSuccess=false,bCancelled=false;
     FString Error,Path;
     FStudioFieldIdentity Identity;
-    int32 Points=0,Triangles=0;
+    int32 Points=0,Triangles=0,Lines=0,Rows=0;
+    FGuid PipelineId;
+    FString PipelineName;
     int64 Bytes=0;
 };
 
