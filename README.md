@@ -27,6 +27,10 @@ Commit each completed feature or fix as one logical change, including the tests 
 
 Builds, packaged apps, logs, temporary plans, captures and Python caches stay out of Git. Run Unreal builds and native tests serially through the scripts in `Tools/` so process ownership and cleanup remain controlled.
 
+Keep LBMStudio in the foreground during native UI automation. macOS app deactivation makes Slate dismiss open menus. The Post-Processing, evaluated-export and original-export workflows latch this event and stop with `STUDIO_AUTOMATION_INTERRUPTED`; `run_packaged_suite.py` records it in the manifest's `interruptions` list and rejects the run. Returning focus does not resume the old menu state or retry actions. Once the desktop is available, run the affected suite again.
+
+The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexpected menu closure through `FMacApplication::OnApplicationWillResignActive` and `FSlateApplication::ProcessApplicationActivationEvent`. A deterministic native regression verifies actual menu dismissal and interruption retention across reactivation; 13 runner tests pass. A guarded 1320 × 740 pipeline-export workflow also passes. Interrupted compact/workspace runs remain unaccepted, and earlier untraced missing-menu failures are not retroactively attributed to this cause. Production menu behavior is unchanged.
+
 ## Controls
 
 | Action | Control |
