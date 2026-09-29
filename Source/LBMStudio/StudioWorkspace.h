@@ -13,6 +13,7 @@ class SScrollBox;
 class SButton;
 class SStudioMenuButton;
 class SStudioPerformancePanel;
+class SStudioPipelineWorkspace;
 class FStudioPerformanceHistory;
 class SEditableTextBox;
 class FStudioProbeScheduler;
@@ -49,6 +50,7 @@ private:
     TWeakObjectPtr<AStudioScene> Scene;
     TSharedPtr<FStudioPerformanceHistory> PerformanceHistory;
     TSharedPtr<SStudioPerformancePanel> PerformancePanel;
+    TSharedPtr<SStudioPipelineWorkspace> Pipelines;
     TWeakPtr<SButton> PerformanceButton;
     FGuid PerformanceProject;
     bool bPerformanceOpen=false;

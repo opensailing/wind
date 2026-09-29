@@ -11,6 +11,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "SStudioCommandInput.h"
 #include "SStudioPerformancePanel.h"
 #include "SStudioResultsWorkspace.h"
+#include "SStudioPipelineWorkspace.h"
 #include "StudioFlowViewport.h"
 #include "StudioMenuButton.h"
 #include "StudioScene.h"
@@ -1120,7 +1121,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Navigation()]
             +SHorizontalBox::Slot().FillWidth(1).Padding(7,0,7,0)[SNew(SWidgetSwitcher)
-                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:M->Workspace==EStudioWorkspace::Monitors?8:M->Workspace==EStudioWorkspace::Results?9:0;})
+                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:M->Workspace==EStudioWorkspace::Monitors?8:M->Workspace==EStudioWorkspace::Results?9:M->Workspace==EStudioWorkspace::PostProcessing?10:0;})
                 +SWidgetSwitcher::Slot()[SolveSurface]
                 +SWidgetSwitcher::Slot()[ProjectsSurface]
                 +SWidgetSwitcher::Slot()[DashboardSurface]
@@ -1133,7 +1134,9 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[SNew(SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
-                    .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]]]
+                    .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]
+                +SWidgetSwitcher::Slot()[SAssignNew(Pipelines,SStudioPipelineWorkspace).Model(M).World(Scene->GetWorld())
+                    .OnResults_Lambda([this]{Navigate(EStudioWorkspace::Results);})]]]
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):TEXT("RECORDED CFD");},8,Amber)]
@@ -1387,6 +1390,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
         FSlateApplication::Get().SetKeyboardFocus(PerformancePanel,EFocusCause::Navigation);
         bPerformanceFocusPending=!PerformancePanel->HasKeyboardFocus();
     }
+    if(Pipelines)Pipelines->Synchronize();
     TickInspection();
     FieldExport->Tick(*M);
     if(const auto Result=SnapshotExport->Poll();Result.IsSet())
@@ -1424,6 +1428,7 @@ void SStudioWorkspace::OpenPerformance(bool bOpen)
 }
 void SStudioWorkspace::Navigate(EStudioWorkspace Destination)
 {
+    if(Pipelines)Pipelines->SaveCamera();
     if(M->Navigate(Destination))
     {
         bProjectListsDirty=true;
@@ -3218,6 +3223,7 @@ TSharedRef<SWidget> SStudioWorkspace::ViewHistoryControls()
 }
 bool SStudioWorkspace::Save(bool bSaveAs)
 {
+    if(Pipelines){Pipelines->SaveCamera();if(!Pipelines->EnsureResolved())return false;}
     if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
     FString Path=M->ProjectPath;
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
@@ -3254,6 +3260,7 @@ bool SStudioWorkspace::ExecuteApplicationCommand(EStudioCommand Command,FString&
 }
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
+    if(Pipelines){Pipelines->SaveCamera();if(!Pipelines->EnsureResolved())return false;}
     if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
     if(!M->CanReplaceProject())return false;
     if(!bAllowRecovery&&!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before switching projects.");return false;}
@@ -3276,6 +3283,7 @@ bool SStudioWorkspace::EnsurePlacementResolved()
 }
 bool SStudioWorkspace::CanClose()
 {
+    if(Pipelines)Pipelines->SaveCamera();
     if(!ConfirmReplace(true)) return false;
     M->CancelProjectOpen(false);
     if(M->PendingRecovery.IsEmpty()) M->DiscardRecovery();
@@ -3295,12 +3303,14 @@ bool SStudioWorkspace::OpenProject(const FString& Path,const FString& ReplacedRe
 }
 void SStudioWorkspace::Execute(ECommand Command)
 {
+    if(Pipelines)Pipelines->SaveCamera();
     switch(Command)
     {
     case ECommand::Save: Save(); break;
     case ECommand::SaveAs: Save(true); break;
     case ECommand::DuplicateProject:
     {
+        if(Pipelines&&!Pipelines->EnsureResolved())break;
         if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())break;
         if(!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before duplicating a project.");break;}
         FString Path;

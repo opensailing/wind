@@ -27,12 +27,12 @@ bool FStudioWorkspaceRoutes::RunTest(const FString&)
     for(const auto Workspace:{EStudioWorkspace::Materials,EStudioWorkspace::Domain,EStudioWorkspace::BoundaryConditions,EStudioWorkspace::Meshing})
         TestTrue(TEXT("Implemented authoring route is available"),M.Navigate(Workspace));
     TestTrue(TEXT("Dashboard is a working route"),M.Navigate(EStudioWorkspace::Dashboard));
-    TestFalse(TEXT("Unimplemented routes cannot become active"),M.Navigate(EStudioWorkspace::PostProcessing));
-    TestTrue(TEXT("Rejected destination keeps Dashboard active"),M.Workspace==EStudioWorkspace::Dashboard);
+    TestTrue(TEXT("Post-Processing has an available native workspace"),M.Navigate(EStudioWorkspace::PostProcessing));
+    TestTrue(TEXT("Post-Processing is active"),M.Workspace==EStudioWorkspace::PostProcessing);
     TestEqual(TEXT("Navigation cannot change the project document"),StudioProjectIO::Serialize(M.SnapshotProject()),Before);
     TestEqual(TEXT("Navigation cannot rebuild the CFD field"),M.Revision,Revision);
     M.Tick(.05);
-    TestTrue(TEXT("Playback advances behind Dashboard"),M.PlaybackFrame>0);
+    TestTrue(TEXT("Playback advances behind Post-Processing"),M.PlaybackFrame>0);
     TestEqual(TEXT("Pinned review remains at its frame"),M.SelectedFrame,360);
     TestTrue(TEXT("Returning to Solve uses shared routing"),M.Navigate(EStudioWorkspace::Solve));
     TestEqual(TEXT("Return to Solve keeps camera"),M.Project.Camera.Position,FVector(9,8,7));
