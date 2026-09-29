@@ -3,6 +3,7 @@
 #include "StudioProject.h"
 #include "StudioRecording.h"
 #include "StudioView.h"
+#include "StudioFloatingPanes.h"
 #include "StudioCameraPlacement.h"
 #include "StudioAssets.h"
 #include "StudioMeshImport.h"
@@ -228,6 +229,7 @@ public:
     FString Notice;
     EStudioWorkspace Workspace = EStudioWorkspace::Solve;
     bool bSidebarCollapsed = false;
+    TMap<FName,FStudioFloatingPaneState> FloatingPanes;
     bool bViewportExpanded = false; // Session layout, never case or camera state.
     int32 InspectorTab = 3; // Setup, Physics, BCs, Display; session preference only.
     TArray<FStudioProjectSummary> ProjectCatalog;

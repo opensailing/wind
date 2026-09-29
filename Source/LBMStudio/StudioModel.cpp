@@ -244,6 +244,13 @@ void FStudioModel::SaveSession()
     O->SetBoolField(TEXT("sidebarCollapsed"),bSidebarCollapsed);
     O->SetBoolField(TEXT("viewportExpanded"),bViewportExpanded);
     O->SetNumberField(TEXT("inspectorTab"),InspectorTab);
+    auto Panes=MakeShared<FJsonObject>();
+    for(const auto Name:StudioFloatingPanes::Names())if(const auto* S=FloatingPanes.Find(Name))
+    {
+        auto P=MakeShared<FJsonObject>();P->SetBoolField(TEXT("moved"),S->bMoved);P->SetBoolField(TEXT("minimized"),S->bMinimized);
+        P->SetNumberField(TEXT("x"),S->Position.X);P->SetNumberField(TEXT("y"),S->Position.Y);Panes->SetObjectField(Name.ToString(),P);
+    }
+    O->SetObjectField(TEXT("viewportPanes"),Panes);
     TArray<TSharedPtr<FJsonValue>> Paths;
     for(const auto& P:RecentProjects) Paths.Add(MakeShared<FJsonValueString>(P));
     O->SetArrayField(TEXT("recentProjects"),Paths);
@@ -259,6 +266,15 @@ void FStudioModel::OpenSession()
     {
         O->TryGetBoolField(TEXT("sidebarCollapsed"),bSidebarCollapsed);
         O->TryGetBoolField(TEXT("viewportExpanded"),bViewportExpanded);
+        const TSharedPtr<FJsonObject>* Panes;
+        if(O->TryGetObjectField(TEXT("viewportPanes"),Panes))for(const auto Name:StudioFloatingPanes::Names())
+        {
+            const TSharedPtr<FJsonObject>* P;FStudioFloatingPaneState S;double X,Y;
+            if((*Panes)->TryGetObjectField(Name.ToString(),P)&&(*P)->TryGetNumberField(TEXT("x"),X)&&(*P)->TryGetNumberField(TEXT("y"),Y)&&
+                FMath::IsFinite(X)&&FMath::IsFinite(Y)&&X>=0&&X<=1&&Y>=0&&Y<=1&&
+                (*P)->TryGetBoolField(TEXT("moved"),S.bMoved)&&(*P)->TryGetBoolField(TEXT("minimized"),S.bMinimized))
+            {S.Position=FVector2D(X,Y);FloatingPanes.Add(Name,S);}
+        }
         double Tab=3;
         if(O->TryGetNumberField(TEXT("inspectorTab"),Tab)&&FMath::IsFinite(Tab)&&Tab>=0&&Tab<=3&&Tab==FMath::FloorToDouble(Tab))InspectorTab=int32(Tab);
         const TArray<TSharedPtr<FJsonValue>>* Paths;

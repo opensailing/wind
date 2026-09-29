@@ -13,6 +13,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "SStudioResultsWorkspace.h"
 #include "SStudioPipelineWorkspace.h"
 #include "StudioFlowViewport.h"
+#include "SStudioFloatingLayer.h"
 #include "StudioMenuButton.h"
 #include "StudioScene.h"
 #include "StudioOrientation.h"
@@ -622,17 +623,24 @@ public:
             TArray<FSlateRect> Reserved;
             if(const auto Parent=GetParentWidget())
             {
-                auto* Children=Parent->GetChildren();
-                for(int32 I=0;I<Children->Num();++I)
+                TFunction<void(TSharedRef<SWidget>,bool)> Reserve;
+                Reserve=[&](TSharedRef<SWidget> W,bool InFloatingLayer)
                 {
-                    const auto W=Children->GetChildAt(I);if(&W.Get()==this||!W->GetVisibility().IsVisible())continue;
-                    // OnPaint receives paint-space geometry; cached/tick
-                    // geometry includes the desktop window offset instead.
-                    const auto& Geometry=W->GetPaintSpaceGeometry();if(Geometry.GetLocalSize().IsNearlyZero())continue;
+                    if(&W.Get()==this||!W->GetVisibility().IsVisible())return;
+                    if(W->GetTag()==TEXT("FloatingViewportPanes")||(InFloatingLayer&&!W->GetTag().ToString().StartsWith(TEXT("FloatingPane_"))))
+                    {
+                        auto* Children=W->GetChildren();
+                        for(int32 I=0;I<Children->Num();++I)Reserve(Children->GetChildAt(I),true);
+                        return;
+                    }
+                    // Reserve actual pane rectangles, never the full transparent layer.
+                    const auto& Geometry=W->GetPaintSpaceGeometry();if(Geometry.GetLocalSize().IsNearlyZero())return;
                     const auto A=G.AbsoluteToLocal(Geometry.LocalToAbsolute(FVector2D::ZeroVector));
                     const auto B=G.AbsoluteToLocal(Geometry.LocalToAbsolute(Geometry.GetLocalSize()));
                     Reserved.Emplace(A.X,A.Y,B.X,B.Y);
-                }
+                };
+                auto* Children=Parent->GetChildren();
+                for(int32 I=0;I<Children->Num();++I)Reserve(Children->GetChildAt(I),false);
             }
             Layer=PaintInspection(*Scene,G,Out,Layer,InspectionMarkers.Get(nullptr),InspectionPlacement.Get(nullptr),MoveTemp(Reserved));
             const auto Output=SnapshotSize.Get(FIntPoint::ZeroValue);
@@ -1444,6 +1452,23 @@ void SStudioWorkspace::LocateProject(const FString& OldPath)
 }
 TSharedRef<SWidget> SStudioWorkspace::Center()
 {
+    auto Floating=SNew(SStudioFloatingLayer).Model(M);
+    Floating->AddPane(TEXT("Status"),TEXT("Playback"),SNew(SBorder).BorderImage(&PanelBrush).Padding(6,3)[SNew(SHorizontalBox)
+                +SHorizontalBox::Slot().AutoWidth()[SNew(SBorder).BorderImage(&RaisedBrush).Padding(10,6)[Live([this]{return TEXT("Replay ")+M->StatusText().ToLower();},10,Green)]]
+                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(18,0)[Live([this]{return Scene->HasPresentedFrame()?FString::Printf(TEXT("Showing frame %d"),Scene->PresentedFrame().Index):TEXT("Loading frame…");},10)]
+                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,18,0)[Live([this]{return Scene->HasPresentedFrame()?FString::Printf(TEXT("%.4f s"),Scene->PresentedFrame().Time):TEXT("");},10)]
+                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
+                [SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Cyan).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+                    .Text_Lambda([this]{return FText::FromString((Scene->HasCurrentFrame()?FString():TEXT("Updating · "))+Scene->PresentedSource());})
+                    .ToolTipText_Lambda([this]{return FText::FromString(Scene->PresentedSource());})]],FVector2D(0,0),FVector2D(4,4),true);
+    Floating->AddPane(TEXT("Tools"),TEXT("Tools"),ViewTools(),FVector2D(0,0),FVector2D(4,70));
+    Floating->AddPane(TEXT("Axes"),TEXT("Axes"),SNew(SOrientationCube).Scene(Scene.Get()).Tag(TEXT("OrientationCube")),FVector2D(1,0),FVector2D(-4,4));
+    Floating->AddPane(TEXT("Legend"),TEXT("Color scale"),ColorLegend(),FVector2D(0,1),FVector2D(4,-6));
+    Floating->AddPane(TEXT("View"),TEXT("View"),SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[SNew(SBorder).Tag(TEXT("InspectionPlacementHint")).Visibility_Lambda([this]{return IsInspectionPlacementCurrent()||bInspectionOpen||Scene->bFreeCamera?EVisibility::Visible:EVisibility::Collapsed;}).BorderImage(&PanelBrush).Padding(10,7)[Live([this]() -> FString
+            {if(IsInspectionPlacementCurrent())return FString::Printf(TEXT("PLACE  ·  Click %c  ·  Right-drag to look  ·  Esc cancels"),TEXT("ABC")[InspectionPlacement->Accepted.Num()]);
+                if(bInspectionOpen)return FString(TEXT("INSPECT  ·  Click a marker or edge  ·  Right-drag to look"));
+                return Scene->bFreeCamera?TEXT("FLY  ·  Drag to look  ·  WASD + Q/E  ·  Shift boost"):TEXT("ORBIT  ·  Drag to rotate  ·  Middle-drag pan  ·  Scroll zoom  ·  F fit");},9,Muted)]]
+        +SVerticalBox::Slot().AutoHeight()[ViewToolbar()],FVector2D(1,1),FVector2D(-4,-6));
     return SNew(SVerticalBox)
     +SVerticalBox::Slot().FillHeight(1)
     [SNew(SBorder).BorderImage(&LineBrush).Padding(1)
@@ -1456,27 +1481,8 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
                 .SnapshotSize_Lambda([this]{return SnapshotButton&&SnapshotButton->IsOpen()?SnapshotOutputSize():FIntPoint::ZeroValue;})
                 .InspectionHover(this,&SStudioWorkspace::InspectionHover)
                 .InspectionClick(this,&SStudioWorkspace::InspectionClick).CancelInspection(this,&SStudioWorkspace::CancelInspectionPlacement)]
-            +SOverlay::Slot().HAlign(HAlign_Fill).VAlign(VAlign_Top).Padding(14,12,126,0)
-            [SNew(SBorder).BorderImage(&PanelBrush).Padding(6,3)[SNew(SHorizontalBox)
-                +SHorizontalBox::Slot().AutoWidth()[SNew(SBorder).BorderImage(&RaisedBrush).Padding(10,6)[Live([this]{return TEXT("Replay ")+M->StatusText().ToLower();},10,Green)]]
-                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(18,0)[Live([this]{return Scene->HasPresentedFrame()?FString::Printf(TEXT("Showing frame %d"),Scene->PresentedFrame().Index):TEXT("Loading frame…");},10)]
-                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,18,0)[Live([this]{return Scene->HasPresentedFrame()?FString::Printf(TEXT("%.4f s"),Scene->PresentedFrame().Time):TEXT("");},10)]
-                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
-                [SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Cyan).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-                    .Text_Lambda([this]{return FText::FromString((Scene->HasCurrentFrame()?FString():TEXT("Updating · "))+Scene->PresentedSource());})
-                    .ToolTipText_Lambda([this]{return FText::FromString(Scene->PresentedSource());})]]]
-            +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top).Padding(12,61)[ViewTools()]
-            +SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(12,12)[SNew(SOrientationCube).Scene(Scene.Get()).Tag(TEXT("OrientationCube"))]
-            +SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(14,0,0,14)
-            [ColorLegend()]
-            +SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Bottom).Padding(0,0,0,12)
-            [SNew(SVerticalBox)
-            +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,0,0,6)
-            [SNew(SBorder).Tag(TEXT("InspectionPlacementHint")).Visibility_Lambda([this]{return IsInspectionPlacementCurrent()||bInspectionOpen||Scene->bFreeCamera?EVisibility::Visible:EVisibility::Collapsed;}).BorderImage(&PanelBrush).Padding(10,7)[Live([this]() -> FString
-            {if(IsInspectionPlacementCurrent())return FString::Printf(TEXT("PLACE  ·  Click %c  ·  Right-drag to look  ·  Esc cancels"),TEXT("ABC")[InspectionPlacement->Accepted.Num()]);
-                if(bInspectionOpen)return FString(TEXT("INSPECT  ·  Click a marker or edge  ·  Right-drag to look"));
-                return Scene->bFreeCamera?TEXT("FLY  ·  Drag to look  ·  WASD + Q/E  ·  Shift boost"):TEXT("ORBIT  ·  Drag to rotate  ·  Middle-drag pan  ·  Scroll zoom  ·  F fit");},9,Muted)]]
-            +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[ViewToolbar()]]]]
+            +SOverlay::Slot()[Floating]
+        ]]
     +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Timeline()]
     +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,3)[SNew(SBox).Visibility_Lambda([this]{return M->bViewportExpanded?EVisibility::Collapsed:EVisibility::Visible;})
         .HeightOverride_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?(M->ResidualHistory()?225.f:195.f):239.f;})[Monitors()]];
@@ -1485,25 +1491,25 @@ TSharedRef<SWidget> SStudioWorkspace::ViewTools()
 {
     auto Items=SNew(SVerticalBox);
     auto Add=[&](const FString& Name,const FString& I,TFunction<void()> Action)
-    { Items->AddSlot().AutoHeight().Padding(0,0,0,3)[SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,7))
+    { Items->AddSlot().AutoHeight().Padding(0,0,0,3)[SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,4))
         .IsEnabled_Lambda([this,Name]{return Name!=TEXT("Slice")||!M->Solver->Descriptor().bSourcePoints||M->Solver->VolumeReconstruction().IsValid();})
         .ToolTipText_Lambda([this,Name]{return FText::FromString(Name==TEXT("Slice")&&M->Solver->Descriptor().bSourcePoints&&!M->Solver->VolumeReconstruction()?TEXT("Slices require an interpolation mesh. This recording supplies points only."):Name);})
         .OnClicked_Lambda([Action]{Action();return FReply::Handled();})
         [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[Icon(I,Muted,16)]
-        +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[Label(Name,8,Muted)]]]; };
+        +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[SNew(SBox).Visibility_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?EVisibility::Collapsed:EVisibility::Visible;})[Label(Name,8,Muted)]]]]; };
     Add(TEXT("Orbit"),TEXT("orbit"),[this]{Scene->SetCameraMode(false);});
     Add(TEXT("Fly"),TEXT("fly"),[this]{Scene->SetCameraMode(true);});
-    Items->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("InspectionTools")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,7))
+    Items->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("InspectionTools")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,4))
         .ToolTipText(FText::FromString(TEXT("Slices, probes and measurements")))
         .OnClicked_Lambda([this]{bInspectionOpen=!bInspectionOpen;if(!bInspectionOpen)CancelInspectionPlacement();return FReply::Handled();})
         [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[Icon(TEXT("select"),Muted,16)]
-        +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[Label(TEXT("Inspect"),8,Muted)]]];
-    Items->AddSlot().AutoHeight()[SNew(SStudioMenuButton).Tag(TEXT("CameraManager")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,7))
+        +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[SNew(SBox).Visibility_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?EVisibility::Collapsed:EVisibility::Visible;})[Label(TEXT("Inspect"),8,Muted)]]]];
+    Items->AddSlot().AutoHeight()[SNew(SStudioMenuButton).Tag(TEXT("CameraManager")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,4))
         .HasDownArrow(false).ToolTipText(FText::FromString(TEXT("Manage saved camera views")))
         .OnGetMenuContent(this,&SStudioWorkspace::CameraMenu)
         .ButtonContent()[SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[Icon(TEXT("camera"),Muted,16)]
-            +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[Label(TEXT("Camera"),8,Muted)]]];
+            +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[SNew(SBox).Visibility_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?EVisibility::Collapsed:EVisibility::Visible;})[Label(TEXT("Camera"),8,Muted)]]]];
     return SNew(SBox).WidthOverride(54)[SNew(SBorder).BorderImage(&PanelBrush).Padding(3)[Items]];
 }
 /*
@@ -1597,7 +1603,11 @@ TSharedRef<SWidget> SStudioWorkspace::DisplayTools()
     Surface->SetToolTipText(FText::FromString(TEXT("Interpolate recorded scalars on the attached derived triangles. Turn off to inspect the original source points. The source remains two-dimensional.")));
     return SNew(SBox).Tag(TEXT("DisplayInspector"))[SNew(SBorder).BorderImage(&PanelBrush).Padding(2,10)
     [SNew(SVerticalBox)
-        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Recorded field display"),10,Text,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[SNew(SHorizontalBox)
+            +SHorizontalBox::Slot().FillWidth(1)[Label(TEXT("Recorded field display"),10,Text,true)]
+            +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("ResetViewportPanes")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,2))
+                .ToolTipText(FText::FromString(TEXT("Restore the default positions and open every viewport panel. The camera and data stay unchanged.")))
+                .OnClicked_Lambda([this]{M->FloatingPanes.Reset();M->SaveSession();return FReply::Handled();})[Label(TEXT("Reset panels"),8,Muted)]]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1)[SNew(SStudioMenuButton).Tag(TEXT("ScalarSelector")).ButtonStyle(&ButtonStyle())
                 .IsEnabled_Lambda([this]{return M->Solver->Descriptor().Scalars.Num()>1;})
@@ -3360,6 +3370,9 @@ FReply SStudioWorkspace::OnKeyDown(const FGeometry& Geometry,const FKeyEvent& Ev
 }
 FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEvent& Event)
 {
+    const auto Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();
+    if(Event.GetKey()==EKeys::Escape&&Focused&&Focused->HasMouseCapture()&&Focused->GetTag().ToString().StartsWith(TEXT("PaneDrag_")))
+        return FReply::Unhandled();
     if(Event.GetKey()==EKeys::Escape&&InspectionPlacement.IsSet()&&!M->bActivityLogExpanded)
     {CancelInspectionPlacement();M->InspectionNotice=TEXT("Placement cancelled. Saved coordinates retained.");return FReply::Unhandled();}
     // Only global shortcuts tunnel ahead of focused controls. The base key
