@@ -87,17 +87,6 @@ public:
             Phase=12; PhaseStarted=Now; break;
         case 12:
             if(InPhase<.3) break;
-            if(InputViewport)
-            {
-                auto& App=FSlateApplication::Get();
-                Test->TestTrue(TEXT("Typing alone leaves the committed camera untouched"),StudioView::CameraEquals(Scene->CameraState(),NumericOriginal));
-                App.ProcessKeyDownEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));
-                Test->TestEqual(TEXT("Enter commits edited numeric position after multiple ticks"),Scene->CameraPosition().X,2.);
-                App.SetKeyboardFocus(InputViewport,EFocusCause::Navigation);
-                Test->TestTrue(TEXT("Numeric commit is undoable"),Scene->Model->UndoView()); Scene->ApplyCamera(Scene->Model->Project.Camera);
-                Test->TestTrue(TEXT("Numeric undo restores full precision"),StudioView::CameraEquals(Scene->CameraState(),NumericOriginal));
-                InputViewport.Reset();
-            }
             Scene->Orbit(90.,20.);
             CameraHash=ReadFrame();
             Test->TestTrue(TEXT("Camera changes render new pixels immediately"),CameraHash!=InitialHash);
@@ -191,12 +180,6 @@ private:
             if(auto Found=FindWidget(Children->GetChildAt(I),Type)) return Found;
         return nullptr;
     }
-    void FindNumericFields(const TSharedRef<SWidget>& Widget,TArray<TSharedRef<SWidget>>& Out)
-    {
-        if(Widget->GetType()==TEXT("SCommittedNumber")) Out.Add(Widget);
-        FChildren* Children=Widget->GetChildren();
-        for(int32 I=0;I<Children->Num();++I) FindNumericFields(Children->GetChildAt(I),Out);
-    }
     void VerifyViewInput()
     {
         const auto Window=GEngine->GameViewport->GetWindow();
@@ -205,13 +188,9 @@ private:
         if(!Viewport) { Test->AddError(TEXT("Flow viewport is unavailable for input acceptance")); return; }
         auto& App=FSlateApplication::Get(); const auto Before=Scene->CameraState();
         const int32 SourceFrame=Scene->Model->SelectedFrame,GeometryRevision=Scene->Model->Revision;
-        const int32 CameraRevision=Scene->Model->CameraRevision;
-        TArray<TSharedRef<SWidget>> Numbers; FindNumericFields(Window.ToSharedRef(),Numbers);
-        Test->TestTrue(TEXT("Numeric camera controls are present"),Numbers.Num()>=9);
-        for(const auto& Number:Numbers)
-        { App.SetKeyboardFocus(Number,EFocusCause::Navigation); App.SetKeyboardFocus(Viewport,EFocusCause::Navigation); }
-        Test->TestTrue(TEXT("Focus traversal preserves exact camera values"),StudioView::CameraEquals(Scene->CameraState(),Before));
-        Test->TestEqual(TEXT("Focus traversal creates no view edits"),Scene->Model->CameraRevision,CameraRevision);
+        // Numeric camera fields now belong to a popover. Their focus, typing,
+        // precision and persistence are covered by Studio.CameraClipping's
+        // routed native acceptance. This soak owns camera gestures and RHI lifetime.
         const auto& Geometry=Viewport->GetCachedGeometry();
         FVector2D Point=Geometry.LocalToAbsolute(Geometry.GetLocalSize()*.4);
         const TSet<FKey> Down={EKeys::LeftMouseButton};
@@ -231,14 +210,6 @@ private:
         Test->TestEqual(TEXT("Camera history does not rebuild fields"),Scene->Model->Revision,GeometryRevision);
         Scene->Model->UndoView(); Scene->ApplyCamera(Scene->Model->Project.Camera);
         ReadFrame();
-        // Keep the typed value across several Slate ticks before committing.
-        // The first numeric field is replay speed; the next is camera X.
-        if(Numbers.Num()>1)
-        {
-            NumericOriginal=Scene->CameraState(); InputViewport=Viewport;
-            App.SetKeyboardFocus(Numbers[1],EFocusCause::Navigation);
-            App.ProcessKeyCharEvent(FCharacterEvent(TEXT('2'),FModifierKeysState(),0,false));
-        }
     }
     void NextPhase(double Now) { ++Phase; PhaseStarted=Now; }
     uint32 ReadFrame()
@@ -256,8 +227,6 @@ private:
         return FCrc::MemCrc32(Pixels.GetData(),Pixels.Num()*sizeof(FColor));
     }
     FAutomationTestBase* Test;
-    TSharedPtr<SWidget> InputViewport;
-    FStudioCameraState NumericOriginal;
     TWeakObjectPtr<AStudioScene> Scene;
     int32 Phase=0;
     bool bResetTestState=false;
