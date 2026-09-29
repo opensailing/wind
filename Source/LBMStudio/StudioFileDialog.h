@@ -15,7 +15,7 @@ namespace StudioFileDialog
     /** CSV destination with purpose-specific native panel copy. */
     bool CSV(const FString& SuggestedName,FString& OutPath,const FString& Title,const FString& Description);
     bool SnapshotPNG(const FString& SuggestedName,FString& OutPath);
-    bool FieldVTK(const FString& SuggestedName,FString& OutPath);
+    bool FieldVTK(const FString& SuggestedName,FString& OutPath,bool bPipeline=false);
     /** Select a parent folder for a new, atomically published frame sequence. */
     bool ExportFolder(FString& OutPath);
 #if WITH_DEV_AUTOMATION_TESTS

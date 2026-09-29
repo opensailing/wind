@@ -27,6 +27,8 @@ public:
     void SaveCamera();
     /** Keep unapplied parameter text visible before a save or project replacement. */
     bool EnsureResolved();
+    /** Freeze completed numerical output for the single root Export owner. */
+    TOptional<FStudioPipelineEvaluationResult> ExportSnapshot(FString& Error);
 private:
     struct FEvaluatedView
     {

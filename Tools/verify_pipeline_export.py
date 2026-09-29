@@ -28,12 +28,22 @@ def exact(a, b):
     assert np.array_equal(a, b), (np.shape(a), np.shape(b))
 
 
-def verify(samples, exported):
+def verify(samples, exported, selected_files=None):
+    # An explicit file list audits routed UI saves without silently accepting
+    # missing files. The default core audit still requires its complete matrix.
+    selected = set(selected_files) if selected_files else None
+    cases = CASES if selected is None else tuple(name for name in CASES if any(
+        filename in selected for filename in (f'{name}-{coordinate}.{ext}'
+        for coordinate in ('source', 'scene') for ext in ('csv', 'vtp'))))
+    if selected is not None:
+        assert len(selected) == len(selected_files) and selected
+        assert selected <= {f'{name}-{coordinate}.{ext}' for name in cases
+                            for coordinate in ('source', 'scene') for ext in ('csv', 'vtp')}
     originals = {False: Original(samples, False), True: Original(samples, True)}
     sources = {name: source_rows(samples / name, 1) for name in
                ('NACA0018_ReaderFixture', 'Cylinder3D_ReaderFixture', 'MeshGraphNets_Airfoil')}
     results, scientific = [], []
-    for name in CASES:
+    for name in cases:
         truth = json.loads((exported / f'{name}.json').read_text())
         vertices = np.fromfile(exported / f'{name}-vertices.f64', '<f8').reshape(-1, 4)
         identity = np.fromfile(exported / f'{name}-identity.i64', '<i8').reshape(-1, 2)
@@ -86,6 +96,8 @@ def verify(samples, exported):
                 expected_points[valid_ids] = original['points'][rows]
             for ext in (('csv',) if truth['probe'] else ('csv', 'vtp')):
                 path = exported / f'{name}-{suffix}.{ext}'
+                if selected is not None and path.name not in selected:
+                    continue
                 if ext == 'vtp':
                     events = []
                     reader = vtk.vtkXMLPolyDataReader()
@@ -153,6 +165,8 @@ def verify(samples, exported):
                 if field != 'pressure': assert meta['scalar_origin'] == 'pipeline-derived' and 'magnitude' in meta['scalar_expression']
                 results.append({'file': path.name, 'sha256': digest(path), 'vertices': len(vertices), 'probe_rows': len(truth['probe']),
                                 'triangles': len(triangles) if ext == 'vtp' else 0, 'segments': len(lines) if ext == 'vtp' else 0})
+    if selected is not None:
+        assert {item['file'] for item in results} == selected
     return {'vtk_version': vtk.vtkVersion.GetVTKVersion(), 'files': results, 'scientific_checks': scientific,
             'verifier_sha256': digest(__file__), 'serialized_numbers_exact': True,
             'scope': 'Pipeline file encoding and independent scientific readback; no visible UI, native picker or long-session acceptance.'}
@@ -163,8 +177,9 @@ if __name__ == '__main__':
     parser.add_argument('samples', type=Path)
     parser.add_argument('exported', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--files', nargs='+', help='Explicit required subset of native UI output filenames')
     args = parser.parse_args()
-    report = verify(args.samples, args.exported)
+    report = verify(args.samples, args.exported, args.files)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps({'files': len(report['files']), 'vtk_version': report['vtk_version'], 'serialized_numbers_exact': True}, indent=2))

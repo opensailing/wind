@@ -1135,7 +1135,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
                     .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]
-                +SWidgetSwitcher::Slot()[SAssignNew(Pipelines,SStudioPipelineWorkspace).Model(M).World(Scene->GetWorld())
+                +SWidgetSwitcher::Slot()[SAssignNew(Pipelines,SStudioPipelineWorkspace).Tag(TEXT("PipelineWorkspace")).Model(M).World(Scene->GetWorld())
                     .OnResults_Lambda([this]{Navigate(EStudioWorkspace::Results);})]]]
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
@@ -3366,6 +3366,11 @@ FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEv
 }
 TSharedRef<SWidget> SStudioWorkspace::ExportMenu()
 {
+    if(M->Workspace==EStudioWorkspace::PostProcessing&&!FieldExport->IsBusy())
+    {
+        FString Error;auto Frozen=Pipelines->ExportSnapshot(Error);
+        return FieldExport->Menu(M.ToSharedRef(),nullptr,true,MoveTemp(Frozen),Error);
+    }
     return FieldExport->Menu(M.ToSharedRef(),Scene.Get());
 }
 FIntPoint SStudioWorkspace::SnapshotOutputSize() const

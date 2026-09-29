@@ -146,7 +146,7 @@ void SStudioPipelineWorkspace::Construct(const FArguments& Args)
         +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,14,0)[SNew(SBox).WidthOverride(300)[SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)+SScrollBox::Slot()[Left]]]
             +SHorizontalBox::Slot().FillWidth(1)[SAssignNew(Output,SBox)]]
-        +SVerticalBox::Slot().AutoHeight().Padding(0,10,0,0)[Text([this]{return TEXT("Project Save keeps pipelines and their cameras. Toolbar playback and field export use ")+M->Solver->Descriptor().Title+TEXT(" in Solve.");},9,StudioUI::Muted)]]];
+        +SVerticalBox::Slot().AutoHeight().Padding(0,10,0,0)[Text([this]{return TEXT("Project Save keeps pipelines and cameras. Export saves the evaluated output here. Toolbar playback uses ")+M->Solver->Descriptor().Title+TEXT(" in Solve.");},9,StudioUI::Muted)]]];
     Notice=TEXT("Create a pipeline from an original recording, or choose a saved pipeline.");RefreshOutput();
 }
 SStudioPipelineWorkspace::~SStudioPipelineWorkspace()
@@ -162,6 +162,20 @@ bool SStudioPipelineWorkspace::EnsureResolved()
     if(ProjectId!=M->Project.Id||!bFormDirty)return true;
     Error(TEXT("Apply or Revert pipeline parameters before saving, closing or replacing the project."));
     M->Notice=Notice;M->Navigate(EStudioWorkspace::PostProcessing);return false;
+}
+TOptional<FStudioPipelineEvaluationResult> SStudioPipelineWorkspace::ExportSnapshot(FString& Why)
+{
+    Why.Empty();
+    if(!Visible()||M->IsProjectOpenPending()){Why=TEXT("Wait for this project to open, then reopen Export.");return {};}
+    if(!Selected()){Why=TEXT("Choose or create a pipeline, then Evaluate before exporting.");return {};}
+    if(Busy()){Why=TEXT("Wait for evaluation to finish, then reopen Export.");return {};}
+    if(bFormDirty){Why=TEXT("Apply or Revert pipeline parameters, then Evaluate before exporting.");return {};}
+    if(!Evaluation||!PresentedRecipe||!StudioPipelineUI::SameEvaluation(*Selected(),*PresentedRecipe))
+    {Why=TEXT("Evaluate the current pipeline, then reopen Export.");return {};}
+    SaveCamera();auto Frozen=*Evaluation;
+    Frozen.Prepared.Field=Evaluation->Prepared.Field->WithPresentation(*Selected());Frozen.Prepared.Recipe=*Selected();
+    if(!Frozen.Prepared.Field){Why=TEXT("The pipeline changed. Evaluate again before exporting.");return {};}
+    return Frozen;
 }
 void SStudioPipelineWorkspace::SaveCamera()
 {

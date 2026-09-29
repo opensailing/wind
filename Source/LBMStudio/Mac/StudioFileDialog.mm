@@ -146,7 +146,7 @@ bool StudioFileDialog::ExportFolder(FString& OutPath)
     return Accepted;
 }
 
-bool StudioFileDialog::FieldVTK(const FString& SuggestedName,FString& OutPath)
+bool StudioFileDialog::FieldVTK(const FString& SuggestedName,FString& OutPath,bool bPipeline)
 {
 #if WITH_DEV_AUTOMATION_TESTS
     bool Automated=false;if(ConsumeFieldVTKForAutomation(OutPath,Automated))return Automated;
@@ -158,8 +158,9 @@ bool StudioFileDialog::FieldVTK(const FString& SuggestedName,FString& OutPath)
     MacApplication->SystemModalMode(true);
     const bool Accepted=MainThreadReturn(^{
         SCOPED_AUTORELEASE_POOL;
-        NSSavePanel* Panel=[NSSavePanel savePanel];Panel.title=@"Export Original Field";
-        Panel.message=@"Saves the frozen source frame, selected scalar arrays and coordinates as VTK XML PolyData, with source identity and units.";
+        NSSavePanel* Panel=[NSSavePanel savePanel];Panel.title=bPipeline?@"Export Pipeline Output":@"Export Original Field";
+        Panel.message=bPipeline?@"Saves evaluated geometry and scalar values with the original frame, source identity, units and complete pipeline recipe.":
+            @"Saves the frozen source frame, selected scalar arrays and coordinates as VTK XML PolyData, with source identity and units.";
         Panel.canCreateDirectories=YES;
         UTType* Type=[UTType typeWithFilenameExtension:@"vtp"];if(Type)Panel.allowedContentTypes=@[Type];
         Panel.nameFieldStringValue=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*(SuggestedName+TEXT(".vtp")))];

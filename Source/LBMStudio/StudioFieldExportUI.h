@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "StudioFieldExportTask.h"
 #include "StudioFieldSequence.h"
+#include "StudioPipelineExport.h"
 
 class FStudioModel;
 class AStudioScene;
@@ -12,7 +13,8 @@ class SWidget;
 class FStudioFieldExportUI : public TSharedFromThis<FStudioFieldExportUI>
 {
 public:
-    TSharedRef<SWidget> Menu(const TSharedRef<FStudioModel>& Model,AStudioScene* Scene);
+    TSharedRef<SWidget> Menu(const TSharedRef<FStudioModel>& Model,AStudioScene* Scene,
+        bool bPipelineContext=false,TOptional<FStudioPipelineEvaluationResult> Evaluation={},const FString& Recovery={});
     void MenuOpenChanged(bool bOpen);
     void Tick(FStudioModel& Model);
     FString Status() const;
@@ -27,15 +29,18 @@ private:
     FStudioFieldSequenceRequest SequenceRequest() const;
     FStudioFieldExportProgress Progress() const;
     void Cancel();
+    void ReleaseSnapshots();
+    bool HasSnapshot() const {return bPipeline?Pipeline.IsSet():Draft.Field.IsValid();}
     FStudioFieldExportTask Task;
     FStudioFieldSequenceTask Sequence;
     FStudioFieldExportRequest Draft;
+    TOptional<FStudioPipelineExportRequest> Pipeline;
     TSharedPtr<const IStudioSolver,ESPMode::ThreadSafe> Source;
     enum class EScope:uint8 { Current,Range,All };
     EScope Scope=EScope::Current;
     FString FirstText=TEXT("1"),LastText=TEXT("1"),FolderName,SourceKey;
     TArray<FStudioScalarDescriptor> Scalars;
     FGuid Project;
-    FString Dataset,Title,FrameLabel,Topology,Notice,Path;
-    bool bMenuOpen=false,bError=false,bSaved=false;
+    FString Dataset,Title,FrameLabel,Topology,Notice,Path,PipelineRecovery,Method,ScalarMeaning;
+    bool bMenuOpen=false,bError=false,bSaved=false,bPipeline=false,bProbe=false;
 };

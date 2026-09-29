@@ -1,8 +1,8 @@
 /*
-THESIS: One Export owner for exact original fields and inclusive frame ranges.
+THESIS: One Export owner for original fields, frame ranges and evaluated pipelines.
 OWN-WORLD: Dense native blue-black Slate menus and cyan selection.
-FIRST VIEWPORT: Source first; format and frame scope, supplied arrays and
-coordinates, then destination/save with progress and cancellation in place.
+FIRST VIEWPORT: Explicit source or pipeline identity first; matching format,
+scope and coordinates, then destination/save with progress and cancellation.
 FORM: Local Operate extension; preserve the reference shell and one Export route.
 FINISH: Native two-size review and documentation follow the verified build.
 */
@@ -49,6 +49,12 @@ FStudioFieldSequenceRequest FStudioFieldExportUI::SequenceRequest() const
 }
 FString FStudioFieldExportUI::Validation() const
 {
+    if(bPipeline)
+    {
+        if(!Pipeline)return PipelineRecovery.IsEmpty()?TEXT("Evaluate the pipeline, then reopen Export."):PipelineRecovery;
+        if(bProbe&&Draft.Format!=EStudioFieldExportFormat::CSV)return TEXT("Choose CSV to preserve every probe row and missing-value status.");
+        return {};
+    }
     if(!Draft.Field)return TEXT("Wait for the displayed frame, then reopen Export.");
     if(Draft.Scalars.IsEmpty())return TEXT("Select at least one scalar array.");
     if(Scope!=EScope::Current)
@@ -86,22 +92,24 @@ FString FStudioFieldExportUI::Status() const
         if(P.State==EStudioFieldExportState::Publishing||P.State==EStudioFieldExportState::Complete)return TEXT("Publishing completed export…");
         if(Sequence.IsBusy())
         {const auto F=Sequence.Progress();return FString::Printf(TEXT("Writing frame %d of %d · %d%%"),FMath::Min(F.CompletedFrames+1,F.TotalFrames),F.TotalFrames,P.Total?int32(100.*P.Completed/P.Total):0);}
-        return P.Total?FString::Printf(TEXT("Writing original values · %d%%"),int32(100.*P.Completed/P.Total)):TEXT("Preparing field export…");
+        return P.Total?FString::Printf(TEXT("%s · %d%%"),bPipeline?TEXT("Writing evaluated output"):TEXT("Writing original values"),int32(100.*P.Completed/P.Total)):TEXT("Preparing field export…");
     }
     return Notice;
 }
 void FStudioFieldExportUI::MenuOpenChanged(bool bOpen)
 {
     bMenuOpen=bOpen;
-    if(!bOpen&&!IsBusy()){Draft.Field.Reset();Source.Reset();}
+    if(!bOpen&&!IsBusy())ReleaseSnapshots();
 }
+void FStudioFieldExportUI::ReleaseSnapshots(){Draft.Field.Reset();Source.Reset();Pipeline.Reset();}
 void FStudioFieldExportUI::Tick(FStudioModel& Model)
 {
     bool Finished=false;
     if(const auto Result=Task.Poll())
     {
         Finished=true;bError=!Result->bSuccess&&!Result->bCancelled;bSaved=Result->bSuccess;Path=Result->Path;
-        Notice=Result->bSuccess?FString::Printf(TEXT("Saved %s · %s · step %d · %.9g s"),*FPaths::GetCleanFilename(Path),*Result->Identity.Dataset,Result->Identity.Frame.Index,Result->Identity.Frame.Time):
+        Notice=Result->bSuccess?FString::Printf(TEXT("Saved %s · %s · step %d · %.9g s"),*FPaths::GetCleanFilename(Path),
+            Result->PipelineId.IsValid()?*Result->PipelineName:*Result->Identity.Dataset,Result->Identity.Frame.Index,Result->Identity.Frame.Time):
             Result->bCancelled?TEXT("Field export cancelled. Destination unchanged."):TEXT("Field export failed: ")+Result->Error;
     }
     if(const auto Result=Sequence.Poll())
@@ -117,11 +125,12 @@ void FStudioFieldExportUI::Tick(FStudioModel& Model)
     {
         if(Project==Model.Project.Id)
         {Model.Notice=Notice;Model.AddLog(Notice+(bSaved?TEXT(" · ")+Path:FString()),bError?EStudioLogSeverity::Error:EStudioLogSeverity::Info);}
-        if(!bMenuOpen){Draft.Field.Reset();Source.Reset();}
+        if(!bMenuOpen)ReleaseSnapshots();
     }
     if(Project!=Model.Project.Id&&!IsBusy())
     {
-        Draft.Field.Reset();Source.Reset();SourceKey.Empty();Project=Model.Project.Id;Dataset.Empty();Path.Empty();bSaved=bError=false;
+        ReleaseSnapshots();SourceKey.Empty();Project=Model.Project.Id;Dataset.Empty();Path.Empty();bSaved=bError=false;
+        PipelineRecovery=TEXT("Project changed. Reopen Export to choose its evaluated output.");
         Notice=bMenuOpen?TEXT("Project changed. Reopen Export to choose its displayed source."):TEXT("");
     }
 }
@@ -129,60 +138,89 @@ void FStudioFieldExportUI::Save(const TSharedRef<FStudioModel>& Model)
 {
     if(IsBusy()||!Validation().IsEmpty()||Project!=Model->Project.Id)return;
     // Pin both requests before menu dismissal/native selection can advance replay.
-    auto Frozen=Draft;auto Frames=SequenceRequest();const auto Identity=Frozen.Field->Identity();if(!Identity)return;
-    const bool Multiple=Scope!=EScope::Current;const FString Name=FolderName;
+    auto Frozen=Draft;auto PipelineFrozen=Pipeline;auto Frames=SequenceRequest();
+    const auto Identity=bPipeline?TOptional<FStudioFieldIdentity>(PipelineFrozen->Evaluation.Prepared.Recipe.Source.Identity):Frozen.Field->Identity();if(!Identity)return;
+    const bool PipelineOutput=bPipeline,Multiple=!bPipeline&&Scope!=EScope::Current;const FString Name=FolderName;const FGuid Owner=Project;
+    if(PipelineFrozen){PipelineFrozen->Format=Frozen.Format;PipelineFrozen->Coordinates=Frozen.Coordinates;}
     FSlateApplication::Get().DismissAllMenus();FString Destination;
-    const FString Suggested=FString::Printf(TEXT("field-step-%d"),Identity->Frame.Index);
+    const FString Suggested=FString::Printf(TEXT("%s-step-%d"),PipelineOutput?TEXT("pipeline"):TEXT("field"),Identity->Frame.Index);
     const bool Accepted=Multiple?StudioFileDialog::ExportFolder(Destination):Frozen.Format==EStudioFieldExportFormat::VTK?
-        StudioFileDialog::FieldVTK(Suggested,Destination):StudioFileDialog::CSV(Suggested,Destination,TEXT("Export Original Field"),
+        StudioFileDialog::FieldVTK(Suggested,Destination,PipelineOutput):StudioFileDialog::CSV(Suggested,Destination,
+            PipelineOutput?TEXT("Export Pipeline Output"):TEXT("Export Original Field"),PipelineOutput?
+            TEXT("Saves evaluated vertices or all probe rows, with missing values, source identity, units and the complete recipe."):
             TEXT("Saves original point rows and selected arrays. The first comment contains source identity, units and coordinate meaning."));
-    if(!Accepted){Notice=Multiple?TEXT("Export folder selection cancelled."):TEXT("Export file selection cancelled.");Model->Notice=Notice;bError=false;return;}
-    Draft=Frozen;Source=Frames.Source;bool Started=false;
+    if(!Accepted){Notice=Multiple?TEXT("Export folder selection cancelled."):TEXT("Export file selection cancelled.");if(Owner==Model->Project.Id)Model->Notice=Notice;bError=false;return;}
+    Draft=Frozen;Source=Frames.Source;Pipeline=PipelineFrozen;Project=Owner;bool Started=false;
 #if WITH_DEV_AUTOMATION_TESTS
     if(Multiple)Sequence.BeforePublishForAutomation=MoveTemp(NextFieldExportBarrier);else Task.BeforePublishForAutomation=MoveTemp(NextFieldExportBarrier);
 #endif
     FString Error;
     if(Multiple)Started=Sequence.Start(MoveTemp(Frames),Destination,Name,Error);
+    else if(PipelineOutput)Started=Task.Start(MoveTemp(*PipelineFrozen),Destination);
     else Started=Task.Start(MoveTemp(Frozen),Destination);
-    if(Started){Path=Multiple?Destination/Name:Destination;bSaved=false;bError=false;Notice=TEXT("Writing original field data…");}
-    else {Notice=Error.IsEmpty()?TEXT("Could not start export. Reopen the menu and try again."):Error;bError=true;}
-    Model->Notice=Notice;
+    if(Started){Path=Multiple?Destination/Name:Destination;bSaved=false;bError=false;Notice=PipelineOutput?TEXT("Writing evaluated pipeline output…"):TEXT("Writing original field data…");}
+    else {Notice=Error.IsEmpty()?TEXT("Could not start export. Reopen the menu and try again."):Error;bError=true;if(!bMenuOpen)ReleaseSnapshots();}
+    if(Project==Model->Project.Id)Model->Notice=Notice;
 }
-TSharedRef<SWidget> FStudioFieldExportUI::Menu(const TSharedRef<FStudioModel>& Model,AStudioScene* Scene)
+TSharedRef<SWidget> FStudioFieldExportUI::Menu(const TSharedRef<FStudioModel>& Model,AStudioScene* Scene,
+    bool bPipelineContext,TOptional<FStudioPipelineEvaluationResult> Evaluation,const FString& Recovery)
 {
     using namespace StudioUI;
     bMenuOpen=true;
     if(!IsBusy())
     {
         if(Project!=Model->Project.Id)SourceKey.Empty();
-        Draft.Field.Reset();Source.Reset();Scalars.Empty();Title.Empty();FrameLabel.Empty();Topology.Empty();Project=Model->Project.Id;
-        if(Scene&&Scene->HasCurrentFrame()&&Scene->HasPresentedFrame())Draft.Field=Scene->PresentedField();
-        const auto Identity=Draft.Field?Draft.Field->Identity():TOptional<FStudioFieldIdentity>();
-        if(Identity&&Draft.Field->OriginalPointCount()>0)
+        ReleaseSnapshots();Scalars.Empty();Title.Empty();FrameLabel.Empty();Topology.Empty();Project=Model->Project.Id;
+        bPipeline=bPipelineContext;bProbe=false;PipelineRecovery=Recovery;Method.Empty();ScalarMeaning.Empty();
+        if(bPipeline)
         {
-            const FString Key=Identity->Dataset+Identity->MetadataSHA256+Identity->PayloadSHA256+Identity->ReconstructionSHA256;
-            const bool NewSource=Key!=SourceKey;SourceKey=Key;Source=Model->Solver;Dataset=Identity->Dataset;
-            if(NewSource)
+            Scope=EScope::Current;Title=TEXT("Pipeline output");FrameLabel=TEXT("No exportable evaluation");
+            if(Evaluation)
             {
-                Notice.Empty();Path.Empty();bSaved=bError=false;Draft.Scalars={Scene->PresentedScalar().Id};Draft.Coordinates=EStudioExportCoordinates::Source;
-                Scope=EScope::Current;FirstText=FString::FromInt(Identity->Ordinal+1);LastText=FString::FromInt(Source->FrameCount());
-                FolderName=TEXT("flow-")+FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"));
+                const auto& P=Evaluation->Prepared.Recipe;const auto& I=P.Source.Identity;const auto& O=*Evaluation->Output;const auto& S=Evaluation->Prepared.Field->SelectedScalar();
+                const FString Key=TEXT("pipeline:")+P.Id.ToString()+I.Dataset+I.MetadataSHA256+I.PayloadSHA256+I.ReconstructionSHA256;
+                if(Key!=SourceKey){Notice.Empty();Path.Empty();bSaved=bError=false;Draft.Format=EStudioFieldExportFormat::VTK;Draft.Coordinates=EStudioExportCoordinates::Scene;}
+                SourceKey=Key;Dataset=I.Dataset;Title=P.Name+TEXT("\n")+P.Source.Title;bProbe=O.Probe.IsSet();
+                if(bProbe)Draft.Format=EStudioFieldExportFormat::CSV;
+                FrameLabel=FString::Printf(TEXT("Frozen evaluation · frame %d · step %d · %.9g s"),I.Ordinal+1,I.Frame.Index,I.Frame.Time);
+                Topology=bProbe?FString::Printf(TEXT("%d probe rows · unavailable values remain blank"),O.Probe->Samples.Num()):
+                    FString::Printf(TEXT("%d evaluated vertices · %d triangles · %d segments"),O.Vertices.Num(),O.Triangles.Num(),O.Lines.Num());
+                Method=O.Method;ScalarMeaning=S.Label+TEXT(" · ")+S.Id+TEXT(" (")+S.Unit+TEXT(") · ")+S.Origin;
+                const auto Expression=Evaluation->Prepared.Field->ScalarExpression(S.Id);if(!Expression.IsEmpty())ScalarMeaning+=TEXT("\n")+Expression;
+                Pipeline=FStudioPipelineExportRequest{MoveTemp(*Evaluation),Draft.Coordinates,Draft.Format};
+                if(Path.IsEmpty()){Notice.Empty();bError=false;}
             }
-            Title=Source->Descriptor().Title;
-            FrameLabel=FString::Printf(TEXT("Frozen frame %d · step %d · %.9g s"),Identity->Ordinal+1,Identity->Frame.Index,Identity->Frame.Time);
-            for(const auto& S:Source->Descriptor().Scalars)if(Draft.Field->Scalar(S.Id))Scalars.Add(S);
-            Topology=Draft.Field->OriginalTriangleCount()>0?
-                FText::AsNumber(Draft.Field->OriginalTriangleCount()).ToString()+TEXT(" original triangles"):
-                FText::AsNumber(Draft.Field->OriginalPointCount()).ToString()+TEXT(" original points · no source mesh");
-            if(Path.IsEmpty()){Notice.Empty();bError=false;}
         }
-        else {Draft.Field.Reset();Notice=TEXT("Wait for the displayed frame, then reopen Export.");bError=false;}
+        else
+        {
+            if(Scene&&Scene->HasCurrentFrame()&&Scene->HasPresentedFrame())Draft.Field=Scene->PresentedField();
+            const auto Identity=Draft.Field?Draft.Field->Identity():TOptional<FStudioFieldIdentity>();
+            if(Identity&&Draft.Field->OriginalPointCount()>0)
+            {
+                const FString Key=Identity->Dataset+Identity->MetadataSHA256+Identity->PayloadSHA256+Identity->ReconstructionSHA256;
+                const bool NewSource=Key!=SourceKey;SourceKey=Key;Source=Model->Solver;Dataset=Identity->Dataset;
+                if(NewSource)
+                {
+                    Notice.Empty();Path.Empty();bSaved=bError=false;Draft.Scalars={Scene->PresentedScalar().Id};Draft.Coordinates=EStudioExportCoordinates::Source;
+                    Scope=EScope::Current;FirstText=FString::FromInt(Identity->Ordinal+1);LastText=FString::FromInt(Source->FrameCount());
+                    FolderName=TEXT("flow-")+FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"));
+                }
+                Title=Source->Descriptor().Title;
+                FrameLabel=FString::Printf(TEXT("Frozen frame %d · step %d · %.9g s"),Identity->Ordinal+1,Identity->Frame.Index,Identity->Frame.Time);
+                for(const auto& S:Source->Descriptor().Scalars)if(Draft.Field->Scalar(S.Id))Scalars.Add(S);
+                Topology=Draft.Field->OriginalTriangleCount()>0?
+                    FText::AsNumber(Draft.Field->OriginalTriangleCount()).ToString()+TEXT(" original triangles"):
+                    FText::AsNumber(Draft.Field->OriginalPointCount()).ToString()+TEXT(" original points · no source mesh");
+                if(Path.IsEmpty()){Notice.Empty();bError=false;}
+            }
+            else {Draft.Field.Reset();Notice=TEXT("Wait for the displayed frame, then reopen Export.");bError=false;}
+        }
     }
     const auto State=AsShared();
     auto Editable=[State,Weak=TWeakPtr<FStudioModel>(Model)]
-    {const auto M=Weak.Pin();return M&&M->Project.Id==State->Project&&State->Draft.Field&&!State->IsBusy();};
+    {const auto M=Weak.Pin();return M&&M->Project.Id==State->Project&&!M->IsProjectOpenPending()&&State->HasSnapshot()&&!State->IsBusy();};
     auto Header=SNew(SVerticalBox);
-    Header->AddSlot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Export field data"),12,Text,true)];
+    Header->AddSlot().AutoHeight().Padding(0,0,0,10)[Label(bPipeline?TEXT("Export pipeline output"):TEXT("Export original field data"),12,Text,true)];
     Header->AddSlot().AutoHeight()[SNew(STextBlock).Text(FText::FromString(Title)).Font(Font(10,true)).ColorAndOpacity(Text).AutoWrapText(true)];
     Header->AddSlot().AutoHeight().Padding(0,4,0,0)[SNew(STextBlock).Tag(TEXT("VTKFrozenFrame"))
         .Text_Lambda([State]{return FText::FromString(State->FrameDescription());}).Font(Font(10)).ColorAndOpacity(Cyan).AutoWrapText(true)];
@@ -191,15 +229,18 @@ TSharedRef<SWidget> FStudioFieldExportUI::Menu(const TSharedRef<FStudioModel>& M
     auto Formats=SNew(SHorizontalBox);
     for(bool CSV:{false,true})Formats->AddSlot().FillWidth(1).Padding(0,0,CSV?0:5,0)
         [SNew(SButton).Tag(CSV?TEXT("ExportFormatCSV"):TEXT("ExportFormatVTK")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
-            .IsEnabled_Lambda(Editable).OnClicked_Lambda([State,CSV]{State->Draft.Format=CSV?EStudioFieldExportFormat::CSV:EStudioFieldExportFormat::VTK;return FReply::Handled();})
+            .IsEnabled_Lambda([Editable,State,CSV]{return Editable()&&(CSV||!State->bProbe);}).OnClicked_Lambda([State,CSV]{State->Draft.Format=CSV?EStudioFieldExportFormat::CSV:EStudioFieldExportFormat::VTK;return FReply::Handled();})
             [SNew(STextBlock).Font(Font(10)).Text(FText::FromString(CSV?TEXT("CSV table"):TEXT("VTK XML")))
                 .ColorAndOpacity_Lambda([State,CSV]{return FSlateColor((State->Draft.Format==EStudioFieldExportFormat::CSV)==CSV?Cyan:Text);})]];
     Items->AddSlot().AutoHeight()[Formats];
     Items->AddSlot().AutoHeight().Padding(0,5,0,12)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
-        .Text_Lambda([State]{return FText::FromString(State->Draft.Format==EStudioFieldExportFormat::CSV?
+        .Text_Lambda([State]{if(State->bPipeline)return FText::FromString(State->bProbe?TEXT("Probe tables require CSV to preserve every probe row and missing-value status."):
+            State->Draft.Format==EStudioFieldExportFormat::CSV?TEXT("Evaluated vertex rows; connectivity is omitted. Metadata identifies derived positions and the complete recipe."):
+            TEXT("Evaluated points, lines or triangles. Metadata identifies derived positions and the complete recipe."));
+            return FText::FromString(State->Draft.Format==EStudioFieldExportFormat::CSV?
             TEXT("Original point rows. Skip the first metadata comment when reading the CSV table."):
             TEXT("Original points and supplied mesh. No display reconstruction or extrusion."));})];
-    auto Scopes=SNew(SHorizontalBox);
+    auto Scopes=SNew(SHorizontalBox).Visibility(bPipeline?EVisibility::Collapsed:EVisibility::Visible);
     for(const auto Choice:{EScope::Current,EScope::Range,EScope::All})Scopes->AddSlot().FillWidth(1).Padding(0,0,Choice==EScope::All?0:5,0)
         [SNew(SButton).Tag(Choice==EScope::Current?TEXT("ExportScopeCurrent"):Choice==EScope::Range?TEXT("ExportScopeRange"):TEXT("ExportScopeAll"))
             .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,6)).IsEnabled_Lambda(Editable)
@@ -233,9 +274,17 @@ TSharedRef<SWidget> FStudioFieldExportUI::Menu(const TSharedRef<FStudioModel>& M
     for(bool All:{true,false})Selection->AddSlot().AutoWidth().Padding(4,0)[SNew(SButton).Tag(All?TEXT("VTKSelectAll"):TEXT("VTKSelectNone"))
         .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,4)).IsEnabled_Lambda(Editable)
         .OnClicked_Lambda([State,All]{State->Draft.Scalars.Empty();if(All)for(const auto& S:State->Scalars)State->Draft.Scalars.Add(S.Id);return FReply::Handled();})[Label(All?TEXT("All"):TEXT("None"),9)]];
+    Selection->SetVisibility(bPipeline?EVisibility::Collapsed:EVisibility::Visible);
     Items->AddSlot().AutoHeight()[Selection];
-    Items->AddSlot().AutoHeight().Padding(0,4,0,12)[SNew(SBox).MaxDesiredHeight(125)[SNew(SScrollBox)
+    Items->AddSlot().AutoHeight().Padding(0,4,0,12)[SNew(SBox).Visibility(bPipeline?EVisibility::Collapsed:EVisibility::Visible).MaxDesiredHeight(125)[SNew(SScrollBox)
         .ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)+SScrollBox::Slot()[Choices]]];
+    if(bPipeline&&Pipeline)
+    {
+        Items->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(STextBlock).Tag(TEXT("PipelineExportScalar")).Font(Font(10)).ColorAndOpacity(Text).AutoWrapText(true).Text(FText::FromString(ScalarMeaning))];
+        Items->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true).Text(FText::FromString(Method))];
+        Items->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
+            .Text(FText::FromString(TEXT("This evaluated result is frozen while Export is open. To export another result, change the recipe or frame and Evaluate again.")))];
+    }
     Items->AddSlot().AutoHeight().Padding(0,0,0,6)[Label(TEXT("Point coordinates"),10,Text,true)];
     auto Coordinates=SNew(SHorizontalBox);
     for(bool SceneCoordinates:{false,true})Coordinates->AddSlot().FillWidth(1).Padding(0,0,SceneCoordinates?0:5,0)
