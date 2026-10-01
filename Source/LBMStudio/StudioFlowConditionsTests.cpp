@@ -6,8 +6,8 @@
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
 {
-constexpr EAutomationTestFlags Flags=EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter;
-FStudioCaseDraft Case()
+constexpr EAutomationTestFlags FlowTestFlags=EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter;
+FStudioCaseDraft FlowCaseFixture()
 {
     FStudioCaseDraft C;FStudioMaterial Fluid;Fluid.KinematicViscosity=.000015;
     C.Materials.Add(Fluid);C.Domain.FluidMaterialId=Fluid.Id;
@@ -15,10 +15,10 @@ FStudioCaseDraft Case()
     C.Setup.OutletPressure=-123.45678901234567;C.Setup.ReynoldsNumber=200000.;return C;
 }
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowUnits,"Studio.FlowConditions.UnitsAndRetainedInvalidValues",Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowUnits,"Studio.FlowConditions.UnitsAndRetainedInvalidValues",FlowTestFlags)
 bool FStudioFlowUnits::RunTest(const FString&)
 {
-    auto C=Case();FStudioFlowConditionsEdit E;E.Reset(C,false);FStudioCaseSetup Out;
+    auto C=FlowCaseFixture();FStudioFlowConditionsEdit E;E.Reset(C,false);FStudioCaseSetup Out;
     TestTrue(TEXT("Original exact inputs build"),E.Build(Out));
     TestFalse(TEXT("Loaded form clean"),E.IsDirty());
     for(auto F:{E.VelocityX,E.Pressure,E.Length,E.Density})
@@ -52,10 +52,10 @@ bool FStudioFlowUnits::RunTest(const FString&)
     TestTrue(TEXT("Unknown values remain unspecified"),E.Build(Out)&&!Out.InletVelocity&&!Out.ReferenceLength&&!Out.ReferenceDensity&&!Out.OutletPressure&&!Out.ReynoldsNumber);
     return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowCalculator,"Studio.FlowConditions.ReynoldsAndDirectionOracle",Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowCalculator,"Studio.FlowConditions.ReynoldsAndDirectionOracle",FlowTestFlags)
 bool FStudioFlowCalculator::RunTest(const FString&)
 {
-    auto C=Case();FStudioFlowConditionsEdit E;E.Reset(C,false);
+    auto C=FlowCaseFixture();FStudioFlowConditionsEdit E;E.Reset(C,false);
     // Independent 3-4-5 speed, 0.6 m length, 15 mm^2/s => Re 200000.
     TestTrue(TEXT("Published Re definition gives known dimensional result"),FMath::IsNearlyEqual(E.CalculatedReynolds().Get(0),200000.,1.e-8));
     E.Values[E.Reynolds]=TEXT("broken");TestTrue(TEXT("Calculator repairs target without parsing it"),E.UseCalculatedReynolds());
@@ -74,11 +74,11 @@ bool FStudioFlowCalculator::RunTest(const FString&)
     TestFalse(TEXT("Speed underflow rejected"),E.UseTargetSpeed());
     return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowTransaction,"Studio.FlowConditions.TransactionsDependenciesAndIsolation",Flags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowTransaction,"Studio.FlowConditions.TransactionsDependenciesAndIsolation",FlowTestFlags)
 bool FStudioFlowTransaction::RunTest(const FString&)
 {
     FStudioModel M(FPaths::ProjectSavedDir()/TEXT("Automation/FlowConditions")/FGuid::NewGuid().ToString());M.Pause();
-    if(!TestTrue(TEXT("Prepare flow fixture"),M.EditCase(TEXT("Flow fixture"),[](auto& C){const auto Id=C.Id;C=Case();C.Id=Id;})))return false;
+    if(!TestTrue(TEXT("Prepare flow fixture"),M.EditCase(TEXT("Flow fixture"),[](auto& C){const auto Id=C.Id;C=FlowCaseFixture();C.Id=Id;})))return false;
     auto Solver=M.Solver;auto Camera=M.Project.Camera;auto Render=M.RenderIntentRevision;auto Frame=M.SelectedFrame;
     FStudioFlowConditionsEdit E;E.Reset(M.Project.Draft);E.Values[0]=TEXT("9");
     M.EditCase(TEXT("Other settings"),[](auto& C){C.Setup.MaxSteps=1234;C.Setup.TimeStep=.000123456789;C.Setup.LatticeResolution=FIntVector(12,34,56);});
