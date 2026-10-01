@@ -21,7 +21,6 @@ FINISH: Two-size native captures, fresh scoped finish review and documentation.
 #include "Widgets/Input/SEditableText.h"
 #include "Widgets/Input/SButton.h"
 
-using namespace StudioUI;
 namespace
 {
 class SFlowValueBox final : public SEditableTextBox
@@ -92,14 +91,14 @@ FString SStudioFlowConditions::Status() const
 }
 TSharedRef<SWidget> SStudioFlowConditions::Action(const TCHAR* Caption,FName Tag,TFunction<void()> Callback)
 {
-    return SNew(SButton).Tag(Tag).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,6))
-        .OnClicked_Lambda([Callback]{Callback();return FReply::Handled();})[Label(Caption,9)];
+    return SNew(SButton).Tag(Tag).ButtonStyle(&StudioUI::ButtonStyle()).ContentPadding(FMargin(7,6))
+        .OnClicked_Lambda([Callback]{Callback();return FReply::Handled();})[StudioUI::Label(Caption,9)];
 }
 TSharedRef<SWidget> SStudioFlowConditions::Input(int32 Index)
 {
     auto Box=SNew(SFlowValueBox).Tag(FName(*FString::Printf(TEXT("FlowValue%d"),Index)))
-        .Style(&InputStyle()).Font(Font(10)).Text(FText::FromString(Edit.Values[Index]))
-        .ForegroundColor_Lambda([this,Index]{return Edit.Values[Index].IsEmpty()?Muted:StudioUI::Text;})
+        .Style(&StudioUI::InputStyle()).Font(StudioUI::Font(10)).Text(FText::FromString(Edit.Values[Index]))
+        .ForegroundColor_Lambda([this,Index]{return Edit.Values[Index].IsEmpty()?StudioUI::Muted:StudioUI::Text;})
         .HintText(FText::FromString(TEXT("Unspecified"))).SelectAllTextWhenFocused(true).ClearKeyboardFocusOnCommit(false)
         .IsEnabled_Lambda([this]{return Available();})
         .ToolTipText_Lambda([this,Index]{return FText::FromString(Edit.Values[Index]);})
@@ -110,7 +109,7 @@ TSharedRef<SWidget> SStudioFlowConditions::Input(int32 Index)
 TSharedRef<SWidget> SStudioFlowConditions::Unit(FStudioFlowConditionsEdit::EField Field)
 {
     return SNew(SStudioMenuButton).Tag(FName(*FString::Printf(TEXT("FlowUnits%d"),int32(Field))))
-        .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,4)).IsEnabled_Lambda([this]{return Available();})
+        .ButtonStyle(&StudioUI::ButtonStyle()).ContentPadding(FMargin(5,4)).IsEnabled_Lambda([this]{return Available();})
         .OnGetMenuContent_Lambda([this,Field]
         {
             auto Items=SNew(SVerticalBox);
@@ -119,58 +118,58 @@ TSharedRef<SWidget> SStudioFlowConditions::Unit(FStudioFlowConditionsEdit::EFiel
                 {if(Edit.ChangeUnit(Field,U)){Synchronize();Changed();}else if(const auto M=Model.Pin())M->Notice=Edit.Error;FSlateApplication::Get().DismissAllMenus();Focus(Field);})];
             return Items;
         })
-        .ButtonContent()[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted)
+        .ButtonContent()[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Muted)
             .Text_Lambda([this,Field]{return FText::FromString(Edit.UnitLabel(Field,Edit.Units[Field]));})];
 }
 TSharedRef<SWidget> SStudioFlowConditions::Field(int32 Index,const TCHAR* Caption)
 {
     auto Line=SNew(SHorizontalBox)
-        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(0,0,6,0)[Label(Caption,9,Muted)]
+        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(0,0,6,0)[StudioUI::Label(Caption,9,StudioUI::Muted)]
         +SHorizontalBox::Slot().FillWidth(1.05)[Input(Index)];
     if(Index!=Edit.Reynolds)Line->AddSlot().AutoWidth().Padding(4,0,0,0)[Unit(FStudioFlowConditionsEdit::EField(Index))];
     return SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,7)[Line]
-        +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Amber).AutoWrapText(true)
+        +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Amber).AutoWrapText(true)
             .Visibility_Lambda([this,Index]{return Edit.ErrorField==Index&&!Edit.Error.IsEmpty()?EVisibility::Visible:EVisibility::Collapsed;})
             .Text_Lambda([this]{return FText::FromString(Edit.Error);})];
 }
 void SStudioFlowConditions::Construct(const FArguments& A)
 {
     Model=A._Model;Refresh();auto Rows=SNew(SVerticalBox);
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,9)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,9)[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Muted).AutoWrapText(true)
         .Text_Lambda([this]{const auto M=Model.Pin();return FText::FromString(M&&M->HasActiveJob()?TEXT("Next-run case. Active run settings are frozen."):TEXT("Next-run case. Recorded fields keep their original physics."));})];
     Rows->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(SHorizontalBox)
-        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Inlet velocity · case XYZ"),9,Muted)]
+        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[StudioUI::Label(TEXT("Inlet velocity · case XYZ"),9,StudioUI::Muted)]
         +SHorizontalBox::Slot().AutoWidth()[Unit(Edit.VelocityX)]];
     auto Velocity=SNew(SHorizontalBox);
     for(int32 I=0;I<3;++I)Velocity->AddSlot().FillWidth(1).Padding(I?4:0,0,0,0)
-        [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[Label(I==0?TEXT("X"):I==1?TEXT("Y"):TEXT("Z"),8,Muted)]
+        [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[StudioUI::Label(I==0?TEXT("X"):I==1?TEXT("Y"):TEXT("Z"),8,StudioUI::Muted)]
             +SVerticalBox::Slot().AutoHeight()[Input(I)]];
     Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[Velocity];
-    Rows->AddSlot().AutoHeight()[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Amber).AutoWrapText(true)
+    Rows->AddSlot().AutoHeight()[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Amber).AutoWrapText(true)
         .Visibility_Lambda([this]{return Edit.ErrorField>=0&&Edit.ErrorField<=2&&!Edit.Error.IsEmpty()?EVisibility::Visible:EVisibility::Collapsed;})
         .Text_Lambda([this]{return FText::FromString(Edit.Error);})];
     Rows->AddSlot().AutoHeight()[Field(Edit.Pressure,TEXT("Outlet pressure"))];
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,9)[Label(TEXT("Pressure datum awaits solver definition."),8,Muted)];
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Domain fluid · kinematic viscosity"),9,Muted)];
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,7)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true)
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,9)[StudioUI::Label(TEXT("Pressure datum awaits solver definition."),8,StudioUI::Muted)];
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,5)[StudioUI::Label(TEXT("Domain fluid · kinematic viscosity"),9,StudioUI::Muted)];
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,7)[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Text).AutoWrapText(true)
         .Text_Lambda([this]{const auto M=Model.Pin();const auto* F=M?Edit.Fluid(M->Project.Draft):nullptr;
             return FText::FromString(!F?TEXT("No fluid assigned to domain"):F->Name+TEXT(" · ")+(F->KinematicViscosity?StudioMaterials::ExactNumber(*F->KinematicViscosity)+TEXT(" m²/s"):TEXT("viscosity unspecified")));})];
     Rows->AddSlot().AutoHeight().Padding(0,0,0,9)[Action(TEXT("Edit fluid in Materials…"),TEXT("FlowMaterials"),[Delegate=A._OnMaterials]{Delegate.ExecuteIfBound();})];
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SButton).Tag(TEXT("FlowAdvanced")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,5))
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SButton).Tag(TEXT("FlowAdvanced")).ButtonStyle(&StudioUI::ButtonStyle()).ContentPadding(FMargin(7,5))
         .OnClicked_Lambda([this]{bAdvanced=!bAdvanced;return FReply::Handled();})
-        [SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Cyan).Text_Lambda([this]{return FText::FromString(bAdvanced?TEXT("Hide reference values"):TEXT("Reference values…"));})]];
+        [SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Cyan).Text_Lambda([this]{return FText::FromString(bAdvanced?TEXT("Hide reference values"):TEXT("Reference values…"));})]];
     Rows->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([this]{return bAdvanced?EVisibility::Visible:EVisibility::Collapsed;})
         [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[Field(Edit.Length,TEXT("Reference length"))]
             +SVerticalBox::Slot().AutoHeight()[Field(Edit.Density,TEXT("Reference density"))]]];
     Rows->AddSlot().AutoHeight()[Field(Edit.Reynolds,TEXT("Target Reynolds (Re)"))];
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(STextBlock).Tag(TEXT("FlowCalculatedRe")).Font(Font(9)).ColorAndOpacity(Cyan).AutoWrapText(true)
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(STextBlock).Tag(TEXT("FlowCalculatedRe")).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Cyan).AutoWrapText(true)
         .Text_Lambda([this]{return FText::FromString(bConflict?TEXT("Re calculation paused · linked values changed"):
             Computed?FString::Printf(TEXT("Calculated Re: %.9g · |U| L / ν"),*Computed):TEXT("Calculated Re needs inlet, reference length and fluid viscosity."));})];
     Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SHorizontalBox).IsEnabled_Lambda([this]{return Available()&&!bConflict;})
         +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,4,0)[Action(TEXT("Use calculated Re"),TEXT("FlowCalculate"),[this]{Calculate(false);})]
         +SHorizontalBox::Slot().FillWidth(1)[Action(TEXT("Set speed from Re"),TEXT("FlowTargetSpeed"),[this]{Calculate(true);})]];
-    Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
+    Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Muted).AutoWrapText(true)
         .Text(FText::FromString(TEXT("Target Re is a request. Set speed changes the inlet draft while retaining its direction. Boundary assignments stay in Boundary Conditions.")))];
     auto ApplyButton=Action(TEXT("Apply flow"),TEXT("FlowApply"),[this]{Apply();});
     ApplyButton->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Available()&&!bConflict&&Edit.IsDirty();}));
@@ -178,7 +177,7 @@ void SStudioFlowConditions::Construct(const FArguments& A)
     RevertButton->SetEnabled(TAttribute<bool>::CreateLambda([this]{return Available()&&(bConflict||Edit.IsDirty()||!Edit.Error.IsEmpty());}));
     Rows->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SHorizontalBox)
         +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,4,0)[ApplyButton]+SHorizontalBox::Slot().FillWidth(1)[RevertButton]];
-    Rows->AddSlot().AutoHeight()[SNew(STextBlock).Tag(TEXT("FlowStatus")).Font(Font(9)).ColorAndOpacity(Amber).AutoWrapText(true)
+    Rows->AddSlot().AutoHeight()[SNew(STextBlock).Tag(TEXT("FlowStatus")).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Amber).AutoWrapText(true)
         .Text_Lambda([this]{return FText::FromString(Status());})];
     ChildSlot[Rows];
 }
