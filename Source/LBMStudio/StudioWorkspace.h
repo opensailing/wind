@@ -24,6 +24,7 @@ class FStudioProbeMarkerScheduler;
 class FStudioProbeExportTask;
 class FStudioMonitorExportTask;
 class FStudioFieldExportUI;
+class FStudioSnapshotUI;
 struct FStudioProbeResult;
 struct FStudioProbeProfile;
 struct FStudioMaterialWorkspaceState;
@@ -41,6 +42,7 @@ public:
         SLATE_ARGUMENT(AStudioScene*,Scene)
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
+    ~SStudioWorkspace() override;
     bool CanClose();
     virtual void Tick(const FGeometry& Geometry,double Time,float Delta) override;
     virtual bool SupportsKeyboardFocus() const override { return true; }
@@ -101,12 +103,9 @@ private:
     TSharedPtr<FStudioProbeScheduler> InspectionProbe;
     TSharedPtr<FStudioProbeMarkerScheduler> InspectionMarkers;
     TSharedPtr<FStudioProbeExportTask> InspectionExport;
-    TSharedPtr<FStudioSnapshotExportTask> SnapshotExport;
+    TSharedPtr<FStudioSnapshotUI> SnapshotUI;
     TSharedPtr<FStudioFieldExportUI> FieldExport;
     TSharedPtr<SStudioMenuButton> SnapshotButton;
-    FStudioSnapshotOptions SnapshotOptions;
-    int32 SnapshotAspect=0,SnapshotWidth=1920;
-    FString SnapshotNotice;
     TSharedPtr<FStudioMaterialWorkspaceState> MaterialsState;
     TSharedPtr<FStudioDomainWorkspaceState> DomainState;
     TSharedPtr<FStudioBoundaryWorkspaceState> BoundaryState;
@@ -237,5 +236,5 @@ private:
     bool EnsurePlacementResolved();
     bool OpenProject(const FString& Path, const FString& ReplacedRecentPath = FString());
     TSharedRef<SWidget> ExportMenu();
-    void Snapshot();
+    bool CaptureSnapshot(FStudioSnapshot& Snapshot,FString& Error);
 };

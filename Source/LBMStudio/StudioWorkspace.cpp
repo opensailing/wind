@@ -21,6 +21,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioVolume.h"
 #include "StudioFileDialog.h"
 #include "StudioFieldExportUI.h"
+#include "StudioSnapshotUI.h"
 #include "StudioProbeScheduler.h"
 #include "StudioProbeMarkers.h"
 #include "StudioInspectionOverlay.h"
@@ -1086,7 +1087,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
     InspectionExport=MakeShared<FStudioProbeExportTask>();
     MonitorExport=MakeShared<FStudioMonitorExportTask>();
     ProbeMonitor=MakeShared<FStudioProbeMonitorSession>();
-    SnapshotExport=MakeShared<FStudioSnapshotExportTask>();
+    SnapshotUI=MakeShared<FStudioSnapshotUI>();
     FieldExport=MakeShared<FStudioFieldExportUI>();
     LogState=MakeShared<FStudioLogWorkspaceState>();
     auto Restore=Button(TEXT("Restore"),TEXT("save"),[this]{if(ConfirmReplace(true)) M->RequestRecoveryOpen();});
@@ -1161,7 +1162,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):TEXT("RECORDED CFD");},8,Amber)]
-            +SHorizontalBox::Slot().FillWidth(1).Padding(12,0).VAlign(VAlign_Center)[Live([this]{return M->IsProjectOpenPending()?M->ProjectOpenStatus():M->Notice.IsEmpty()?M->Solver->Descriptor().Title+TEXT(" · Recorded CFD · Custom solver not connected"):M->Notice;},9,Muted)]
+            +SHorizontalBox::Slot().FillWidth(1).Padding(12,0).VAlign(VAlign_Center)[Live([this]{return M->IsProjectOpenPending()?M->ProjectOpenStatus():SnapshotUI->IsBusy()?SnapshotUI->ButtonLabel()+TEXT(" · Open Snapshot in Solve for progress or Cancel"):M->Notice.IsEmpty()?M->Solver->Descriptor().Title+TEXT(" · Recorded CFD · Custom solver not connected"):M->Notice;},9,Muted)]
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)
                 [SNew(SBox).Visibility_Lambda([this]{return M->IsProjectOpenPending()?EVisibility::Visible:EVisibility::Collapsed;})
                 [SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,3))
@@ -1414,13 +1415,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     if(Pipelines)Pipelines->Synchronize();
     TickInspection();
     FieldExport->Tick(*M);
-    if(const auto Result=SnapshotExport->Poll();Result.IsSet())
-    {
-        SnapshotNotice=Result->bSuccess?FString::Printf(TEXT("Saved PNG · frame %d · %.9g s"),Result->Frame.Index,Result->Frame.Time):
-            Result->bCancelled?TEXT("Snapshot export cancelled."):TEXT("Snapshot export failed: ")+Result->Error;
-        M->Notice=SnapshotNotice;M->AddLog(SnapshotNotice+(Result->bSuccess?TEXT(" · ")+Result->Path:FString()),
-            Result->bSuccess||Result->bCancelled?EStudioLogSeverity::Info:EStudioLogSeverity::Error);
-    }
+    SnapshotUI->Tick(*M);
     if(LastAssetRevision!=M->AssetRevision) RefreshAssetRows();
     if(LastCameraCollectionRevision!=M->CameraCollectionRevision||CameraRowsProjectId!=M->Project.Id) RefreshCameraRows();
     RefreshGeometryEditor();
@@ -1493,7 +1488,7 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
                 .InspectionPlacementRevision_Lambda([this]{return InspectionPlacementRevision;})
                 .InspectionActive_Lambda([this]{return bInspectionOpen;})
                 .NavigationTool_Lambda([this]{return Scene->bFreeCamera?EStudioViewportTool::Fly:ViewportTool;})
-                .SnapshotSize_Lambda([this]{return SnapshotButton&&SnapshotButton->IsOpen()?SnapshotOutputSize():FIntPoint::ZeroValue;})
+                .SnapshotSize_Lambda([this]{return SnapshotButton&&SnapshotButton->IsOpen()&&!SnapshotUI->IsBusy()?SnapshotOutputSize():FIntPoint::ZeroValue;})
                 .InspectionHover(this,&SStudioWorkspace::InspectionHover)
                 .InspectionClick(this,&SStudioWorkspace::InspectionClick).CancelInspection(this,&SStudioWorkspace::CancelInspectionPlacement)]
             +SOverlay::Slot()[Floating]
@@ -2160,7 +2155,7 @@ TSharedRef<SWidget> SStudioWorkspace::Timeline()
         +SHorizontalBox::Slot().AutoWidth().Padding(8,0,0,0)[SAssignNew(SnapshotButton,SStudioMenuButton).Tag(TEXT("SnapshotOptions"))
             .ButtonStyle(&ButtonStyle()).OnGetMenuContent(this,&SStudioWorkspace::SnapshotMenu)
             .ButtonContent()[SNew(SHorizontalBox)+SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Icon(TEXT("camera"))]
-                +SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)[Label(TEXT("Snapshot"),10)]]]];
+                +SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)[Live([this]{return SnapshotUI->ButtonLabel();},10)]]]];
 }
 TSharedRef<SWidget> SStudioWorkspace::Monitors()
 {
@@ -3348,6 +3343,7 @@ bool SStudioWorkspace::CanClose()
     M->CancelProjectOpen(false);
     if(M->PendingRecovery.IsEmpty()) M->DiscardRecovery();
     // Mark the closing state clean so EndPlay cannot resurrect discarded changes.
+    SnapshotUI->Shutdown();
     M->SuppressRecoveryOnClose=true; return true;
 }
 // THESIS: Opening prepares a verified candidate while the current scene remains usable.
@@ -3441,79 +3437,36 @@ TSharedRef<SWidget> SStudioWorkspace::ExportMenu()
     }
     return FieldExport->Menu(M.ToSharedRef(),Scene.Get());
 }
+SStudioWorkspace::~SStudioWorkspace()
+{if(SnapshotUI)SnapshotUI->Shutdown();}
 FIntPoint SStudioWorkspace::SnapshotOutputSize() const
-{
-    const auto Source=Scene.IsValid()?Scene->PresentedViewportSize():FIntPoint(16,9);
-    const double Aspect=SnapshotAspect==1?16./9:SnapshotAspect==2?4./3:SnapshotAspect==3?1.:Source.Y>0?double(Source.X)/Source.Y:16./9;
-    return FIntPoint(SnapshotWidth,FMath::RoundToInt(SnapshotWidth/Aspect));
-}
+{return SnapshotUI->OutputSize();}
 TSharedRef<SWidget> SStudioWorkspace::SnapshotMenu()
 {
-    auto Items=SNew(SVerticalBox);
-    Items->AddSlot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Save flow snapshot"),12,Text,true)];
-    Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Width (px)"),SNew(SBox).Tag(TEXT("SnapshotWidth"))
-        [Number([this]{return double(SnapshotWidth);},[this](double V){SnapshotWidth=FMath::RoundToInt(V);},640,4096,TEXT(""),1,0)],120)];
-    auto Aspects=SNew(SHorizontalBox);const TCHAR* Names[]={TEXT("View"),TEXT("16:9"),TEXT("4:3"),TEXT("1:1")};
-    for(int32 I=0;I<4;++I)Aspects->AddSlot().FillWidth(1).Padding(0,0,I<3?4:0,0)
-        [SNew(SButton).Tag(FName(*FString::Printf(TEXT("SnapshotAspect%d"),I))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,5))
-            .OnClicked_Lambda([this,I]{SnapshotAspect=I;return FReply::Handled();})
-            [SNew(STextBlock).Text(FText::FromString(Names[I])).Font(Font(10))
-                .ColorAndOpacity_Lambda([this,I]{return FSlateColor(SnapshotAspect==I?Cyan:Text);})]];
-    Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Frame"),Aspects,230)];
-    Items->AddSlot().AutoHeight().Padding(0,0,0,10)[Live([this]{const auto S=SnapshotOutputSize();return FString::Printf(TEXT("%d × %d px · centered crop of this view"),S.X,S.Y);},10,Muted,true)];
-    auto AddCheck=[&](const TCHAR* Tag,const TCHAR* Name,bool FStudioSnapshotOptions::* Member)
-    {Items->AddSlot().AutoHeight().Padding(0,0,0,7)[SNew(SBox).Tag(Tag)[Check(Name,[this,Member]{return SnapshotOptions.*Member;},[this,Member](bool V){SnapshotOptions.*Member=V;})]];};
-    AddCheck(TEXT("SnapshotAnnotations"),TEXT("Inspection annotations"),&FStudioSnapshotOptions::bAnnotations);
-    AddCheck(TEXT("SnapshotLegend"),TEXT("Scalar legend"),&FStudioSnapshotOptions::bLegend);
-    AddCheck(TEXT("SnapshotFrameInfo"),TEXT("Source and physical time"),&FStudioSnapshotOptions::bFrameInfo);
-    Items->AddSlot().AutoHeight().Padding(0,3,0,12)[SNew(STextBlock).Text(FText::FromString(TEXT("The outline previews the exported area. Frame, camera and inspection metadata stay embedded in the PNG."))).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)];
-    auto Save=Button(TEXT("Choose destination and save…"),TEXT("save"),[this]{Snapshot();},Cyan);Save->SetTag(TEXT("SaveSnapshotPNG"));
-    Save->SetEnabled(TAttribute<bool>::CreateLambda([this]{return !SnapshotExport->IsBusy()&&Scene.IsValid()&&Scene->HasCurrentFrame()&&Scene->HasPresentedFrame()&&
-        StudioSnapshot::ValidSize(SnapshotOutputSize())&&!InspectionPlacement.IsSet()&&!M->CameraPlacement();}));
-    Items->AddSlot().AutoHeight()[Save];
-    auto Cancel=Button(TEXT("Cancel export"),TEXT("stop"),[this]{if(SnapshotExport->Cancel())SnapshotNotice=TEXT("Cancelling snapshot export…");});Cancel->SetTag(TEXT("CancelSnapshotExport"));
-    Cancel->SetVisibility(TAttribute<EVisibility>::CreateLambda([this]{return SnapshotExport->IsBusy()?EVisibility::Visible:EVisibility::Collapsed;}));
-    Cancel->SetEnabled(TAttribute<bool>::CreateLambda([this]{return SnapshotExport->State()==EStudioSnapshotExportState::Encoding;}));
-    Items->AddSlot().AutoHeight().Padding(0,6,0,0)[Cancel];
-    Items->AddSlot().AutoHeight().Padding(0,8,0,0)[Live([this]
+    const TWeakPtr<SStudioWorkspace> Weak=SharedThis(this);
+    return SnapshotUI->Menu(M.ToSharedRef(),Scene.Get(),[Weak]
     {
-        if(SnapshotExport->IsBusy())
-        {
-            if(SnapshotExport->State()==EStudioSnapshotExportState::Cancelled)return FString(TEXT("Cancelling snapshot export…"));
-            return FString(SnapshotExport->State()==EStudioSnapshotExportState::Writing?TEXT("Writing PNG…"):TEXT("Encoding PNG…"));
-        }
-        if(!StudioSnapshot::ValidSize(SnapshotOutputSize()))return FString(TEXT("Reduce the width; either dimension must be at most 4096 pixels."));
-        if(InspectionPlacement.IsSet()||M->CameraPlacement())return FString(TEXT("Finish or cancel placement before taking a snapshot."));
-        if(!Scene->HasCurrentFrame())return FString(TEXT("Wait for the displayed frame, or pause replay."));
-        return SnapshotNotice;
-    },9,Muted,true)];
-    return SNew(SBox).WidthOverride(380).MaxDesiredHeight(450)[SNew(SBorder).BorderImage(&PanelBrush).Padding(12)
-        [SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)+SScrollBox::Slot()[Items]]];
+        const auto Root=Weak.Pin();
+        if(!Root)return FString(TEXT("The workspace has closed."));
+        return Root->InspectionPlacement.IsSet()||Root->M->CameraPlacement()?
+            FString(TEXT("Finish or cancel placement before taking a snapshot.")):FString();
+    },[Weak](FStudioSnapshot& Image,FString& Error)
+    {const auto Root=Weak.Pin();return Root&&Root->CaptureSnapshot(Image,Error);});
 }
-void SStudioWorkspace::Snapshot()
+bool SStudioWorkspace::CaptureSnapshot(FStudioSnapshot& Frozen,FString& Error)
 {
-    if(SnapshotExport->IsBusy()||InspectionPlacement.IsSet()||M->CameraPlacement())return;
-    FStudioSnapshot Frozen;Frozen.Options=SnapshotOptions;Frozen.Options.Size=SnapshotOutputSize();FString Error;
     TOptional<FStudioProbeResult> Samples;
     if(const auto* Probe=CurrentInspectionProbeResult(M->SelectedInspectionObject);Probe&&Probe->Status==EStudioProbeStatus::Ready)
         Samples=*Probe;
-    if(!Scene->CaptureSnapshot(Frozen,InspectionMarkers->Result(),Error))
-    {SnapshotNotice=Error;M->Notice=Error;return;}
+    if(!Scene.IsValid()||!Scene->CaptureSnapshot(Frozen,InspectionMarkers->Result(),Error))return false;
     if(Samples.IsSet())if(const auto* Probe=M->FindProbe(Frozen.SelectedObject))
     {
-        // Capture may flush a pending camera edit. Reuse samples only if the
-        // immutable field, scalar, project and probe still match the image.
         FStudioProbeRequest Request;Request.ProjectId=Frozen.Project;Request.PresentationId=Frozen.Capture;
         Request.Probe=*Probe;Request.DisplayedScalar=Frozen.Scalar.Id;Request.Field=Scene->PresentedField();
         Samples->PresentationId=Frozen.Capture;
         if(Samples->Matches(Request))StudioProbeProfile::CSV(*Samples,Frozen.ProbeCSV,Error);
     }
-    FSlateApplication::Get().DismissAllMenus();FString Path;
-    if(!StudioFileDialog::SnapshotPNG(FString::Printf(TEXT("flow-frame-%d"),Frozen.Identity.Frame.Index),Path))
-    {SnapshotNotice=TEXT("Snapshot export cancelled.");M->Notice=SnapshotNotice;return;}
-    if(!SnapshotExport->Start(MoveTemp(Frozen),Path))SnapshotNotice=TEXT("Could not start snapshot export.");
-    else SnapshotNotice=TEXT("Encoding PNG…");
-    M->Notice=SnapshotNotice;
+    return true;
 }
 
 // THESIS: Choose verified recorded output while keeping the camera and case.
