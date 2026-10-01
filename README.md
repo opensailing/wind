@@ -225,15 +225,17 @@ python3 Tools/verify_csv_field_export.py \
 
 The audit uses Python's CSV parser and direct original binary arrays through the shared NumPy audit reader (whose module also requires VTK). The historical backend checkpoint in `tmp/analysis/csv-field-export-20260928/core-acceptance.json` records 236 successful model cases (one existing Unreal helper warning), 13 independently checked CSV frames / 1,285,685 original point rows with zero observed value error, and 14 VTK regression files. The unified-controls review above covers the subsequently added visible CSV/range controls. Actual native picker/input and current integrated stability/release acceptance remain open.
 
-### Snapshot — single PNG and original-frame sequences
+### Snapshot — PNGs and optional MP4
 
 The Solve timeline's **Snapshot** action owns image export. It uses the current arbitrary camera and rendered CFD view independently of the header's field-data Export menu.
 
 1. Open **Snapshot** and choose **Single PNG** for the displayed original frame or **Sequence** for selected original snapshots.
 2. Set **Width (px)** and **Frame**: View, 16:9, 4:3 or 1:1. The output dimensions and centered crop outline show the exported area. Choose inspection annotations, scalar legend and source/physical-time labels independently.
-3. For a sequence, choose **Range** or **All**. Range uses one-based **First frame** and inclusive **Last frame**; both modes accept a positive whole-number **Stride**. For example, frames 1–601 with stride 300 select frames 1, 301 and 601. The summary shows the actual PNG count and source-time span. Invalid endpoints or stride disable export with a correction message.
+3. For a sequence, choose **Range** or **All**. Range uses one-based **First frame** and inclusive **Last frame**; both modes accept a positive whole-number **Stride**. For example, frames 1–601 with stride 300 select frames 1, 301 and 601. The summary shows the actual PNG count and source-time span. Optionally enable **Include MP4 (H.264)** and set **Playback rate (fps)** to a whole number from 1–60 (default 20). A separate Playback line shows the rate and movie duration. Invalid endpoints or stride disable export with a correction message.
 4. Enter a **New folder name** for a sequence, then select **Choose folder and export…** to choose its parent. The new directory must not already exist. Single PNG uses **Choose destination and save…**.
 5. Reopen **Snapshot** to inspect progress, **Cancel export** before publication or use **Show in Finder** after success. Status and actions stay visible while the settings scroll.
+
+MP4 adds `flow.mp4` beside the original PNGs and sequence metadata. Both image dimensions must be even and within 64–4096 pixels; choose a compatible width/aspect if validation appears. Nothing is resized or interpolated. Each selected original becomes one movie frame; playback duration is selected count ÷ fps, separate from physical source time. H.264 is lossy; PNGs preserve full-color pixels. Movie choices remain session-only.
 
 Starting export freezes its original source/frames, camera, projection, crop, scalar mapping, display and inspection settings before destination selection. Camera movement, playback, workspace navigation and project replacement remain independent. Pending settings are disabled, and reopening shows the same frozen job; completion cannot write its notice or log into a replacement project. A changed source/project in an idle open form requires reopening Snapshot. The workspace owns renderer tick and shutdown beyond the menu lifetime. Drafts and tasks are session state; no schema or workspace route is added.
 
@@ -253,13 +255,31 @@ python3 Tools/verify_snapshot_ui.py \
 
 Repeat with `--name snapshot-sequence-ui-compact --width 1280 --height 720` and its own report. The existing inspection regression is `Studio.InspectionUI.ControlsSamplesAndPersistence` (`--count 1 --width 1320 --height 740`). Run `Tools/test.sh` for model checks.
 
-This UI evidence covers one single PNG and two three-frame Range/All sequences per size. Routed Slate input and injected destinations do not establish physical input, native picker/permissions, Finder reveal or full accessibility. Progress was held at a deterministic publication barrier; no throughput, full-duration, minimize/resume, current integrated long-session or release acceptance follows. The earlier renderer comparison below retains its separate pixel-fidelity scope; this 14-image UI audit does not repeat it. Movie controls, full reference fidelity and the full UI plan remain open; the later native encoder checkpoint is recorded below.
+This UI evidence covers one single PNG and two three-frame Range/All sequences per size. Routed Slate input and injected destinations do not establish physical input, native picker/permissions, Finder reveal or full accessibility. Progress was held at a deterministic publication barrier; no throughput, full-duration, minimize/resume, current integrated long-session or release acceptance follows. The earlier renderer comparison below retains its separate pixel-fidelity scope; this 14-image UI audit does not repeat it. Movie controls were outside this historical PNG checkpoint; their scoped acceptance follows. Full reference fidelity and the full UI plan remain open.
+
+Feature `4b64636` adds the MP4 controls with **ship for the local Snapshot Sequence extension**, no material fixes, and all 28 captures reviewed at both desktop sizes. `tmp/analysis/movie-ui-20261001/{acceptance.json,finish-review.md,current-source-pins.json}` records the current evidence; [DESIGN.md](DESIGN.md#overview) preserves the scoped acceptance and remaining gaps. The earlier full SU2 movie below is a separate backend checkpoint, not a duration run on this UI binary.
+
+To reproduce MP4 controls, use the same serial/foreground procedure with FFmpeg/ffprobe also installed:
+
+```bash
+python3 Tools/run_packaged_suite.py \
+  --suite Studio.MovieUI.ControlsAndOriginalOutputs --count 1 \
+  --name movie-ui-large --width 1320 --height 740 --timeout 300 --captures MovieUI
+python3 Tools/verify_snapshot_ui.py \
+  --captures "tmp/debug/<reported-run>/captures" --expect-movie \
+  --report tmp/analysis/movie-ui-source-readback.json
+python3 Tools/verify_movie_export.py \
+  --exports "tmp/debug/<reported-run>/captures" \
+  --report tmp/analysis/movie-ui-movie-readback.json
+```
+
+Repeat at 1280 × 720 with a distinct run name and reports. `Studio.SnapshotUI.OriginalSequencesAndLifecycle` remains the PNG regression.
 
 ### Image-sequence writer and renderer foundations
 
 `StudioImageSequence` stages PNG sequences with an inclusive original-frame range and positive ordinal stride. Its pixel-free request freezes the source, camera, projection, centered crop, scalar mapping, display settings and inspection objects. A single handoff requests one image at a time; the producer must render that exact original frame or report failure. A dedicated worker validates each image, encodes it, streams its index entry and releases the pixels before requesting another. It does not advance the live Solve cursor or render images itself.
 
-The complete folder contains `frame_<original ordinal>.png`, `frames.jsonl` with original steps/times and `sequence.json` with provenance and the frozen view. Each PNG retains the full snapshot metadata. No temporal interpolation or movie frame rate is assigned. Requests allow up to 100,000 images, with the existing 64–4096 pixel dimension bounds and a 128 MiB encoded-image limit. Cancellation wakes a waiting worker; shutdown joins it. Failures and cancellation discard private staging, and exclusive directory publication never replaces an existing destination.
+The complete folder contains `frame_<original ordinal>.png`, `frames.jsonl` with original steps/times and `sequence.json` with provenance and the frozen view. Each PNG retains the full snapshot metadata. PNG-only requests assign no movie frame rate; original physical times are never interpolated. Requests allow up to 100,000 images, with the existing 64–4096 pixel dimension bounds and a 128 MiB encoded-image limit. Cancellation wakes a waiting worker; shutdown joins it. Failures and cancellation discard private staging, and exclusive directory publication never replaces an existing destination.
 
 Core commit `0cc9428` builds in Unreal Editor and passes 268 model cases (265 clean; three with the existing optional Unreal `idevice_id` architecture warning). Four new suites cover selection/view validation, exact PNG encoding and bounded handoff, partial failures, cancellation/publication races and source release. The independent Pillow audit checks three encoder-pattern PNGs, all 12,288 pixels, embedded frozen-view metadata and timestamps read directly from the original SU2 payload:
 
@@ -286,17 +306,17 @@ python3 Tools/verify_rendered_image_sequence.py \
   --report tmp/analysis/image-sequence-render-readback.json
 ```
 
-Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot controls were outside that renderer checkpoint; their later UI acceptance is recorded above. Native picker/input, full-duration export, export performance, minimize/resume, current long-session/release acceptance and movie controls remain pending; native encoding has its separate checkpoint below.
+Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot controls were outside that renderer checkpoint; their later UI acceptance is recorded above. Native picker/input, export performance, minimize/resume and current long-session/release acceptance remain pending. Movie controls are recorded above; native encoding and historical SU2 duration have their separate checkpoint below.
 
-### Native movie encoding — Snapshot controls pending
+### Native movie encoding — backend checkpoint
 
-`StudioMovie` adds optional macOS H.264 encoding to the existing bounded image-sequence writer. Set `FStudioImageSequenceRequest::Movie` to `{true, frameRate}` to include `flow.mp4` beside the lossless PNGs, `frames.jsonl` and `sequence.json`. It uses AVFoundation; FFmpeg is only an independent verification dependency. Snapshot does not expose this option yet.
+`StudioMovie` adds optional macOS H.264 encoding to the existing bounded image-sequence writer. Set `FStudioImageSequenceRequest::Movie` to `{true, frameRate}` to include `flow.mp4` beside the lossless PNGs, `frames.jsonl` and `sequence.json`. It uses AVFoundation; FFmpeg is only an independent verification dependency. Snapshot > Sequence exposes the option as described above.
 
 Each selected original becomes exactly one video frame at an explicit integer rate from 1–60 fps. Playback time is separate from physical simulation time; the MP4 comment, per-frame index and manifest describe that mapping. Images require even dimensions within 64–4096 pixels; nothing is silently resized, padded or interpolated. H.264 is lossy presentation output; the accompanying PNGs retain full snapshot metadata and lossless pixels. The worker respects native backpressure, caps its native pixel pool at three buffers, observes cancellation while waiting/finalizing, and publishes the complete bundle exclusively. Cancel, reader failure and destination collisions discard private movie/PNG staging together. This pool cap does not measure total codec or GPU memory.
 
 Backend commit `0b147a7` has evidence in `tmp/analysis/movie-export-20261001/acceptance.json`: 273 successful model cases (270 clean, three existing optional Unreal helper warnings), original SU2/wing/volume movies at both desktop sizes, a full 601-frame SU2 movie and the existing PNG-menu regression. All native runs exited cleanly without owned processes remaining. The final package adds only the full-recording test after the two-size runs; production sources are identical. Independent FFmpeg decoding verifies all 619 actual CFD video frames plus 30 explicitly labeled encoder-pattern frames. The two-size source audit also verifies 18 lossless PNGs against direct renders across 5,222,400 pixels and original source/probe metadata.
 
-The full SU2 export produces 30.05 seconds at 20 fps from all 601 originals spanning 0.12 seconds of physical evolution. Every decoded frame and original identity/time is audited; worst mean RGB difference from its PNG is 1.921/255. This is lossy-image acceptance, not numerical equivalence. Longer NACA/cylinder movie duration, Snapshot MP4 controls, native picker/physical input, minimize/resume, current integrated long-session/release and full-reference acceptance remain open.
+The historical backend full SU2 export produces 30.05 seconds at 20 fps from all 601 originals spanning 0.12 seconds of physical evolution. Every decoded frame and original identity/time is audited; worst mean RGB difference from its PNG is 1.921/255. This is lossy-image acceptance, not numerical equivalence. Longer NACA/cylinder movie duration, native picker/physical input, minimize/resume, current integrated long-session/release and full-reference acceptance remain open. No new native full-duration run was made on the MP4 UI binary.
 
 ```bash
 python3 Tools/run_packaged_suite.py \
@@ -307,7 +327,9 @@ python3 Tools/verify_movie_export.py \
   --report tmp/analysis/full-movie-readback.json
 ```
 
-Package with `Tools/package.sh` first. Readback requires FFmpeg/ffprobe, Pillow, NumPy and, for the source audit, VTK. `Studio.MovieRendering.OriginalViewsAndIsolation` with `--captures MovieRendering` covers the three sources at either viewport size; pair its movie audit with `Tools/verify_rendered_image_sequence.py --expect-movie` for original-source, probe and direct-PNG checks. These tests exercise the encoder/renderer, not MP4 controls in the UI.
+Package with `Tools/package.sh` first. Readback requires FFmpeg/ffprobe, Pillow, NumPy and, for the source audit, VTK. `Studio.MovieRendering.OriginalViewsAndIsolation` with `--captures MovieRendering` covers the three sources at either viewport size; pair its movie audit with `Tools/verify_rendered_image_sequence.py --expect-movie` for original-source, probe and direct-PNG checks. These tests exercise the encoder/renderer; the MovieUI suite above exercises MP4 controls.
+
+Verifier `22e7bbe` accounts for H.264 YUV420 chroma loss: luma is compared with each original PNG, and spatial/color fidelity with an independent uncompressed YUV420 reference. Raw RGB measurements remain reported. Current UI point-cloud outputs have minimum raw RGB PSNR 19.36 dB and maximum mean RGB error 8.03/255; this is lossy presentation acceptance, with no scientific numerical or pixel equivalence claim. The revised audit also rechecked retained backend outputs; historical raw RGB metrics still describe those frames and this recheck is not a new native duration run. PNGs retain full color.
 
 ## CFD sample provenance
 
