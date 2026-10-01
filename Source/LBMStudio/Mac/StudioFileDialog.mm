@@ -120,7 +120,7 @@ bool StudioFileDialog::PublishExportDirectory(const FString& Stage,const FString
     Error.Empty();return true;
 }
 
-bool StudioFileDialog::ExportFolder(FString& OutPath)
+bool StudioFileDialog::ExportFolder(FString& OutPath,bool bComparison)
 {
 #if WITH_DEV_AUTOMATION_TESTS
     bool Automated=false;if(ConsumeExportFolderForAutomation(OutPath,Automated))return Automated;
@@ -133,7 +133,7 @@ bool StudioFileDialog::ExportFolder(FString& OutPath)
     const bool Accepted=MainThreadReturn(^{
         SCOPED_AUTORELEASE_POOL;
         NSOpenPanel* Panel=[NSOpenPanel openPanel];Panel.title=@"Choose Export Destination";
-        Panel.message=@"The complete frame sequence will be saved in a new named folder here. Existing exports are never replaced.";
+        Panel.message=bComparison?@"Both original comparison frames and their metadata will be saved in a new named folder here. Existing exports are never replaced.":@"The complete frame sequence will be saved in a new named folder here. Existing exports are never replaced.";
         Panel.canChooseFiles=NO;Panel.canChooseDirectories=YES;Panel.allowsMultipleSelection=NO;Panel.canCreateDirectories=YES;
         const bool OK=[Panel runModal]==NSModalResponseOK;
         if(OK){OutPath=UTF8_TO_TCHAR(Panel.URL.path.UTF8String);RememberAccess(OutPath);}

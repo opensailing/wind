@@ -15,6 +15,7 @@ class SButton;
 class SStudioMenuButton;
 class SStudioPerformancePanel;
 class SStudioPipelineWorkspace;
+class SStudioResultsWorkspace;
 class FStudioPerformanceHistory;
 class SEditableTextBox;
 class FStudioProbeScheduler;
@@ -52,6 +53,7 @@ private:
     TSharedPtr<FStudioPerformanceHistory> PerformanceHistory;
     TSharedPtr<SStudioPerformancePanel> PerformancePanel;
     TSharedPtr<SStudioPipelineWorkspace> Pipelines;
+    TSharedPtr<SStudioResultsWorkspace> Results;
     TWeakPtr<SButton> PerformanceButton;
     FGuid PerformanceProject;
     bool bPerformanceOpen=false;

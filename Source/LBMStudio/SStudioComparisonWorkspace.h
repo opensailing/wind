@@ -3,6 +3,7 @@
 #include "StudioComparison.h"
 #include "StudioProject.h"
 #include "StudioSavedComparison.h"
+#include "StudioComparisonExport.h"
 
 class FStudioModel;
 class AStudioScene;
@@ -24,6 +25,8 @@ public:
     bool SupportsKeyboardFocus() const override { return true; }
     ~SStudioComparisonWorkspace();
     void Tick(const FGeometry& Geometry,double Time,float Delta) override;
+    /** Freeze the current original pair and independent camera metadata. */
+    TOptional<FStudioComparisonExportRequest> ExportSnapshot(FString& Error) const;
 private:
     bool Busy() const;
     bool Current() const;

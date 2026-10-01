@@ -118,10 +118,15 @@ void SStudioResultsWorkspace::OpenComparison()
     for(const auto& R:M->Project.Recordings)Entries.Add({R.Id,R.Title,R.Path});
     for(const auto& R:Installed)if(!Entries.ContainsByPredicate([&](const auto& E){return E.Id==R.Id;}))Entries.Add(R);
     if(!Entries.ContainsByPredicate([this](const auto& E){return E.Id==M->Project.Dataset;}))Entries.Add({M->Project.Dataset,M->Solver->Descriptor().Title,{}});
-    Comparison=SNew(SStudioComparisonWorkspace).Model(M).World(Scene->GetWorld()).Recordings(Entries)
+    Comparison=SNew(SStudioComparisonWorkspace).Tag(TEXT("ComparisonWorkspace")).Model(M).World(Scene->GetWorld()).Recordings(Entries)
         .OnBack_Lambda([this]{CloseComparison();});
     Body->SetContent(Comparison.ToSharedRef());
     FSlateApplication::Get().SetKeyboardFocus(Comparison,EFocusCause::Navigation);
+}
+TOptional<FStudioComparisonExportRequest> SStudioResultsWorkspace::ExportComparisonSnapshot(FString& Error) const
+{
+    if(Comparison)return Comparison->ExportSnapshot(Error);
+    Error=TEXT("Open a comparison and Compare frames before exporting both recordings.");return {};
 }
 void SStudioResultsWorkspace::CloseComparison()
 {

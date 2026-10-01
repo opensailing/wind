@@ -16,8 +16,8 @@ namespace StudioFileDialog
     bool CSV(const FString& SuggestedName,FString& OutPath,const FString& Title,const FString& Description);
     bool SnapshotPNG(const FString& SuggestedName,FString& OutPath);
     bool FieldVTK(const FString& SuggestedName,FString& OutPath,bool bPipeline=false);
-    /** Select a parent folder for a new, atomically published frame sequence. */
-    bool ExportFolder(FString& OutPath);
+    /** Select a parent folder for an atomically published sequence or pair. */
+    bool ExportFolder(FString& OutPath,bool bComparison=false);
 #if WITH_DEV_AUTOMATION_TESTS
     /** Routed UI tests supply a one-shot panel result; never proves native picker access. */
     void SetNextRecordingFolderForAutomation(const FString& Folder);

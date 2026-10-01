@@ -80,6 +80,20 @@ bool SStudioComparisonWorkspace::Current() const
 FStudioComparisonRequest SStudioComparisonWorkspace::Request() const
 {return {M->Project.Id,Sources[0],Sources[1],Ordinal,Scalar,Alignment};}
 
+TOptional<FStudioComparisonExportRequest> SStudioComparisonWorkspace::ExportSnapshot(FString& Error) const
+{
+    Error.Empty();
+    if(!Visible()||M->IsProjectOpenPending())
+    {Error=TEXT("Wait for the project, then reopen the comparison and Export.");return {};}
+    if(Busy())
+    {Error=TEXT("Wait for the comparison to finish, then reopen Export.");return {};}
+    if(!Current())
+    {Error=TEXT("Choose both recordings and an alignment, then Compare frames before reopening Export.");return {};}
+    FStudioComparisonExportRequest Out;Out.Pair=*Pair;
+    Out.PrimaryCamera=Scenes[0]->SavedCameraState();Out.SecondaryCamera=Scenes[1]->SavedCameraState();
+    Out.bSharedRange=bCommonRange;return Out;
+}
+
 void SStudioComparisonWorkspace::Construct(const FArguments& Args)
 {
     using namespace StudioUI;
@@ -157,7 +171,7 @@ void SStudioComparisonWorkspace::Construct(const FArguments& Args)
             +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,8,0)[SAssignNew(Views[0],SBox)]
             +SHorizontalBox::Slot().FillWidth(1).Padding(8,0,0,0)[SAssignNew(Views[1],SBox)]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,10,0,0)[ComparisonText([this]
-            {return TEXT("Drag to orbit · middle drag to pan · right drag + WASDQE to fly · wheel to zoom · F to fit. Toolbar playback and export use ")+M->Solver->Descriptor().Title+TEXT(" in Solve.");},9,Muted)]]];
+            {return TEXT("Export saves both original comparison frames. Drag to orbit · middle drag to pan · wheel to zoom · F to fit. Toolbar playback uses ")+M->Solver->Descriptor().Title+TEXT(" in Solve.");},9,Muted)]]];
 }
 
 SStudioComparisonWorkspace::~SStudioComparisonWorkspace()

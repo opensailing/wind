@@ -1152,7 +1152,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[BoundaryWorkspace()]
                 +SWidgetSwitcher::Slot()[LatticeWorkspace()]
                 +SWidgetSwitcher::Slot()[MonitorWorkspace()]
-                +SWidgetSwitcher::Slot()[SNew(SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
+                +SWidgetSwitcher::Slot()[SAssignNew(Results,SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
                     .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]
@@ -3429,6 +3429,11 @@ FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEv
 }
 TSharedRef<SWidget> SStudioWorkspace::ExportMenu()
 {
+    if(M->Workspace==EStudioWorkspace::Results&&Results->IsComparisonOpen()&&!FieldExport->IsBusy())
+    {
+        FString Error;auto Frozen=Results->ExportComparisonSnapshot(Error);
+        return FieldExport->Menu(M.ToSharedRef(),nullptr,false,{},Error,true,MoveTemp(Frozen));
+    }
     if(M->Workspace==EStudioWorkspace::PostProcessing&&!FieldExport->IsBusy())
     {
         FString Error;auto Frozen=Pipelines->ExportSnapshot(Error);

@@ -1,6 +1,7 @@
 #pragma once
 #include "Widgets/SCompoundWidget.h"
 #include "StudioRecording.h"
+#include "StudioComparisonExport.h"
 #include "Async/Future.h"
 
 class FStudioModel;
@@ -25,6 +26,8 @@ public:
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
     void Tick(const FGeometry& Geometry,double Time,float Delta) override;
+    bool IsComparisonOpen() const {return Comparison.IsValid();}
+    TOptional<FStudioComparisonExportRequest> ExportComparisonSnapshot(FString& Error) const;
 private:
     bool Available() const;
     bool HasRecording() const;
