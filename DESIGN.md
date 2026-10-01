@@ -422,7 +422,7 @@ The frontmatter preserves the actual source sRGB hex values from `StudioUI`, plu
 ### Primary
 
 - **Cyan:** selected length-mode text, focused input outline, hover/pressed button outlines, and active workspace text.
-- **Blue:** the scale slider handle and automatic inlet density handle.
+- **Blue:** the scale slider handle and automatic seed density handle.
 - Streamline seed-mode and direction selections, chosen inlet-face text, selected seed rows, and saved seed markers reuse **Cyan**.
 
 ### Secondary
@@ -443,7 +443,7 @@ Sidecar tonal ramps are generated preview metadata, not additional native colors
 
 V10/D01 reuses Panel, Raised, Text, Muted and the shared cyan hover/focus outlines. Its mesh menu identifies the selected mode with literal “selected” text. The pale cyan-blue triangle edges use their own authored unlit material color, recorded in the sidecar, independently of the selected scalar palette; the retained scalar legend explicitly says that edges show topology.
 
-Streamline tubes follow the captured viewport scalar mapping. The live popover’s work-limit recovery and “All seed sets:” readout use Text; the compact “limited” count uses Muted. The saved-seed density slider inherits CoreStyle and appears light gray in the captures; it does not use the automatic inlet slider’s authored Blue handle.
+Streamline tubes follow the captured viewport scalar mapping. The live popover’s work-limit recovery and “All seed sets:” readout use Text; the compact “limited” count uses Muted. The saved-seed density slider inherits CoreStyle and appears light gray in the captures; it does not use the automatic seed slider’s authored Blue handle.
 
 Authoring reuses Cyan for selection and focus, Amber for recovery, draft geometry and outside/unknown containment, and the same Text/Muted hierarchy. Enabled optional-value and filter hints use Text at full hint opacity through the existing `SProjectFilterBox`; “Unknown”, “Optional · unknown” and “Filter by name” remain hints rather than stored values. The F3 reviewer measured six captured regions at **14.36:1** contrast (foreground RGB 223/232/243, background 15/25/34), above the 4.5:1 finding threshold. These are measured native pixels, not new palette tokens or a full accessibility certification. Disabled controls keep their separate native treatment.
 
@@ -565,7 +565,9 @@ The original-point capture shows 96 arrows from 97 sampled rows. The original 3D
 
 ### Streamline settings and exact recovery
 
-The Streamlines settings action uses the shared Raised button, Muted 14-unit settings glyph, and no dropdown arrow. The form identifies the single available field as “Flow field: recorded velocity (m/s)”. “Automatic inlet” and “Saved seed sets” select the seed source; “Forward”, “Backward”, and “Both” select velocity-trace direction. Cyan text identifies selection, with common native hover, pressed, disabled, and focus behavior. The settings body belongs to the project/source that opened it and disables when that context is replaced.
+The Streamlines settings action uses the shared Raised button, Muted 14-unit settings glyph, and no dropdown arrow. The form identifies the single available field as “Flow field: recorded velocity (m/s)”. “Automatic flow” and “Saved seed sets” select the seed source; “Forward”, “Backward”, and “Both” select velocity-trace direction. The automatic-mode tooltip explains that seeds follow recorded inflow, with outgoing flow used for backward traces. Cyan text identifies selection, with common native hover, pressed, disabled, and focus behavior. The settings body belongs to the project/source that opened it and disables when that context is replaced.
+
+Automatic flow uses bounded deterministic samples of supported domain faces, weighted by edge length or face area projected against normalized original velocity. Forward and Both use incoming faces; Backward uses outgoing faces. Seeds on 2D sources stay on the original source plane. Each final position is rechecked for flow direction, velocity and coverage; solids or missing/unavailable velocity never seed, so the final count can be below the request. With no supported crossing, the live recovery says “No supported flow crosses the domain faces. Use saved seed sets for internal circulation.” Manual saved seeds retain their existing definitions.
 
 Let `L` be the longest side of the trace domain: attached 3D grid coverage when present, otherwise recording display bounds. Width, step, and maximum length are entered in meters but stored as fractions of `L`, so switching recordings rescales these distances. Width is the full tube diameter. Each direction has its own length and step limit; the total budget counts attempted steps across all seeds and branches.
 
@@ -593,7 +595,7 @@ F2 preserves true aggregate examples: a selected seven-seed inlet accompanies 23
 
 | Seed kind | Exact editor and placement behavior |
 | --- | --- |
-| Inlet face | Count/density and X/Y/Z minimum/maximum pairs. Seeds are inset 0.23% from the face. Y faces are unavailable for 2D; seeds remain on its original X/Z plane. Automatic mode uses the default X minimum inlet. |
+| Inlet face | Count/density and X/Y/Z minimum/maximum pairs. Seeds are inset 0.23% from the chosen face. Y faces are unavailable for 2D; seeds remain on its original X/Z plane. The chosen face remains explicit in saved-seed mode. |
 | Line endpoints | Count/density and exact A/B scene-meter coordinates. Samples include endpoints; one seed uses the midpoint. Place in view commits after two clicks. |
 | Rectangular plane | Count/density, Center, and full Span U / Span V vectors. Placement clicks center, U edge, V edge; edge distances become half spans. The deterministic grid distributes the requested count. |
 | Selected positions | Exact X/Y/Z for Point n of N, Previous/Next, Pick another point, and Remove this point. Each chosen location is retained; controls enforce 1–512 positions. |
@@ -913,7 +915,9 @@ Source authority is `StudioPerformance.h/.cpp`, `SStudioPerformancePanel.h/.cpp`
 
 The Solve viewport retains the incumbent navy palette and native Slate controls. Flow overview fits the complete displayed domain, simplifies the airfoil view to its original-mesh slice plus integrated streamlines, and applies a clearly labeled custom scalar range. Original visible nodes determine the range with 15% padding and a deterministic 50,000-node sampling limit; the range stays fixed during playback. Speed is derived after interpolation of original velocity components in the pixel shader, matching field probes. Source data, topology, exports, selected frame and the existing palette stay intact. Choosing Flow overview explicitly creates one undoable view change; saved cameras remain freely editable.
 
-New bundled airfoil documents initialize in this overview at original frame 0, with 48 streamlines, direction markers and perspective projection. The first valid viewport layout fits the domain once without adding view history or changing the document's dirty state; New Project remains unsaved. Opened and recovered documents keep their saved views. An early camera edit or Save cancels the pending fit. These defaults preserve the source's original numerical values and 2D nature.
+New bundled airfoil documents initialize in this overview at original frame 0, with 48 requested automatic seeds, direction markers and perspective projection. The first valid viewport layout fits the domain once without adding view history or changing the document's dirty state; New Project remains unsaved. Opened and recovered documents keep their saved views. An early camera edit or Save cancels the pending fit. These defaults preserve the source's original numerical values and 2D nature.
+
+Automatic flow includes supported inflow faces beyond X minimum, restoring actual recorded traces below and downstream of the wing. Seeding leaves the camera, scalar selection, frame, palette and scientific values unchanged. The broader mockup differences in airfoil scale, slice dominance, material and depth remain open.
 
 The airfoil slice uses its exact original 2D triangles, clipped to the display bounds, at 0.18 opacity; sources above 131,072 triangles retain bounded grid sampling. Streamline endpoint colors follow their actual samples. A camera-aligned navy backdrop and subdued domain edges establish depth without lighting scalar colors. Solve captures at twice its Slate dimensions, capped at 3840 × 2400; captures remain on demand. This is a presentation of published 2D CFD, not newly simulated spanwise flow or the mockup's illustrated wake.
 

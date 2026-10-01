@@ -20,17 +20,20 @@ FStudioSeedObject StreamSeed(const FStudioFieldIdentity& I)
 class FStreamAnalyticField final : public IStudioField
 {
 public:
-    bool bCircular=false,bZero=false,bMissingScalar=false,bGap=false;
+    bool bCircular=false,bZero=false,bMissingScalar=false,bGap=false,bMissingVelocity=false;
+    int32 Dimensions=2;
+    FVector ConstantVelocity=FVector(3,0,4);
     mutable int32 Samples=0;
     FStudioLoadCancellation CancelOnSample;
     bool IsValid() const override{return true;}
     TOptional<FStudioFieldIdentity> Identity() const override
     {FStudioFieldIdentity I;I.Dataset=TEXT("analytic-numerical-test");I.MetadataSHA256=FString::ChrN(64,'a');
-        I.Interpolation=EStudioFieldInterpolation::SourceTriangles;I.SpatialDimensions=2;return I;}
+        I.Interpolation=EStudioFieldInterpolation::SourceTriangles;I.SpatialDimensions=Dimensions;return I;}
     bool Sample(const FVector& P,FStudioFieldValue& Out) const override
     {
         if(++Samples==20&&CancelOnSample)CancelOnSample->store(true);
-        Out.Velocity=bZero?FVector::ZeroVector:bCircular?FVector(-P.Z,0,P.X):FVector(3,0,4);
+        if(bMissingVelocity)return false;
+        Out.Velocity=bZero?FVector::ZeroVector:bCircular?FVector(-P.Z,0,P.X):ConstantVelocity;
         Out.Pressure=2*P.X-3*P.Z;return true;
     }
     bool SampleScalar(const FVector& P,const FString& Id,double& Out) const override
@@ -102,6 +105,66 @@ bool FStudioStreamSeeds::RunTest(const FString&)
     TestTrue(TEXT("No silent snap onto source plane"),P==Seed.Points);
     const FVector Duplicate=Seed.Points[0];Seed.Points.Add(Duplicate);
     TestFalse(TEXT("Duplicate selected locations rejected"),StudioStreamlines::Seeds(Seed,Bounds,2,0,P,Error));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioAutomaticFlowSeeds,"Studio.Streamlines.RecordedInflowSeeds",StreamTestFlags)
+bool FStudioAutomaticFlowSeeds::RunTest(const FString&)
+{
+    FStreamAnalyticField Field;const FBox Bounds(FVector(-1,-1,-1),FVector(1,1,1));
+    FString Error;TArray<FVector> P,Again;
+    for(int32 Dimensions:{2,3})for(int32 Count:{1,48,512})for(bool Backward:{false,true})
+    {
+        Field.Dimensions=Dimensions;Field.ConstantVelocity=FVector(3,Dimensions==3?2:0,4);Field.Samples=0;
+        const auto Direction=Backward?EStudioStreamDirection::Backward:EStudioStreamDirection::Forward;
+        if(!TestTrue(*Error,StudioStreamlines::AutomaticSeeds(Field,Bounds,Count,Direction,P,Error)))return false;
+        TestEqual(TEXT("Supported uniform flow yields the requested count"),P.Num(),Count);
+        TestTrue(TEXT("Boundary search and recheck are bounded"),Field.Samples<=(Dimensions==2?4096:6144)+Count);
+        TestTrue(TEXT("Generation repeats deterministically"),StudioStreamlines::AutomaticSeeds(Field,Bounds,Count,Direction,Again,Error)&&P==Again);
+        TSet<FVector> Unique;int32 Left=0,Bottom=0;
+        for(const auto& Position:P)
+        {
+            Unique.Add(Position);TestTrue(TEXT("Seed inside actual display domain"),Bounds.IsInsideOrOn(Position));
+            if(Dimensions==2)TestEqual(TEXT("Never manufactures spanwise flow"),Position.Y,0.);
+            const double Face=Backward?.9954:-.9954;
+            TestTrue(TEXT("Seeds only on recorded incoming faces, reversed for backward tracing"),
+                FMath::IsNearlyEqual(Position.X,Face,1.e-10)||FMath::IsNearlyEqual(Position.Z,Face,1.e-10)||
+                (Dimensions==3&&FMath::IsNearlyEqual(Position.Y,Face,1.e-10)));
+            Left+=FMath::IsNearlyEqual(Position.X,Face,1.e-10);Bottom+=FMath::IsNearlyEqual(Position.Z,Face,1.e-10);
+        }
+        TestEqual(TEXT("Seed locations are distinct"),Unique.Num(),Count);
+        if(Dimensions==2&&Count==48)
+        {
+            TestTrue(TEXT("Transverse coverage divides oblique flow across left and bottom faces"),FMath::Abs(Left-48*3./7.)<=1&&FMath::Abs(Bottom-48*4./7.)<=1);
+            if(!Backward)TestTrue(TEXT("Both tracing directions share physical inflow seeds"),
+                StudioStreamlines::AutomaticSeeds(Field,Bounds,Count,EStudioStreamDirection::Both,Again,Error)&&P==Again);
+        }
+    }
+    Field.Dimensions=2;Field.ConstantVelocity=FVector(-3,0,-4);
+    TestTrue(TEXT("Reversed physical flow seeds the opposite domain faces"),StudioStreamlines::AutomaticSeeds(Field,Bounds,48,EStudioStreamDirection::Forward,P,Error));
+    for(const auto& Position:P)TestTrue(TEXT("Reversed flow enters right or top"),FMath::IsNearlyEqual(Position.X,.9954,1.e-10)||FMath::IsNearlyEqual(Position.Z,.9954,1.e-10));
+    Field.bZero=true;
+    TestTrue(TEXT("Stagnation has no invented automatic direction"),StudioStreamlines::AutomaticSeeds(Field,Bounds,48,EStudioStreamDirection::Forward,P,Error)&&P.IsEmpty());
+    Field.bZero=false;Field.bMissingVelocity=true;
+    TestTrue(TEXT("Missing velocity invents no seeds"),StudioStreamlines::AutomaticSeeds(Field,Bounds,48,EStudioStreamDirection::Forward,P,Error)&&P.IsEmpty());
+    Field.bMissingVelocity=false;P={FVector::ZeroVector};const auto Before=P;
+    TestFalse(TEXT("Invalid count rejected"),StudioStreamlines::AutomaticSeeds(Field,Bounds,513,EStudioStreamDirection::Forward,P,Error));
+    TestTrue(TEXT("Invalid input retains prior output"),P==Before);
+    Field.Samples=0;Field.CancelOnSample=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
+    TestFalse(TEXT("Mid-search cancellation is atomic"),StudioStreamlines::AutomaticSeeds(Field,Bounds,48,EStudioStreamDirection::Forward,P,Error,Field.CancelOnSample));
+    TestTrue(TEXT("Cancellation retains prior output"),P==Before);
+    FStudioModel M(FPaths::ProjectSavedDir()/TEXT("Automation/AutomaticFlowSeeds"));
+    for(int32 Frame:{0,420})
+    {
+        const auto Actual=M.Solver->CaptureField(Frame);const auto B=M.Solver->Descriptor().DisplayBounds;
+        if(!TestTrue(TEXT("Actual airfoil supplies supported inflow"),StudioStreamlines::AutomaticSeeds(*Actual,B,48,EStudioStreamDirection::Forward,P,Error)&&P.Num()==48))return false;
+        int32 Bottom=0;for(const auto& Position:P)
+        {
+            FVector V;TestTrue(TEXT("Each published-data seed has recorded velocity"),Actual->SampleVelocity(Position,V));
+            if(FMath::IsNearlyEqual(Position.Z,FMath::Lerp(B.Min.Z,B.Max.Z,.0023),1.e-10)){++Bottom;TestTrue(TEXT("Bottom seeds follow incoming recorded flow"),V.Z>0);}
+        }
+        TestTrue(TEXT("Actual recording fills the missed lower inflow"),Bottom>0);
+    }
     return true;
 }
 

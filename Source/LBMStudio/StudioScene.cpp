@@ -397,9 +397,14 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         Out->Streams.bAutomaticSeeds=Settings.bAutomaticSeeds;
         if(Settings.bAutomaticSeeds&&Identity.IsSet())
         {
-            FStudioSeedObject Seed;Seed.Id=FGuid(0x5354524d,0x4155544f,0,1);Seed.Name=TEXT("Automatic inlet");
+            FStudioSeedObject Seed;Seed.Id=FGuid(0x5354524d,0x4155544f,0,1);Seed.Name=TEXT("Automatic flow");
             Seed.Source={Identity->Dataset,Identity->MetadataSHA256,Identity->PayloadSHA256};Seed.Count=Settings.AutomaticSeedCount;
-            Seeds={Seed};
+            Seed.Kind=EStudioSeedKind::Points;FString SeedError;
+            Seeds.Reset();
+            if(!StudioStreamlines::AutomaticSeeds(Field,StreamBounds,Seed.Count,Settings.Direction,Seed.Points,SeedError,R.Cancellation))
+            {if(R.IsCancelled())return {};Out->Streams.Notice=SeedError;}
+            else if(!Seed.Points.IsEmpty())Seeds.Add(MoveTemp(Seed));
+            else Out->Streams.Notice=TEXT("No supported flow crosses the domain faces. Use saved seed sets for internal circulation.");
         }
         FStudioStreamlineOutput Stream;FString Error;
         if(!StudioStreamlines::Build(Field,StreamBounds,Seeds,Settings,R.Scalar.Id,Stream,Error,R.Cancellation))
@@ -443,7 +448,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                     }
                 }
             }
-            if(!Summary.Lines)Summary.Notice=Summary.Seeds?TEXT("No traces at these seeds. Check coverage, source plane and recorded velocity."):
+            if(!Summary.Lines&&Summary.Notice.IsEmpty())Summary.Notice=Summary.Seeds?TEXT("No traces at these seeds. Check coverage, source plane and recorded velocity."):
                 Settings.bAutomaticSeeds?TEXT("Streamlines need recorded velocity and verified interpolation."):TEXT("No visible seed sets for this recording.");
         }
     }

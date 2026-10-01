@@ -1827,7 +1827,8 @@ TSharedRef<SWidget> SStudioWorkspace::StreamlineMenu()
     for(bool Automatic:{true,false})Modes->AddSlot().FillWidth(1).Padding(Automatic?0:4,0,0,0)
         [SNew(SButton).Tag(Automatic?TEXT("StreamAutomatic"):TEXT("StreamSavedSeeds")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(6,7))
             .OnClicked_Lambda([this,Current,Automatic]{if(Current())M->EditView(TEXT("Streamline seed source"),[Automatic](auto& S){S.Display.StreamlineSettings.bAutomaticSeeds=Automatic;});return FReply::Handled();})
-            [SNew(STextBlock).Font(Font(10)).Text(FText::FromString(Automatic?TEXT("Automatic inlet"):TEXT("Saved seed sets")))
+            .ToolTipText(FText::FromString(Automatic?TEXT("Seed where recorded flow enters the domain. Backward traces start where it leaves."):TEXT("Use the exact saved inlet, line, plane or point seeds.")))
+            [SNew(STextBlock).Font(Font(10)).Text(FText::FromString(Automatic?TEXT("Automatic flow"):TEXT("Saved seed sets")))
                 .ColorAndOpacity_Lambda([this,Automatic]{return M->StreamlineSettings.bAutomaticSeeds==Automatic?Cyan:Text;})]];
     Items->AddSlot().AutoHeight().Padding(0,0,0,10)[Modes];
     auto Number=[this,Current,Error](const TCHAR* Tag,const TCHAR* Name,TFunction<double()> Read,TFunction<void(double)> Write,double Min,double Max,bool Integer=false)
@@ -5453,7 +5454,7 @@ FString SStudioWorkspace::InspectionSummary() const
     {
         if(!(Seed->Source==M->InspectionSource()))return TEXT("This seed set belongs to another recording.");
         if(!Seed->bVisible)return TEXT("Seed set hidden");
-        if(M->StreamlineSettings.bAutomaticSeeds)return TEXT("Automatic inlet is active. Choose Saved seed sets in streamline settings to use these seeds.");
+        if(M->StreamlineSettings.bAutomaticSeeds)return TEXT("Automatic flow is active. Choose Saved seed sets in streamline settings to use these seeds.");
         if(Scene->HasCurrentFrame())if(const auto* Notice=Scene->PresentedStreams().SeedNotices.Find(Id))return *Notice;
         return TEXT("All seed sets:\n")+StreamlineSummary();
     }

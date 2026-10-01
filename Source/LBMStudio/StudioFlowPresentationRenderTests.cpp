@@ -51,6 +51,7 @@ public:
             Test->TestFalse(TEXT("Starting view is not an undoable user action"),M.CanUndoView());
             Test->TestTrue(TEXT("Starting camera fits the actual native viewport"),StudioView::CameraEquals(M.Project.Camera,
                 StudioView::FitBounds(M.Project.Camera,M.Solver->Descriptor().DisplayBounds,double(Target->SizeX)/Target->SizeY,.01)));
+            VerifyLowerFlowCoverage();
             Capture(TEXT("new-project.png"));Scene->Orbit(8,5);
             M.EditView(TEXT("Exercise overview restoration"),[](auto& S){S.Display.bVectors=true;S.Display.bVolume=true;S.Display.ScalarStyles.Reset();});Next();break;
         case 2:
@@ -170,6 +171,18 @@ public:
         return false;
     }
 private:
+    void VerifyLowerFlowCoverage()
+    {
+        const auto Mesh=Scene->FindComponentByClass<UProceduralMeshComponent>();const auto* Section=Mesh?Mesh->GetProcMeshSection(3):nullptr;
+        if(!Test->TestNotNull(TEXT("Automatic flow has rendered geometry"),Section))return;
+        const int32 TubeVertices=Scene->PresentedStreams().Segments*24;bool LowerDownstream=false;
+        for(int32 I=0;I+12<FMath::Min(TubeVertices,Section->ProcVertexBuffer.Num());I+=24)
+        {
+            const FVector P=(Section->ProcVertexBuffer[I].Position+Section->ProcVertexBuffer[I+12].Position)/200.;
+            LowerDownstream|=P.X>1.&&P.Z<-.15;
+        }
+        Test->TestTrue(TEXT("Actual initial-frame traces cover lower downstream flow missed by left-face seeding"),LowerDownstream);
+    }
     void Next(){++Phase;Changed=GFrameCounter;}
     TSharedPtr<SWidget> Find(const TSharedRef<SWidget>& W,FName Tag)
     {

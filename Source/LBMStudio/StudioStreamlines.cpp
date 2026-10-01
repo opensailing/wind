@@ -66,6 +66,65 @@ bool StudioStreamlines::FromJSON(const TSharedPtr<FJsonObject>& O,FStudioStreaml
     S.Direction=EStudioStreamDirection(int32(Direction));S.MaximumSteps=int32(Steps);S.WorkBudget=int32(Budget);S.AutomaticSeedCount=int32(Count);
     if(!IsValid(S))return false;Out=MoveTemp(S);return true;
 }
+bool StudioStreamlines::AutomaticSeeds(const IStudioField& Field,const FBox& Bounds,int32 Count,
+    EStudioStreamDirection Direction,TArray<FVector>& Out,FString& Error,const FStudioLoadCancellation& Cancellation)
+{
+    const auto Identity=Field.Identity();
+    Error=TEXT("Automatic seeds require a supported domain and recorded velocity interpolation.");
+    if(!Field.IsValid()||!Identity||Identity->Interpolation==EStudioFieldInterpolation::None||
+        (Identity->SpatialDimensions!=2&&Identity->SpatialDimensions!=3)||!StreamBounds(Bounds,Identity->SpatialDimensions)||
+        Count<1||Count>512||uint8(Direction)>uint8(EStudioStreamDirection::Both))return false;
+    const bool Planar=Identity->SpatialDimensions==2;
+    if(Planar&&(!FMath::IsFinite(Identity->SourceOffset.Y)||Identity->SourceOffset.Y<Bounds.Min.Y||Identity->SourceOffset.Y>Bounds.Max.Y))return false;
+    const auto Cancelled=[&]{return Cancellation&&Cancellation->load(std::memory_order_relaxed);};
+    const double Sign=Direction==EStudioStreamDirection::Backward?-1.:1.;
+    const FVector Size=Bounds.GetSize();
+    struct FCell { FVector Center,U,V,Inward;double Start,Weight; };
+    TArray<FCell> Cells;double Total=0;
+    // At most 4,096 planar or 6,144 volume samples, plus the requested seeds.
+    const int32 N=Planar?FMath::Clamp(Count*2,64,1024):FMath::Clamp(FMath::CeilToInt(FMath::Sqrt(double(Count)*4)),8,32);
+    auto WeightAt=[&](const FVector& P,const FVector& Inward)
+    {
+        FVector Velocity;
+        if(!Bounds.IsInsideOrOn(P)||Field.IsSolid(P)||!Field.SampleVelocity(P,Velocity)||Velocity.ContainsNaN())return 0.;
+        const double Speed=Velocity.Size();
+        if(!FMath::IsFinite(Speed)||Speed<=0)return 0.;
+        const double Weight=Sign*FVector::DotProduct(Velocity/Speed,Inward);
+        return Weight>1.e-8?Weight:0.;
+    };
+    for(int32 Axis=0;Axis<3;++Axis)if(!Planar||Axis!=1)for(int32 Side=0;Side<2;++Side)
+    {
+        const int32 A=Planar?(Axis==0?2:0):(Axis+1)%3,B=(Axis+2)%3;
+        FVector Center=Bounds.GetCenter(),U=FVector::ZeroVector,V=FVector::ZeroVector,Inward=FVector::ZeroVector;
+        Center[Axis]=FMath::Lerp(Bounds.Min[Axis],Bounds.Max[Axis],Side?.9977:.0023);Inward[Axis]=Side?-1.:1.;
+        if(Planar)Center.Y=Identity->SourceOffset.Y;
+        U[A]=Size[A]/N;if(!Planar)V[B]=Size[B]/N;
+        const double Measure=Planar?U.Size():U.Size()*V.Size();
+        for(int32 J=0;J<(Planar?1:N);++J)for(int32 I=0;I<N;++I)
+        {
+            if(Cancelled()){Error=TEXT("Automatic seeding cancelled.");return false;}
+            const FVector P=Center+U*(I+.5-N*.5)+(Planar?FVector::ZeroVector:V*(J+.5-N*.5));
+            const double Weight=WeightAt(P,Inward)*Measure;
+            if(Weight>0){Cells.Add({P,U,V,Inward,Total,Weight});Total+=Weight;}
+        }
+    }
+    TArray<FVector> Positions;Positions.Reserve(Count);TSet<FVector> Seen;int32 Cell=0;
+    if(Total>0)for(int32 I=0;I<Count;++I)
+    {
+        if(Cancelled()){Error=TEXT("Automatic seeding cancelled.");return false;}
+        const double Target=Total*(I+.5)/Count;
+        while(Cell+1<Cells.Num()&&Target>=Cells[Cell].Start+Cells[Cell].Weight)++Cell;
+        const auto& C=Cells[Cell];
+        const double T=FMath::Clamp((Target-C.Start)/C.Weight,0.,1.);
+        // Recheck the final point: a valid cell midpoint cannot authorize a
+        // seed across a missing-data edge or a local reversal within the cell.
+        const FVector P=C.Center+C.U*(T-.5);
+        if(WeightAt(P,C.Inward)>0&&!Seen.Contains(P)){Positions.Add(P);Seen.Add(P);}
+    }
+    if(Cancelled()){Error=TEXT("Automatic seeding cancelled.");return false;}
+    Error.Empty();Out=MoveTemp(Positions);return true;
+}
+
 bool StudioStreamlines::Seeds(const FStudioSeedObject& S,const FBox& Bounds,int32 Dimensions,
     double PlaneY,TArray<FVector>& Out,FString& Error)
 {

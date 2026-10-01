@@ -63,6 +63,13 @@ namespace StudioStreamlines
     bool IsValid(const FStudioStreamlineSettings& Settings);
     TSharedRef<FJsonObject> ToJSON(const FStudioStreamlineSettings& Settings);
     bool FromJSON(const TSharedPtr<FJsonObject>& JSON,FStudioStreamlineSettings& Out);
+    /** Bounded, deterministic seeds on supported domain faces, spaced by their
+     * projected length/area across recorded flow. Backward traces use outflow;
+     * forward/both use inflow. No valid inflow returns an empty set, never a
+     * substitute direction. Invalid/cancelled work leaves Out unchanged. */
+    bool AutomaticSeeds(const IStudioField& Field,const FBox& Bounds,int32 Count,
+        EStudioStreamDirection Direction,TArray<FVector>& Out,FString& Error,
+        const FStudioLoadCancellation& Cancellation={});
     /** Exact deterministic seed locations. Custom positions are never projected
      * onto a 2D recording or moved to a nearby supported interpolation cell. */
     bool Seeds(const FStudioSeedObject& Seed,const FBox& Bounds,int32 Dimensions,
