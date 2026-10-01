@@ -224,6 +224,23 @@ python3 Tools/verify_csv_field_export.py \
 
 The audit uses Python's CSV parser and direct original binary arrays through the shared NumPy audit reader (whose module also requires VTK). The historical backend checkpoint in `tmp/analysis/csv-field-export-20260928/core-acceptance.json` records 236 successful model cases (one existing Unreal helper warning), 13 independently checked CSV frames / 1,285,685 original point rows with zero observed value error, and 14 VTK regression files. The unified-controls review above covers the subsequently added visible CSV/range controls. Actual native picker/input and current integrated stability/release acceptance remain open.
 
+### Image-sequence writer — renderer and UI integration pending
+
+`StudioImageSequence` stages PNG sequences with an inclusive original-frame range and positive ordinal stride. Its pixel-free request freezes the source, camera, projection, centered crop, scalar mapping, display settings and inspection objects. A single handoff requests one image at a time; the producer must render that exact original frame or report failure. A dedicated worker validates each image, encodes it, streams its index entry and releases the pixels before requesting another. It does not advance the live Solve cursor or render images itself.
+
+The complete folder contains `frame_<original ordinal>.png`, `frames.jsonl` with original steps/times and `sequence.json` with provenance and the frozen view. Each PNG retains the full snapshot metadata. No temporal interpolation or movie frame rate is assigned. Requests allow up to 100,000 images, with the existing 64–4096 pixel dimension bounds and a 128 MiB encoded-image limit. Cancellation wakes a waiting worker; shutdown joins it. Failures and cancellation discard private staging, and exclusive directory publication never replaces an existing destination.
+
+Core commit `0cc9428` builds in Unreal Editor and passes 268 model cases (265 clean; three with the existing optional Unreal `idevice_id` architecture warning). Four new suites cover selection/view validation, exact PNG encoding and bounded handoff, partial failures, cancellation/publication races and source release. The independent Pillow audit checks three encoder-pattern PNGs, all 12,288 pixels, embedded frozen-view metadata and timestamps read directly from the original SU2 payload:
+
+```bash
+python3 Tools/verify_image_sequence.py \
+  --sequence "$(cat Saved/Automation/ImageSequenceEncoder/latest-pattern-sequence.txt)" \
+  --source Content/Samples/MeshGraphNets_Airfoil \
+  --report tmp/analysis/image-sequence-readback.json
+```
+
+Run `Tools/test.sh` first and use a Python environment with Pillow. Evidence is in `tmp/analysis/image-sequence-20261001/`. These are encoder patterns, not rendered CFD images. Independent offscreen rendering, Snapshot-menu controls, native picker/input, performance, long-session and release acceptance remain pending; the existing single-snapshot UI is unchanged.
+
 ## CFD sample provenance
 
 - **Source:** Pfaff, Fortunato, Sanchez-Gonzalez and Battaglia, *Learning Mesh-Based Simulation with Graph Networks*, ICLR 2021. The bundled data is SU2 ground truth from the official dataset, not model predictions.
