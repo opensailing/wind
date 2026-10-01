@@ -35,11 +35,11 @@ The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexp
 
 | Action | Control |
 | --- | --- |
-| Orbit around the wing | Left-drag in the scene |
-| Pan | Middle-drag |
-| Zoom | Mouse wheel |
+| Orbit around the wing | Tools → Orbit, then left-drag in the scene |
+| Pan | Tools → Pan, then left-drag; middle-drag also pans |
+| Zoom | Tools → Zoom, then left-drag up to zoom in or down to zoom out; mouse wheel also zooms |
 | Free flight | Hold right mouse, move with WASD and Q/E; Shift moves faster |
-| Persistent free-flight mode | Click Free fly; click the scene to give it keyboard focus |
+| Persistent free-flight mode | Tools → Fly; click the scene to give it keyboard focus |
 | Return to the domain | Fit button or F while the scene has focus |
 | Exact camera placement | Right panel: X, Y, Z in meters; yaw, pitch, roll in degrees |
 | Named camera views | Camera tool → enter a name → Save view; Activate / Update / Copy / Delete; rename inline |
@@ -82,6 +82,8 @@ The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexp
 | Choose the compact history preview | Solve → Selected history → series picker; one named series, unit, selection count and Linear/Log scale |
 | Inspect session activity | Solve → Activity log → Open log; search/filter, pause, select details, clear/restore retained entries or Export CSV…; Restore Solve returns to the scene |
 | Send application commands | Expanded Activity log → Command; Enter or Send executes, Commands… fills the field, Up/Down recalls, Tab/Shift+Tab completes, Esc clears |
+
+The floating Tools panel selects Orbit, Pan, Zoom or Fly for left-drag; each drag keeps the tool it started with. Pan moves the camera and focus together. Zoom changes orthographic width or perspective distance. Pan/Zoom selection is a local, unsaved input preference and does not edit the camera while already outside Fly. Entering or leaving Fly changes the saved, undoable camera mode while preserving pose, focus and display settings.
 
 In Replay mode, Run plays each bundled 601-snapshot recording at 20 snapshots/second: **30 seconds of playback** at 1×. Replay speed ranges from 0.25× to 4×; optional looping restarts the same recording. The timeline exposes every frame immediately. Pause retains the current frame; Step advances one recorded snapshot; Run after reviewing starts from that selection. Follow replay returns to the playback cursor. Camera and supported display controls remain interactive throughout. The 8,000-frame NACA source plays for 399.95 seconds at 1× (about 100 seconds at 4×); its 19.9975-second source duration is shown separately.
 

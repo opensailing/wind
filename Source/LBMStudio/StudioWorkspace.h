@@ -5,6 +5,7 @@
 #include "StudioInspectionPlacement.h"
 #include "StudioSnapshot.h"
 #include "StudioCommands.h"
+#include "StudioFlowViewport.h"
 
 class AStudioScene;
 class SVerticalBox;
@@ -89,6 +90,7 @@ private:
     int64 GeometryCaseRevision=-1;
     FGuid DashboardProjectId;
     int32 DashboardRunCount=-1;
+    EStudioViewportTool ViewportTool=EStudioViewportTool::Orbit; // Input preference, separate from the saved camera.
     bool bInspectionOpen=false;
     TSharedPtr<SVerticalBox> InspectionRows;
     TSharedPtr<SScrollBox> InspectionListScroll;

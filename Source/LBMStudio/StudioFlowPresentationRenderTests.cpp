@@ -1,4 +1,6 @@
 #include "StudioScene.h"
+#include "StudioAutomationForeground.h"
+#include "HAL/PlatformApplicationMisc.h"
 #include "ProceduralMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
@@ -20,16 +22,27 @@ public:
     {
         if(!Started)Started=FPlatformTime::Seconds();
         if(Test->HasAnyErrors())return true;
+        if(Foreground.WasInterrupted()){Test->AddError(Foreground.Describe(Phase));return true;}
         if(FPlatformTime::Seconds()-Started>100){Test->AddError(TEXT("Flow presentation timed out"));return true;}
         if(!Scene.IsValid())for(const auto& C:GEngine->GetWorldContexts())if(C.World()&&C.World()->IsGameWorld())
             for(TActorIterator<AStudioScene> It(C.World());It;++It)Scene=*It;
         if(!Scene.IsValid()||!Scene->Model)return false;
+        auto& App=FSlateApplication::Get();
+        if(!App.IsActive())
+        {
+            const double Now=FPlatformTime::Seconds();
+            if(Now-LastActivation>1){LastActivation=Now;FPlatformApplicationMisc::ActivateApplication();GEngine->GameViewport->GetWindow()->BringToFront(true);}
+            Changed=GFrameCounter;return false;
+        }
         auto& M=*Scene->Model;const auto Target=Scene->GetRenderTarget();
-        if(M.IsProjectOpenPending()||M.IsRecordingLoadPending()||!Scene->HasCurrentFrame()||!Target||GFrameCounter-Changed<4||
+        if(M.IsProjectOpenPending()||M.IsRecordingLoadPending()||(!Scene->HasCurrentFrame()&&Phase!=27)||!Target||GFrameCounter-Changed<4||
             Scene->PresentedViewportSize()!=FIntPoint(Target->SizeX,Target->SizeY))return false;
+        if(PendingDrag.IsSet())
+        {const auto Gesture=PendingDrag.GetValue();PendingDrag.Reset();PerformNavigateDrag(Gesture.Key,Gesture.Value);Changed=GFrameCounter;return false;}
         switch(Phase)
         {
         case 0:
+            Foreground.Begin();
             Root=FPaths::ProjectSavedDir()/TEXT("Automation/FlowPresentation");IFileManager::Get().MakeDirectory(*Root,true);
             M.NewProject(TEXT("Airfoil · flow overview"));M.Navigate(EStudioWorkspace::Solve);M.Pause();M.bViewportExpanded=false;Next();break;
         case 1:
@@ -101,7 +114,50 @@ public:
         case 16:
             VerifyMarkers(false);Test->TestTrue(TEXT("Direction markers can redo"),M.RedoView());Next();break;
         case 17:
-            VerifyMarkers(true);FSlateApplication::Get().DismissAllMenus();Capture(TEXT("direction-markers.png"));return true;
+            VerifyMarkers(true);FSlateApplication::Get().DismissAllMenus();Capture(TEXT("direction-markers.png"));
+            PaneBefore=M.InspectionState();PaneFrame=M.SelectedFrame;PaneRevision=M.RenderIntentRevision;Click(TEXT("ToolPan"));Next();break;
+        case 18:
+            Test->TestTrue(TEXT("Choosing pan only changes input mapping"),M.InspectionState().Equals(PaneBefore));
+            Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(40,15));Next();break;
+        case 19:
+        {
+            const auto After=M.InspectionState();const auto Shift=After.Camera.Position-Before.Camera.Position;
+            Test->TestTrue(TEXT("Pan translates camera and focus together without rotation"),!Shift.IsNearlyZero()&&
+                After.Camera.Orientation.Equals(Before.Camera.Orientation)&&After.Camera.Focus.Equals(Before.Camera.Focus+Shift,1.e-8));
+            Test->TestTrue(TEXT("One undo restores whole pan gesture"),M.UndoView()&&M.InspectionState().Equals(Before));
+            Test->TestTrue(TEXT("Pan redo restores exact camera"),M.RedoView()&&M.InspectionState().Equals(After));
+            Capture(TEXT("pan-tool.png"));Click(TEXT("ToolZoom"));Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(0,-40));Next();break;
+        }
+        case 20:
+            Test->TestTrue(TEXT("Zoom drag moves closer without changing focus or rotation"),M.Project.Camera.OrbitDistance<Before.Camera.OrbitDistance&&
+                M.Project.Camera.Focus.Equals(Before.Camera.Focus)&&M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
+            Capture(TEXT("zoom-tool.png"));
+            Test->TestTrue(TEXT("Zoom gesture undoes as one edit"),M.UndoView()&&M.InspectionState().Equals(Before));
+            // Model-only undo reaches the scene on its next tick; synchronize before this same-frame action.
+            Scene->ApplyCamera(M.Project.Camera);Press(TEXT("ViewProjection"));Next();break;
+        case 21:Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(0,-40));Next();break;
+        case 22:
+            Test->TestTrue(TEXT("Orthographic zoom changes width and retains camera pose"),M.Project.Camera.OrthoWidth<Before.Camera.OrthoWidth&&
+                M.Project.Camera.Position.Equals(Before.Camera.Position)&&M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
+            Press(TEXT("ViewProjection"));Press(TEXT("ToolOrbit"));Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(35,-10));Next();break;
+        case 23:
+            Test->TestFalse(TEXT("Orbit tool rotates camera"),M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
+            Before=M.InspectionState();NavigateDrag(EKeys::MiddleMouseButton,FVector2D(25,10));Next();break;
+        case 24:
+            Test->TestTrue(TEXT("Middle pan remains available in orbit"),!M.Project.Camera.Position.Equals(Before.Camera.Position)&&M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
+            Click(TEXT("ToolFly"));Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(25,-10));Next();break;
+        case 25:
+            Test->TestTrue(TEXT("Fly looks from a fixed position"),M.Project.Camera.bFreeCamera&&M.Project.Camera.Position.Equals(Before.Camera.Position)&&!M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
+            Capture(TEXT("fly-tool.png"));VerifyExitFlightTool(TEXT("ToolZoom"));Press(TEXT("ToolFly"));VerifyExitFlightTool(TEXT("ToolPan"));Before=M.InspectionState();NavigateDrag(EKeys::RightMouseButton,FVector2D(25,-10));Next();break;
+        case 26:
+            Test->TestTrue(TEXT("Right look overrides pan without translating camera"),M.Project.Camera.Position.Equals(Before.Camera.Position)&&!M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
+            Test->TestEqual(TEXT("Navigation modes leave source frame intact"),M.SelectedFrame,PaneFrame);
+            Test->TestEqual(TEXT("Navigation modes never rebuild field geometry"),M.RenderIntentRevision,PaneRevision);
+            M.Run();Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(10,10));Next();break;
+        case 27:
+            Test->TestTrue(TEXT("Camera remains movable during replay"),M.State==EStudioRunState::Running&&!M.Project.Camera.Position.Equals(Before.Camera.Position));
+            M.Pause();Press(TEXT("ToolOrbit"));Next();break;
+        case 28:Capture(TEXT("navigation-tools.png"));return true;
         }
         return false;
     }
@@ -120,6 +176,32 @@ private:
         if(!Test->TestTrue(TEXT("View control is accessible: ")+Tag.ToString(),W.IsValid()))return;
         auto& App=FSlateApplication::Get();App.SetKeyboardFocus(W,EFocusCause::Navigation);
         App.ProcessKeyDownEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));App.ProcessKeyUpEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));
+    }
+    void VerifyExitFlightTool(FName Tag)
+    {
+        auto& M=*Scene->Model;const auto Flight=M.InspectionState();auto Expected=Flight;Expected.Camera.bFreeCamera=false;
+        Test->TestTrue(TEXT("Flight exit begins in Fly"),Flight.Camera.bFreeCamera);Press(Tag);
+        Test->TestTrue(TEXT("Leaving Fly changes only saved navigation mode, preserving camera pose and display"),M.InspectionState().Equals(Expected));
+        Test->TestTrue(TEXT("Undo tool selection restores saved Fly mode"),M.UndoView()&&M.InspectionState().Equals(Flight));
+        Test->TestTrue(TEXT("Redo restores selected navigation mode"),M.RedoView()&&M.InspectionState().Equals(Expected));
+        Scene->ApplyCamera(M.Project.Camera);
+    }
+    // Slate must arrange/focus the selected tool before the next pointer gesture.
+    void NavigateDrag(FKey Button,FVector2D Delta){PendingDrag=TPair<FKey,FVector2D>(Button,Delta);}
+    void PerformNavigateDrag(FKey Button,FVector2D Delta)
+    {
+        const auto W=Find(GEngine->GameViewport->GetWindow().ToSharedRef(),TEXT("FlowViewport"));
+        if(!Test->TestTrue(TEXT("Navigation viewport exists"),W.IsValid()))return;
+        const auto& G=W->GetCachedGeometry();const auto P=G.LocalToAbsolute(G.GetLocalSize()*FVector2D(.55,.44));const auto Q=P+Delta;
+        auto& App=FSlateApplication::Get();const auto Hit=App.LocateWindowUnderMouse(P,App.GetInteractiveTopLevelWindows(),false,0);
+        if(!Test->TestTrue(TEXT("Navigation drag starts on exposed flow"),Hit.ContainsWidget(W.Get())))return;
+        const TSet<FKey> Down={Button};App.ProcessMouseMoveEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,P,P,{},FKey(),0,FModifierKeysState()));
+        App.ProcessMouseButtonDownEvent(GEngine->GameViewport->GetWindow()->GetNativeWindow(),FPointerEvent(FSlateApplication::CursorPointerIndex,P,P,Down,Button,0,FModifierKeysState()));
+        Test->TestTrue(FString::Printf(TEXT("Navigation phase %d press captures flow viewport"),Phase),W->HasMouseCapture());
+        Test->TestTrue(FString::Printf(TEXT("Navigation phase %d press starts camera history edit"),Phase),Scene->Model->IsViewEditActive());
+        for(int32 I=1;I<=4;++I)App.ProcessMouseMoveEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,P+Delta*(I/4.),P+Delta*((I-1)/4.),Down,FKey(),0,FModifierKeysState()));
+        App.ProcessMouseButtonUpEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,Q,Q,{},Button,0,FModifierKeysState()));
+        Test->TestFalse(TEXT("Navigation release ends camera history edit"),Scene->Model->IsViewEditActive());
     }
     void VerifyMarkers(bool Expected)
     {
@@ -147,9 +229,9 @@ private:
         const auto& G=W->GetCachedGeometry();const auto P=G.LocalToAbsolute(G.GetLocalSize()*.5);
         auto& App=FSlateApplication::Get();const auto Hit=App.LocateWindowUnderMouse(P,App.GetInteractiveTopLevelWindows(),false,0);
         if(!Test->TestTrue(TEXT("Pointer reaches visible panel control"),Hit.ContainsWidget(W.Get())))return;
-        App.ProcessMouseMoveEvent(FPointerEvent(0,P,P,{},FKey(),0,FModifierKeysState()));
-        App.ProcessMouseButtonDownEvent(GEngine->GameViewport->GetWindow()->GetNativeWindow(),FPointerEvent(0,P,P,{EKeys::LeftMouseButton},EKeys::LeftMouseButton,0,FModifierKeysState()));
-        App.ProcessMouseButtonUpEvent(FPointerEvent(0,P,P,{},EKeys::LeftMouseButton,0,FModifierKeysState()));
+        App.ProcessMouseMoveEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,P,P,{},FKey(),0,FModifierKeysState()));
+        App.ProcessMouseButtonDownEvent(GEngine->GameViewport->GetWindow()->GetNativeWindow(),FPointerEvent(FSlateApplication::CursorPointerIndex,P,P,{EKeys::LeftMouseButton},EKeys::LeftMouseButton,0,FModifierKeysState()));
+        App.ProcessMouseButtonUpEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,P,P,{},EKeys::LeftMouseButton,0,FModifierKeysState()));
     }
     void Drag(FName Name,FVector2D Delta,bool Cancel=false)
     {
@@ -159,15 +241,16 @@ private:
         auto& App=FSlateApplication::Get();const auto Hit=App.LocateWindowUnderMouse(P,App.GetInteractiveTopLevelWindows(),false,0);
         if(!Test->TestTrue(TEXT("Drag header receives pointer"),Hit.ContainsWidget(Handle.Get())))return;
         const TSet<FKey> Down={EKeys::LeftMouseButton};
-        App.ProcessMouseButtonDownEvent(GEngine->GameViewport->GetWindow()->GetNativeWindow(),FPointerEvent(0,P,P,Down,EKeys::LeftMouseButton,0,FModifierKeysState()));
-        App.ProcessMouseMoveEvent(FPointerEvent(0,Q,P,Down,FKey(),0,FModifierKeysState()));
+        App.ProcessMouseButtonDownEvent(GEngine->GameViewport->GetWindow()->GetNativeWindow(),FPointerEvent(FSlateApplication::CursorPointerIndex,P,P,Down,EKeys::LeftMouseButton,0,FModifierKeysState()));
+        App.ProcessMouseMoveEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,Q,P,Down,FKey(),0,FModifierKeysState()));
         if(Cancel)
         {
             Scene->Model->SaveSession(); // An unrelated save must not publish a tentative drag.
             App.ProcessKeyDownEvent(FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));
             App.ProcessKeyUpEvent(FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));
         }
-        App.ProcessMouseButtonUpEvent(FPointerEvent(0,Q,Q,{},EKeys::LeftMouseButton,0,FModifierKeysState()));
+        App.ProcessMouseButtonUpEvent(FPointerEvent(FSlateApplication::CursorPointerIndex,Q,Q,{},EKeys::LeftMouseButton,0,FModifierKeysState()));
+        Test->TestFalse(TEXT("Pane drag releases the mouse after completion or Escape"),Handle->HasMouseCapture());
     }
     void Capture(const TCHAR* Name)
     {
@@ -176,6 +259,8 @@ private:
         TArray64<uint8> PNG;FImageUtils::PNGCompressImageArray(Size.X,Size.Y,Pixels,PNG);
         Test->TestTrue(TEXT("Save view evidence"),FFileHelper::SaveArrayToFile(PNG,*(Root/Name)));
     }
+    FStudioAutomationForeground Foreground;double LastActivation=0;
+    TOptional<TPair<FKey,FVector2D>> PendingDrag;
     FAutomationTestBase* Test;TWeakObjectPtr<AStudioScene> Scene;FString Root;
     FStudioInspectionState Before,PaneBefore;uint64 PaneRevision=0;int32 PaneFrame=0;FStudioCameraState Camera;double Started=0;uint64 Changed=0;int32 Phase=0;
 };

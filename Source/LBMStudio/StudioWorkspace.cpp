@@ -360,13 +360,14 @@ namespace StudioUI
     {
     public:
         SLATE_BEGIN_ARGS(SIcon):_Name(TEXT("box")),_Color(Text),_Size(16.f){}
-            SLATE_ARGUMENT(FString,Name) SLATE_ARGUMENT(FLinearColor,Color) SLATE_ARGUMENT(float,Size)
+            SLATE_ARGUMENT(FString,Name) SLATE_ATTRIBUTE(FLinearColor,Color) SLATE_ARGUMENT(float,Size)
         SLATE_END_ARGS()
-        FString Name; FLinearColor Color; float Size=16;
-        void Construct(const FArguments& A) { Name=A._Name; Color=A._Color; Size=A._Size; }
+        FString Name; TAttribute<FLinearColor> IconColor; float Size=16;
+        void Construct(const FArguments& A) { Name=A._Name; IconColor=A._Color; Size=A._Size; }
         virtual FVector2D ComputeDesiredSize(float) const override {return FVector2D(Size,Size);}
         virtual int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& O,int32 L,const FWidgetStyle&,bool) const override
         {
+            const FLinearColor Color=IconColor.Get(Text);
             auto Path=[&](std::initializer_list<FVector2D> Points,float Width=1.15f)
             { TArray<FVector2D> P; for(auto V:Points) P.Add(V*G.GetLocalSize()); FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Color,true,Width); };
             if(Name==TEXT("run")) Path({{.25,.15},{.85,.5},{.25,.85},{.25,.15}});
@@ -380,6 +381,7 @@ namespace StudioUI
             else if(Name==TEXT("fit")) {Path({{.35,.12},{.12,.12},{.12,.35}});Path({{.65,.12},{.88,.12},{.88,.35}});Path({{.12,.65},{.12,.88},{.35,.88}});Path({{.65,.88},{.88,.88},{.88,.65}});}
             else if(Name==TEXT("chart")) {Path({{.1,.1},{.1,.9},{.9,.9}});Path({{.2,.65},{.4,.4},{.55,.58},{.8,.2}});}
             else if(Name==TEXT("pan")) {Path({{.5,.1},{.5,.9}});Path({{.1,.5},{.9,.5}});Path({{.3,.3},{.5,.1},{.7,.3}});Path({{.7,.7},{.5,.9},{.3,.7}});}
+            else if(Name==TEXT("zoom")) {TArray<FVector2D>P;for(int I=0;I<=20;++I)P.Add((FVector2D(.39,.39)+FVector2D(FMath::Cos(I*PI/10),FMath::Sin(I*PI/10))*.26)*G.GetLocalSize());FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Color,true,1.15);Path({{.58,.58},{.88,.88}});Path({{.25,.39},{.53,.39}});Path({{.39,.25},{.39,.53}});}
             else if(Name==TEXT("orbit")) {TArray<FVector2D>P;for(int I=0;I<=25;++I)P.Add((FVector2D(.5,.5)+FVector2D(FMath::Cos(I*.23)*.38,FMath::Sin(I*.23)*.25))*G.GetLocalSize());FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Color,true,1.2);Path({{.75,.15},{.87,.38},{.65,.35}});}
             else if(Name==TEXT("fly")) {Path({{.08,.55},{.88,.1},{.57,.9},{.44,.58},{.08,.55}});Path({{.44,.58},{.88,.1}});}
             else if(Name==TEXT("settings")) {Path({{.1,.25},{.9,.25}});Path({{.1,.5},{.9,.5}});Path({{.1,.75},{.9,.75}});Path({{.3,.12},{.3,.37}});Path({{.7,.38},{.7,.63}});Path({{.4,.63},{.4,.88}});}
@@ -534,6 +536,7 @@ public:
         SLATE_ATTRIBUTE(uint64,InspectionPlacementRevision)
         SLATE_ATTRIBUTE(bool,InspectionActive)
         SLATE_ATTRIBUTE(FIntPoint,SnapshotSize)
+        SLATE_ATTRIBUTE(EStudioViewportTool,NavigationTool)
     SLATE_END_ARGS()
     FStudioInspectionClick InspectionClick;
     FStudioInspectionHover InspectionHover;
@@ -543,6 +546,8 @@ public:
     TAttribute<uint64> InspectionPlacementRevision;
     TAttribute<bool> InspectionActive;
     TAttribute<FIntPoint> SnapshotSize;
+    TAttribute<EStudioViewportTool> NavigationTool;
+    EStudioViewportTool GestureTool=EStudioViewportTool::Orbit;
     FIntPoint PaintedSnapshotSize=FIntPoint::ZeroValue;
     uint64 PaintedInspectionPlacement=0;
     TOptional<FVector2D> LastPointerScreen;
@@ -591,7 +596,7 @@ public:
         InspectionMarkers=A._InspectionMarkers;
         InspectionPlacement=A._InspectionPlacement;InspectionPlacementRevision=A._InspectionPlacementRevision;
         InspectionActive=A._InspectionActive;
-        SnapshotSize=A._SnapshotSize;
+        SnapshotSize=A._SnapshotSize;NavigationTool=A._NavigationTool;
         Brush.SetResourceObject(Scene->GetRenderTarget()); Brush.DrawAs=ESlateBrushDrawType::Image;
         Brush.ImageSize=FVector2D(1280,720); SetCanTick(true);
         ChildSlot[SNew(SFlowImage).Image(&Brush)];
@@ -736,7 +741,9 @@ public:
                 return FReply::Handled();
             }
         }
-        if(Key==EKeys::LeftMouseButton&&!Scene->Model->CameraPlacement()&&InspectionClick.IsBound()&&InspectionClick.Execute(G,E))
+        const auto Tool=NavigationTool.Get(Scene->bFreeCamera?EStudioViewportTool::Fly:EStudioViewportTool::Orbit);
+        const bool NavigateOnly=Tool==EStudioViewportTool::Pan||Tool==EStudioViewportTool::Zoom;
+        if(Key==EKeys::LeftMouseButton&&(!NavigateOnly||InspectionPlacement.Get(nullptr))&&!Scene->Model->CameraPlacement()&&InspectionClick.IsBound()&&InspectionClick.Execute(G,E))
         {ReleaseOwnCapture();Invalidate(EInvalidateWidgetReason::Paint);return FReply::Handled().SetUserFocus(SharedThis(this));}
         if(Scene->Model->CameraPlacement()&&!HasKeyboardFocus())
         {
@@ -768,7 +775,10 @@ public:
                 return FReply::Handled().SetUserFocus(SharedThis(this)).CaptureMouse(SharedThis(this));
             }
         }
-        BeginGesture(Key==EKeys::MiddleMouseButton?TEXT("Pan camera"):Key==EKeys::RightMouseButton||Scene->bFreeCamera?TEXT("Fly camera"):TEXT("Orbit camera"));
+        GestureTool=Key==EKeys::MiddleMouseButton?EStudioViewportTool::Pan:Key==EKeys::RightMouseButton?EStudioViewportTool::Fly:
+            NavigationTool.Get(Scene->bFreeCamera?EStudioViewportTool::Fly:EStudioViewportTool::Orbit);
+        BeginGesture(GestureTool==EStudioViewportTool::Pan?TEXT("Pan camera"):GestureTool==EStudioViewportTool::Zoom?TEXT("Zoom camera"):
+            GestureTool==EStudioViewportTool::Fly?TEXT("Fly camera"):TEXT("Orbit camera"));
         return FReply::Handled().SetUserFocus(SharedThis(this)).CaptureMouse(SharedThis(this));
     }
     virtual FReply OnMouseButtonUp(const FGeometry&,const FPointerEvent& E) override
@@ -806,9 +816,10 @@ public:
         const auto D=E.GetCursorDelta();
         if(D.IsNearlyZero()) return FReply::Handled();
         BeginGesture(GestureLabel);
-        if(Drag==EKeys::MiddleMouseButton) Scene->Pan(D.X,D.Y);
-        else if(Drag==EKeys::RightMouseButton||Scene->bFreeCamera) Scene->Look(D.X,D.Y);
-        else if(Drag==EKeys::LeftMouseButton) Scene->Orbit(D.X,D.Y);
+        if(GestureTool==EStudioViewportTool::Pan)Scene->Pan(D.X,D.Y);
+        else if(GestureTool==EStudioViewportTool::Zoom)Scene->Zoom(-D.Y*.025);
+        else if(GestureTool==EStudioViewportTool::Fly)Scene->Look(D.X,D.Y);
+        else Scene->Orbit(D.X,D.Y);
         return FReply::Handled();
     }
     virtual void OnMouseLeave(const FPointerEvent& E) override
@@ -1464,10 +1475,13 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
     Floating->AddPane(TEXT("Tools"),TEXT("Tools"),ViewTools(),FVector2D(0,0),FVector2D(4,70));
     Floating->AddPane(TEXT("Axes"),TEXT("Axes"),SNew(SOrientationCube).Scene(Scene.Get()).Tag(TEXT("OrientationCube")),FVector2D(1,0),FVector2D(-4,4));
     Floating->AddPane(TEXT("Legend"),TEXT("Color scale"),ColorLegend(),FVector2D(0,1),FVector2D(4,-6));
-    Floating->AddPane(TEXT("View"),TEXT("View"),SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[SNew(SBorder).Tag(TEXT("InspectionPlacementHint")).Visibility_Lambda([this]{return IsInspectionPlacementCurrent()||bInspectionOpen||Scene->bFreeCamera?EVisibility::Visible:EVisibility::Collapsed;}).BorderImage(&PanelBrush).Padding(10,7)[Live([this]() -> FString
+    Floating->AddPane(TEXT("View"),TEXT("View"),SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[SNew(SBorder).Tag(TEXT("InspectionPlacementHint")).Visibility_Lambda([this]{return IsInspectionPlacementCurrent()||bInspectionOpen||Scene->bFreeCamera||ViewportTool!=EStudioViewportTool::Orbit?EVisibility::Visible:EVisibility::Collapsed;}).BorderImage(&PanelBrush).Padding(10,7)[Live([this]() -> FString
             {if(IsInspectionPlacementCurrent())return FString::Printf(TEXT("PLACE  ·  Click %c  ·  Right-drag to look  ·  Esc cancels"),TEXT("ABC")[InspectionPlacement->Accepted.Num()]);
-                if(bInspectionOpen)return FString(TEXT("INSPECT  ·  Click a marker or edge  ·  Right-drag to look"));
-                return Scene->bFreeCamera?TEXT("FLY  ·  Drag to look  ·  WASD + Q/E  ·  Shift boost"):TEXT("ORBIT  ·  Drag to rotate  ·  Middle-drag pan  ·  Scroll zoom  ·  F fit");},9,Muted)]]
+                if(bInspectionOpen&&ViewportTool==EStudioViewportTool::Orbit)return FString(TEXT("INSPECT  ·  Click a marker or edge  ·  Right-drag to look"));
+                if(Scene->bFreeCamera)return TEXT("FLY  ·  Drag to look  ·  WASD + Q/E  ·  Shift boost");
+                return ViewportTool==EStudioViewportTool::Pan?TEXT("PAN  ·  Drag to move  ·  Right-drag to look"):
+                    ViewportTool==EStudioViewportTool::Zoom?TEXT("ZOOM  ·  Drag up to zoom in  ·  Down to zoom out"):
+                    TEXT("ORBIT  ·  Drag to rotate  ·  Middle-drag pan  ·  Scroll zoom  ·  F fit");},9,Muted)]]
         +SVerticalBox::Slot().AutoHeight()[ViewToolbar()],FVector2D(1,1),FVector2D(-4,-6));
     return SNew(SVerticalBox)
     +SVerticalBox::Slot().FillHeight(1)
@@ -1478,6 +1492,7 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
                 .InspectionPlacement_Lambda([this]{return IsInspectionPlacementCurrent()?&InspectionPlacement.GetValue():nullptr;})
                 .InspectionPlacementRevision_Lambda([this]{return InspectionPlacementRevision;})
                 .InspectionActive_Lambda([this]{return bInspectionOpen;})
+                .NavigationTool_Lambda([this]{return Scene->bFreeCamera?EStudioViewportTool::Fly:ViewportTool;})
                 .SnapshotSize_Lambda([this]{return SnapshotButton&&SnapshotButton->IsOpen()?SnapshotOutputSize():FIntPoint::ZeroValue;})
                 .InspectionHover(this,&SStudioWorkspace::InspectionHover)
                 .InspectionClick(this,&SStudioWorkspace::InspectionClick).CancelInspection(this,&SStudioWorkspace::CancelInspectionPlacement)]
@@ -1489,19 +1504,33 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
 }
 TSharedRef<SWidget> SStudioWorkspace::ViewTools()
 {
-    auto Items=SNew(SVerticalBox);
-    auto Add=[&](const FString& Name,const FString& I,TFunction<void()> Action)
-    { Items->AddSlot().AutoHeight().Padding(0,0,0,3)[SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,4))
-        .IsEnabled_Lambda([this,Name]{return Name!=TEXT("Slice")||!M->Solver->Descriptor().bSourcePoints||M->Solver->VolumeReconstruction().IsValid();})
-        .ToolTipText_Lambda([this,Name]{return FText::FromString(Name==TEXT("Slice")&&M->Solver->Descriptor().bSourcePoints&&!M->Solver->VolumeReconstruction()?TEXT("Slices require an interpolation mesh. This recording supplies points only."):Name);})
-        .OnClicked_Lambda([Action]{Action();return FReply::Handled();})
-        [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[Icon(I,Muted,16)]
-        +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[SNew(SBox).Visibility_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?EVisibility::Collapsed:EVisibility::Visible;})[Label(Name,8,Muted)]]]]; };
-    Add(TEXT("Orbit"),TEXT("orbit"),[this]{Scene->SetCameraMode(false);});
-    Add(TEXT("Fly"),TEXT("fly"),[this]{Scene->SetCameraMode(true);});
+    auto Items=SNew(SVerticalBox);auto Modes=SNew(SWrapBox).PreferredSize(48).InnerSlotPadding(FVector2D(0,3));
+    auto Add=[&](const FString& Name,const FString& I,EStudioViewportTool Tool,const FString& Help)
+    {
+        const auto Active=[this,Tool]{return Scene->bFreeCamera?Tool==EStudioViewportTool::Fly:Tool==ViewportTool;};
+        Modes->AddSlot()[SNew(SBox).WidthOverride_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?24.f:48.f;})
+            [SNew(SButton).Tag(FName(*(TEXT("Tool")+Name))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(2,4))
+                .ButtonColorAndOpacity_Lambda([Active]{return Active()?FLinearColor(.15,.48,.65):FLinearColor::White;})
+                .ToolTipText(FText::FromString(Name+TEXT(" · ")+Help))
+                .OnClicked_Lambda([this,Tool]
+                {
+                    ViewportTool=Tool==EStudioViewportTool::Fly?EStudioViewportTool::Orbit:Tool;
+                    if(Scene->bFreeCamera!=(Tool==EStudioViewportTool::Fly))Scene->SetCameraMode(Tool==EStudioViewportTool::Fly);
+                    return FReply::Handled();
+                })
+                [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[SNew(SIcon).Name(I).Size(16).Color_Lambda([Active]{return Active()?Cyan:Muted;})]
+                    +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)
+                    [SNew(SBox).Visibility_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?EVisibility::Collapsed:EVisibility::Visible;})
+                        [SNew(STextBlock).Text(FText::FromString(Name)).Font(Font(8)).ColorAndOpacity_Lambda([Active]{return Active()?Cyan:Muted;})]]]]];
+    };
+    Add(TEXT("Orbit"),TEXT("orbit"),EStudioViewportTool::Orbit,TEXT("Drag to rotate around the focus"));
+    Add(TEXT("Pan"),TEXT("pan"),EStudioViewportTool::Pan,TEXT("Drag to move the view without rotating"));
+    Add(TEXT("Zoom"),TEXT("zoom"),EStudioViewportTool::Zoom,TEXT("Drag up to zoom in; down to zoom out"));
+    Add(TEXT("Fly"),TEXT("fly"),EStudioViewportTool::Fly,TEXT("Drag to look; WASD + Q/E to move"));
+    Items->AddSlot().AutoHeight().Padding(0,0,0,3)[Modes];
     Items->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("InspectionTools")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,4))
         .ToolTipText(FText::FromString(TEXT("Slices, probes and measurements")))
-        .OnClicked_Lambda([this]{bInspectionOpen=!bInspectionOpen;if(!bInspectionOpen)CancelInspectionPlacement();return FReply::Handled();})
+        .OnClicked_Lambda([this]{bInspectionOpen=!bInspectionOpen;if(bInspectionOpen)ViewportTool=EStudioViewportTool::Orbit;else CancelInspectionPlacement();return FReply::Handled();})
         [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)[Icon(TEXT("select"),Muted,16)]
         +SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0,4,0,0)[SNew(SBox).Visibility_Lambda([this]{return GetCachedGeometry().GetLocalSize().Y<820?EVisibility::Collapsed:EVisibility::Visible;})[Label(TEXT("Inspect"),8,Muted)]]]];
     Items->AddSlot().AutoHeight()[SNew(SStudioMenuButton).Tag(TEXT("CameraManager")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(4,4))
