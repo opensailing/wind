@@ -33,7 +33,7 @@ def same_view_value(key, actual, expected):
         assert actual == expected, key
 
 
-def verify(root, exports):
+def verify(root, exports, expect_movie=False):
     reports = []
     sources = [('su2', 'MeshGraphNets_Airfoil', None),
                ('wing', 'NACA0018_ReaderFixture', 'NACA0018_SurfaceFixture'),
@@ -51,6 +51,10 @@ def verify(root, exports):
         assert manifest['first_ordinal'] == 0 and manifest['last_ordinal_inclusive'] == expected[-1]
         assert manifest['stride'] == expected[1]
         files = {'sequence.json', 'frames.jsonl'}
+        assert ('movie' in manifest) == expect_movie
+        if expect_movie:
+            assert manifest['movie']['file'] == 'flow.mp4'
+            files.add('flow.mp4')
         for entry in entries:
             ordinal = entry['ordinal']
             original = source_rows(root / 'Content/Samples' / source_name, ordinal)
@@ -114,10 +118,11 @@ def verify(root, exports):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exports', type=Path, required=True)
+    parser.add_argument('--expect-movie', action='store_true')
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    report = verify(root, args.exports)
+    report = verify(root, args.exports, args.expect_movie)
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps({'passed': report['passed'], 'count': report['count'], 'pixels': report['pixels']}))
 

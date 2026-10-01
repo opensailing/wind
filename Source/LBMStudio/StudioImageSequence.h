@@ -2,6 +2,7 @@
 
 #include "StudioSnapshot.h"
 #include "StudioFieldExportTask.h"
+#include "StudioMovie.h"
 
 class IStudioSolver;
 
@@ -13,9 +14,10 @@ struct FStudioImageSequenceRequest
     TSharedPtr<const IStudioSolver,ESPMode::ThreadSafe> Source;
     int32 FirstOrdinal=0,LastOrdinal=0,Stride=1;
     FStudioSnapshot View;
+    FStudioMovieOptions Movie;
 };
 
-enum class EStudioImageSequencePhase : uint8 { Preparing,AwaitingImage,Encoding,Publishing,Complete };
+enum class EStudioImageSequencePhase : uint8 { Preparing,AwaitingImage,Encoding,FinalizingMovie,Publishing,Complete };
 struct FStudioImageSequenceProgress
 {
     EStudioFieldExportState State=EStudioFieldExportState::Complete;

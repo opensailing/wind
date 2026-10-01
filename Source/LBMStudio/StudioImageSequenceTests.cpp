@@ -253,4 +253,90 @@ bool FImageSequencePreparation::RunTest(const FString&)
         Prepared.Probe->Samples[0].Value&&*Prepared.Probe->Samples[0].Value==(*Points->FindValues(TEXT("pressure")))[17]);
     TestEqual(TEXT("Probe preparation preserves live error"),Load.Source->LoadError(),LiveError);return true;
 }
+
+#if PLATFORM_MAC
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieValidation,"Studio.Movie.OptionsAndExactDimensions",StudioImageSequenceTests::Flags)
+bool FMovieValidation::RunTest(const FString&)
+{
+    using namespace StudioImageSequenceTests;
+    FString Error;auto R=Request();R.Movie.bEnabled=true;
+    TestTrue(TEXT("Native encoder available"),StudioMovie::Supported());
+    TestTrue(TEXT("Even native movie dimensions valid"),StudioImageSequence::Validate(R,Error));
+    for(const auto Rate:{0,-1,61,MAX_int32})
+    {R.Movie.FrameRate=Rate;TestFalse(TEXT("Invalid presentation rate refused"),StudioImageSequence::Validate(R,Error));}
+    R.Movie.FrameRate=20;
+    for(const auto Size:{FIntPoint(65,64),FIntPoint(64,65),FIntPoint(62,64),FIntPoint(4098,64)})
+    {R.View.Options.Size=Size;TestFalse(TEXT("No silent movie resize or padding"),StudioImageSequence::Validate(R,Error));}
+    TestTrue(TEXT("PNG-only unaffected by movie settings"),StudioMovie::Validate({false,-1},FIntPoint(65,65),Error));return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieWrite,"Studio.Movie.IndexedNativeH264AndLosslessImages",StudioImageSequenceTests::Flags)
+bool FMovieWrite::RunTest(const FString&)
+{
+    using namespace StudioImageSequenceTests;
+    auto R=Request();R.FirstOrdinal=0;R.LastOrdinal=58;R.Stride=2;R.Movie={true,20};
+    R.View.Options.Size=FIntPoint(128,96);R.View.Framing=StudioSnapshot::Frame(R.View.SourceSize,R.View.Options.Size);
+    FDirectory D;FStudioImageSequenceTask Task;FString Error;
+    if(!TestTrue(*Error,Task.Start(R,D.Path,TEXT("movie"),Error)))return false;
+    for(int32 N=0;N<=58;N+=2)
+    {
+        const auto Next=Take(Task);if(!TestTrue(TEXT("Movie requests exact original stride"),Next&&*Next==N))return false;
+        auto S=Image(R,N);
+        for(int32 Y=0;Y<96;++Y)for(int32 X=0;X<128;++X)
+            S.Pixels[Y*128+X]=FColor(X<64?220:30,Y<48?40:210,uint8(20+N*3),255);
+        if(!TestTrue(TEXT("Native encoder accepts original handoff"),Task.Submit(MoveTemp(S),Error)))return false;
+    }
+    const auto Result=Await(Task);
+    if(!TestTrue(Result?*Result->Error:TEXT("Movie timed out"),Result&&Result->bSuccess&&Result->CompletedFrames==30))return false;
+    TestTrue(TEXT("Native MP4 exists beside lossless originals"),IFileManager::Get().FileSize(*(Result->Path/TEXT("flow.mp4")))>0);
+    TestEqual(TEXT("Movie bundle has one video, index, manifest and thirty PNGs"),Entries(Result->Path).Num(),33);
+    FString Text;FFileHelper::LoadFileToString(Text,*(Result->Path/TEXT("sequence.json")));TSharedPtr<FJsonObject> J;
+    if(!TestTrue(TEXT("Movie metadata readable"),FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),J)))return false;
+    const auto Video=J->GetObjectField(TEXT("movie"));
+    TestEqual(TEXT("Explicit presentation rate"),Video->GetNumberField(TEXT("frame_rate")),20.);
+    TestEqual(TEXT("Duration counts every selected original"),Video->GetNumberField(TEXT("duration_seconds")),1.5);
+    FFileHelper::LoadFileToString(Text,*(Result->Path/TEXT("frames.jsonl")));TArray<FString> Lines;Text.ParseIntoArrayLines(Lines);
+    if(!TestEqual(TEXT("Movie index preserves every original"),Lines.Num(),30))return false;
+    for(int32 K=0;K<30;++K)
+    {
+        FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Lines[K]),J);
+        TestEqual(TEXT("Index movie order"),J->GetNumberField(TEXT("movie_frame")),double(K));
+        TestEqual(TEXT("Presentation time independent of source"),J->GetNumberField(TEXT("movie_time_seconds")),K/20.);
+        TestEqual(TEXT("Original time unmodified"),J->GetNumberField(TEXT("source_time_seconds")),R.Source->Descriptor().Frames[K*2].Time);
+    }
+    D.bRetain=true;
+    TestTrue(TEXT("Retain encoder pattern for independent MP4 decoding"),FFileHelper::SaveStringToFile(Result->Path,*(Root()/TEXT("latest-pattern-movie.txt")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieLifecycle,"Studio.Movie.FailureCancellationAndPublication",StudioImageSequenceTests::Flags)
+bool FMovieLifecycle::RunTest(const FString&)
+{
+    using namespace StudioImageSequenceTests;
+    auto R=Request();R.Movie={true,20};FDirectory D;FString Error;
+    for(int32 Mode=0;Mode<3;++Mode)
+    {
+        FStudioImageSequenceTask Task;
+        if(!Task.Start(R,D.Path,TEXT("partial"),Error)||!Take(Task))return false;
+        Task.Submit(Image(R,3),Error);if(!Take(Task))return false;
+        if(Mode==0)Task.Cancel();
+        else if(Mode==1)Task.FailFrame(TEXT("Original data unavailable."));
+        else {Task.Shutdown();TestTrue(TEXT("Shutdown joins native encoder and removes partial output"),Entries(D.Path).IsEmpty());continue;}
+        const auto Result=Await(Task);TestTrue(TEXT("Native encoding failure publishes nothing"),Result&&!Result->bSuccess&&Result->bCancelled==(Mode==0));
+        TestTrue(TEXT("Partial movie and PNGs removed together"),Entries(D.Path).IsEmpty());
+    }
+    for(bool Collision:{false,true})
+    {
+        FStudioImageSequenceTask Task;auto Gate=MakeShared<FGate,ESPMode::ThreadSafe>();
+        Task.BeforePublishForAutomation=[Gate]{Gate->Reached->Trigger();Gate->Release->Wait(10000);};
+        if(!Task.Start(R,D.Path,TEXT("final"),Error))return false;
+        for(int32 N=3;N<=9;N+=3){if(!Take(Task))return false;Task.Submit(Image(R,N),Error);}
+        if(!TestTrue(TEXT("Movie finalizes before publication"),Gate->Reached->Wait(10000)))return false;
+        if(Collision)IFileManager::Get().MakeDirectory(*(D.Path/TEXT("final")),true);else Task.Cancel();
+        Gate->Release->Trigger();const auto Result=Await(Task);
+        TestTrue(TEXT("No movie publication after cancellation or collision"),Result&&!Result->bSuccess&&Result->bCancelled==!Collision);
+        TestTrue(TEXT("Private native artifacts removed"),Entries(D.Path)==(Collision?TArray<FString>{TEXT("final")}:TArray<FString>{}));
+    }
+    return true;
+}
+#endif
 #endif

@@ -16,7 +16,7 @@
 class FImageSequenceRenderingCommand final:public IAutomationLatentCommand
 {
 public:
-    explicit FImageSequenceRenderingCommand(FAutomationTestBase* In):Test(In){}
+    explicit FImageSequenceRenderingCommand(FAutomationTestBase* In,bool Movie=false):Test(In),bMovie(Movie){}
     bool Update() override
     {
         const double Now=FPlatformTime::Seconds();if(!Started)Started=Now;
@@ -33,7 +33,7 @@ public:
         {
         case 0:
         {
-            Root=FPaths::ProjectSavedDir()/TEXT("Automation/ImageSequenceRendering");
+            Root=FPaths::ProjectSavedDir()/(bMovie?TEXT("Automation/MovieRendering"):TEXT("Automation/ImageSequenceRendering"));
             IFileManager::Get().DeleteDirectory(*Root,false,true);IFileManager::Get().MakeDirectory(*Root,true);
             Original=M.SnapshotProject();FString Error;
             if(!Test->TestTrue(TEXT("Preserve current project"),StudioProjectIO::Save(Root/TEXT("original.lbms"),Original,Error)))return true;
@@ -96,7 +96,7 @@ public:
             Write(S,Directory/FString::Printf(TEXT("reference_%06d.png"),Ordinals[Index]));
             Baselines.Add(Ordinals[Index],S.Pixels);
             Request.Source=M.Solver;Request.FirstOrdinal=Ordinals[0];Request.LastOrdinal=Ordinals.Last();Request.Stride=Case?1:300;
-            S.Pixels.Reset();Request.View=MoveTemp(S);
+            S.Pixels.Reset();Request.View=MoveTemp(S);Request.Movie={bMovie,Case==0?20:Case==1?24:30};
             if(++Index<Ordinals.Num())M.ReviewRecordedFrame(Ordinals[Index]);else Phase=5;
             break;
         }
@@ -178,10 +178,16 @@ private:
     TMap<int32,TArray<FColor>> Baselines;TArray<int32> Ordinals;
     FStudioCameraState FrozenCamera,InteractiveCamera;
     FString Root,Name,Directory;int32 Phase=0,Case=0,Index=0,Captured=0,PlaybackAtStart=0;double Started=0;
-    bool bPlaybackAdvanced=false;
+    bool bPlaybackAdvanced=false,bMovie=false;
 };
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FImageSequenceRendering,"Studio.ImageSequenceRendering.OriginalViewsAndIsolation",
     EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter|EAutomationTestFlags::NonNullRHI)
 bool FImageSequenceRendering::RunTest(const FString&)
 {ADD_LATENT_AUTOMATION_COMMAND(FImageSequenceRenderingCommand(this));return true;}
+#if PLATFORM_MAC
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMovieRendering,"Studio.MovieRendering.OriginalViewsAndIsolation",
+    EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter|EAutomationTestFlags::NonNullRHI)
+bool FMovieRendering::RunTest(const FString&)
+{ADD_LATENT_AUTOMATION_COMMAND(FImageSequenceRenderingCommand(this,true));return true;}
+#endif
 #endif

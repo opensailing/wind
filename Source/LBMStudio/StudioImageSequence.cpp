@@ -54,6 +54,7 @@ TUniquePtr<FArchive> CreateFile(const FString& Path)
 
 bool StudioImageSequence::Validate(const FStudioImageSequenceRequest& R,FString& Error)
 {
+    if(!StudioMovie::Validate(R.Movie,R.View.Options.Size,Error))return false;
     if(R.Stride<1||R.FirstOrdinal<0||R.LastOrdinal<R.FirstOrdinal||
         (int64(R.LastOrdinal)-R.FirstOrdinal)/FMath::Max(1,R.Stride)+1>MaximumFrames)
     {Error=TEXT("Choose an original frame range and a positive stride, up to 100,000 exported images.");return false;}
@@ -170,6 +171,14 @@ bool FStudioImageSequenceTask::Start(FStudioImageSequenceRequest R,const FString
         if(IFileManager::Get().FileExists(*Out.Path)||IFileManager::Get().DirectoryExists(*Out.Path))
             return Fail(TEXT("That destination already exists. Choose a new export folder name."));
         if(!StudioFileDialog::CreateExportStage(Parent,Stage,Out.Error))return Fail(Out.Error);
+        TUniquePtr<IStudioMovieEncoder> Movie;
+        if(R.Movie.bEnabled)
+        {
+            Movie=IStudioMovieEncoder::Create();
+            const FString Description=FString::Printf(TEXT("%s. One selected original CFD frame per movie frame at %d fps. Playback time is not simulation time. Original times and hashes: frames.jsonl and sequence.json. Lossless images: adjacent PNGs."),*R.View.SourceTitle,R.Movie.FrameRate);
+            if(!Movie||!Movie->Begin(Stage/TEXT("flow.mp4"),R.View.Options.Size,R.Movie.FrameRate,Description,Out.Error))
+                return Fail(Out.Error.IsEmpty()?TEXT("Native movie encoding is unavailable."):Out.Error);
+        }
         // Index entries stream to disk; neither images nor per-frame metadata
         // accumulate with sequence length.
         auto Index=CreateFile(Stage/TEXT("frames.jsonl"));
@@ -198,6 +207,7 @@ bool FStudioImageSequenceTask::Start(FStudioImageSequenceRequest R,const FString
             W->Phase.store(EStudioImageSequencePhase::Encoding);
             TArray64<uint8> PNG;
             if(!StudioSnapshot::Encode(*Image,PNG,Out.Error))return Fail(Out.Error);
+            if(Movie&&!Movie->Append(Image->Pixels,Cancelled,Out.Error))return Fail(Out.Error);
             Image.Reset(); // Release raw pixels before writing or requesting another image.
             if(PNG.Num()>StudioImageSequence::MaximumImageBytes)return Fail(TEXT("An encoded image exceeds the 128 MiB limit."));
             if(Cancelled())return Fail({});
@@ -212,11 +222,24 @@ bool FStudioImageSequenceTask::Start(FStudioImageSequenceRequest R,const FString
             Entry->SetStringField(TEXT("file"),FileName);Entry->SetNumberField(TEXT("ordinal"),double(Ordinal));
             Entry->SetNumberField(TEXT("source_step"),F.Index);Entry->SetNumberField(TEXT("source_time_seconds"),F.Time);
             Entry->SetNumberField(TEXT("png_bytes"),double(ImageBytes));
+            if(Movie)
+            {
+                Entry->SetNumberField(TEXT("movie_frame"),Out.CompletedFrames);
+                Entry->SetNumberField(TEXT("movie_time_seconds"),double(Out.CompletedFrames)/R.Movie.FrameRate);
+            }
             if(!Text(*Index,JSON(Entry)+TEXT("\n"),Out.Bytes))return Fail(TEXT("Could not write the image index. Check free space."));
             ++Out.CompletedFrames;W->Completed.store(Out.CompletedFrames);W->Bytes.store(Out.Bytes);
         }
         if(!Index->Close()||Index->IsError())return Fail(TEXT("Could not close the image index. Check free space."));Index.Reset();
         if(Cancelled())return Fail({});
+        if(Movie)
+        {
+            W->Phase.store(EStudioImageSequencePhase::FinalizingMovie);
+            if(!Movie->Finish(Cancelled,Out.Error))return Fail(Out.Error);
+            Movie.Reset();const int64 MovieBytes=IFileManager::Get().FileSize(*(Stage/TEXT("flow.mp4")));
+            if(MovieBytes<=0)return Fail(TEXT("The native encoder did not produce a complete MP4."));
+            Out.Bytes+=MovieBytes;W->Bytes.store(Out.Bytes);
+        }
         auto Manifest=MakeShared<FJsonObject>();const auto& D=R.Source->Descriptor();
         Manifest->SetStringField(TEXT("format"),TEXT("LBMStudio.ImageSequence"));Manifest->SetNumberField(TEXT("version"),1);
         Manifest->SetStringField(TEXT("dataset"),D.Id);Manifest->SetStringField(TEXT("title"),D.Title);
@@ -227,6 +250,17 @@ bool FStudioImageSequenceTask::Start(FStudioImageSequenceRequest R,const FString
         Manifest->SetNumberField(TEXT("stride"),R.Stride);Manifest->SetNumberField(TEXT("image_count"),Out.CompletedFrames);
         Manifest->SetStringField(TEXT("index"),TEXT("frames.jsonl"));Manifest->SetObjectField(TEXT("view"),ViewJSON(R.View));
         Manifest->SetStringField(TEXT("time_mapping"),TEXT("One PNG per selected original frame; original times in frames.jsonl. No temporal interpolation or assigned movie frame rate."));
+        if(R.Movie.bEnabled)
+        {
+            auto Video=MakeShared<FJsonObject>();Video->SetStringField(TEXT("file"),TEXT("flow.mp4"));
+            Video->SetStringField(TEXT("codec"),TEXT("H.264"));Video->SetStringField(TEXT("container"),TEXT("MPEG-4"));
+            Video->SetNumberField(TEXT("frame_rate"),R.Movie.FrameRate);Video->SetNumberField(TEXT("frame_count"),Out.CompletedFrames);
+            Video->SetNumberField(TEXT("duration_seconds"),double(Out.CompletedFrames)/R.Movie.FrameRate);
+            Video->SetStringField(TEXT("time_mapping"),TEXT("One selected original per movie frame at a fixed presentation rate. No temporal interpolation. Playback time is not simulation time; original times remain in frames.jsonl."));
+            Video->SetStringField(TEXT("quality"),TEXT("Lossy presentation movie. Use adjacent lossless PNGs and embedded metadata for image analysis."));
+            Manifest->SetObjectField(TEXT("movie"),Video);
+            Manifest->SetStringField(TEXT("time_mapping"),TEXT("One PNG and one movie frame per selected original. Original times in frames.jsonl; movie presentation times are separate."));
+        }
         auto File=CreateFile(Stage/TEXT("sequence.json"));
         if(!File||!Text(*File,JSON(Manifest)+TEXT("\n"),Out.Bytes)||!File->Close()||File->IsError())
             return Fail(TEXT("Could not finish sequence metadata. Check free space."));

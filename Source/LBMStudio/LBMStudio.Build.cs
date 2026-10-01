@@ -8,6 +8,6 @@ public class LBMStudio : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[] { "ApplicationCore", "GeometryCore", "UMG" });
         AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
         if (Target.Platform == UnrealTargetPlatform.Mac)
-            PublicFrameworks.AddRange(new[] { "Cocoa", "UniformTypeIdentifiers", "Metal" });
+            PublicFrameworks.AddRange(new[] { "Cocoa", "UniformTypeIdentifiers", "Metal", "AVFoundation", "CoreMedia", "CoreVideo" });
     }
 }
