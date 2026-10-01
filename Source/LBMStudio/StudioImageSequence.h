@@ -8,7 +8,8 @@ class IStudioSolver;
 
 /** Exact original ordinal selection and a pixel-free copy of the presented
  * view. The producer renders these frames in an independent scene. No frame
- * interpolation, playback rate, camera animation or live cursor mutation. */
+ * interpolation, camera animation or live cursor mutation. Optional movie
+ * presentation rate is separate from the original physical timeline. */
 struct FStudioImageSequenceRequest
 {
     TSharedPtr<const IStudioSolver,ESPMode::ThreadSafe> Source;

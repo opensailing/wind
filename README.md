@@ -253,7 +253,7 @@ python3 Tools/verify_snapshot_ui.py \
 
 Repeat with `--name snapshot-sequence-ui-compact --width 1280 --height 720` and its own report. The existing inspection regression is `Studio.InspectionUI.ControlsSamplesAndPersistence` (`--count 1 --width 1320 --height 740`). Run `Tools/test.sh` for model checks.
 
-This UI evidence covers one single PNG and two three-frame Range/All sequences per size. Routed Slate input and injected destinations do not establish physical input, native picker/permissions, Finder reveal or full accessibility. Progress was held at a deterministic publication barrier; no throughput, full-duration, minimize/resume, current integrated long-session or release acceptance follows. The earlier renderer comparison below retains its separate pixel-fidelity scope; this 14-image UI audit does not repeat it. Movie encoding, full reference fidelity and the full UI plan remain open.
+This UI evidence covers one single PNG and two three-frame Range/All sequences per size. Routed Slate input and injected destinations do not establish physical input, native picker/permissions, Finder reveal or full accessibility. Progress was held at a deterministic publication barrier; no throughput, full-duration, minimize/resume, current integrated long-session or release acceptance follows. The earlier renderer comparison below retains its separate pixel-fidelity scope; this 14-image UI audit does not repeat it. Movie controls, full reference fidelity and the full UI plan remain open; the later native encoder checkpoint is recorded below.
 
 ### Image-sequence writer and renderer foundations
 
@@ -286,7 +286,28 @@ python3 Tools/verify_rendered_image_sequence.py \
   --report tmp/analysis/image-sequence-render-readback.json
 ```
 
-Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot controls were outside that renderer checkpoint; their later UI acceptance is recorded above. Native picker/input, full-duration export, export performance, minimize/resume, current long-session/release acceptance and movie encoding remain pending.
+Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot controls were outside that renderer checkpoint; their later UI acceptance is recorded above. Native picker/input, full-duration export, export performance, minimize/resume, current long-session/release acceptance and movie controls remain pending; native encoding has its separate checkpoint below.
+
+### Native movie encoding — Snapshot controls pending
+
+`StudioMovie` adds optional macOS H.264 encoding to the existing bounded image-sequence writer. Set `FStudioImageSequenceRequest::Movie` to `{true, frameRate}` to include `flow.mp4` beside the lossless PNGs, `frames.jsonl` and `sequence.json`. It uses AVFoundation; FFmpeg is only an independent verification dependency. Snapshot does not expose this option yet.
+
+Each selected original becomes exactly one video frame at an explicit integer rate from 1–60 fps. Playback time is separate from physical simulation time; the MP4 comment, per-frame index and manifest describe that mapping. Images require even dimensions within 64–4096 pixels; nothing is silently resized, padded or interpolated. H.264 is lossy presentation output; the accompanying PNGs retain full snapshot metadata and lossless pixels. The worker respects native backpressure, caps its native pixel pool at three buffers, observes cancellation while waiting/finalizing, and publishes the complete bundle exclusively. Cancel, reader failure and destination collisions discard private movie/PNG staging together. This pool cap does not measure total codec or GPU memory.
+
+Backend commit `0b147a7` has evidence in `tmp/analysis/movie-export-20261001/acceptance.json`: 273 successful model cases (270 clean, three existing optional Unreal helper warnings), original SU2/wing/volume movies at both desktop sizes, a full 601-frame SU2 movie and the existing PNG-menu regression. All native runs exited cleanly without owned processes remaining. The final package adds only the full-recording test after the two-size runs; production sources are identical. Independent FFmpeg decoding verifies all 619 actual CFD video frames plus 30 explicitly labeled encoder-pattern frames. The two-size source audit also verifies 18 lossless PNGs against direct renders across 5,222,400 pixels and original source/probe metadata.
+
+The full SU2 export produces 30.05 seconds at 20 fps from all 601 originals spanning 0.12 seconds of physical evolution. Every decoded frame and original identity/time is audited; worst mean RGB difference from its PNG is 1.921/255. This is lossy-image acceptance, not numerical equivalence. Longer NACA/cylinder movie duration, Snapshot MP4 controls, native picker/physical input, minimize/resume, current integrated long-session/release and full-reference acceptance remain open.
+
+```bash
+python3 Tools/run_packaged_suite.py \
+  --suite Studio.MovieRendering.CompleteOriginalRecording --count 1 \
+  --name movie-full-originals --width 1320 --height 740 --timeout 660 --captures FullMovie
+python3 Tools/verify_movie_export.py \
+  --exports "tmp/debug/<reported-run>/captures" --source-sample MeshGraphNets_Airfoil \
+  --report tmp/analysis/full-movie-readback.json
+```
+
+Package with `Tools/package.sh` first. Readback requires FFmpeg/ffprobe, Pillow, NumPy and, for the source audit, VTK. `Studio.MovieRendering.OriginalViewsAndIsolation` with `--captures MovieRendering` covers the three sources at either viewport size; pair its movie audit with `Tools/verify_rendered_image_sequence.py --expect-movie` for original-source, probe and direct-PNG checks. These tests exercise the encoder/renderer, not MP4 controls in the UI.
 
 ## CFD sample provenance
 
