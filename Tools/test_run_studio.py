@@ -122,6 +122,30 @@ if kind == 'failure':
                 self.assertEqual(runner.run_owned(['unused'], self.root), 1)
                 snapshot.assert_not_called()
 
+    def test_headless_deadline_cleans_owned_process_and_keeps_logs(self):
+        log=self.root/'headless.log';report=self.root/'headless-process.json'
+        with patch.object(runner,'relevant',return_value={}), contextlib.redirect_stdout(io.StringIO()):
+            code=runner._run_owned([sys.executable,'-u','-c','import time; print("ready"); time.sleep(30)'],
+                                   self.root,timeout=.4,log_path=log,report_path=report)
+        result=json.loads(report.read_text())
+        self.assertEqual(code,124)
+        self.assertIn('ready',log.read_text())
+        self.assertTrue(result['cleanup_required'])
+        self.assertEqual(result['owned_processes_after'],{})
+        self.assertIn('exceeded',result['errors'][0])
+
+    def test_headless_clean_run_writes_requested_report(self):
+        log=self.root/'headless.log';report=self.root/'headless-process.json'
+        with patch.object(runner,'relevant',return_value={}), contextlib.redirect_stdout(io.StringIO()):
+            code=runner._run_owned([sys.executable,'-c','print("machine result")'],self.root,
+                                   timeout=10,log_path=log,report_path=report)
+        result=json.loads(report.read_text())
+        self.assertEqual(code,0)
+        self.assertEqual(result['cleanup_required'],[])
+        self.assertEqual(result['owned_processes_after'],{})
+        self.assertEqual(log.read_text(),'machine result\n')
+        self.assertGreater(result['elapsed_seconds'],0)
+
 
 if __name__ == '__main__':
     unittest.main()

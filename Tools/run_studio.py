@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Launch one Studio session and reap only its owned children/reporters."""
 import datetime
+from contextlib import ExitStack
 import fcntl
 import json
 import os
@@ -24,8 +25,12 @@ def run_owned(command, root):
         return 1
 
 
-def _run_owned(command, root):
-    """The command is an argv array, never shell text; holds a process-lifetime lock."""
+def _run_owned(command, root, *, timeout=None, log_path=None, report_path=None):
+    """Run inside the caller's runtime lease, with optional bounded/logged execution.
+
+    The command is an argv array, never shell text. Headless validation shares
+    the normal launcher's identity checks, signal handling and reporter cleanup.
+    """
     saved = root/'Saved'
     saved.mkdir(parents=True, exist_ok=True)
     with (saved/'.studio-launch.lock').open('a+') as lock:
@@ -40,11 +45,12 @@ def _run_owned(command, root):
             print('A Studio session, Unreal test, or engine build is already running. Wait for it to finish before starting another session.', file=sys.stderr)
             return 1
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-        output = root/'tmp/debug'/f'launch-{stamp}.json'
+        output = report_path or root/'tmp/debug'/f'launch-{stamp}.json'
         output.parent.mkdir(parents=True, exist_ok=True)
         report = {'processes_before': relevant(before), 'command': command, 'errors': []}
         tracked = {}; proc = None; interrupted = 0
         started = time.time()
+        started_monotonic = time.monotonic()
 
         def interrupt(signum, _):
             nonlocal interrupted
@@ -60,8 +66,11 @@ def _run_owned(command, root):
             return current
 
         code = 1
+        streams = ExitStack()
         try:
-            proc = subprocess.Popen(command, cwd=root, start_new_session=True)
+            log = streams.enter_context(log_path.open('w')) if log_path else None
+            proc = subprocess.Popen(command, cwd=root, start_new_session=True,
+                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT if log else None)
             report['pid'] = proc.pid
             output.write_text(json.dumps(report, indent=2)+'\n')
             while True:
@@ -72,6 +81,10 @@ def _run_owned(command, root):
                     break
                 if interrupted:
                     code = 128+interrupted
+                    break
+                if timeout is not None and time.monotonic()-started_monotonic >= timeout:
+                    code = 124
+                    report['errors'].append(f'Command exceeded {timeout} seconds')
                     break
                 time.sleep(.25)
             report['application_exit_code'] = proc.returncode
@@ -111,12 +124,14 @@ def _run_owned(command, root):
                 if report['owned_processes_after']:
                     report['errors'].append('Owned processes remain after cleanup')
                 report['exit_code'] = code
+                report['elapsed_seconds'] = time.monotonic()-started_monotonic
                 output.write_text(json.dumps(report, indent=2)+'\n')
                 print(f'Studio session report: {output}', flush=True)
             finally:
+                streams.close()
                 for sig, previous in handlers.items():
                     signal.signal(sig, previous)
-        return code if not report['errors'] else 1
+        return code or (1 if report['errors'] else 0)
 
 
 def main():

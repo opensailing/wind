@@ -27,7 +27,23 @@ Commit each completed feature or fix as one logical change, including the tests 
 
 Builds, packaged apps, logs, temporary plans, captures and Python caches stay out of Git. Run Unreal builds and native tests serially through the scripts in `Tools/` so process ownership and cleanup remain controlled.
 
-Keep LBMStudio in the foreground during native UI automation. macOS app deactivation makes Slate dismiss open menus. The Post-Processing, evaluated-export and original-export workflows latch this event and stop with `STUDIO_AUTOMATION_INTERRUPTED`; `run_packaged_suite.py` records it in the manifest's `interruptions` list and rejects the run. Returning focus does not resume the old menu state or retry actions. Once the desktop is available, run the affected suite again.
+### Headless validation
+
+Use this for routine development checks; it needs no screenshots or desktop interaction:
+
+```sh
+python3 Tools/validate.py                                 # Compile, then all 278 headless tests
+python3 Tools/validate.py --suite Studio.HeadlessUI.       # Compile, then virtual Slate workflows
+python3 Tools/validate.py --no-build --suite Studio.FlowConditions. # Explicit existing-module check
+```
+
+The default command compiles the Editor module with unity enabled, then runs Unreal Automation using `-nullrhi -RenderOffscreen`. A reviewed catalog in `Tools/headless-tests.json` makes missing, skipped, duplicate or unexpected tests fail. Each run creates a fresh `tmp/debug/headless-*/summary.json` containing failures, warnings, source/module hashes and process ownership, plus raw build/test logs. Exit code zero means the requested checks passed. `--no-build` is explicitly reported and does not establish compilation of current source.
+
+`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. The first two workflows cover Flow Conditions at 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. These are widget tests in addition to the 276 model cases; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
+
+GPU rendering/Metal stability, native file dialogs and visual design still require their own targeted acceptance. Headless widget geometry does not establish rendered appearance. Use screenshots for deliberate visual changes or diagnosing a rendering failure, rather than routine build validation. The headless launcher retains timeout/signal cleanup and never terminates preexisting unrelated processes. Check its JSON report before deciding whether a desktop run is needed.
+
+For remaining **native** UI automation, keep LBMStudio in the foreground. macOS app deactivation makes Slate dismiss open menus. The Post-Processing, evaluated-export and original-export workflows latch this event and stop with `STUDIO_AUTOMATION_INTERRUPTED`; `run_packaged_suite.py` records it in the manifest's `interruptions` list and rejects the run. Returning focus does not resume the old menu state or retry actions. Once the desktop is available, run the affected suite again.
 
 The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexpected menu closure through `FMacApplication::OnApplicationWillResignActive` and `FSlateApplication::ProcessApplicationActivationEvent`. A deterministic native regression verifies actual menu dismissal and interruption retention across reactivation; 13 runner tests pass. Guarded pipeline export passes at 1320 × 740 and 1280 × 720. After the user made the desktop available, pipeline workspace at 1320 × 740 and original-field export at 1280 × 720 also passed on package `a4801654…`; all three follow-up runs have no interruptions, errors or remaining owned processes. Earlier interrupted runs retain their failed status, and untraced missing-menu failures are not retroactively attributed to this cause. Production menu behavior is unchanged; physical-input and integrated long-session gates remain open.
 
