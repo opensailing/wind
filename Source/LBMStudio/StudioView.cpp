@@ -39,7 +39,7 @@ static bool FieldDisplayEquals(const FStudioViewSettings& A, const FStudioViewSe
         A.bVolume==B.bVolume && A.bMesh==B.bMesh && A.MeshStyle==B.MeshStyle && A.SliceAxis==B.SliceAxis && A.SlicePosition==B.SlicePosition &&
         A.StreamlineDensity==B.StreamlineDensity && A.StreamlineSettings==B.StreamlineSettings && A.VectorScale==B.VectorScale &&
         A.VectorCount==B.VectorCount && A.bUniformVectors==B.bUniformVectors && A.VolumeOpacity==B.VolumeOpacity &&
-        A.ScalarField==B.ScalarField && A.bSourcePoints==B.bSourcePoints && A.bReconstructedSurface==B.bReconstructedSurface &&
+        A.ScalarField==B.ScalarField && A.bSourcePoints==B.bSourcePoints && A.bReconstructedSurface==B.bReconstructedSurface && A.bFocusWingRegion==B.bFocusWingRegion &&
         A.PointSize==B.PointSize && A.ScalarStyles==B.ScalarStyles &&
         A.VolumeClipMinimum==B.VolumeClipMinimum && A.VolumeClipMaximum==B.VolumeClipMaximum &&
         A.VolumeOpacityCurve==B.VolumeOpacityCurve && A.VolumeStepVoxels==B.VolumeStepVoxels &&

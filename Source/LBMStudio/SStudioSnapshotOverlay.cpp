@@ -26,8 +26,10 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
     // whose scalar legend or source/frame label has been switched off.
     const bool HasStreamAnnotation=S.Options.bAnnotations&&S.Streams.Segments>0;
     const bool HasMeshAnnotation=S.Options.bAnnotations&&S.Mesh.Triangles>0;
+    const bool HasFocusAnnotation=S.Options.bAnnotations&&S.DisplaySettings.bFocusWingRegion&&S.DisplaySettings.bReconstructedSurface&&
+        S.DisplaySettings.MeshStyle==0&&S.Identity.Interpolation==EStudioFieldInterpolation::ReconstructedTriangles;
     const int32 FooterRows=int32(S.Options.bFrameInfo)+int32(HasStreamAnnotation)+int32(HasMeshAnnotation)+
-        int32(HasStreamAnnotation&&S.Streams.bBudgetExhausted);
+        int32(HasStreamAnnotation&&S.Streams.bBudgetExhausted)+int32(HasFocusAnnotation);
     const double Margin=12*Scale,Footer=FooterRows?(12+20*FooterRows)*Scale:0;
     if(FooterRows)
     {
@@ -46,6 +48,10 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
                 S.Mesh.bDerived?TEXT("Derived mesh"):TEXT("Original CFD mesh"),*FText::AsNumber(S.Mesh.Triangles).ToString(),
                 S.Mesh.bFieldFillHidden?TEXT(" · field fill hidden"):TEXT("")),
                 FVector2D(Margin,Y),Muted,Layer+7);Y+=20*Scale;
+        }
+        if(HasFocusAnnotation)
+        {
+            Label(TEXT("Focused 2D region · inferred wing extrusion · no spanwise flow"),FVector2D(Margin,Y),Muted,Layer+7);Y+=20*Scale;
         }
         if(HasStreamAnnotation)
         {

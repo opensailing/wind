@@ -117,6 +117,7 @@ private:
     UPROPERTY() TObjectPtr<UMaterialInterface> TransparentMaterial;
     UPROPERTY() TObjectPtr<UMaterialInterface> ScalarMaterial;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> ScalarInstance;
+    UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> FocusScalarInstance;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> InspectionInstance;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> OriginalSliceInstance;
     TMap<FGuid,FString> GeometrySliceNotices,CapturedSliceNotices;

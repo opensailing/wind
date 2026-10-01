@@ -6,6 +6,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Algo/Sort.h"
+#include "CompGeom/PolygonTriangulation.h"
 
 #define UI UI_ST
 THIRD_PARTY_INCLUDES_START
@@ -185,6 +186,10 @@ FStudioSurfaceLoadResult StudioSurfaceReconstructions::Load(const FString& Path,
     auto Built=FStudioPlanarSurface::Create(Geometry,MoveTemp(Faces),64LL*1024*1024,Cancel);
     if(!Built.Surface)return {{},Built.Error};
     R->Surface=MoveTemp(Built.Surface);
+    // Bounded by MaxBoundary, on the loader rather than once per displayed frame.
+    TArray<UE::Geometry::FIndex3i> Caps;
+    PolygonTriangulation::TriangulateSimplePolygon(R->Boundary,Caps,false);
+    for(const auto& T:Caps)R->BoundaryCaps.Add(FIntVector(T.A,T.B,T.C));
     if(Cancelled(Cancel))return Fail(TEXT("Reconstruction loading cancelled."));
     return {R,{}};
 }

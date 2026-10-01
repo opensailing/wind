@@ -1570,7 +1570,7 @@ TSharedRef<SWidget> SStudioWorkspace::ViewToolbar()
             .ButtonContent()[Live([this]{if(M->MeshStyle>0&&Scene->HasCurrentFrame()&&!Scene->PresentedMesh().Triangles)return TEXT("No mesh");
                 return M->MeshStyle==2?TEXT("Wireframe"):M->MeshStyle==1?TEXT("Mesh overlay"):TEXT("Field");},9)]]
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)[SNew(SButton).Tag(TEXT("ViewFit"))
-            .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,4)).ToolTipText(FText::FromString(TEXT("Fit the flow domain · F")))
+            .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,4)).ToolTipText(FText::FromString(TEXT("Fit the displayed flow region · F")))
             .OnClicked_Lambda([this]{Scene->FitCamera();return FReply::Handled();})[Icon(TEXT("fit"),Text,16)]]
         +SHorizontalBox::Slot().AutoWidth().Padding(0,0,4,0)[SNew(SButton).Tag(TEXT("ViewExpand"))
             .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,4))
@@ -1629,6 +1629,11 @@ TSharedRef<SWidget> SStudioWorkspace::DisplayTools()
     auto Volume=ViewCheck(M,TEXT("Volume"),[this]{return M->bVolume;},[](auto& S,bool V){S.bVolume=V;});Volume->SetTag(TEXT("VolumeDisplay"));
     auto Surface=ViewCheck(M,TEXT("Reconstructed surface"),[this]{return M->bReconstructedSurface;},[](auto& S,bool V){S.bReconstructedSurface=V;});
     Surface->SetTag(TEXT("ReconstructedSurface"));
+    auto Focus=ViewCheck(M,TEXT("Focus wing region"),[this]{return M->bFocusWingRegion;},[](auto& S,bool V){S.bFocusWingRegion=V;});
+    Focus->SetTag(TEXT("FocusWingRegion"));
+    Focus->SetEnabled(TAttribute<bool>::CreateLambda([this]{return M->bReconstructedSurface&&M->MeshStyle==0;}));
+    Focus->SetToolTipText(FText::FromString(TEXT("Crop the reconstructed field around its inferred wing. Fit frames the region. Turn off for full coverage. Original points and mesh views always show the full field; raw export keeps every row.")));
+
     Surface->SetToolTipText(FText::FromString(TEXT("Interpolate recorded scalars on the attached derived triangles. Turn off to inspect the original source points. The source remains two-dimensional.")));
     return SNew(SBox).Tag(TEXT("DisplayInspector"))[SNew(SBorder).BorderImage(&PanelBrush).Padding(2,10)
     [SNew(SVerticalBox)
@@ -1654,7 +1659,9 @@ TSharedRef<SWidget> SStudioWorkspace::DisplayTools()
                 +SVerticalBox::Slot().AutoHeight()[Volume]
                 +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,0)[SNew(SStudioMenuButton).Tag(TEXT("VolumeSettings")).ButtonStyle(&ButtonStyle())
                     .OnGetMenuContent_Lambda([this]{return CachedDisplayMenu(TEXT("Volume"),[this]{return VolumeMenu();});}).ButtonContent()[Label(TEXT("Volume settings…"),9,Cyan)]]]]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SBox).Visibility_Lambda([this]{return M->Solver->Reconstruction()?EVisibility::Visible:EVisibility::Collapsed;})[Surface]]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[SNew(SBox).Visibility_Lambda([this]{return M->Solver->Reconstruction()?EVisibility::Visible:EVisibility::Collapsed;})[SNew(SVerticalBox)
+                +SVerticalBox::Slot().AutoHeight()[Surface]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,4,0,0)[Focus]]]
             +SVerticalBox::Slot().AutoHeight()[SNew(SBox).Visibility_Lambda([this]{return (M->bReconstructedSurface&&M->Solver->Reconstruction())||((M->bVolume||M->bVolumeIsosurface)&&M->Solver->VolumeReconstruction())?EVisibility::Collapsed:EVisibility::Visible;})
             [SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[Points]
@@ -1664,6 +1671,7 @@ TSharedRef<SWidget> SStudioWorkspace::DisplayTools()
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[VectorControls(true)]
             +SVerticalBox::Slot().AutoHeight()[Live([this]
             {
+                if(M->bFocusWingRegion&&M->bReconstructedSurface&&M->MeshStyle==0&&M->Solver->Reconstruction())return TEXT("Focused 2D field · inferred wing extruded for viewing. No spanwise flow. Turn off Focus wing region for full coverage.");
                 if(M->bStreamlines&&M->Solver->VolumeReconstruction())return TEXT("Instantaneous streamlines use derived 3D grid interpolation. Raw export retains every row.");
                 if(M->bStreamlines&&M->Solver->Reconstruction())return TEXT("Instantaneous streamlines use derived 2D triangle interpolation. Raw export retains every row.");
                 if(M->Solver->VolumeReconstruction())return (M->bVolume||M->bVolumeIsosurface)?TEXT("Derived 3D field. Original values retained; unsupported regions stay empty."):TEXT("Original 3D point subset. Volume is hidden; export retains every row.");if(M->Solver->Reconstruction()){return M->bReconstructedSurface?

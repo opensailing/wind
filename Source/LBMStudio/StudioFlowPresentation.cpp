@@ -1,6 +1,27 @@
 #include "StudioFlowPresentation.h"
 #include "StudioModel.h"
 #include "StudioSavedFieldView.h"
+#include "StudioSurfaceReconstruction.h"
+
+FBox StudioFlowPresentation::DisplayBounds(const IStudioField& Field,const FBox& Bounds,const FStudioViewSettings& Settings)
+{
+    const auto Id=Field.Identity();const auto Surface=Field.Reconstruction();
+    if(!Bounds.IsValid||!Settings.bFocusWingRegion||!Settings.bReconstructedSurface||Settings.MeshStyle!=0||
+        !Id||Id->SpatialDimensions!=2||!Surface||Surface->Boundary.Num()<3)return Bounds;
+    FBox Wing(ForceInit);
+    for(const auto& P:Surface->Boundary)
+    {
+        if(P.ContainsNaN())return Bounds;
+        Wing+=FVector(P.X,0,P.Y);
+    }
+    const double Chord=Wing.GetSize().X;
+    if(!FMath::IsFinite(Chord)||Chord<=1.e-9||!Bounds.IsInsideOrOn(Wing.Min)||!Bounds.IsInsideOrOn(Wing.Max))return Bounds;
+    const double Z=Wing.GetCenter().Z;
+    // Visual margins and extrusion span only; these are not computational limits
+    // or spanwise CFD samples. Clip the actual attached triangle field to X/Z.
+    return FBox(FVector(FMath::Max(Bounds.Min.X,Wing.Min.X-.6*Chord),FMath::Max(Bounds.Min.Y,-.45*Chord),FMath::Max(Bounds.Min.Z,Z-.65*Chord)),
+        FVector(FMath::Min(Bounds.Max.X,Wing.Max.X+1.6*Chord),FMath::Min(Bounds.Max.Y,.45*Chord),FMath::Min(Bounds.Max.Z,Z+.65*Chord)));
+}
 
 FBox StudioFlowPresentation::OverviewBounds(const IStudioField& Field,const FBox& Bounds)
 {
@@ -24,7 +45,7 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
     double Aspect,const FStudioInspectionState& Current,FStudioInspectionState& Out)
 {
     const auto Identity=Field.Identity();
-    if(!Field.IsValid()||!Identity||Identity->SpatialDimensions!=2||Field.Boundary().IsEmpty()||
+    if(!Field.IsValid()||!Identity||Identity->SpatialDimensions!=2||(Field.Boundary().IsEmpty()&&!Field.Reconstruction())||
         !Bounds.IsValid||!FMath::IsFinite(Aspect)||Aspect<=0)return false;
     auto Next=Current;auto& D=Next.Display;
     D.bVolume=false;D.bVectors=false;D.bCutPlane=true;D.MeshStyle=0;
@@ -34,6 +55,8 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
     D.StreamlineSettings.WidthFraction=.00065;D.StreamlineSettings.StepFraction=.003125;
     D.StreamlineSettings.MaximumSteps=768;D.StreamlineSettings.WorkBudget=65536;
     D.bReconstructedSurface=Field.Reconstruction().IsValid();
+    D.bFocusWingRegion=D.bReconstructedSurface;
+    const auto DisplayRegion=DisplayBounds(Field,Bounds,D);
     double Minimum=DBL_MAX,Maximum=-DBL_MAX;
     // Include boundary-layer source nodes that a regular display grid misses.
     // Bounded deterministic stride for very large sources; no source values change.
@@ -43,7 +66,7 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
         FVector Source;int64 Row;double Value;
         if(!Field.OriginalPoint(I,Row,Source)||!Field.OriginalScalar(I,Scalar,Value)||!FMath::IsFinite(Value))continue;
         const FVector P(Source.X+Identity->SourceOffset.X,D.SlicePosition,Source.Y+Identity->SourceOffset.Z);
-        if(Bounds.IsInsideOrOn(P)){Minimum=FMath::Min(Minimum,Value);Maximum=FMath::Max(Maximum,Value);}
+        if(DisplayRegion.IsInsideOrOn(P)){Minimum=FMath::Min(Minimum,Value);Maximum=FMath::Max(Maximum,Value);}
     }
     if(!(Maximum>Minimum))return false;
     if(Maximum>Minimum)
@@ -57,7 +80,7 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
     }
     auto& C=Next.Camera;C.bOrthographic=false;C.bFreeCamera=false;C.bDepthClipping=false;C.FieldOfView=38;
     C.Orientation=FVector(.32,-1.,-.2).Rotation().Quaternion();
-    C=StudioView::FitBounds(C,OverviewBounds(Field,Bounds),Aspect,.01);
+    C=StudioView::FitBounds(C,D.bFocusWingRegion?DisplayRegion:OverviewBounds(Field,Bounds),Aspect,.01);
     if(!StudioView::IsValid(Next))return false;Out=MoveTemp(Next);return true;
 }
 

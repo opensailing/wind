@@ -63,6 +63,7 @@ struct FStudioGeometry
 {
     FStudioSection Sections[10];
     bool bOriginalSlice=false;
+    bool bFocusedSurface=false;
     bool bAirfoilSolid=false;
     TMap<FGuid,FString> SliceNotices;
     TSet<FGuid> RenderedSlices;
@@ -125,6 +126,53 @@ static void AppendVectorGlyphs(const TArray<FStudioVectorGlyph>& Glyphs,double R
         Out.Sections[4].Triangle(Tip,Tip-D*Head+Side*Head*.42,Tip-D*Head-Side*Head*.42,Glyph.Color);
     }
 }
+// Neutral visual extrusion only. The caller explicitly distinguishes original
+// geometry from an attached inferred hole; neither supplies spanwise flow.
+static void WingBody(const TArray<FVector2D>& Boundary,const TArray<FIntVector>& Caps,
+    const FBox& Bounds,FStudioGeometry& Out,const FStudioLoadCancellation& Cancel)
+{
+    const double Stroke=FMath::Min(Bounds.GetSize().X,Bounds.GetSize().Z)*100.;
+    const double SpanMin=FMath::Lerp(Bounds.Min.Y,Bounds.Max.Y,.175)*100.,SpanMax=FMath::Lerp(Bounds.Min.Y,Bounds.Max.Y,.825)*100.;
+    Out.bAirfoilSolid=!Boundary.IsEmpty();
+    double Winding=0;TArray<FVector> EdgeNormals;
+    for(int32 I=0;I<Boundary.Num();++I)
+    {
+        const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
+        Winding+=P.X*Q.Y-Q.X*P.Y;
+        EdgeNormals.Add(FVector(Q.Y-P.Y,0,P.X-Q.X).GetSafeNormal());
+    }
+    if(Winding<0)for(auto& N:EdgeNormals)N=-N;
+    const auto CornerNormal=[&](int32 Corner,int32 Face)
+    {
+        const auto A=EdgeNormals[(Corner+Boundary.Num()-1)%Boundary.Num()],B=EdgeNormals[Corner];
+        // Smooth the original curved skin; preserve the sharp trailing edge.
+        return FVector::DotProduct(A,B)>.5?(A+B).GetSafeNormal():EdgeNormals[Face];
+    };
+    for(int32 I=0;I<Boundary.Num();++I)
+    {
+        if(Cancel&&Cancel->load())return;
+        const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
+        const FVector A(P.X*100.,SpanMin,P.Y*100.),B(Q.X*100.,SpanMin,Q.Y*100.);
+        const FVector C(Q.X*100.,SpanMax,Q.Y*100.),D(P.X*100.,SpanMax,P.Y*100.);
+        const FLinearColor Solid(.015,.027,.04);
+        Out.Sections[0].Triangle(A,B,C,Solid);
+        Out.Sections[0].Triangle(A,C,D,Solid);
+        const auto NP=CornerNormal(I,I),NQ=CornerNormal((I+1)%Boundary.Num(),I);
+        Out.Sections[0].Normals.Append({NP,NQ,NQ,NP,NQ,NP});
+        for(double Y:{SpanMin,SpanMax})
+        {
+            const FVector U(P.X*100.,Y,P.Y*100.),V(Q.X*100.,Y,Q.Y*100.);
+            Out.Sections[5].Tube(U,V,Stroke*.0007,FLinearColor(.12,.2,.28));
+        }
+    }
+    for(double Y:{SpanMin,SpanMax})for(const auto& T:Caps)
+    {
+        if(Cancel&&Cancel->load())return;
+        const auto P=Boundary[T.X],Q=Boundary[T.Y],S=Boundary[T.Z];
+        Out.Sections[0].Triangle(FVector(P.X*100.,Y,P.Y*100.),FVector(Q.X*100.,Y,Q.Y*100.),FVector(S.X*100.,Y,S.Y*100.),FLinearColor(.012,.024,.036));
+        const FVector N(0,Y==SpanMin?-1.:1.,0);Out.Sections[0].Normals.Append({N,N,N});
+    }
+}
 static void PointGeometry(const FRenderRequest& R,const FStudioPointFrame& Frame,FStudioGeometry& Out)
 {
     const auto* Values=Frame.FindValues(R.Scalar.Id);
@@ -137,11 +185,14 @@ static void PointGeometry(const FRenderRequest& R,const FStudioPointFrame& Frame
     const bool bSurface=R.bReconstructedSurface&&Surface.IsValid();
     if(bSurface)
     {
-        auto Data=StudioSurfaceRendering::Build(Frame,*Surface,R.Scalar.Id,R.ColorMapping,R.Cancellation);
+        const bool Focused=R.VolumeSettings.bFocusWingRegion&&R.VolumeSettings.MeshStyle==0;
+        auto Data=StudioSurfaceRendering::Build(Frame,*Surface,R.Scalar.Id,R.ColorMapping,R.Cancellation,Focused?R.Bounds:FBox(ForceInit));
         if(!Data.Error.IsEmpty()){Out.Error=Data.Error;return;}
         auto& Section=Out.Sections[2];
         Section.Vertices=MoveTemp(Data.Vertices);Section.Indices=MoveTemp(Data.Indices);Section.UVs=MoveTemp(Data.TextureCoordinates);
         Out.SurfaceScalars=MoveTemp(Data.Scalars);Out.ScalarTextureSize=Data.TextureSize;
+        Out.bFocusedSurface=Focused;
+        if(Focused)WingBody(Surface->Boundary,Surface->BoundaryCaps,R.Bounds,Out,R.Cancellation);
     }
     if(R.bSourcePoints&&!bSurface)
     {
@@ -177,7 +228,7 @@ static void PointGeometry(const FRenderRequest& R,const FStudioPointFrame& Frame
         {
             if(R.IsCancelled())return;
             const FVector V((*Components[0])[I],Components[2]?(*Components[2])[I]:0,(*Components[1])[I]);
-            Samples.Add({Position(I)/100.,V,Color(I),true});
+            if(R.Bounds.IsInsideOrOn(Position(I)/100.))Samples.Add({Position(I)/100.,V,Color(I),true});
         }
         TArray<FStudioVectorGlyph> Glyphs;
         if(!StudioFieldDisplay::VectorGlyphs(Samples,Extent/100.*.035*R.VectorScale,
@@ -194,7 +245,6 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
     if(!Bounds.IsValid)return Out;
     const FVector Size=Bounds.GetSize(),Center=Bounds.GetCenter();
     const double Stroke=FMath::Min(Size.X,Size.Z)*100.;
-    const double SpanMin=FMath::Lerp(Bounds.Min.Y,Bounds.Max.Y,.175)*100.,SpanMax=FMath::Lerp(Bounds.Min.Y,Bounds.Max.Y,.825)*100.;
     const auto Points=Field.OriginalPoints();
     if(R.VolumeSettings.MeshStyle>0)
     {
@@ -329,47 +379,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
     }
     else
     {
-    // Extrude the exact source-mesh boundary. The source CFD remains two-dimensional.
-    const auto& Boundary=Field.Boundary();
-    Out->bAirfoilSolid=!Boundary.IsEmpty();
-    double Winding=0;TArray<FVector> EdgeNormals;
-    for(int32 I=0;I<Boundary.Num();++I)
-    {
-        const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
-        Winding+=P.X*Q.Y-Q.X*P.Y;
-        EdgeNormals.Add(FVector(Q.Y-P.Y,0,P.X-Q.X).GetSafeNormal());
-    }
-    if(Winding<0)for(auto& N:EdgeNormals)N=-N;
-    const auto CornerNormal=[&](int32 Corner,int32 Face)
-    {
-        const auto A=EdgeNormals[(Corner+Boundary.Num()-1)%Boundary.Num()],B=EdgeNormals[Corner];
-        // Smooth the original curved skin; preserve the sharp trailing edge.
-        return FVector::DotProduct(A,B)>.5?(A+B).GetSafeNormal():EdgeNormals[Face];
-    };
-    for(int32 I=0;I<Boundary.Num();++I)
-    {
-        if(R.IsCancelled())return {};
-        const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
-        const FVector A(P.X*100.,SpanMin,P.Y*100.),B(Q.X*100.,SpanMin,Q.Y*100.);
-        const FVector C(Q.X*100.,SpanMax,Q.Y*100.),D(P.X*100.,SpanMax,P.Y*100.);
-        const FLinearColor Solid(.015,.027,.04);
-        Out->Sections[0].Triangle(A,B,C,Solid);
-        Out->Sections[0].Triangle(A,C,D,Solid);
-        const auto NP=CornerNormal(I,I),NQ=CornerNormal((I+1)%Boundary.Num(),I);
-        Out->Sections[0].Normals.Append({NP,NQ,NQ,NP,NQ,NP});
-        for(double Y:{SpanMin,SpanMax})
-        {
-            const FVector U(P.X*100.,Y,P.Y*100.),V(Q.X*100.,Y,Q.Y*100.);
-            Out->Sections[5].Tube(U,V,Stroke*.0007,FLinearColor(.12,.2,.28));
-        }
-    }
-    for(double Y:{SpanMin,SpanMax})for(const auto& T:Field.BoundaryTriangles())
-    {
-        if(R.IsCancelled())return {};
-        const auto P=Boundary[T.X],Q=Boundary[T.Y],S=Boundary[T.Z];
-        Out->Sections[0].Triangle(FVector(P.X*100.,Y,P.Y*100.),FVector(Q.X*100.,Y,Q.Y*100.),FVector(S.X*100.,Y,S.Y*100.),FLinearColor(.012,.024,.036));
-        const FVector N(0,Y==SpanMin?-1.:1.,0);Out->Sections[0].Normals.Append({N,N,N});
-    }
+    WingBody(Field.Boundary(),Field.BoundaryTriangles(),Bounds,*Out,R.Cancellation);
     auto Plane=[&](int32 Section,int32 Axis,double Position,double Alpha)
     {
         const int32 NX=Axis==0?38:116,NY=44;
@@ -532,6 +542,8 @@ void AStudioScene::Initialize(TSharedRef<FStudioModel> InModel)
     // surface material. Shape shading does not alter volume/slice field colors.
     Mesh->SetMaterial(7,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_FlowIsosurface.M_FlowIsosurface")));
     if(ScalarMaterial)ScalarInstance=UMaterialInstanceDynamic::Create(ScalarMaterial,this);
+    if(auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_FlowScalarFocus.M_FlowScalarFocus")))
+        FocusScalarInstance=UMaterialInstanceDynamic::Create(Material,this);
     if(auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_InspectionScalar.M_InspectionScalar")))
         {InspectionInstance=UMaterialInstanceDynamic::Create(Material,this);OriginalSliceInstance=UMaterialInstanceDynamic::Create(Material,this);}
     RenderTarget=NewObject<UTextureRenderTarget2D>(this);
@@ -559,7 +571,7 @@ void AStudioScene::FitCamera()
         C.Orientation=(C.Focus-C.Position).Rotation().Quaternion();C.OrthoWidth=Radius*3.;RestoreCamera(C,TEXT("Fit geometry"));return;
     }
     if(!Model||!RenderTarget)return;
-    const FBox Bounds=FrozenPipelineOutput&&RenderedFlowBounds.IsValid?RenderedFlowBounds:Model->Solver->Descriptor().DisplayBounds;
+    const FBox Bounds=(FrozenPipelineOutput||HasCurrentFrame())&&RenderedFlowBounds.IsValid?RenderedFlowBounds:Model->Solver->Descriptor().DisplayBounds;
     RestoreCamera(StudioView::FitBounds(SavedCameraState(),Bounds,
         double(RenderTarget->SizeX)/RenderTarget->SizeY,
         (Capture->bOverride_CustomNearClippingPlane?Capture->CustomNearClippingPlane:GNearClippingPlane)/100.),TEXT("Fit camera"));
@@ -568,7 +580,7 @@ void AStudioScene::FlowOverview()
 {
     if(!HasCurrentFrame()||!CapturedField||FrozenPipelineOutput||Model->IsSnapshotView())return;
     FStudioInspectionState Next;
-    if(!StudioFlowPresentation::Overview(*CapturedField,RenderedFlowBounds,CapturedScalar.Id,
+    if(!StudioFlowPresentation::Overview(*CapturedField,Model->Solver->Descriptor().DisplayBounds,CapturedScalar.Id,
         double(RenderTarget->SizeX)/RenderTarget->SizeY,Model->InspectionState(),Next))
     {Model->Notice=TEXT("This field does not support a flow overview. Use the camera and Display controls.");return;}
     Model->EndViewEdit();
@@ -578,7 +590,7 @@ void AStudioScene::FlowOverview()
 void AStudioScene::UpdateBackdrop()
 {
     if(!Backdrop||!Model)return;
-    const bool Show=!bGeometryView&&!FrozenPipelineOutput&&!Model->Solver->Descriptor().bSourcePoints&&!bCameraDepthClipping;
+    const bool Show=!bGeometryView&&!FrozenPipelineOutput&&(!Model->Solver->Descriptor().bSourcePoints||(Model->bFocusWingRegion&&Model->bReconstructedSurface&&Model->MeshStyle==0&&Model->Solver->Reconstruction()))&&!bCameraDepthClipping;
     Backdrop->SetVisibility(Show);if(!Show)return;
     const auto& B=Model->Solver->Descriptor().DisplayBounds;const auto C=CameraState();
     const double Depth=FMath::Max(1.,(C.Position-B.GetCenter()).Size()+B.GetExtent().Size()*2.)*100.;
@@ -720,6 +732,7 @@ void AStudioScene::RequestGeometry()
         const bool TraceVelocity=R.Streamlines&&(!Descriptor.bSourcePoints||(Descriptor.bPointVelocity&&(Solver->Reconstruction()||Solver->VolumeReconstruction())));
         R.Field=Solver->CaptureViewField(Frame,R.Scalar.Id,R.Vectors||TraceVelocity,R.Cancellation);
         if(R.IsCancelled())return {};
+        if(!Pipeline)R.Bounds=StudioFlowPresentation::DisplayBounds(*R.Field,R.Bounds,R.VolumeSettings);
         auto Geometry=Pipeline?BuildPipelineGeometry(R,*Pipeline):BuildGeometry(R);
         if(!Geometry||R.IsCancelled())return {};
         // Validity belongs to this immutable snapshot. Another successful read
@@ -760,7 +773,7 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
     const bool bSurface=!G.SurfaceScalars.IsEmpty();
     if(bSurface)
     {
-        if(!ScalarInstance)
+        if(!ScalarInstance||(G.bFocusedSurface&&!FocusScalarInstance))
         {
             Mesh->ClearAllMeshSections();RenderedDataset.Empty();bCaptureDirty=true;
             Model->Notice=TEXT("The scalar surface material is missing. Rebuild the application materials or use original-point mode.");
@@ -778,6 +791,7 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
             ScalarTexture->AddressX=TA_Clamp;ScalarTexture->AddressY=TA_Clamp;
             ScalarTexture->UpdateResource();
             ScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),ScalarTexture);
+            if(FocusScalarInstance)FocusScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),ScalarTexture);
         }
         // The render command owns this immutable upload until the RHI consumes
         // it. Reuse the bounded texture; never retain a frame behind a raw pointer.
@@ -793,9 +807,10 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
     else if(ScalarTexture)
     {
         if(ScalarInstance)ScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
+        if(FocusScalarInstance)FocusScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
         ScalarTexture=nullptr;
     }
-    for(auto* Instance:{InspectionInstance.Get(),OriginalSliceInstance.Get()})if(Instance)
+    for(auto* Instance:{InspectionInstance.Get(),OriginalSliceInstance.Get(),FocusScalarInstance.Get()})if(Instance)
     {
         Instance->SetScalarParameterValue(TEXT("Palette"),G.ColorMapping.Palette);
         Instance->SetVectorParameterValue(TEXT("LowColor"),G.ColorMapping.LowColor);
@@ -818,7 +833,7 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
         const auto& S=G.Sections[I]; if(S.Vertices.IsEmpty()) { Mesh->ClearMeshSection(I); continue; }
         TArray<FVector> Normals=S.Normals;if(Normals.IsEmpty())Normals.Init(FVector::UpVector,S.Vertices.Num());
         Mesh->CreateMeshSection_LinearColor(I,S.Vertices,S.Indices,Normals,S.UVs,S.VelocityUVs,{},{},S.Colors,TArray<FProcMeshTangent>(),false,false);
-        if(I!=7)Mesh->SetMaterial(I,I==0&&G.bAirfoilSolid&&BodyMaterial?BodyMaterial.Get():I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?ScalarInstance.Get():(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
+        if(I!=7)Mesh->SetMaterial(I,I==0&&G.bAirfoilSolid&&BodyMaterial?BodyMaterial.Get():I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?(G.bFocusedSurface?FocusScalarInstance.Get():ScalarInstance.Get()):(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
     }
     RenderMilliseconds=G.BuildMs;
     if(!G.Dataset.IsEmpty())RenderedFlowBounds=G.Bounds;
@@ -938,6 +953,7 @@ void AStudioScene::EndPlay(const EEndPlayReason::Type Reason)
     {
         Mesh->ClearAllMeshSections();Backdrop->ClearAllMeshSections();VolumeComponent->ClearVolume(true);
         if(ScalarInstance)ScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
+        if(FocusScalarInstance)FocusScalarInstance->SetTextureParameterValue(TEXT("SourceScalars"),nullptr);
         if(ScalarTexture){ScalarTexture->ReleaseResource();ScalarTexture=nullptr;}
         Capture->TextureTarget=nullptr;
         if(RenderTarget){RenderTarget->ReleaseResource();RenderTarget=nullptr;}

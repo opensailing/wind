@@ -60,6 +60,7 @@ struct FStudioViewSettings
     FString ScalarField; // Empty selects the recording's declared default.
     bool bSourcePoints = true;
     bool bReconstructedSurface = true; // Effective only with an explicitly attached reconstruction.
+    bool bFocusWingRegion = false; // Reversible display crop; only a reconstructed 2D surface with mesh hidden.
     double PointSize = 1;
     TArray<FStudioScalarStyle> ScalarStyles;
     FStudioInspectionObjects InspectionObjects;

@@ -19,5 +19,6 @@ struct FStudioScalarSurfaceData
 namespace StudioSurfaceRendering
 {
     FStudioScalarSurfaceData Build(const FStudioPointFrame& Frame,const FStudioSurfaceReconstruction& Surface,
-        const FString& FieldId,const FStudioColorMapping& Mapping,const FStudioLoadCancellation& Cancellation={});
+        const FString& FieldId,const FStudioColorMapping& Mapping,const FStudioLoadCancellation& Cancellation={},
+        const FBox& DisplayBounds=FBox(ForceInit));
 }

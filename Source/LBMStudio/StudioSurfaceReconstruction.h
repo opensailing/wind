@@ -10,6 +10,7 @@ struct FStudioSurfaceReconstruction
     TSharedPtr<const FStudioPlanarSurface, ESPMode::ThreadSafe> Surface;
     TArray<int32> BoundaryRows;
     TArray<FVector2D> Boundary;
+    TArray<FIntVector> BoundaryCaps; // Presentation-only triangulation of the inferred hole, never fluid cells.
     TArray<FString> Limitations;
 };
 

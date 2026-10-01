@@ -52,7 +52,8 @@ def main():
     parser.add_argument('--residual-log', type=Path,
                         help='Original published OpenFOAM log for the complete residual reader audit or native UI acceptance')
     args = parser.parse_args()
-    full_surface_gate = args.suite in {'ScientificAcceptance.Surface.FullSequence', 'ScientificAcceptance.Inspection.FullSequence'}
+    full_surface_gate = args.suite in {'ScientificAcceptance.Surface.FullSequence', 'ScientificAcceptance.Inspection.FullSequence',
+                                      'ScientificAcceptance.Surface.FocusedWing'}
     full_point_gate = args.suite in {'ScientificAcceptance.PointRecording.FullSequence',
                                     'ScientificAcceptance.PointRecording.ViewportFullSequence',
                                     'ScientificAcceptance.PointRecording.ViewportControls'} or full_surface_gate

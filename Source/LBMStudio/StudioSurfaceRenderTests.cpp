@@ -1,4 +1,5 @@
 #include "StudioSurfaceRenderData.h"
+#include "StudioFlowPresentation.h"
 #include "StudioScene.h"
 #include "EngineUtils.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -23,6 +24,61 @@ FStudioRecordingLoadResult SurfaceRenderFixture()
         FPaths::ProjectContentDir()/TEXT("Samples/NACA0018_SurfaceFixture/reconstruction.json"),0,{}):Raw;
 }
 constexpr auto SurfaceModelFlags=EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFocusedSurface,"Studio.SurfaceRendering.FocusedRegionSourceIsolation",SurfaceModelFlags)
+bool FStudioFocusedSurface::RunTest(const FString&)
+{
+    const auto Loaded=SurfaceRenderFixture();if(!TestTrue(*Loaded.Error,Loaded.Source.IsValid()))return false;
+    const auto Field=Loaded.Source->CaptureViewField(1,TEXT("pressure"),true);
+    const auto Frame=Field->OriginalPoints();const auto OriginalValues=*Frame->FindValues(TEXT("pressure"));
+    const auto Full=Loaded.Source->Descriptor().DisplayBounds;FStudioInspectionState Before,Next;
+    if(!TestTrue(TEXT("Explicit attached reconstruction supports overview"),StudioFlowPresentation::Overview(*Field,Full,TEXT("pressure"),1.8,Before,Next)))return false;
+    const auto Region=StudioFlowPresentation::DisplayBounds(*Field,Full,Next.Display);
+    TestTrue(TEXT("Wing region is smaller, valid and inside original display extent"),Region.IsValid&&Full.IsInsideOrOn(Region.Min)&&Full.IsInsideOrOn(Region.Max)&&Region.GetSize().X<Full.GetSize().X*.5);
+    TestTrue(TEXT("Original CFD boundary identity remains unavailable"),Field->Boundary().IsEmpty()&&Field->BoundaryTriangles().IsEmpty());
+    TestEqual(TEXT("Presentation caps belong to inferred boundary only"),Field->Reconstruction()->BoundaryCaps.Num(),Field->Reconstruction()->Boundary.Num()-2);
+    auto Settings=Next.Display;Settings.bFocusWingRegion=false;
+    TestTrue(TEXT("Unchecked focus restores full region"),StudioFlowPresentation::DisplayBounds(*Field,Full,Settings).Equals(Full));
+    Settings=Next.Display;Settings.bReconstructedSurface=false;
+    TestTrue(TEXT("Source points retain full coverage"),StudioFlowPresentation::DisplayBounds(*Field,Full,Settings).Equals(Full));
+    Settings=Next.Display;Settings.MeshStyle=1;
+    TestTrue(TEXT("Connectivity retains full coverage"),StudioFlowPresentation::DisplayBounds(*Field,Full,Settings).Equals(Full));
+    const FStudioColorMapping Mapping{0,true,-10,10};
+    const auto Data=StudioSurfaceRendering::Build(*Frame,*Field->Reconstruction(),TEXT("pressure"),Mapping,{},Region);
+    if(!TestTrue(*Data.Error,Data.Error.IsEmpty()))return false;
+    TestTrue(TEXT("Focused fluid triangles retain substantial original detail"),Data.Indices.Num()>1000&&Data.Indices.Num()<37188*3);
+    int32 Compared=0;
+    for(int32 I=0;I<Data.Indices.Num();I+=3)
+    {
+        FVector Center=FVector::ZeroVector;double Scalar=0;
+        for(int32 K=0;K<3;++K)
+        {
+            const int32 V=Data.Indices[I+K];const auto P=Data.Vertices[V]/100.;
+            if(!TestTrue(TEXT("Every drawn vertex stays inside the displayed region"),Region.ExpandBy(1.e-9).IsInsideOrOn(P)))return false;
+            Center+=P/3.;Scalar+=double(Data.Scalars[V])/3.;
+            const FVector2D Half=FVector2DHalf(Data.TextureCoordinates[V]);
+            if(!TestTrue(TEXT("Clipped vertex texture lookup retains its exact scalar slot"),Half==Data.TextureCoordinates[V]))return false;
+        }
+        double Value;if(!Field->SampleScalar(Center,TEXT("pressure"),Value))continue;
+        if(!TestTrue(TEXT("Clipped triangle interpolates the selected source scalar before palette"),FMath::Abs(Scalar-(Value+10)/20)<1.e-5))return false;
+        ++Compared;
+    }
+    TestTrue(TEXT("Independent sampler covers clipped geometry"),Compared>1000);
+    TestTrue(TEXT("Rendering cannot mutate original arrays"),*Frame->FindValues(TEXT("pressure"))==OriginalValues);
+    FStudioModel M(FPaths::ProjectSavedDir()/TEXT("Automation/FocusedRegion")/FGuid::NewGuid().ToString());const auto Previous=M.InspectionState();
+    TestTrue(TEXT("Focus is a view edit"),M.EditView(TEXT("Focus region"),[](auto& S){S.Display.bFocusWingRegion=true;}));
+    TestTrue(TEXT("Focus undo restores entire prior view"),M.UndoView()&&M.InspectionState().Equals(Previous));
+    TestTrue(TEXT("Focus redo retains choice"),M.RedoView()&&M.bFocusWingRegion);
+    FStudioProject Read;FString Error;auto Project=M.SnapshotProject();
+    TestTrue(TEXT("Focus round trips in a project"),StudioProjectIO::Parse(StudioProjectIO::Serialize(Project),Read,Error)&&Read.View.bFocusWingRegion);
+    TSharedPtr<FJsonObject> Root;FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(StudioProjectIO::Serialize(Project)),Root);
+    const auto View=Root->GetObjectField(TEXT("view"));View->RemoveField(TEXT("focusWingRegion"));
+    auto Encode=[&]{FString S;FJsonSerializer::Serialize(Root.ToSharedRef(),TJsonWriterFactory<>::Create(&S));return S;};
+    TestTrue(TEXT("Older views keep full coverage"),StudioProjectIO::Parse(Encode(),Read,Error)&&!Read.View.bFocusWingRegion);
+    View->SetStringField(TEXT("focusWingRegion"),TEXT("true"));
+    TestFalse(TEXT("Malformed focus flag is rejected"),StudioProjectIO::Parse(Encode(),Read,Error));
+    return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioScalarTransport,"Studio.SurfaceRendering.SourceScalarTransport",SurfaceModelFlags)

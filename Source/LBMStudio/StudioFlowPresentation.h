@@ -5,6 +5,9 @@ class IStudioField;
 struct FStudioStreamlineOutput;
 namespace StudioFlowPresentation
 {
+    /** Display-only region around an explicitly reconstructed 2D wing. Full field
+     * bounds remain authoritative. Mesh and original-point modes retain full coverage. */
+    FBox DisplayBounds(const IStudioField& Field,const FBox& Bounds,const FStudioViewSettings& Settings);
     /** Camera-only wing and near-wake region, clamped to supplied display bounds.
      * Does not crop geometry, source sampling, streamline integration or exports. */
     FBox OverviewBounds(const IStudioField& Field,const FBox& Bounds);

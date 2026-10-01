@@ -91,6 +91,7 @@ namespace
         O->SetStringField(TEXT("scalarField"),V.ScalarField); O->SetBoolField(TEXT("sourcePoints"),V.bSourcePoints);
         O->SetNumberField(TEXT("pointSize"),V.PointSize);
         O->SetBoolField(TEXT("reconstructedSurface"),V.bReconstructedSurface);
+        O->SetBoolField(TEXT("focusWingRegion"),V.bFocusWingRegion);
         O->SetArrayField(TEXT("volumeClipMinimum"),Numbers({V.VolumeClipMinimum.X,V.VolumeClipMinimum.Y,V.VolumeClipMinimum.Z}));
         O->SetArrayField(TEXT("volumeClipMaximum"),Numbers({V.VolumeClipMaximum.X,V.VolumeClipMaximum.Y,V.VolumeClipMaximum.Z}));
         O->SetArrayField(TEXT("volumeOpacityCurve"),Numbers({V.VolumeOpacityCurve.X,V.VolumeOpacityCurve.Y,V.VolumeOpacityCurve.Z}));
@@ -140,6 +141,8 @@ namespace
             for(TCHAR C:V.ScalarField)if(!FChar::IsAlnum(C)&&C!='_'&&C!='-'&&C!='.')return false;
         }
         if(bSurfaceSettings&&!O->TryGetBoolField(TEXT("reconstructedSurface"),V.bReconstructedSurface))return false;
+        if(O->HasField(TEXT("focusWingRegion"))&&(!O->HasTypedField<EJson::Boolean>(TEXT("focusWingRegion"))||
+            !O->TryGetBoolField(TEXT("focusWingRegion"),V.bFocusWingRegion)))return false;
         if(bInspectionSettings)
         {
             const FObject* Objects=nullptr;FString Error;
