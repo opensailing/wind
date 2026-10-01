@@ -13,6 +13,8 @@ cat tmp/debug/editor-build.log
 rg -q 'Result: Succeeded' tmp/debug/editor-build.log
 "$ENGINE_PATH/Engine/Binaries/Mac/UnrealEditor-Cmd" "$PWD/LBMStudio.uproject" -LLM -run=pythonscript -script="$PWD/Tools/create_materials.py" -unattended -nullrhi -nosplash -stdout -FullStdOutLogOutput > tmp/debug/materials.log 2>&1
 rg -q 'STUDIO_MATERIAL_SAVED /Game/Studio/M_FlowScalar' tmp/debug/materials.log
+"$ENGINE_PATH/Engine/Binaries/Mac/UnrealEditor-Cmd" "$PWD/LBMStudio.uproject" -LLM -run=pythonscript -script="$PWD/Tools/create_body_material.py" -unattended -nullrhi -nosplash -stdout -FullStdOutLogOutput > tmp/debug/body-material.log 2>&1
+rg -q 'STUDIO_BODY_MATERIAL_SAVED /Game/Studio/M_FlowBody' tmp/debug/body-material.log
 "$ENGINE_PATH/Engine/Binaries/Mac/UnrealEditor-Cmd" "$PWD/LBMStudio.uproject" -LLM -run=pythonscript -script="$PWD/Tools/create_volume_material.py" -unattended -nullrhi -nosplash -stdout -FullStdOutLogOutput > tmp/debug/volume-material.log 2>&1
 rg -q 'STUDIO_VOLUME_MATERIAL_SAVED /Game/Studio/M_FlowVolume' tmp/debug/volume-material.log
 "$ENGINE_PATH/Engine/Binaries/Mac/UnrealEditor-Cmd" "$PWD/LBMStudio.uproject" -LLM -run=pythonscript -script="$PWD/Tools/create_mesh_material.py" -unattended -nullrhi -nosplash -stdout -FullStdOutLogOutput > tmp/debug/mesh-material.log 2>&1

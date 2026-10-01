@@ -112,6 +112,7 @@ private:
     UPROPERTY() TObjectPtr<USceneCaptureComponent2D> Capture;
     UPROPERTY() TObjectPtr<UTextureRenderTarget2D> RenderTarget;
     UPROPERTY() TObjectPtr<UMaterialInterface> OpaqueMaterial;
+    UPROPERTY() TObjectPtr<UMaterialInterface> BodyMaterial;
     UPROPERTY() TObjectPtr<UMaterialInterface> MeshEdgeMaterial;
     UPROPERTY() TObjectPtr<UMaterialInterface> TransparentMaterial;
     UPROPERTY() TObjectPtr<UMaterialInterface> ScalarMaterial;

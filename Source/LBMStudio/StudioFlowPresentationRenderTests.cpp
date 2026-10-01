@@ -2,6 +2,7 @@
 #include "StudioAutomationForeground.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "ProceduralMeshComponent.h"
+#include "Materials/MaterialInterface.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -52,6 +53,7 @@ public:
             Test->TestTrue(TEXT("Starting camera fits the actual native viewport"),StudioView::CameraEquals(M.Project.Camera,
                 StudioView::FitBounds(M.Project.Camera,M.Solver->Descriptor().DisplayBounds,double(Target->SizeX)/Target->SizeY,.01)));
             VerifyLowerFlowCoverage();
+            VerifySolidShading();
             Capture(TEXT("new-project.png"));Scene->Orbit(8,5);
             M.EditView(TEXT("Exercise overview restoration"),[](auto& S){S.Display.bVectors=true;S.Display.bVolume=true;S.Display.ScalarStyles.Reset();});Next();break;
         case 2:
@@ -171,6 +173,20 @@ public:
         return false;
     }
 private:
+    void VerifySolidShading()
+    {
+        const auto Mesh=Scene->FindComponentByClass<UProceduralMeshComponent>();const auto* Body=Mesh?Mesh->GetProcMeshSection(0):nullptr;
+        if(!Test->TestNotNull(TEXT("Original wing solid renders"),Body))return;
+        Test->TestTrue(TEXT("Wing has its own cooked shading material"),Mesh->GetMaterial(0)&&Mesh->GetMaterial(0)->GetName()==TEXT("M_FlowBody"));
+        Test->TestTrue(TEXT("Scientific streamlines retain unlit field material"),Mesh->GetMaterial(3)&&Mesh->GetMaterial(3)->GetName()==TEXT("M_Flow"));
+        bool UpperSkin=false,LowerSkin=false,EndCap=false;
+        for(const auto& V:Body->ProcVertexBuffer)
+        {
+            if(!Test->TestTrue(TEXT("Original solid normals are finite and normalized"),!V.Normal.ContainsNaN()&&FMath::Abs(V.Normal.SizeSquared()-1)<1.e-5))return;
+            UpperSkin|=V.Normal.Z>.5;LowerSkin|=V.Normal.Z<-.5;EndCap|=FMath::Abs(V.Normal.Y)>.99;
+        }
+        Test->TestTrue(TEXT("Curved upper/lower skin and flat caps have their own normals"),UpperSkin&&LowerSkin&&EndCap);
+    }
     void VerifyLowerFlowCoverage()
     {
         const auto Mesh=Scene->FindComponentByClass<UProceduralMeshComponent>();const auto* Section=Mesh?Mesh->GetProcMeshSection(3):nullptr;

@@ -82,7 +82,7 @@ StudioFlowPresentation::FSlice StudioFlowPresentation::OriginalSlice(const IStud
             const auto& V=Polygon[K];const double Span=Mapping.Maximum-Mapping.Minimum;
             const double S=Span>0?(V.V-Mapping.Minimum)/Span:.5;
             if(!FMath::IsFinite(S)||FMath::Abs(S)>1.e30)return {};
-            Out.Indices.Add(Out.Positions.Num());Out.Positions.Add(V.P*100.);Out.ScalarOpacity.Add(FVector2D(S,.18));Out.Velocity.Add(V.Velocity);
+            Out.Indices.Add(Out.Positions.Num());Out.Positions.Add(V.P*100.);Out.ScalarOpacity.Add(FVector2D(S,.06));Out.Velocity.Add(V.Velocity);
         }
     }
     return Out;

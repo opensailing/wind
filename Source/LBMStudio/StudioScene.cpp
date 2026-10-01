@@ -63,6 +63,7 @@ struct FStudioGeometry
 {
     FStudioSection Sections[10];
     bool bOriginalSlice=false;
+    bool bAirfoilSolid=false;
     TMap<FGuid,FString> SliceNotices;
     TSet<FGuid> RenderedSlices;
     TArray<float> SurfaceScalars;
@@ -330,21 +331,36 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
     {
     // Extrude the exact source-mesh boundary. The source CFD remains two-dimensional.
     const auto& Boundary=Field.Boundary();
+    Out->bAirfoilSolid=!Boundary.IsEmpty();
+    double Winding=0;TArray<FVector> EdgeNormals;
+    for(int32 I=0;I<Boundary.Num();++I)
+    {
+        const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
+        Winding+=P.X*Q.Y-Q.X*P.Y;
+        EdgeNormals.Add(FVector(Q.Y-P.Y,0,P.X-Q.X).GetSafeNormal());
+    }
+    if(Winding<0)for(auto& N:EdgeNormals)N=-N;
+    const auto CornerNormal=[&](int32 Corner,int32 Face)
+    {
+        const auto A=EdgeNormals[(Corner+Boundary.Num()-1)%Boundary.Num()],B=EdgeNormals[Corner];
+        // Smooth the original curved skin; preserve the sharp trailing edge.
+        return FVector::DotProduct(A,B)>.5?(A+B).GetSafeNormal():EdgeNormals[Face];
+    };
     for(int32 I=0;I<Boundary.Num();++I)
     {
         if(R.IsCancelled())return {};
         const auto P=Boundary[I],Q=Boundary[(I+1)%Boundary.Num()];
         const FVector A(P.X*100.,SpanMin,P.Y*100.),B(Q.X*100.,SpanMin,Q.Y*100.);
         const FVector C(Q.X*100.,SpanMax,Q.Y*100.),D(P.X*100.,SpanMax,P.Y*100.);
-        const FVector Normal=FVector::CrossProduct(B-A,D-A).GetSafeNormal();
-        const double Shade=.65+.35*FMath::Abs(FVector::DotProduct(Normal,FVector(.25,.4,1).GetSafeNormal()));
-        const FLinearColor Solid=FLinearColor(.015,.027,.04)*Shade;
+        const FLinearColor Solid(.015,.027,.04);
         Out->Sections[0].Triangle(A,B,C,Solid);
         Out->Sections[0].Triangle(A,C,D,Solid);
+        const auto NP=CornerNormal(I,I),NQ=CornerNormal((I+1)%Boundary.Num(),I);
+        Out->Sections[0].Normals.Append({NP,NQ,NQ,NP,NQ,NP});
         for(double Y:{SpanMin,SpanMax})
         {
             const FVector U(P.X*100.,Y,P.Y*100.),V(Q.X*100.,Y,Q.Y*100.);
-            Out->Sections[5].Tube(U,V,Stroke*.000875,FLinearColor(.2,.3,.4));
+            Out->Sections[5].Tube(U,V,Stroke*.0007,FLinearColor(.12,.2,.28));
         }
     }
     for(double Y:{SpanMin,SpanMax})for(const auto& T:Field.BoundaryTriangles())
@@ -352,6 +368,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         if(R.IsCancelled())return {};
         const auto P=Boundary[T.X],Q=Boundary[T.Y],S=Boundary[T.Z];
         Out->Sections[0].Triangle(FVector(P.X*100.,Y,P.Y*100.),FVector(Q.X*100.,Y,Q.Y*100.),FVector(S.X*100.,Y,S.Y*100.),FLinearColor(.012,.024,.036));
+        const FVector N(0,Y==SpanMin?-1.:1.,0);Out->Sections[0].Normals.Append({N,N,N});
     }
     auto Plane=[&](int32 Section,int32 Axis,double Position,double Alpha)
     {
@@ -507,6 +524,7 @@ void AStudioScene::Initialize(TSharedRef<FStudioModel> InModel)
 {
     Model=InModel;
     OpaqueMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_Flow.M_Flow"));
+    BodyMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_FlowBody.M_FlowBody"));
     MeshEdgeMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_MeshEdges.M_MeshEdges"));
     TransparentMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_FlowAlpha.M_FlowAlpha"));
     ScalarMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Studio/M_FlowScalar.M_FlowScalar"));
@@ -800,7 +818,7 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
         const auto& S=G.Sections[I]; if(S.Vertices.IsEmpty()) { Mesh->ClearMeshSection(I); continue; }
         TArray<FVector> Normals=S.Normals;if(Normals.IsEmpty())Normals.Init(FVector::UpVector,S.Vertices.Num());
         Mesh->CreateMeshSection_LinearColor(I,S.Vertices,S.Indices,Normals,S.UVs,S.VelocityUVs,{},{},S.Colors,TArray<FProcMeshTangent>(),false,false);
-        if(I!=7)Mesh->SetMaterial(I,I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?ScalarInstance.Get():(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
+        if(I!=7)Mesh->SetMaterial(I,I==0&&G.bAirfoilSolid&&BodyMaterial?BodyMaterial.Get():I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?ScalarInstance.Get():(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
     }
     RenderMilliseconds=G.BuildMs;
     if(!G.Dataset.IsEmpty())RenderedFlowBounds=G.Bounds;
