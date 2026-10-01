@@ -200,6 +200,9 @@ public:
      * The owner uses only the camera/display APIs and controls scene visibility. */
     explicit FStudioModel(TSharedRef<class FStudioSnapshotSource,ESPMode::ThreadSafe> Snapshot);
     bool IsSnapshotView() const { return bSnapshotView; }
+    /** Fit a fresh airfoil's starting view once, when the native viewport is laid out.
+     * Saved/recovered documents and user camera edits never request this fit. */
+    bool FitNewFlowView(double Aspect);
     ~FStudioModel() { if(AssetCancellation) *AssetCancellation=true; if(MeshCancellation) *MeshCancellation=true;
         if(DomainCancellation) *DomainCancellation=true; if(LatticeCancellation) *LatticeCancellation=true; if(ProjectLoadCancellation) *ProjectLoadCancellation=true; if(RecordingCancellation) *RecordingCancellation=true;
         if(MonitorCancellation)*MonitorCancellation=true; if(ResidualCancellation)*ResidualCancellation=true; }
@@ -466,6 +469,8 @@ public:
     FString RedoCaseLabel() const { return CaseRedo.IsEmpty()?FString():CaseRedo.Last().Label; }
     bool ExportField(const FString& Path) const { return Solver->ExportField(SelectedFrame,Path); }
 private:
+    void InitializeNewFlowView();
+    TOptional<FStudioCameraState> NewFlowViewCamera;
     bool bSnapshotView=false;
     FString StorageDirectory;
     FString SavedSnapshot;
@@ -510,7 +515,7 @@ private:
     bool PipelineMessage(const FString& Message,bool bError=false);
     bool ApplyPipelineHistory(bool bRedo);
     void ClearPipelineHistory();
-    void ClearViewHistory() { InvalidateMonitorSession(); InvalidateResidualSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();ClearComparisonHistory();
+    void ClearViewHistory() { NewFlowViewCamera.Reset();InvalidateMonitorSession(); InvalidateResidualSession(); ViewHistory.Clear(); ++CameraRevision; ClearCameraCollectionHistory();ClearComparisonHistory();
         ClearPipelineHistory();SelectedInspectionObject.Invalidate();++InspectionObjectsRevision;++InspectionSelectionRevision;InspectionNotice.Empty();bInspectionError=false; }
     bool CommitInspectionObjects(const FString& Label,FStudioInspectionObjects Objects,bool bContinueGesture=false,bool bUseSavedSeeds=false);
     bool PrepareInspectionObject(FStudioInspectionObject& Object,const TCHAR* BaseName);

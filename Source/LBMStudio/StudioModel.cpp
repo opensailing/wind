@@ -1,4 +1,5 @@
 #include "StudioModel.h"
+#include "StudioFlowPresentation.h"
 #include "StudioSnapshotSource.h"
 #include "StudioAssetPaths.h"
 #include "Dom/JsonObject.h"
@@ -15,6 +16,7 @@ FStudioModel::FStudioModel(const FString& SessionDirectory) : Solver(MakeShared<
     StorageDirectory=SessionDirectory.IsEmpty()?FPaths::ProjectSavedDir():SessionDirectory;
     for(int32 I=0;I<Solver->FrameCount();++I) Frames.Add(Solver->EvaluateFrame(I));
     if(Frames.IsEmpty()) Frames.Add(FStudioFrame());
+    InitializeNewFlowView();
     SavedSnapshot=StudioProjectIO::Serialize(SnapshotProject());
     Notice=Solver->LoadError();
     if(!Notice.IsEmpty()) AddLog(Notice,EStudioLogSeverity::Error,EStudioLogSource::Playback);
@@ -154,7 +156,33 @@ void FStudioModel::NewProject(const FString& Name)
     Project=FStudioProject(); ResetJobSession(); Project.Name=Name.IsEmpty()?TEXT("Untitled airfoil"):Name.Left(120);
     ClearCaseHistory(); ClearViewHistory();
     static_cast<FStudioViewSettings&>(*this)=Project.View;
-    ProjectPath.Empty(); Reset(); SavedSnapshot.Empty(); bDirty=true; Notice=TEXT("New project using the published airfoil recording.");
+    ProjectPath.Empty(); Reset(); InitializeNewFlowView();SavedSnapshot.Empty(); bDirty=true; Notice=TEXT("New project using the published airfoil recording.");
+}
+void FStudioModel::InitializeNewFlowView()
+{
+    NewFlowViewCamera.Reset();
+    // Read one frame only for the bundled new-document source.
+    // Project deserialization retains legacy defaults and the user's saved view.
+    if(Solver->FrameCount()==0||Solver->Descriptor().bSourcePoints)return;
+    FStudioInspectionState Next;
+    if(!StudioFlowPresentation::Overview(*Solver->CaptureField(0),Solver->Descriptor().DisplayBounds,
+        ActiveScalar().Id,16./9.,InspectionState(),Next))return;
+    // The original mesh has no reconstructed representation. Preserve that
+    // unrelated preference for a later attached point-source reconstruction.
+    Next.Display.bReconstructedSurface=bReconstructedSurface;
+    Project.Camera=Next.Camera;static_cast<FStudioViewSettings&>(*this)=Next.Display;Project.View=Next.Display;
+    NewFlowViewCamera=Next.Camera;++CameraRevision;
+}
+bool FStudioModel::FitNewFlowView(double Aspect)
+{
+    if(!NewFlowViewCamera.IsSet()||!FMath::IsFinite(Aspect)||Aspect<=0)return false;
+    const auto Expected=NewFlowViewCamera.GetValue();NewFlowViewCamera.Reset();
+    if(!StudioView::CameraEquals(Project.Camera,Expected))return false;
+    const bool WasDirty=HasUnsavedChanges();
+    Project.Camera=StudioView::FitBounds(Project.Camera,Solver->Descriptor().DisplayBounds,Aspect,.01);
+    ++CameraRevision;
+    if(!WasDirty)AcceptLoadedView();
+    return true;
 }
 bool FStudioModel::SaveProject(const FString& Path)
 {
@@ -167,7 +195,7 @@ bool FStudioModel::SaveProject(const FString& Path)
     Project.Draft=P.Draft; Project.Runs=P.Runs; Project.Recordings=P.Recordings;
     Project.Residual=P.Residual;
     Project.AssetBaseDirectory=FPaths::GetPath(ProjectPath);
-    SavedSnapshot=StudioProjectIO::Serialize(P); bDirty=false;
+    NewFlowViewCamera.Reset();SavedSnapshot=StudioProjectIO::Serialize(P); bDirty=false;
     if(PendingRecovery.IsEmpty()) DiscardRecovery();
     RememberProject();
     Notice=TEXT("Project saved: ")+ProjectPath; AddLog(Notice); return true;
@@ -190,7 +218,7 @@ void FStudioModel::ApplyInspection(const FStudioInspectionState& S)
     Project.Camera=S.Camera; static_cast<FStudioViewSettings&>(*this)=S.Display;
     // Presentation speed and the playback cursor never travel through view history.
     PlaybackRate=Rate; bLoopPlayback=Loop;
-    if(!StudioView::CameraEquals(Before.Camera,S.Camera)) ++CameraRevision;
+    if(!StudioView::CameraEquals(Before.Camera,S.Camera)) {NewFlowViewCamera.Reset();++CameraRevision;}
     if(!StudioView::RenderEquals(Before.Display,S.Display)) DisplayChanged();
     if(!(Before.Display.InspectionObjects==S.Display.InspectionObjects))
     {
@@ -590,7 +618,7 @@ TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> FStudioModel::PrepareRecording(con
 }
 void FStudioModel::UseRecording(TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> Source)
 {
-    Solver=MoveTemp(Source); Frames=Solver->Descriptor().Frames;
+    NewFlowViewCamera.Reset();Solver=MoveTemp(Source); Frames=Solver->Descriptor().Frames;
     if(Frames.IsEmpty()) Frames.Add(FStudioFrame());
 }
 const FStudioScalarDescriptor& FStudioModel::ActiveScalar() const

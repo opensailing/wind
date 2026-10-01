@@ -46,13 +46,15 @@ public:
             Test->TestTrue(TEXT("Preserve preceding project"),StudioProjectIO::Save(Work/TEXT("original.lbms"),M.SnapshotProject(),Error));
             M.NewProject(TEXT("Airfoil · streamline inspection"));M.Navigate(EStudioWorkspace::Solve);M.Pause();
             M.EditView(TEXT("Inspect recorded streamlines"),[](auto& S)
-            {S.Display.bVectors=false;S.Display.bStreamlines=true;S.Display.bVolume=false;S.Display.bCutPlane=false;S.Display.ScalarField=TEXT("pressure");});
+            {S.Display.bVectors=false;S.Display.bStreamlines=true;S.Display.bVolume=false;S.Display.bCutPlane=false;S.Display.ScalarField=TEXT("pressure");
+                // This workflow inspects tube vertices; FlowPresentationUI covers direction glyphs.
+                S.Display.StreamlineSettings.bDirectionMarkers=false;});
             Next();break;
         }
-        case 1:VerifyGeometry();OpenMenu(TEXT("StreamlineSettings"));Next();break;
+        case 1:VerifyGeometry();InitialSettings=M.StreamlineSettings;OpenMenu(TEXT("StreamlineSettings"));Next();break;
         case 2:
-            Type(TEXT("StreamSeedCount"),TEXT("513"));Test->TestEqual(TEXT("Oversize inlet count rejected"),M.StreamlineSettings.AutomaticSeedCount,84);
-            Type(TEXT("StreamWorkBudget"),TEXT("3.5"));Test->TestEqual(TEXT("Fractional work budget rejected"),M.StreamlineSettings.WorkBudget,32768);
+            Type(TEXT("StreamSeedCount"),TEXT("513"));Test->TestEqual(TEXT("Oversize inlet count rejected"),M.StreamlineSettings.AutomaticSeedCount,InitialSettings.AutomaticSeedCount);
+            Type(TEXT("StreamWorkBudget"),TEXT("3.5"));Test->TestEqual(TEXT("Fractional work budget rejected"),M.StreamlineSettings.WorkBudget,InitialSettings.WorkBudget);
             Type(TEXT("StreamWidth"),TEXT("nan"));Next();break;
         case 3:
         {
@@ -253,7 +255,7 @@ private:
         Test->TestTrue(TEXT("Retain streamline UI evidence"),FFileHelper::SaveArrayToFile(PNG,*(Root/Name)));
     }
     FAutomationTestBase* Test;TWeakObjectPtr<AStudioScene> Scene;FString Root,Work;
-    FStudioStreamlineSettings SavedSettings;FStudioSeedObject PriorLine;FStudioInspectionObjects SavedSeeds;
+    FStudioStreamlineSettings InitialSettings,SavedSettings;FStudioSeedObject PriorLine;FStudioInspectionObjects SavedSeeds;
     FGuid Line,Plane,Points,Inlet;EStudioWorkspace Workspace=EStudioWorkspace::Solve;
     double Started=0;uint64 ChangedFrame=0;int32 Phase=0;
 };

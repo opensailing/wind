@@ -35,7 +35,7 @@ public:
             Changed=GFrameCounter;return false;
         }
         auto& M=*Scene->Model;const auto Target=Scene->GetRenderTarget();
-        if(M.IsProjectOpenPending()||M.IsRecordingLoadPending()||(!Scene->HasCurrentFrame()&&Phase!=27)||!Target||GFrameCounter-Changed<4||
+        if(M.IsProjectOpenPending()||M.IsRecordingLoadPending()||(!Scene->HasCurrentFrame()&&Phase!=28)||!Target||GFrameCounter-Changed<4||
             Scene->PresentedViewportSize()!=FIntPoint(Target->SizeX,Target->SizeY))return false;
         if(PendingDrag.IsSet())
         {const auto Gesture=PendingDrag.GetValue();PendingDrag.Reset();PerformNavigateDrag(Gesture.Key,Gesture.Value);Changed=GFrameCounter;return false;}
@@ -46,8 +46,16 @@ public:
             Root=FPaths::ProjectSavedDir()/TEXT("Automation/FlowPresentation");IFileManager::Get().MakeDirectory(*Root,true);
             M.NewProject(TEXT("Airfoil · flow overview"));M.Navigate(EStudioWorkspace::Solve);M.Pause();M.bViewportExpanded=false;Next();break;
         case 1:
-            Before=M.InspectionState();Capture(TEXT("before.png"));Press(TEXT("FlowOverview"));Next();break;
+            Test->TestTrue(TEXT("New project starts with clear recorded-flow layers"),!M.bVectors&&!M.bVolume&&M.bCutPlane&&M.bStreamlines&&
+                M.StreamlineSettings.AutomaticSeedCount==48&&M.StreamlineSettings.bDirectionMarkers&&M.ActiveColorMapping().bManualRange);
+            Test->TestFalse(TEXT("Starting view is not an undoable user action"),M.CanUndoView());
+            Test->TestTrue(TEXT("Starting camera fits the actual native viewport"),StudioView::CameraEquals(M.Project.Camera,
+                StudioView::FitBounds(M.Project.Camera,M.Solver->Descriptor().DisplayBounds,double(Target->SizeX)/Target->SizeY,.01)));
+            Capture(TEXT("new-project.png"));Scene->Orbit(8,5);
+            M.EditView(TEXT("Exercise overview restoration"),[](auto& S){S.Display.bVectors=true;S.Display.bVolume=true;S.Display.ScalarStyles.Reset();});Next();break;
         case 2:
+            Before=M.InspectionState();Capture(TEXT("before.png"));Press(TEXT("FlowOverview"));Next();break;
+        case 3:
         {
             Test->TestTrue(TEXT("Overview button changes layers and mapping"),!M.bVectors&&!M.bVolume&&M.ActiveColorMapping().bManualRange);
             const auto Mesh=Scene->FindComponentByClass<UProceduralMeshComponent>();const auto Slice=Mesh?Mesh->GetProcMeshSection(2):nullptr;
@@ -55,30 +63,30 @@ public:
             Camera=Scene->SavedCameraState();Capture(TEXT("overview.png"));
             Test->TestTrue(TEXT("One undo restores original view"),M.UndoView()&&M.InspectionState().Equals(Before));Next();break;
         }
-        case 3:Test->TestTrue(TEXT("Redo overview"),M.RedoView());M.ReviewRecordedFrame(420);Next();break;
-        case 4:
+        case 4:Test->TestTrue(TEXT("Redo overview"),M.RedoView());M.ReviewRecordedFrame(420);Next();break;
+        case 5:
             Test->TestEqual(TEXT("Actual later CFD snapshot"),Scene->PresentedFrame().Index,420);
             Test->TestTrue(TEXT("Playback retains view"),StudioView::CameraEquals(Camera,Scene->SavedCameraState()));
             Capture(TEXT("frame420.png"));Scene->Orbit(30,-15);Next();break;
-        case 5:
+        case 6:
             Test->TestFalse(TEXT("Overview remains freely orbitable"),StudioView::CameraEquals(Camera,Scene->SavedCameraState()));
             Capture(TEXT("orbit.png"));Scene->SetCameraMode(true);Next();break;
-        case 6:Capture(TEXT("fly.png"));Scene->SetCameraMode(false);PaneBefore=M.InspectionState();PaneRevision=M.RenderIntentRevision;PaneFrame=M.SelectedFrame;Next();break;
-        case 7:
+        case 7:Capture(TEXT("fly.png"));Scene->SetCameraMode(false);PaneBefore=M.InspectionState();PaneRevision=M.RenderIntentRevision;PaneFrame=M.SelectedFrame;Next();break;
+        case 8:
             for(const auto Name:StudioFloatingPanes::Names())Click(FName(*(TEXT("PaneToggle_")+Name.ToString())));
             Next();break;
-        case 8:
+        case 9:
             for(const auto Name:StudioFloatingPanes::Names())Test->TestTrue(TEXT("Each pane minimizes"),M.FloatingPanes.FindChecked(Name).bMinimized);
             Capture(TEXT("minimized.png"));
             Drag(TEXT("Legend"),FVector2D(90,-80));Next();break;
-        case 9:
+        case 10:
             Test->TestTrue(TEXT("Minimized title remains draggable"),M.FloatingPanes.FindChecked(TEXT("Legend")).bMoved);
             for(const auto Name:StudioFloatingPanes::Names())Press(FName(*(TEXT("PaneToggle_")+Name.ToString())));
             Next();break;
-        case 10:
+        case 11:
             for(const auto Name:StudioFloatingPanes::Names())Test->TestFalse(TEXT("Each pane restores"),M.FloatingPanes.FindChecked(Name).bMinimized);
             Capture(TEXT("restored.png"));Drag(TEXT("Tools"),FVector2D(10000,10000));Next();break;
-        case 11:
+        case 12:
         {
             const auto W=Find(GEngine->GameViewport->GetWindow().ToSharedRef(),TEXT("FloatingPane_Tools"));
             const auto V=Find(GEngine->GameViewport->GetWindow().ToSharedRef(),TEXT("FlowViewport"));
@@ -100,26 +108,26 @@ public:
             Test->TestTrue(TEXT("Session saved during canceled drag retains committed position"),Saved&&Saved->Position==Prior.Position);
             Press(TEXT("ResetViewportPanes"));Next();break;
         }
-        case 12:
+        case 13:
             for(const auto& Pair:M.FloatingPanes)Test->TestTrue(TEXT("Reset panels restores position and expanded body"),!Pair.Value.bMoved&&!Pair.Value.bMinimized);
             Capture(TEXT("reset-panels.png"));PaneBefore=M.InspectionState();PaneFrame=M.SelectedFrame;
             VerifyMarkers(true);OpenStreamMenu();Next();break;
-        case 13:Capture(TEXT("direction-settings.png"));Press(TEXT("StreamDirectionMarkers"));Next();break;
-        case 14:
+        case 14:Capture(TEXT("direction-settings.png"));Press(TEXT("StreamDirectionMarkers"));Next();break;
+        case 15:
             VerifyMarkers(false);Test->TestEqual(TEXT("Marker toggle leaves frame intact"),M.SelectedFrame,PaneFrame);
             Test->TestTrue(TEXT("Marker toggle leaves camera intact"),StudioView::CameraEquals(M.InspectionState().Camera,PaneBefore.Camera));
             Press(TEXT("StreamDirectionMarkers"));Next();break;
-        case 15:
-            VerifyMarkers(true);Test->TestTrue(TEXT("Direction markers are undoable"),M.UndoView());Next();break;
         case 16:
-            VerifyMarkers(false);Test->TestTrue(TEXT("Direction markers can redo"),M.RedoView());Next();break;
+            VerifyMarkers(true);Test->TestTrue(TEXT("Direction markers are undoable"),M.UndoView());Next();break;
         case 17:
+            VerifyMarkers(false);Test->TestTrue(TEXT("Direction markers can redo"),M.RedoView());Next();break;
+        case 18:
             VerifyMarkers(true);FSlateApplication::Get().DismissAllMenus();Capture(TEXT("direction-markers.png"));
             PaneBefore=M.InspectionState();PaneFrame=M.SelectedFrame;PaneRevision=M.RenderIntentRevision;Click(TEXT("ToolPan"));Next();break;
-        case 18:
+        case 19:
             Test->TestTrue(TEXT("Choosing pan only changes input mapping"),M.InspectionState().Equals(PaneBefore));
             Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(40,15));Next();break;
-        case 19:
+        case 20:
         {
             const auto After=M.InspectionState();const auto Shift=After.Camera.Position-Before.Camera.Position;
             Test->TestTrue(TEXT("Pan translates camera and focus together without rotation"),!Shift.IsNearlyZero()&&
@@ -128,36 +136,36 @@ public:
             Test->TestTrue(TEXT("Pan redo restores exact camera"),M.RedoView()&&M.InspectionState().Equals(After));
             Capture(TEXT("pan-tool.png"));Click(TEXT("ToolZoom"));Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(0,-40));Next();break;
         }
-        case 20:
+        case 21:
             Test->TestTrue(TEXT("Zoom drag moves closer without changing focus or rotation"),M.Project.Camera.OrbitDistance<Before.Camera.OrbitDistance&&
                 M.Project.Camera.Focus.Equals(Before.Camera.Focus)&&M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
             Capture(TEXT("zoom-tool.png"));
             Test->TestTrue(TEXT("Zoom gesture undoes as one edit"),M.UndoView()&&M.InspectionState().Equals(Before));
             // Model-only undo reaches the scene on its next tick; synchronize before this same-frame action.
             Scene->ApplyCamera(M.Project.Camera);Press(TEXT("ViewProjection"));Next();break;
-        case 21:Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(0,-40));Next();break;
-        case 22:
+        case 22:Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(0,-40));Next();break;
+        case 23:
             Test->TestTrue(TEXT("Orthographic zoom changes width and retains camera pose"),M.Project.Camera.OrthoWidth<Before.Camera.OrthoWidth&&
                 M.Project.Camera.Position.Equals(Before.Camera.Position)&&M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
             Press(TEXT("ViewProjection"));Press(TEXT("ToolOrbit"));Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(35,-10));Next();break;
-        case 23:
+        case 24:
             Test->TestFalse(TEXT("Orbit tool rotates camera"),M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
             Before=M.InspectionState();NavigateDrag(EKeys::MiddleMouseButton,FVector2D(25,10));Next();break;
-        case 24:
+        case 25:
             Test->TestTrue(TEXT("Middle pan remains available in orbit"),!M.Project.Camera.Position.Equals(Before.Camera.Position)&&M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
             Click(TEXT("ToolFly"));Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(25,-10));Next();break;
-        case 25:
+        case 26:
             Test->TestTrue(TEXT("Fly looks from a fixed position"),M.Project.Camera.bFreeCamera&&M.Project.Camera.Position.Equals(Before.Camera.Position)&&!M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
             Capture(TEXT("fly-tool.png"));VerifyExitFlightTool(TEXT("ToolZoom"));Press(TEXT("ToolFly"));VerifyExitFlightTool(TEXT("ToolPan"));Before=M.InspectionState();NavigateDrag(EKeys::RightMouseButton,FVector2D(25,-10));Next();break;
-        case 26:
+        case 27:
             Test->TestTrue(TEXT("Right look overrides pan without translating camera"),M.Project.Camera.Position.Equals(Before.Camera.Position)&&!M.Project.Camera.Orientation.Equals(Before.Camera.Orientation));
             Test->TestEqual(TEXT("Navigation modes leave source frame intact"),M.SelectedFrame,PaneFrame);
             Test->TestEqual(TEXT("Navigation modes never rebuild field geometry"),M.RenderIntentRevision,PaneRevision);
             M.Run();Before=M.InspectionState();NavigateDrag(EKeys::LeftMouseButton,FVector2D(10,10));Next();break;
-        case 27:
+        case 28:
             Test->TestTrue(TEXT("Camera remains movable during replay"),M.State==EStudioRunState::Running&&!M.Project.Camera.Position.Equals(Before.Camera.Position));
             M.Pause();Press(TEXT("ToolOrbit"));Next();break;
-        case 28:Capture(TEXT("navigation-tools.png"));return true;
+        case 29:Capture(TEXT("navigation-tools.png"));return true;
         }
         return false;
     }

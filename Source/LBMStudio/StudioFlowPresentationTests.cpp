@@ -9,8 +9,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioFlowPresentationTest,"Studio.FlowPresent
 bool FStudioFlowPresentationTest::RunTest(const FString&)
 {
     FStudioModel M(FPaths::ProjectSavedDir()/TEXT("Automation/FlowPresentationModel"));
+    // Exercise the preset from an explicitly different user view; the new
+    // document now already has an overview, which must not create a no-op undo.
+    M.bVectors=true;M.bVolume=true;M.ScalarStyles.Reset();M.Project.Camera=FStudioCameraState();
     const auto Field=M.Solver->CaptureField(0);const auto Before=M.InspectionState();
-    const auto Case=StudioCaseIO::Serialize(M.Project.Draft);const auto OriginalRange=M.ActiveColorMapping();
+    const auto Case=StudioCaseIO::Serialize(M.Project.Draft);const auto OriginalRange=M.ActiveScalar();
     FStudioInspectionState Overview;
     if(!TestTrue(TEXT("Published airfoil supports overview"),StudioFlowPresentation::Overview(*Field,M.Solver->Descriptor().DisplayBounds,
         M.ActiveScalar().Id,1.9,Before,Overview)))return false;
@@ -72,6 +75,45 @@ bool FStudioFlowPresentationTest::RunTest(const FString&)
     TestTrue(TEXT("Canceled markers never publish partially"),StudioFlowPresentation::DirectionMarkers(*Field,Streams,Bounds,Cancel).IsEmpty());
     Streams.Identity->Ordinal+=1;
     TestTrue(TEXT("Stale trace cannot borrow another frame's velocity"),StudioFlowPresentation::DirectionMarkers(*Field,Streams,Bounds).IsEmpty());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioInitialFlowViewTest,"Studio.FlowPresentation.NewDocumentView",
+    EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter)
+bool FStudioInitialFlowViewTest::RunTest(const FString&)
+{
+    const FString Root=FPaths::ProjectSavedDir()/TEXT("Automation/NewFlowView")/FGuid::NewGuid().ToString();
+    FStudioModel M(Root);
+    const auto OriginalField=M.ActiveScalar();const auto Case=StudioCaseIO::Serialize(M.Project.Draft);
+    TestTrue(TEXT("New app opens with readable recorded flow"),!M.bVectors&&!M.bVolume&&M.bCutPlane&&M.bStreamlines&&
+        M.StreamlineSettings.AutomaticSeedCount==48&&M.StreamlineSettings.bDirectionMarkers&&M.ActiveColorMapping().bManualRange);
+    TestFalse(TEXT("Initial view has no fabricated user edits"),M.HasUnsavedChanges()||M.CanUndoView());
+    TestTrue(TEXT("Initial layout fits actual aspect"),M.FitNewFlowView(2.1));
+    TestFalse(TEXT("Initial fit stays clean and outside history"),M.HasUnsavedChanges()||M.CanUndoView());
+    const auto Fitted=M.InspectionState();
+    TestFalse(TEXT("Later resizing does not refit camera"),M.FitNewFlowView(1.1));
+    TestTrue(TEXT("Later resize retains view"),M.InspectionState().Equals(Fitted));
+    TestEqual(TEXT("Source extrema remain authoritative"),M.ActiveScalar().Maximum,OriginalField.Maximum);
+    TestEqual(TEXT("Initial framing never changes the case"),StudioCaseIO::Serialize(M.Project.Draft),Case);
+    M.NewProject(TEXT("Fresh airfoil"));TestTrue(TEXT("Explicit New remains unsaved"),M.HasUnsavedChanges());
+    TestTrue(TEXT("Fresh project requests its own initial fit"),M.FitNewFlowView(1.4));
+    TestTrue(TEXT("Fitting New does not pretend it is saved"),M.HasUnsavedChanges());
+    M.NewProject(TEXT("Early camera edit"));M.EditCamera(TEXT("Position"),FStudioCameraState());const auto Edited=M.InspectionState();
+    TestFalse(TEXT("Early user camera edit cancels automatic fit"),M.FitNewFlowView(2.));
+    TestTrue(TEXT("User edit is retained exactly"),M.InspectionState().Equals(Edited));
+    auto Saved=Edited;Saved.Display.bVolume=true;Saved.Display.bVectors=true;Saved.Display.ScalarStyles.Reset();
+    M.EditView(TEXT("Custom saved view"),[&](auto& S){S=Saved;});
+    const FString Path=Root/TEXT("saved.lbms");TestTrue(TEXT("Save custom view"),M.SaveProject(Path));
+    M.NewProject(TEXT("Temporary"));TestTrue(TEXT("Open custom view"),M.LoadProject(Path));
+    TestFalse(TEXT("Opened document has no initial fit"),M.FitNewFlowView(3.));
+    TestTrue(TEXT("Saved layers, mapping and camera survive exactly"),M.InspectionState().Equals(Saved));
+    TestFalse(TEXT("Reopened document is clean"),M.HasUnsavedChanges());
+    auto RecoveryCamera=M.Project.Camera;RecoveryCamera.Position.X+=.5;M.EditCamera(TEXT("Recovery camera"),RecoveryCamera);const auto Recovery=M.InspectionState();M.WriteRecovery();
+    FStudioModel Recovered(Root);Recovered.OpenSession();TestTrue(TEXT("Recover prior view"),Recovered.RestoreRecovery());
+    TestFalse(TEXT("Recovery never requests automatic framing"),Recovered.FitNewFlowView(3.));
+    TestTrue(TEXT("Recovered view survives exactly"),Recovered.InspectionState().Equals(Recovery));
+    M.NewProject(TEXT("Save before first layout"));TestTrue(TEXT("Early save succeeds"),M.SaveProject(Root/TEXT("early.lbms")));
+    TestFalse(TEXT("A saved view cannot be automatically reframed"),M.FitNewFlowView(3.));
     return true;
 }
 #endif

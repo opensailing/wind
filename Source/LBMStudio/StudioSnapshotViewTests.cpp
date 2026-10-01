@@ -95,7 +95,8 @@ bool FSnapshotPersistence::RunTest(const FString&)
     FSnapshotTestFiles Files;FStudioModel Solve(Files.Root);FString Error;
     const FString ProjectPath=Files.Root/TEXT("case.lbms");
     if(!TestTrue(TEXT("Isolated saved case exists"),Solve.SaveProject(ProjectPath)))return false;
-    Solve.EditCamera(TEXT("Unsaved source camera"),StudioView::FitBounds(Solve.Project.Camera,Solve.Solver->Descriptor().DisplayBounds,1));
+    auto Moved=Solve.Project.Camera;Moved.Position+=FVector(.3,.2,.1);Moved.Focus+=FVector(.3,.2,.1);
+    Solve.EditCamera(TEXT("Unsaved source camera"),Moved);
     Solve.WriteRecovery();
     const TArray<FString> Paths={ProjectPath,Files.Root/TEXT("StudioSession.json"),Files.Root/TEXT("Recovery/StudioRecovery.lbms")};
     TArray<FString> Before;
