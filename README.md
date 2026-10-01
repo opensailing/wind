@@ -41,7 +41,18 @@ The default command compiles the Editor module with unity enabled, then runs Unr
 
 `FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. The first two workflows cover Flow Conditions at 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. These are widget tests in addition to the 276 model cases; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
 
-GPU rendering/Metal stability, native file dialogs and visual design still require their own targeted acceptance. Headless widget geometry does not establish rendered appearance. Use screenshots for deliberate visual changes or diagnosing a rendering failure, rather than routine build validation. The headless launcher retains timeout/signal cleanup and never terminates preexisting unrelated processes. Check its JSON report before deciding whether a desktop run is needed.
+Check the production CFD renderer on Metal without a window, desktop input or screenshots:
+
+```sh
+python3 Tools/validate_render.py             # Compile, then windowless GPU regression
+python3 Tools/validate_render.py --no-build  # Explicit existing-module check
+```
+
+This command runs `StudioRenderValidation` through `UnrealEditor-Cmd -AllowCommandletRendering -RenderOffscreen`. It owns an isolated world with no game viewport or top-level Slate windows. Eleven cases use the original SU2 wing trajectory and the attributed three-frame 3D cylinder fixture: different original times, independent camera changes, inside perspective/orthographic views, clipping, isosurfaces, restored pixels and a frame-consistent snapshot. It compares original frame headers and identities independently, checks visible pixel counts and resource bounds, compares snapshot pixels to the live render target, and verifies idle/hidden capture suppression. No CFD values are generated. The sparse cylinder fixture is a renderer regression input; full animation and long-session acceptance use the complete recording.
+
+Each run writes `tmp/debug/windowless-render-*/summary.json`, `renderer.json`, logs, source/material/recording/module hashes and owned-process reports. Missing cases, wrong original identities, blank renders, failed checks or cleanup problems fail the command. First use can compile shaders; the default process deadline is 600 seconds. Later runs reuse Unreal's shader cache. `--no-build` does not establish current-source compilation.
+
+Packaged-app/Metal long-session stability, native file dialogs and visual design still require their own targeted acceptance. Headless widget geometry does not establish rendered appearance. Use screenshots for deliberate visual changes or diagnosing a rendering failure, rather than routine build validation. Both launchers retain timeout/signal cleanup and never terminate preexisting unrelated processes. Check their JSON reports before deciding whether a desktop run is needed.
 
 For remaining **native** UI automation, keep LBMStudio in the foreground. macOS app deactivation makes Slate dismiss open menus. The Post-Processing, evaluated-export and original-export workflows latch this event and stop with `STUDIO_AUTOMATION_INTERRUPTED`; `run_packaged_suite.py` records it in the manifest's `interruptions` list and rejects the run. Returning focus does not resume the old menu state or retry actions. Once the desktop is available, run the affected suite again.
 
