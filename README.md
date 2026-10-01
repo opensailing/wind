@@ -70,6 +70,7 @@ The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexp
 | Export original field data | Header Export → VTK XML or CSV table → Displayed frame, Frame range or All frames; choose arrays, coordinates and destination |
 | Export evaluated pipeline output | Post-Processing → Evaluate → header Export → VTK XML or CSV table; probe tables require CSV |
 | Export a comparison | Results → Compare recordings → Compare frames → header Export → VTK XML or CSV table → new folder name and parent folder |
+| Export flow images | Solve timeline → Snapshot → Single PNG or Sequence; choose framing, annotations and destination; Sequence adds Range/All, stride and a new folder name |
 | Choose toolbar behavior | Inspector → Toolbar controls → Replay or Control harness |
 | Edit next-run requests | Solve inspector → Setup → Run parameters; Apply parameters / Revert edits, Undo case / Redo case |
 | Exercise job control | Control harness → Run, Pause/Resume, Step, Stop; Checkpoint test and Reconnect in the inspector |
@@ -188,7 +189,7 @@ python3 Tools/verify_export_range_ui.py \
 
 The unified controls in commit `f429747` have a scoped **ship** review with no material findings at 1320 × 740 and 1280 × 720 in `tmp/analysis/export-range-ui-20260928/{ui-acceptance.json,finish-review.md}`. Package `a10a1abc…` records 236 successful model cases (235 clean, one with the existing Unreal `idevice_id` bad-CPU-type warning), 12 runner checks, two clean native cases, exit 0 with no owned processes remaining, and 36 reviewed captures. Each independent CSV/VTK audit verifies eight field files, 2,078,451 original point rows with exact observed values, and both sequence indices. Coverage includes the frozen SU2 selection, cylinder CSV current/range and all three authentic cylinder reader-fixture frames in VTK.
 
-Routed Slate events and injected file/folder paths do not establish physical input, actual native picker permissions, Finder reveal or full accessibility. PVD XML and referenced VTP files are checked separately; actual ParaView collection playback remains unproven. Progress captures use a deterministic pre-publication barrier, not a throughput measurement. Comparison and pipeline exports were outside this original-field checkpoint; their later scoped records appear below. Image sequences/movie, full scientific rendering, current long-session/release gates and full-plan acceptance remain open.
+Routed Slate events and injected file/folder paths do not establish physical input, actual native picker permissions, Finder reveal or full accessibility. PVD XML and referenced VTP files are checked separately; actual ParaView collection playback remains unproven. Progress captures use a deterministic pre-publication barrier, not a throughput measurement. Comparison, pipeline and image-sequence exports were outside this original-field checkpoint; their later scoped records appear below. Movie encoding, full scientific rendering, current long-session/release gates and full-plan acceptance remain open.
 
 The earlier original-frame VTK review in `tmp/analysis/field-export-ui-20260928/{ui-acceptance.json,finish-review.md}` remains historical: package `c6b0508d…` recorded 229 successful model cases (two with existing Unreal helper warnings), two clean native cases and 20 reviewed captures. Each VTK 9.7 audit verified two files and 301,407 original point rows: selected SU2 pressure/density at ordinal 420 in scene coordinates and all six cylinder arrays at ordinal 2 in source coordinates. That verdict accepted one original-frame VTK export; the unified-controls review above supersedes its current UI description without widening its historical scope.
 
@@ -224,7 +225,37 @@ python3 Tools/verify_csv_field_export.py \
 
 The audit uses Python's CSV parser and direct original binary arrays through the shared NumPy audit reader (whose module also requires VTK). The historical backend checkpoint in `tmp/analysis/csv-field-export-20260928/core-acceptance.json` records 236 successful model cases (one existing Unreal helper warning), 13 independently checked CSV frames / 1,285,685 original point rows with zero observed value error, and 14 VTK regression files. The unified-controls review above covers the subsequently added visible CSV/range controls. Actual native picker/input and current integrated stability/release acceptance remain open.
 
-### Image-sequence export core — Snapshot UI integration pending
+### Snapshot — single PNG and original-frame sequences
+
+The Solve timeline's **Snapshot** action owns image export. It uses the current arbitrary camera and rendered CFD view independently of the header's field-data Export menu.
+
+1. Open **Snapshot** and choose **Single PNG** for the displayed original frame or **Sequence** for selected original snapshots.
+2. Set **Width (px)** and **Frame**: View, 16:9, 4:3 or 1:1. The output dimensions and centered crop outline show the exported area. Choose inspection annotations, scalar legend and source/physical-time labels independently.
+3. For a sequence, choose **Range** or **All**. Range uses one-based **First frame** and inclusive **Last frame**; both modes accept a positive whole-number **Stride**. For example, frames 1–601 with stride 300 select frames 1, 301 and 601. The summary shows the actual PNG count and source-time span. Invalid endpoints or stride disable export with a correction message.
+4. Enter a **New folder name** for a sequence, then select **Choose folder and export…** to choose its parent. The new directory must not already exist. Single PNG uses **Choose destination and save…**.
+5. Reopen **Snapshot** to inspect progress, **Cancel export** before publication or use **Show in Finder** after success. Status and actions stay visible while the settings scroll.
+
+Starting export freezes its original source/frames, camera, projection, crop, scalar mapping, display and inspection settings before destination selection. Camera movement, playback, workspace navigation and project replacement remain independent. Pending settings are disabled, and reopening shows the same frozen job; completion cannot write its notice or log into a replacement project. A changed source/project in an idle open form requires reopening Snapshot. The workspace owns renderer tick and shutdown beyond the menu lifetime. Drafts and tasks are session state; no schema or workspace route is added.
+
+Feature `07781d375c1f256e526d60feec99bcd54713e3aa` has **ship for the captured local Snapshot menu extension**, with no material findings in `tmp/analysis/snapshot-sequence-ui-20261001/finish-review.md`. Its `acceptance.json` records current Editor/Game build and packaging success, **270 successful model cases** (268 clean; two existing optional Unreal `idevice_id` helper warnings), and three native passes on package `c8c7e7c972d8a8007ba4f9e4b4851a34d87e72be7acfd241846d879dc1829aa6`: Snapshot at 1320 × 740 and 1280 × 720 plus the existing inspection UI regression at 1320 × 740. All exited 0 with no interruptions, errors or remaining owned processes. The finish reviewer inspected all 24 menu captures; independent readback checks seven output PNGs per size for decoding, original-frame selection/source identity and frozen-view metadata.
+
+To reproduce the UI workflow after `Tools/package.sh`, run the suites serially and keep Studio in the foreground. The independent readback requires Pillow, NumPy and VTK:
+
+```bash
+python3 Tools/run_packaged_suite.py \
+  --suite Studio.SnapshotUI.OriginalSequencesAndLifecycle \
+  --count 1 --name snapshot-sequence-ui-large --width 1320 --height 740 \
+  --timeout 300 --captures SnapshotUI
+python3 Tools/verify_snapshot_ui.py \
+  --captures "tmp/debug/<reported-run>/captures" \
+  --report tmp/analysis/snapshot-ui-large-readback.json
+```
+
+Repeat with `--name snapshot-sequence-ui-compact --width 1280 --height 720` and its own report. The existing inspection regression is `Studio.InspectionUI.ControlsSamplesAndPersistence` (`--count 1 --width 1320 --height 740`). Run `Tools/test.sh` for model checks.
+
+This UI evidence covers one single PNG and two three-frame Range/All sequences per size. Routed Slate input and injected destinations do not establish physical input, native picker/permissions, Finder reveal or full accessibility. Progress was held at a deterministic publication barrier; no throughput, full-duration, minimize/resume, current integrated long-session or release acceptance follows. The earlier renderer comparison below retains its separate pixel-fidelity scope; this 14-image UI audit does not repeat it. Movie encoding, full reference fidelity and the full UI plan remain open.
+
+### Image-sequence writer and renderer foundations
 
 `StudioImageSequence` stages PNG sequences with an inclusive original-frame range and positive ordinal stride. Its pixel-free request freezes the source, camera, projection, centered crop, scalar mapping, display settings and inspection objects. A single handoff requests one image at a time; the producer must render that exact original frame or report failure. A dedicated worker validates each image, encodes it, streams its index entry and releases the pixels before requesting another. It does not advance the live Solve cursor or render images itself.
 
@@ -241,7 +272,7 @@ python3 Tools/verify_image_sequence.py \
 
 Run `Tools/test.sh` first and use a Python environment with Pillow. Writer evidence is in `tmp/analysis/image-sequence-20261001/`; those encoder patterns do not establish rendering fidelity.
 
-`StudioImageSequenceRenderer` now supplies actual images through one reusable independent scene. It reads each original scalar and the supplied velocity arrays, resolves original-ID markers, samples the selected probe for that frame, and renders the frozen camera, projection and display. The live camera, playback, workspace and project can change during export without retargeting the job. One preparation future and one image handoff bound work in flight; completion and cancellation release the scene before returning a result. The controller must be ticked outside the Snapshot menu's lifetime, with `Shutdown()` called on its game-thread owner during teardown. Minimized windows suspend capture; native minimize/resume acceptance remains pending.
+`StudioImageSequenceRenderer` supplies actual images through one reusable independent scene. It reads each original scalar and the supplied velocity arrays, resolves original-ID markers, samples the selected probe for that frame, and renders the frozen camera, projection and display. The live camera, playback, workspace and project can change during export without retargeting the job. One preparation future and one image handoff bound work in flight; completion and cancellation release the scene before returning a result. `StudioSnapshotUI` connects this controller to Snapshot, with `StudioWorkspace` ticking it outside the menu's lifetime and calling `Shutdown()` during teardown. Minimized windows suspend capture; native minimize/resume acceptance remains pending.
 
 Renderer commit `6f58598` passes the final Editor build and 269 model cases (266 clean, three existing optional Unreal helper warnings). Native tests at 1320×740 and 1280×720 export original SU2 frames 0/300/600, three NACA wing frames and three 3D cylinder frames. The independent audit checks all 18 PNGs / 5,222,400 pixels against direct snapshots with zero observed RGB difference, plus original times, hashes and point-probe values. It also requires visible central flow coverage. The tests exercise perspective and orthographic views, a square crop, live camera/playback changes, project replacement, cancellation and scene collection. Only orientation permits a 1e-9 quaternion-component tolerance for measured UE restoration rounding; actual capture metadata is retained, while projection and all remaining frozen-view metadata stay exact.
 
@@ -255,7 +286,7 @@ python3 Tools/verify_rendered_image_sequence.py \
   --report tmp/analysis/image-sequence-render-readback.json
 ```
 
-Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot-menu sequence controls, native picker/input, full-duration export, export performance, long-session and release acceptance remain pending. The image-sequence controller is not yet connected to the user interface; movie encoding is also pending.
+Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot controls were outside that renderer checkpoint; their later UI acceptance is recorded above. Native picker/input, full-duration export, export performance, minimize/resume, current long-session/release acceptance and movie encoding remain pending.
 
 ## CFD sample provenance
 
