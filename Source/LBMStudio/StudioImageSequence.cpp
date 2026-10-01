@@ -102,7 +102,14 @@ bool StudioImageSequence::Matches(const FStudioImageSequenceRequest& R,int32 Ord
         S.SourceTitle!=R.View.SourceTitle||!StudioSnapshot::ValidSize(S.Options.Size)||
         S.Pixels.Num()!=int64(S.Options.Size.X)*S.Options.Size.Y)return false;
     const auto A=ViewJSON(R.View),B=ViewJSON(S);
-    if(!A||!B||!FJsonValue::CompareEqual(FJsonValueObject(A),FJsonValueObject(B)))return false;
+    if(!A||!B)return false;
+    // Restoring a component quaternion performs a rotation round trip in UE.
+    // Actual captures differed by <4e-11 per component with identical pixels.
+    // Bound only this numeric round-off; all other frozen metadata stays exact.
+    if(S.Camera.Orientation.ContainsNaN()||!S.Camera.Orientation.Equals(R.View.Camera.Orientation,1.e-9))return false;
+    A->GetObjectField(TEXT("camera"))->RemoveField(TEXT("orientation_xyzw"));
+    B->GetObjectField(TEXT("camera"))->RemoveField(TEXT("orientation_xyzw"));
+    if(!FJsonValue::CompareEqual(FJsonValueObject(A),FJsonValueObject(B)))return false;
     Error.Empty();return true;
 }
 

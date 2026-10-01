@@ -108,6 +108,11 @@ public:
     virtual FStudioFieldReadResult ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
         const FStudioLoadCancellation& Cancellation = {}) const
     { return {{},TEXT("This source does not support independent recorded-frame analysis.")}; }
+    /** Independent original frame with optional supplied velocity arrays for
+     * offscreen rendering. No fallback scalar or change to live LoadError(). */
+    virtual FStudioFieldReadResult ReadViewFrame(int32 Ordinal,const FString& ScalarId,bool bVelocity,
+        const FStudioLoadCancellation& Cancellation = {}) const
+    { return bVelocity?FStudioFieldReadResult{{},TEXT("This source does not support independent velocity-frame reads.")}:ReadScalarFrame(Ordinal,ScalarId,Cancellation); }
     virtual bool ExportField(int32 Ordinal, const FString& Path) const = 0;
     virtual FString LoadError() const = 0;
     virtual const FStudioRecordingDescriptor& Descriptor() const = 0;
@@ -129,6 +134,8 @@ public:
         bool bVectors, const FStudioLoadCancellation& Cancellation = {}) const override;
     FStudioFieldReadResult ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
         const FStudioLoadCancellation& Cancellation = {}) const override;
+    FStudioFieldReadResult ReadViewFrame(int32 Ordinal,const FString& ScalarId,bool bVelocity,
+        const FStudioLoadCancellation& Cancellation = {}) const override {return ReadScalarFrame(Ordinal,ScalarId,Cancellation);}
     bool ExportField(int32 Ordinal, const FString& Path) const override;
     FString LoadError() const override;
     const FStudioRecordingDescriptor& Descriptor() const override;
@@ -152,6 +159,8 @@ public:
     TSharedRef<const IStudioField,ESPMode::ThreadSafe> CaptureViewField(int32 Ordinal, const FString& ScalarId,
         bool bVectors, const FStudioLoadCancellation& Cancellation = {}) const override;
     FStudioFieldReadResult ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
+        const FStudioLoadCancellation& Cancellation = {}) const override;
+    FStudioFieldReadResult ReadViewFrame(int32 Ordinal,const FString& ScalarId,bool bVelocity,
         const FStudioLoadCancellation& Cancellation = {}) const override;
     bool ExportField(int32 Ordinal, const FString& Path) const override;
     FString LoadError() const override;

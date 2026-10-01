@@ -63,7 +63,7 @@ public:
     FStudioCameraState SavedCameraState() const { return Model?Model->Project.Camera:CameraState(); }
     void ApplyCamera(const FStudioCameraState& State);
     bool SetDepthClipping(bool bEnabled,double NearMeters,double FarMeters);
-    void ResizeViewport(int32 Width,int32 Height);
+    void ResizeViewport(int32 Width,int32 Height,bool bExact=false);
     bool Snapshot(const FString& Path);
     /** Applies any pending camera capture, then freezes and renders a bounded
      * separate export target without advancing replay or replacing the live target. */

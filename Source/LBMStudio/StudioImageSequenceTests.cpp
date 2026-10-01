@@ -1,4 +1,5 @@
 #include "StudioImageSequence.h"
+#include "StudioImageSequenceRenderer.h"
 #include "StudioModel.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -83,7 +84,9 @@ bool FImageSequenceValidation::RunTest(const FString&)
     Bad=R;Bad.View.Scalar.Unit=TEXT("wrong");TestFalse(TEXT("Scalar meaning checked"),StudioImageSequence::Validate(Bad,Error));
     Bad=R;Bad.View.Camera.FieldOfView=0;TestFalse(TEXT("Camera validated"),StudioImageSequence::Validate(Bad,Error));
     auto S=Image(R,3);TestTrue(TEXT("Exact frozen image accepted"),StudioImageSequence::Matches(R,3,S,Error));
-    for(int32 Kind=0;Kind<9;++Kind)
+    S.Camera.Orientation=(FQuat(FVector::UpVector,4.e-11)*S.Camera.Orientation).GetNormalized();
+    TestTrue(TEXT("Component rotation round-off accepted"),StudioImageSequence::Matches(R,3,S,Error));
+    for(int32 Kind=0;Kind<10;++Kind)
     {
         S=Image(R,3);
         if(Kind==0)S.Identity.Frame.Time+=.001;
@@ -95,6 +98,7 @@ bool FImageSequenceValidation::RunTest(const FString&)
         if(Kind==6)S.Identity.ReconstructionSHA256=TEXT("wrong");
         if(Kind==7)S.Project=FGuid::NewGuid();
         if(Kind==8)S.Projection.M[0][0]+=.001;
+        if(Kind==9)S.Camera.Orientation=(FQuat(FVector::UpVector,1.e-7)*S.Camera.Orientation).GetNormalized();
         TestFalse(TEXT("Frame and view drift refused"),StudioImageSequence::Matches(R,3,S,Error));
     }
     S=Image(R,4);TestFalse(TEXT("Unselected original frame refused"),StudioImageSequence::Matches(R,4,S,Error));
@@ -210,5 +214,43 @@ bool FImageSequenceLifecycle::RunTest(const FString&)
     }
     TestFalse(TEXT("Shutdown drains and releases the source"),Weak.IsValid());
     TestFalse(TEXT("Shutdown publishes no directory"),IFileManager::Get().DirectoryExists(*(D.Path/TEXT("shutdown"))));return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FImageSequencePreparation,"Studio.ImageSequence.IndependentVelocityAndProbePreparation",StudioImageSequenceTests::Flags)
+bool FImageSequencePreparation::RunTest(const FString&)
+{
+    using namespace StudioImageSequenceTests;
+    const auto Load=StudioRecordings::Import(FPaths::ProjectContentDir()/TEXT("Samples/NACA0018_ReaderFixture/recording.json"),0,{});
+    if(!TestTrue(*Load.Error,Load.Source.IsValid()))return false;
+    const auto& D=Load.Source->Descriptor();
+    // Seed the live error deliberately; successful and failed independent reads
+    // must not replace it. This source is isolated from the application model.
+    Load.Source->CaptureViewField(-1,TEXT("pressure"),true);
+    const FString LiveError=Load.Source->LoadError();if(!TestFalse(TEXT("Fixture live error established"),LiveError.IsEmpty()))return false;
+    FString Error;const auto Adapter=FStudioSnapshotSource::CreateView(*Load.Source,1,TEXT("pressure"),true,{},Error);
+    if(!TestTrue(*Error,Adapter.IsValid()))return false;
+    const auto Field=Adapter->CaptureViewField(1,TEXT("pressure"),true);
+    const auto Points=Field->OriginalPoints();if(!TestTrue(TEXT("Prepared immutable velocity frame"),Points.IsValid()))return false;
+    int32 Components=0;
+    for(const auto& F:Points->Descriptor->Fields)if(F.Vector==TEXT("velocity"))
+    {++Components;TestTrue(TEXT("Original velocity array retained"),Points->FindValues(F.Id)!=nullptr);}
+    TestEqual(TEXT("Original 2D velocity has two supplied components"),Components,2);
+    TestFalse(TEXT("Adapter cannot read another frame"),Adapter->CaptureViewField(0,TEXT("pressure"),true)->IsValid());
+    TestFalse(TEXT("No fallback to a different scalar"),FStudioSnapshotSource::CreateView(*Load.Source,1,TEXT("missing"),true,{},Error).IsValid());
+    auto Cancel=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(true);
+    TestFalse(TEXT("Independent preparation respects cancellation"),FStudioSnapshotSource::CreateView(*Load.Source,1,TEXT("pressure"),true,Cancel,Error).IsValid());
+    TestEqual(TEXT("Independent reads preserve live error"),Load.Source->LoadError(),LiveError);
+    FStudioImageSequenceRequest R;R.Source=Load.Source;R.FirstOrdinal=0;R.LastOrdinal=2;
+    R.View.Project=FGuid::NewGuid();R.View.Scalar=*Field->Scalar(TEXT("pressure"));R.View.DisplaySettings.bVectors=true;
+    FStudioProbeObject Probe;Probe.Name=TEXT("Original exported point");Probe.Source={D.Id,D.MetadataSHA256,D.PayloadSHA256};
+    Probe.Method=EStudioProbeMethod::OriginalPoint;Probe.PointId=Points->Geometry->PointIds[17];
+    R.View.Objects.Probes.Add(Probe);R.View.SelectedObject=Probe.Id;
+    const auto Prepared=StudioImageSequence::Prepare(R,1,{});
+    TestTrue(*Prepared.Error,Prepared.Snapshot.IsValid());
+    const auto Position=Prepared.Markers.Position(R.View.Project,Probe);const auto Original=Points->Geometry->Positions[17];
+    TestTrue(TEXT("Annotation uses exact original ID coordinates"),Position&&*Position==FVector(Original.X,Original.Z,Original.Y));
+    TestTrue(TEXT("Selected probe sampled from this original frame"),Prepared.Probe&&Prepared.Probe->Samples.Num()==1&&
+        Prepared.Probe->Samples[0].Value&&*Prepared.Probe->Samples[0].Value==(*Points->FindValues(TEXT("pressure")))[17]);
+    TestEqual(TEXT("Probe preparation preserves live error"),Load.Source->LoadError(),LiveError);return true;
 }
 #endif

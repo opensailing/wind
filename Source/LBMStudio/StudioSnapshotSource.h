@@ -13,6 +13,10 @@ public:
     static TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> Create(const IStudioSolver& Source,
         int32 Ordinal,const FStudioScalarDescriptor& Scalar,
         TSharedPtr<const IStudioField,ESPMode::ThreadSafe> Field,FString& Error);
+    /** Worker-only independent view read, optionally retaining the source's
+     * supplied velocity arrays. Does not change the source's live read error. */
+    static TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> CreateView(const IStudioSolver& Source,
+        int32 Ordinal,const FString& Scalar,bool bVelocity,const FStudioLoadCancellation& Cancellation,FString& Error);
     /** Worker-only adapter for one evaluated recipe. Retains its immutable
      * output and selected scalar, including explicitly derived magnitudes. */
     static TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> CreatePipeline(
@@ -39,4 +43,5 @@ private:
     TSharedPtr<const FStudioPipelineOutput,ESPMode::ThreadSafe> FrozenOutput;
     int32 FrozenOrdinal=INDEX_NONE;
     FString FrozenScalar;
+    bool bPreparedVelocity=false;
 };

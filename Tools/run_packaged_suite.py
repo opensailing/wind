@@ -254,7 +254,7 @@ def main():
             target.mkdir(exist_ok=True)
             capture_root = saved/'Automation'/args.captures
             for source in capture_root.rglob('*'):
-                if not source.is_file() or source.suffix not in {'.png', '.csv', '.vtp', '.pvd'}:
+                if not source.is_file() or source.suffix not in {'.png', '.csv', '.vtp', '.pvd', '.json', '.jsonl'}:
                     continue
                 if source.stat().st_mtime >= started_wall:
                     destination = target/source.relative_to(capture_root)

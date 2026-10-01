@@ -705,12 +705,12 @@ void AStudioScene::UpdateProjection()
             Capture->CustomProjectionMatrix=Projection;
     }
 }
-void AStudioScene::ResizeViewport(int32 W,int32 H)
+void AStudioScene::ResizeViewport(int32 W,int32 H,bool bExact)
 {
     if(W<=0||H<=0)return;
     W=FMath::Clamp(W,320,3840); H=FMath::Clamp(H,240,2400);
     if(Model&&!bGeometryView&&!FrozenPipelineOutput&&Model->FitNewFlowView(double(W)/H))ApplyCamera(Model->Project.Camera);
-    if(RenderTarget&&(FMath::Abs(RenderTarget->SizeX-W)>8||FMath::Abs(RenderTarget->SizeY-H)>8))
+    if(RenderTarget&&((bExact&&(RenderTarget->SizeX!=W||RenderTarget->SizeY!=H))||FMath::Abs(RenderTarget->SizeX-W)>8||FMath::Abs(RenderTarget->SizeY-H)>8))
     { RenderTarget->ResizeTarget(W,H);UpdateProjection();bCaptureDirty=true; }
 }
 void AStudioScene::RequestGeometry()

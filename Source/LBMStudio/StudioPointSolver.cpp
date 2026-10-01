@@ -185,11 +185,14 @@ TSharedRef<const IStudioField,ESPMode::ThreadSafe> FPointRecordedSolver::Capture
 }
 FStudioFieldReadResult FPointRecordedSolver::ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
     const FStudioLoadCancellation& Cancellation) const
+{return ReadViewFrame(Ordinal,ScalarId,false,Cancellation);}
+FStudioFieldReadResult FPointRecordedSolver::ReadViewFrame(int32 Ordinal,const FString& ScalarId,bool bVelocity,
+    const FStudioLoadCancellation& Cancellation) const
 {
     FStudioFieldReadResult Out;
     if(!Meta.Frames.IsValidIndex(Ordinal)||!Recording->Descriptor().FindField(ScalarId))
     {Out.Error=TEXT("The exact requested frame or scalar is not supplied by this recording.");return Out;}
-    const auto Read=Recording->ReadFrame(Ordinal,{ScalarId},Cancellation);Out.Error=Read.Error;
+    const auto Read=Recording->ReadFrame(Ordinal,RequestedFields(ScalarId,bVelocity),Cancellation);Out.Error=Read.Error;
     if(Cancellation&&Cancellation->load())Out.Error=TEXT("Recorded-frame analysis cancelled.");
     else if(Read.Frame)Out.Field=MakeShared<FPointField,ESPMode::ThreadSafe>(Read.Frame,SurfaceReconstruction,Volume,Recording);
     else if(Out.Error.IsEmpty())Out.Error=TEXT("Could not read the requested recorded frame.");

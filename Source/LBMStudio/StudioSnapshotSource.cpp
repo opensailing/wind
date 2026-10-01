@@ -62,6 +62,16 @@ TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> FStudioSnapshotSource::Cre
 }
 FStudioFrame FStudioSnapshotSource::EvaluateFrame(int32 Index) const
 {return Meta.Frames.IsValidIndex(Index)?Meta.Frames[Index]:FStudioFrame();}
+TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> FStudioSnapshotSource::CreateView(const IStudioSolver& Source,
+    int32 Ordinal,const FString& Scalar,bool bVelocity,const FStudioLoadCancellation& Cancellation,FString& Error)
+{
+    const auto Read=Source.ReadViewFrame(Ordinal,Scalar,bVelocity,Cancellation);
+    if(Cancellation&&Cancellation->load()){Error=TEXT("Image frame preparation cancelled.");return {};}
+    const auto S=Read.Field?Read.Field->Scalar(Scalar):TOptional<FStudioScalarDescriptor>();
+    if(!Read.Error.IsEmpty()||!Read.Field||!S)
+    {Error=Read.Error.IsEmpty()?TEXT("The original image frame or scalar is unavailable."):Read.Error;return {};}
+    auto Out=Create(Source,Ordinal,*S,Read.Field,Error);if(Out)Out->bPreparedVelocity=bVelocity;return Out;
+}
 TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> FStudioSnapshotSource::CreatePipeline(
     const FStudioPipelineEvaluationResult& Result,FString& Error)
 {
@@ -86,7 +96,7 @@ TSharedRef<const IStudioField,ESPMode::ThreadSafe> FStudioSnapshotSource::Captur
 TSharedRef<const IStudioField,ESPMode::ThreadSafe> FStudioSnapshotSource::CaptureViewField(int32 Index,
     const FString& Scalar,bool bVectors,const FStudioLoadCancellation& Cancellation) const
 {
-    if(bVectors)return UnavailableSnapshot();
+    if(bVectors&&!bPreparedVelocity)return UnavailableSnapshot();
     const auto Read=ReadScalarFrame(Index,Scalar,Cancellation);
     return Read.Field?Read.Field.ToSharedRef():UnavailableSnapshot();
 }
