@@ -224,7 +224,7 @@ python3 Tools/verify_csv_field_export.py \
 
 The audit uses Python's CSV parser and direct original binary arrays through the shared NumPy audit reader (whose module also requires VTK). The historical backend checkpoint in `tmp/analysis/csv-field-export-20260928/core-acceptance.json` records 236 successful model cases (one existing Unreal helper warning), 13 independently checked CSV frames / 1,285,685 original point rows with zero observed value error, and 14 VTK regression files. The unified-controls review above covers the subsequently added visible CSV/range controls. Actual native picker/input and current integrated stability/release acceptance remain open.
 
-### Image-sequence writer — renderer and UI integration pending
+### Image-sequence export core — Snapshot UI integration pending
 
 `StudioImageSequence` stages PNG sequences with an inclusive original-frame range and positive ordinal stride. Its pixel-free request freezes the source, camera, projection, centered crop, scalar mapping, display settings and inspection objects. A single handoff requests one image at a time; the producer must render that exact original frame or report failure. A dedicated worker validates each image, encodes it, streams its index entry and releases the pixels before requesting another. It does not advance the live Solve cursor or render images itself.
 
@@ -239,7 +239,23 @@ python3 Tools/verify_image_sequence.py \
   --report tmp/analysis/image-sequence-readback.json
 ```
 
-Run `Tools/test.sh` first and use a Python environment with Pillow. Evidence is in `tmp/analysis/image-sequence-20261001/`. These are encoder patterns, not rendered CFD images. Independent offscreen rendering, Snapshot-menu controls, native picker/input, performance, long-session and release acceptance remain pending; the existing single-snapshot UI is unchanged.
+Run `Tools/test.sh` first and use a Python environment with Pillow. Writer evidence is in `tmp/analysis/image-sequence-20261001/`; those encoder patterns do not establish rendering fidelity.
+
+`StudioImageSequenceRenderer` now supplies actual images through one reusable independent scene. It reads each original scalar and the supplied velocity arrays, resolves original-ID markers, samples the selected probe for that frame, and renders the frozen camera, projection and display. The live camera, playback, workspace and project can change during export without retargeting the job. One preparation future and one image handoff bound work in flight; completion and cancellation release the scene before returning a result. The controller must be ticked outside the Snapshot menu's lifetime, with `Shutdown()` called on its game-thread owner during teardown. Minimized windows suspend capture; native minimize/resume acceptance remains pending.
+
+Renderer commit `6f58598` passes the final Editor build and 269 model cases (266 clean, three existing optional Unreal helper warnings). Native tests at 1320×740 and 1280×720 export original SU2 frames 0/300/600, three NACA wing frames and three 3D cylinder frames. The independent audit checks all 18 PNGs / 5,222,400 pixels against direct snapshots with zero observed RGB difference, plus original times, hashes and point-probe values. It also requires visible central flow coverage. The tests exercise perspective and orthographic views, a square crop, live camera/playback changes, project replacement, cancellation and scene collection. Only orientation permits a 1e-9 quaternion-component tolerance for measured UE restoration rounding; actual capture metadata is retained, while projection and all remaining frozen-view metadata stay exact.
+
+```bash
+python3 Tools/run_packaged_suite.py \
+  --suite Studio.ImageSequenceRendering.OriginalViewsAndIsolation \
+  --count 1 --name image-sequence-render --width 1320 --height 740 \
+  --timeout 300 --captures ImageSequenceRendering
+python3 Tools/verify_rendered_image_sequence.py \
+  --exports "tmp/debug/<reported-run>/captures" \
+  --report tmp/analysis/image-sequence-render-readback.json
+```
+
+Package with `Tools/package.sh` first; the readback environment needs Pillow, NumPy and VTK. Renderer evidence is in `tmp/analysis/image-sequence-renderer-20261001/acceptance.json`, including the existing snapshot resource/projection regression on the same production code. Snapshot-menu sequence controls, native picker/input, full-duration export, export performance, long-session and release acceptance remain pending. The image-sequence controller is not yet connected to the user interface; movie encoding is also pending.
 
 ## CFD sample provenance
 
