@@ -74,18 +74,36 @@ def audit(directory, source_sample=None):
                 mean = float(np.abs(difference).mean())
                 mse = float(np.square(difference).mean())
                 psnr = float(10 * np.log10(255**2 / mse)) if mse else 100.
-                # H.264 is deliberately lossy. These limits catch blank, flipped,
-                # channel-swapped or wrong frames, not scientific equivalence.
-                assert mean < 8 and psnr > 25, (path, i, mean, psnr)
+                # YUV420 discards full-resolution chroma, visibly affecting
+                # isolated one-pixel CFD points. Keep raw RGB error in the
+                # report, but separate luma fidelity from that format loss.
+                # Independently resample the PNG with FFmpeg (no compression)
+                # before evaluating spatial chroma fidelity and color bias.
+                converted = subprocess.check_output([
+                    'ffmpeg', '-v', 'error', '-i', str(directory / entry['file']),
+                    '-vf', 'scale=in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,format=yuv420p,scale=in_color_matrix=bt709:in_range=tv:out_range=full,format=rgb24',
+                    '-frames:v', '1', '-f', 'rawvideo', 'pipe:1'])
+                chroma_reference = np.frombuffer(converted, np.uint8).reshape(actual.shape).astype(np.float64)
+                luma = difference @ np.array([.2126, .7152, .0722])
+                luma_mse = float(np.square(luma).mean())
+                luma_psnr = float(10 * np.log10(255**2 / luma_mse)) if luma_mse else 100.
+                chroma_difference = actual.astype(np.float64) - chroma_reference
+                h4, w4 = height // 4 * 4, width // 4 * 4
+                spatial = chroma_difference[:h4, :w4].reshape(h4//4, 4, w4//4, 4, 3).mean(axis=(1, 3))
+                spatial_mse = float(np.square(spatial).mean())
+                spatial_psnr = float(10 * np.log10(255**2 / spatial_mse)) if spatial_mse else 100.
+                assert np.abs(luma).mean() < 4 and luma_psnr > 30, (path, i, 'luma', luma_psnr)
+                assert np.abs(spatial).mean() < 5 and spatial_psnr > 30, (path, i, 'spatial chroma', spatial_psnr)
                 quadrants = []
                 for y, x in ((0, 0), (0, 1), (1, 0), (1, 1)):
-                    region = difference[y*height//2:(y+1)*height//2, x*width//2:(x+1)*width//2]
+                    region = chroma_difference[y*height//2:(y+1)*height//2, x*width//2:(x+1)*width//2]
                     error = float(np.abs(region.mean(axis=(0, 1))).max())
                     assert error < 8, (path, i, 'spatial/channel error', error)
                     quadrants.append(error)
                 rows.append({'movie_frame': i, 'original_ordinal': entry['ordinal'],
                              'source_time': entry['source_time_seconds'], 'presentation_time': i / rate,
-                             'mean_rgb_error': mean, 'psnr_db': psnr, 'quadrant_channel_mean_errors': quadrants})
+                             'mean_rgb_error': mean, 'psnr_db': psnr, 'luma_psnr_db': luma_psnr,
+                             'spatial_chroma_psnr_db': spatial_psnr, 'quadrant_channel_mean_errors': quadrants})
             assert not decoder.stdout.read(1), 'Unexpected extra frame'
             errors = decoder.stderr.read().decode()
             assert decoder.wait(timeout=30) == 0 and not errors, errors
@@ -110,7 +128,7 @@ def main():
     assert bundles, 'No movie bundles found'
     reports = [audit(p, args.source_sample) for p in bundles]
     result = {'passed': True, 'movies': reports, 'count': len(reports), 'frames': sum(r['count'] for r in reports),
-              'scope': 'Native movie container, every decoded frame, spatial/channel fidelity, fixed presentation timeline and lossless-image identity; not lossless video or long-session acceptance.'}
+            'scope': 'Native movie container, every decoded frame, PNG luma and independently subsampled YUV420 spatial/color fidelity, fixed presentation timeline and lossless-image identity. Raw RGB loss is reported separately; not lossless video, scientific pixel equivalence or long-session acceptance.'}
     args.report.write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({'passed': True, 'movies': result['count'], 'frames': result['frames']}))
 
