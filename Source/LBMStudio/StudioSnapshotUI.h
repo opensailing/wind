@@ -44,9 +44,10 @@ private:
     TFunction<FString()> Guard;
     TFunction<bool(FStudioSnapshot&,FString&)> Capture;
     FStudioSnapshotOptions Options;
+    FStudioMovieOptions Movie;
     FGuid DraftProject,JobProject;
     FString First=TEXT("1"),Last=TEXT("1"),Stride=TEXT("1"),Folder=TEXT("flow-images");
     FString Notice,Path,FrozenSummary;
     int32 Width=1920,Aspect=0;
-    bool bSequence=false,bAll=false,bError=false,bSaved=false,bShutdown=false;
+    bool bSequence=false,bAll=false,bError=false,bSaved=false,bShutdown=false,bJobMovie=false;
 };

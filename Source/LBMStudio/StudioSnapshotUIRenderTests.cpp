@@ -28,7 +28,7 @@ class FStudioSnapshotUICommand final:public IAutomationLatentCommand
         ~FGate(){FPlatformProcess::ReturnSynchEventToPool(Reached);FPlatformProcess::ReturnSynchEventToPool(Release);}
     };
 public:
-    explicit FStudioSnapshotUICommand(FAutomationTestBase* In):Test(In){}
+    explicit FStudioSnapshotUICommand(FAutomationTestBase* In,bool Movie=false):Test(In),bMovie(Movie){}
     ~FStudioSnapshotUICommand(){if(Gate)Gate->Release->Trigger();if(bCaptured&&FSlateApplication::IsInitialized())FSlateApplication::Get().SetAllowTooltips(bTooltips);}
     bool Update() override
     {
@@ -50,7 +50,7 @@ public:
         case 0:
         {
             if(!Scene->HasCurrentFrame())return false;
-            Root=FPaths::ProjectSavedDir()/TEXT("Automation/SnapshotUI");IFileManager::Get().MakeDirectory(*Root,true);Work=Root/FGuid::NewGuid().ToString();
+            Root=FPaths::ProjectSavedDir()/(bMovie?TEXT("Automation/MovieUI"):TEXT("Automation/SnapshotUI"));IFileManager::Get().MakeDirectory(*Root,true);Work=Root/FGuid::NewGuid().ToString();
             FString Error;Test->TestTrue(TEXT("Preserve prior project"),StudioProjectIO::Save(Work/TEXT("prior.lbms"),M.SnapshotProject(),Error));
             bTooltips=App.GetAllowTooltips();bCaptured=true;App.SetAllowTooltips(false);StudioAuthoringTestCapture::DismissTooltips();Foreground.Begin();
             M.NewProject(TEXT("Image exports"));M.ReviewRecordedFrame(420);M.EditView(TEXT("Snapshot test field"),[](auto& S){S.Display.ScalarField=TEXT("pressure");});Next();break;
@@ -65,15 +65,23 @@ public:
         case 5:
             Test->TestTrue(TEXT("Completed PNG has reveal action"),Enabled(TEXT("RevealSnapshot")));Press(TEXT("SnapshotSequence"));Next();break;
         case 6:
+            if(bMovie)Press(TEXT("SnapshotMovie"));
             Type(TEXT("SnapshotFirst"),TEXT("1"));Type(TEXT("SnapshotLast"),TEXT("602"));Type(TEXT("SnapshotStride"),TEXT("300"));Next();break;
         case 7:
             Test->TestTrue(TEXT("Out-of-range endpoint disables export"),!Enabled(TEXT("SaveSnapshotPNG"))&&HasText(TEXT("within frames 1–601")));Capture(TEXT("invalid-range.png"));Type(TEXT("SnapshotLast"),TEXT("601"));Type(TEXT("SnapshotStride"),TEXT("0"));Next();break;
         case 8:
             Test->TestTrue(TEXT("Zero stride is actionable"),!Enabled(TEXT("SaveSnapshotPNG"))&&HasText(TEXT("positive whole numbers")));Capture(TEXT("invalid-stride.png"));Type(TEXT("SnapshotStride"),TEXT("300"));Type(TEXT("SnapshotFolder"),TEXT("../bad"));Next();break;
         case 9:
-            Test->TestTrue(TEXT("Unsafe folder rejected"),!Enabled(TEXT("SaveSnapshotPNG"))&&HasText(TEXT("new folder name")));Capture(TEXT("invalid-folder.png"));Type(TEXT("SnapshotFolder"),TEXT("range"));Next();break;
+            Test->TestTrue(TEXT("Unsafe folder rejected"),!Enabled(TEXT("SaveSnapshotPNG"))&&HasText(TEXT("new folder name")));Capture(TEXT("invalid-folder.png"));Type(TEXT("SnapshotFolder"),TEXT("range"));
+            if(bMovie){Type(TEXT("SnapshotWidth"),TEXT("642"));Phase=50;Changed=GFrameCounter;}else Next();break;
+        case 50:
+            Test->TestTrue(TEXT("Movie refuses odd height without silent resizing"),!Enabled(TEXT("SaveSnapshotPNG"))&&HasText(TEXT("even image dimensions")));
+            Capture(TEXT("invalid-movie-size.png"));Type(TEXT("SnapshotWidth"),TEXT("640"));Type(TEXT("SnapshotMovieRate"),TEXT("24"));Next();break;
+        case 51:
+            Test->TestTrue(TEXT("Movie rate and duration are separate from physical time"),HasText(TEXT("Playback: 24 fps · 0.125 s"))&&HasText(TEXT("0–0.12 s"))&&Enabled(TEXT("SaveSnapshotPNG")));
+            Capture(TEXT("movie-options.png"));Phase=10;Changed=GFrameCounter;break;
         case 10:
-            Test->TestTrue(TEXT("Selection states exact sampled count and original times"),HasText(TEXT("3 PNGs · frames 1–601"))&&HasText(TEXT("0–0.12 s"))&&Enabled(TEXT("SaveSnapshotPNG")));
+            Test->TestTrue(TEXT("Selection states exact sampled count and original times"),HasText(bMovie?TEXT("3 PNGs + MP4 · frames 1–601"):TEXT("3 PNGs · frames 1–601"))&&HasText(TEXT("0–0.12 s"))&&Enabled(TEXT("SaveSnapshotPNG")));
             Capture(TEXT("range.png"));StudioFileDialog::SetNextExportFolderForAutomation(FString());Press(TEXT("SaveSnapshotPNG"));Next();break;
         case 11:Test->TestTrue(TEXT("Folder chooser cancellation explicit"),M.Notice.Contains(TEXT("folder selection cancelled")));Open();Next();break;
         case 12:
@@ -81,9 +89,9 @@ public:
             StudioFileDialog::SetNextExportFolderForAutomation(Work);Press(TEXT("SaveSnapshotPNG"));M.Run();Scene->SetCameraPosition(Scene->SavedCameraState().Position+FVector(.2,0,0));Next();break;
         case 13:if(!Gate->Reached->Wait(0))return false;Open();Next();break;
         case 14:
-            Test->TestTrue(TEXT("Frozen sequence remains owned after live edits"),HasText(TEXT("Frozen view · 640 × 360"))&&HasText(TEXT("3 of 3 images saved"))&&!Enabled(TEXT("SaveSnapshotPNG"))&&Enabled(TEXT("CancelSnapshotExport"))&&!Enabled(TEXT("SnapshotDraft")));
+            Test->TestTrue(TEXT("Frozen sequence remains owned after live edits"),HasText(TEXT("Frozen view · 640 × 360"))&&HasText(bMovie?TEXT("Finalizing MP4"):TEXT("3 of 3 images saved"))&&!Enabled(TEXT("SaveSnapshotPNG"))&&Enabled(TEXT("CancelSnapshotExport"))&&!Enabled(TEXT("SnapshotDraft")));
             Capture(TEXT("progress.png"));App.DismissAllMenus();M.Pause();Gate->Release->Trigger();Next();break;
-        case 15:if(!M.Notice.StartsWith(TEXT("Saved 3 PNGs")))return false;Open();Next();break;
+        case 15:if(!M.Notice.StartsWith(bMovie?TEXT("Saved MP4 + 3 PNGs"):TEXT("Saved 3 PNGs")))return false;Open();Next();break;
         case 16:Test->TestTrue(TEXT("Sequence saved with reveal"),Enabled(TEXT("RevealSnapshot")));Capture(TEXT("saved.png"));StudioFileDialog::SetNextExportFolderForAutomation(Work);Press(TEXT("SaveSnapshotPNG"));Next();break;
         case 17:if(!M.Notice.StartsWith(TEXT("Image sequence failed")))return false;Open();Next();break;
         case 18:
@@ -106,9 +114,9 @@ public:
         case 25:if(!Scene->HasCurrentFrame())return false;Scene->FitCamera();Open();Next();break;
         case 26:Press(TEXT("SnapshotAll"));Type(TEXT("SnapshotStride"),TEXT("1"));Type(TEXT("SnapshotFolder"),TEXT("all-volume"));Next();break;
         case 27:
-            Test->TestTrue(TEXT("All uses current authentic source without editable endpoints"),HasText(TEXT("3 PNGs · frames 1–3"))&&!Find(TEXT("SnapshotFirst"))&&Enabled(TEXT("SaveSnapshotPNG")));
+            Test->TestTrue(TEXT("All uses current authentic source without editable endpoints"),HasText(bMovie?TEXT("3 PNGs + MP4 · frames 1–3"):TEXT("3 PNGs · frames 1–3"))&&!Find(TEXT("SnapshotFirst"))&&Enabled(TEXT("SaveSnapshotPNG")));
             Capture(TEXT("all.png"));Oracle(TEXT("all-volume"));StudioFileDialog::SetNextExportFolderForAutomation(Work);Press(TEXT("SaveSnapshotPNG"));Next();break;
-        case 28:if(!M.Notice.StartsWith(TEXT("Saved 3 PNGs")))return false;Open();Next();break;
+        case 28:if(!M.Notice.StartsWith(bMovie?TEXT("Saved MP4 + 3 PNGs"):TEXT("Saved 3 PNGs")))return false;Open();Next();break;
         case 29:Capture(TEXT("all-saved.png"));App.DismissAllMenus();Test->TestTrue(TEXT("Restore prior project"),M.RequestProjectOpen(Work/TEXT("prior.lbms")));Next();break;
         case 30:return true;
         }
@@ -163,9 +171,14 @@ private:
     }
     FStudioAutomationForeground Foreground;
     FAutomationTestBase* Test;TWeakObjectPtr<AStudioScene> Scene;TSharedPtr<FGate,ESPMode::ThreadSafe> Gate;
-    FString Root,Work;int32 Phase=0;uint64 Changed=0;double Started=0,LastActivation=0;bool bTooltips=true,bCaptured=false,bOpen=false;
+    FString Root,Work;int32 Phase=0;uint64 Changed=0;double Started=0,LastActivation=0;bool bTooltips=true,bCaptured=false,bOpen=false,bMovie=false;
 };
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioSnapshotUIAcceptance,"Studio.SnapshotUI.OriginalSequencesAndLifecycle",
     EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter|EAutomationTestFlags::NonNullRHI)
 bool FStudioSnapshotUIAcceptance::RunTest(const FString&){ADD_LATENT_AUTOMATION_COMMAND(FStudioSnapshotUICommand(this));return true;}
+#if PLATFORM_MAC
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioMovieUIAcceptance,"Studio.MovieUI.ControlsAndOriginalOutputs",
+    EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter|EAutomationTestFlags::NonNullRHI)
+bool FStudioMovieUIAcceptance::RunTest(const FString&){ADD_LATENT_AUTOMATION_COMMAND(FStudioSnapshotUICommand(this,true));return true;}
+#endif
 #endif

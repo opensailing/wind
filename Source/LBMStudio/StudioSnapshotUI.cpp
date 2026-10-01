@@ -1,7 +1,7 @@
 /*
 THESIS: One Snapshot action exports one view or selected original frames.
 OWN-WORLD: Inherit the dense navy Slate shell, compact rows and cyan focus.
-STORY: Choose PNG or sequence, review original times and framing, export while
+STORY: Choose PNG or sequence with optional MP4, review original times and framing, export while
 camera/playback stay live, then cancel or reveal the completed output.
 FIRST VIEWPORT: Source and mode lead a scrollable form; status, save, cancel
 and reveal stay in a fixed footer. No new workspace or duplicate action.
@@ -73,6 +73,7 @@ FString FStudioSnapshotUI::Validation() const
     {
         int32 A,B,S;FString Error;
         if(!StudioSnapshotUI::Selection(bAll?TEXT("1"):First,bAll?FString::FromInt(M->Solver->FrameCount()):Last,Stride,M->Solver->FrameCount(),A,B,S,Error))return Error;
+        if(!StudioMovie::Validate(Movie,OutputSize(),Error))return Error;
         bool Valid=!Folder.IsEmpty()&&Folder.Len()<=128&&Folder.TrimStartAndEnd()==Folder&&!Folder.StartsWith(TEXT("."));
         for(const TCHAR C:Folder)Valid&=C>=32&&C!=127&&C!=TEXT('/')&&C!=TEXT('\\')&&C!=TEXT(':');
         if(!Valid)return TEXT("Enter a new folder name without outer spaces, slashes, colons or a leading dot.");
@@ -88,7 +89,10 @@ FString FStudioSnapshotUI::SelectionLabel() const
     int32 A,B,Step;FString Error;
     if(!StudioSnapshotUI::Selection(bAll?TEXT("1"):First,bAll?FString::FromInt(D.Frames.Num()):Last,Stride,D.Frames.Num(),A,B,Step,Error))return D.Title;
     const int32 N=(B-A)/Step+1,End=A+(N-1)*Step;
-    return FString::Printf(TEXT("%s\n%d PNGs · frames %d–%d · %.9g–%.9g s"),*D.Title,N,A+1,End+1,D.Frames[A].Time,D.Frames[End].Time);
+    FString Summary=FString::Printf(TEXT("%s\n%d PNGs%s · frames %d–%d · %.9g–%.9g s"),*D.Title,N,
+        Movie.bEnabled?TEXT(" + MP4"):TEXT(""),A+1,End+1,D.Frames[A].Time,D.Frames[End].Time);
+    if(Movie.bEnabled&&Movie.FrameRate>0)Summary+=FString::Printf(TEXT("\nPlayback: %d fps · %.3f s"),Movie.FrameRate,double(N)/Movie.FrameRate);
+    return Summary;
 }
 FString FStudioSnapshotUI::Status() const
 {
@@ -97,6 +101,7 @@ FString FStudioSnapshotUI::Status() const
         const auto P=Sequence.Progress();
         if(P.State==EStudioFieldExportState::Cancelled)return TEXT("Cancelling image sequence…");
         if(P.State==EStudioFieldExportState::Publishing||P.Phase==EStudioImageSequencePhase::Complete)return TEXT("Publishing completed image sequence…");
+        if(P.Phase==EStudioImageSequencePhase::FinalizingMovie)return TEXT("Finalizing MP4… Original PNGs are ready; Cancel is still available.");
         const TCHAR* Phase=P.Phase==EStudioImageSequencePhase::Encoding?TEXT("Encoding"):P.Phase==EStudioImageSequencePhase::AwaitingImage?TEXT("Rendering"):TEXT("Preparing");
         return FString::Printf(TEXT("%s · %d of %d images saved"),Phase,P.CompletedFrames,P.TotalFrames);
     }
@@ -122,7 +127,7 @@ void FStudioSnapshotUI::Save()
     FStudioImageSequenceRequest Request;
     if(Multiple)
     {
-        Request.Source=S;
+        Request.Source=S;Request.Movie=Movie;
         if(!StudioSnapshotUI::Selection(bAll?TEXT("1"):First,bAll?FString::FromInt(S->FrameCount()):Last,Stride,S->FrameCount(),Request.FirstOrdinal,Request.LastOrdinal,Request.Stride,CaptureError))
         {Report(CaptureError,true);return;}
         Image.Pixels.Reset();Request.View=MoveTemp(Image);
@@ -133,7 +138,7 @@ void FStudioSnapshotUI::Save()
     const bool Accepted=Multiple?StudioFileDialog::ExportFolder(Destination):
         StudioFileDialog::SnapshotPNG(FString::Printf(TEXT("flow-frame-%d"),Image.Identity.Frame.Index),Destination);
     if(!Accepted){Report(Multiple?TEXT("Image sequence folder selection cancelled."):TEXT("Snapshot export cancelled."));return;}
-    JobProject=Owner;bool Started=false;
+    JobProject=Owner;bJobMovie=Multiple&&Movie.bEnabled;bool Started=false;
 #if WITH_DEV_AUTOMATION_TESTS
     if(Multiple)Sequence.BeforePublishForAutomation=MoveTemp(NextImageSequenceBarrier);
 #endif
@@ -149,7 +154,7 @@ void FStudioSnapshotUI::Tick(FStudioModel& M)
     if(const auto R=Sequence.Poll())
     {
         Finished=true;bError=!R->bSuccess&&!R->bCancelled;bSaved=R->bSuccess;Path=R->Path;
-        Notice=R->bSuccess?FString::Printf(TEXT("Saved %d PNGs · %s"),R->CompletedFrames,*FPaths::GetCleanFilename(Path)):
+        Notice=R->bSuccess?FString::Printf(TEXT("Saved %s%d PNGs · %s"),bJobMovie?TEXT("MP4 + "):TEXT(""),R->CompletedFrames,*FPaths::GetCleanFilename(Path)):
             R->bCancelled?TEXT("Image sequence cancelled. Destination unchanged."):TEXT("Image sequence failed: ")+R->Error+
             (R->FailedOrdinal==INDEX_NONE?FString():FString::Printf(TEXT(" (frame %d)"),R->FailedOrdinal+1));
     }
@@ -208,7 +213,19 @@ TSharedRef<SWidget> FStudioSnapshotUI::Menu(const TSharedRef<FStudioModel>& InMo
     Items=SequenceItems;Items->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([Self]{return Self->bAll?EVisibility::Collapsed:EVisibility::Visible;})[Range]];
     TextRow(TEXT("Stride (every Nth frame)"),TEXT("SnapshotStride"),&FStudioSnapshotUI::Stride);
     TextRow(TEXT("New folder name"),TEXT("SnapshotFolder"),&FStudioSnapshotUI::Folder);
-    Items->AddSlot().AutoHeight().Padding(0,0,0,10)[Label(TEXT("Original frames only. No interpolation or movie rate."),9,Muted)];
+    Items->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SCheckBox).Tag(TEXT("SnapshotMovie"))
+        .IsEnabled(StudioMovie::Supported()).IsChecked_Lambda([Self]{return Self->Movie.bEnabled?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
+        .OnCheckStateChanged_Lambda([Self](ECheckBoxState S){Self->Movie.bEnabled=S==ECheckBoxState::Checked;})[Label(TEXT("Include MP4 (H.264)"))]];
+    auto MovieItems=SNew(SVerticalBox);Items=MovieItems;
+    Row(TEXT("Playback rate (fps)"),SNew(SBox).Tag(TEXT("SnapshotMovieRate"))[SNew(SNumericEntryBox<int32>)
+        .Font(Font(10)).EditableTextBoxStyle(&InputStyle()).AllowSpin(false).MinValue(1).MaxValue(60)
+        .Value_Lambda([Self]{return TOptional<int32>(Self->Movie.FrameRate);})
+        .OnValueCommitted_Lambda([Self](int32 V,ETextCommit::Type){Self->Movie.FrameRate=V;})]);
+    Items=SequenceItems;Items->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([Self]{return Self->Movie.bEnabled?EVisibility::Visible:EVisibility::Collapsed;})[MovieItems]];
+    Items->AddSlot().AutoHeight().Padding(0,0,0,10)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
+        .Text_Lambda([Self]{return FText::FromString(Self->Movie.bEnabled?
+            TEXT("One original per movie frame; no interpolation. Playback time differs from physical time. MP4 is lossy; lossless PNGs are kept."):
+            TEXT("Original frames only. No temporal interpolation."));})];
     Items=Common;Items->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([Self]{return Self->bSequence?EVisibility::Visible:EVisibility::Collapsed;})[SequenceItems]];
     for(const auto Entry:TArray<TPair<FString,bool FStudioSnapshotOptions::*>>{
         {TEXT("Inspection annotations"),&FStudioSnapshotOptions::bAnnotations},{TEXT("Scalar legend"),&FStudioSnapshotOptions::bLegend},{TEXT("Source and physical time"),&FStudioSnapshotOptions::bFrameInfo}})

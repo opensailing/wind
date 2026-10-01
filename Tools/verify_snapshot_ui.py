@@ -13,7 +13,7 @@ from verify_rendered_image_sequence import read_png, same_view_value
 from verify_vtk_export import digest, source_rows
 
 
-def verify(root, captures):
+def verify(root, captures, expect_movie=False):
     works = list(captures.glob('*/range/sequence.json'))
     assert len(works) == 1, 'Expected exactly one completed native UI run'
     work = works[0].parent.parent
@@ -54,6 +54,10 @@ def verify(root, captures):
         assert manifest['stride'] == ordinals[1] and manifest['last_ordinal_inclusive'] == ordinals[-1]
         assert manifest['reconstruction_sha256'] == (digest(root / 'Content/Samples' / reconstruction / 'reconstruction.json') if reconstruction else '')
         expected = {'sequence.json', 'frames.jsonl'}
+        assert ('movie' in manifest) == expect_movie
+        if expect_movie:
+            expected.add('flow.mp4')
+            assert manifest['movie']['frame_rate'] == 24 and manifest['movie']['frame_count'] == 3
         for entry in entries:
             path = output / entry['file'];expected.add(path.name)
             assert path.name == f"frame_{entry['ordinal']:06d}.png"
@@ -70,8 +74,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--captures', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--expect-movie', action='store_true')
     args = parser.parse_args()
-    report = verify(Path(__file__).resolve().parents[1], args.captures)
+    report = verify(Path(__file__).resolve().parents[1], args.captures, args.expect_movie)
     args.report.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps({'passed': True, 'images': report['count']}))
 
