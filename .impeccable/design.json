@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-29T01:53:47.926021+00:00",
+  "generatedAt": "2026-10-01T15:25:51.832949+00:00",
   "title": "Design System: LBM Solver Studio — Recorded-Flow Controls and Case Authoring",
   "extensions": {
     "colorMeta": {
@@ -3118,6 +3118,103 @@
       "lifetime": "Idle snapshots release on menu close or project replacement. Closed-menu completion releases task snapshots. Completion feedback belongs to the original project; session state introduces no schema change.",
       "footer": "Project Save keeps pipelines and cameras. Export saves evaluated output here. Toolbar playback uses the named recording in Solve.",
       "acceptance": "pipelineExportUIScope records captured local-menu ship only. Intermittent menu assertions remain unresolved; lookup/diagnostics and passing final runs do not establish a root-cause fix."
+    },
+    "focusedWingScope": {
+      "record": "Local focused reconstructed-wing extension within the incumbent native navy/cyan Solve workspace; original-mesh camera-only overview remains distinct.",
+      "commit": "f7a7738bfb146787ffe1086de8ff97d117105f94",
+      "verification": "tmp/analysis/surface-flow-20260930/verification.json",
+      "resumedAcceptance": "tmp/analysis/surface-flow-20260930/resume-acceptance.json",
+      "review": "tmp/analysis/surface-flow-20260930/finish-review.md",
+      "finishDisposition": "ship for the local focused reconstructed-wing extension only; no material fixes",
+      "reviewedCaptureCount": 12,
+      "captures": {
+        "large": [
+          ".impeccable/review/focused-wing/large/focused.png",
+          ".impeccable/review/focused-wing/large/full-field.png",
+          ".impeccable/review/focused-wing/large/orbit.png",
+          ".impeccable/review/focused-wing/large/reopened.png",
+          ".impeccable/review/focused-wing/large/later-frame.png",
+          ".impeccable/review/focused-wing/large/playback.png"
+        ],
+        "small": [
+          ".impeccable/review/focused-wing/small/focused.png",
+          ".impeccable/review/focused-wing/small/full-field.png",
+          ".impeccable/review/focused-wing/small/orbit.png",
+          ".impeccable/review/focused-wing/small/reopened.png",
+          ".impeccable/review/focused-wing/small/later-frame.png",
+          ".impeccable/review/focused-wing/small/playback.png"
+        ]
+      },
+      "recordedVerification": {
+        "sourceMaterialToolPins": 20,
+        "successfulModelCases": 264,
+        "cleanModelCases": 260,
+        "modelWarningCases": 4,
+        "modelWarning": "Existing optional Unreal helper warnings.",
+        "packageSha256": "09afb082b566dbde2e2c81c8594f6fa63fb50336f2c71a30edcc6d58b4edb313",
+        "nativeRuns": [
+          "tmp/debug/surface-focus-final-large-20261001T032344988405Z",
+          "tmp/debug/surface-focus-verified-small-20261001T032445402640Z",
+          "tmp/debug/surface-focus-scalar-pixels-20261001T032508295341Z",
+          "tmp/debug/surface-focus-legacy-panes-20261001T032515674583Z"
+        ],
+        "cleanNativeCases": 4,
+        "nativeScope": "Focused full-source runs at 1672 × 940 and 1320 × 740; original opaque scalar-pixel and legacy overview/pane regressions at 1672 × 940. All four exit 0, with no errors, interruptions or remaining owned processes.",
+        "focusedPlayback": [
+          {
+            "viewport": [
+              1672,
+              940
+            ],
+            "distinctOriginalFrames": 129,
+            "wallSeconds": 8.018
+          },
+          {
+            "viewport": [
+              1320,
+              740
+            ],
+            "distinctOriginalFrames": 127,
+            "wallSeconds": 8.002
+          }
+        ],
+        "playbackBoundary": "The source has 8,000 original snapshots spanning over 19.99 physical seconds. Focused playback was measured for about eight wall seconds per size, not the full sequence.",
+        "gpuBoundary": "OriginalDataPixels audits the original full opaque reader fixture with streamlines disabled. It does not independently audit focused translucent compositing or all 8,000 frames.",
+        "interruptedRun": "tmp/debug/surface-focus-final-small-20261001T032410641202Z",
+        "interruptedRunStatus": "Retained failed run after foreground loss during playback; the clean small retry used the same binary."
+      },
+      "open": [
+        "Full 8,000-frame focused playback, motion quality, sustained throughput and resource growth.",
+        "Physical OS input, complete keyboard/accessibility and current long-session/release acceptance.",
+        "Full reference fidelity: stronger directional markers, spatial depth and an intersecting plane remain absent; broader backend/history and full-plan work remains."
+      ],
+      "documenterActions": "Read scoped source and retained evidence; verified 20 source/material/tool pins, model/native totals and all 12 PNG headers. Updated existing documentation and corrected the current NACA streamlines claim. No source edit, build, runtime launch, tests, protected-volume access, new visual review or commit.",
+      "documentationVerification": "tmp/analysis/surface-flow-20260930/documentation-verification.md",
+      "priorEvidence": "Existing scope/evidence records, tokens and component snippets retain their prior package and review boundaries."
+    },
+    "nativeFocusedWing": {
+      "sourceFiles": [
+        "Source/LBMStudio/StudioFlowPresentation.cpp",
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/StudioScene.cpp",
+        "Source/LBMStudio/StudioSurfaceRenderData.cpp",
+        "Source/LBMStudio/StudioProject.cpp",
+        "Source/LBMStudio/StudioView.cpp",
+        "Tools/create_focused_surface_material.py"
+      ],
+      "entry": "View > Flow overview supports an explicitly attached verified 2D wing reconstruction; it enables Focus wing region, fits its display bounds and creates one undoable view edit. It does not install or switch sources.",
+      "displayRegion": "The reconstruction inferred boundary defines a wing/wake visualization region for triangle clipping, bounded velocity traces and camera Fit. Original computational bounds, values and raw export rows are preserved.",
+      "recovery": "Display > Focus wing region is persisted and undoable; toggling preserves the arbitrary camera. Turn it off, then Fit, to restore full coverage. Original points and mesh views use full coverage regardless of the retained preference; the checkbox is disabled in those modes.",
+      "scalar": "Clip and linearly interpolate the actual selected scalar before color mapping, including the supplied velocity_magnitude. Original nodes inside the displayed region set the fixed custom range with existing padding and sampling limits; recorded velocity supplies traces.",
+      "material": {
+        "focused": "M_FlowScalarFocus",
+        "focusedOpacity": 0.16,
+        "unfocused": "Existing opaque reconstructed scalar material and scalar transport."
+      },
+      "inference": "Neutral shaded extrusion uses the inferred reconstruction boundary only. Live and annotated snapshot labels identify the focused 2D field and absence of spanwise flow; original point-source solid-boundary identity remains unavailable.",
+      "originalMesh": "Existing original-mesh Flow overview changes camera framing only; its original slice, full display bounds and full-domain Fit remain distinct.",
+      "visualAuthority": "Native Slate controls, existing navy/cyan palette and supplied reference. No token, font, component-preview or identity replacement.",
+      "acceptance": "focusedWingScope records the twelve-capture local ship verdict and bounded runtime evidence."
     }
   },
   "components": [
