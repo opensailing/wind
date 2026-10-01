@@ -2,12 +2,22 @@
 #include "StudioView.h"
 
 class IStudioField;
+struct FStudioStreamlineOutput;
 namespace StudioFlowPresentation
 {
     /** Bounded current-domain sampling for a frozen custom display range.
      * Keeps source metadata and values intact. Returns false unless a 2D field supplies a wing boundary and scalar samples. */
     bool Overview(const IStudioField& Field,const FBox& Bounds,const FString& Scalar,
         double Aspect,const FStudioInspectionState& Current,FStudioInspectionState& Out);
+    struct FDirectionMarker
+    {
+        FVector PositionMeters,Direction;
+        double Scalar=0,LengthMeters=0,RadiusMeters=0;
+    };
+    /** Bounded glyphs sampled from recorded velocity, including backward traces.
+     * Marker size means direction only. Cancellation returns no partial markers. */
+    TArray<FDirectionMarker> DirectionMarkers(const IStudioField& Field,const FStudioStreamlineOutput& Streams,
+        const FBox& Bounds,const FStudioLoadCancellation& Cancel={});
     struct FSlice
     {
         TArray<FVector> Positions;

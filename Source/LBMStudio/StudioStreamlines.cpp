@@ -32,7 +32,7 @@ FBox StudioStreamlines::DomainBounds(const IStudioField& Field,const FBox& Recor
 
 bool FStudioStreamlineSettings::operator==(const FStudioStreamlineSettings& S) const
 {
-    return bAutomaticSeeds==S.bAutomaticSeeds&&AutomaticSeedCount==S.AutomaticSeedCount&&Direction==S.Direction&&StepFraction==S.StepFraction&&MaximumLength==S.MaximumLength&&
+    return bDirectionMarkers==S.bDirectionMarkers&&bAutomaticSeeds==S.bAutomaticSeeds&&AutomaticSeedCount==S.AutomaticSeedCount&&Direction==S.Direction&&StepFraction==S.StepFraction&&MaximumLength==S.MaximumLength&&
         WidthFraction==S.WidthFraction&&MaximumSteps==S.MaximumSteps&&WorkBudget==S.WorkBudget&&VelocityField==S.VelocityField;
 }
 bool StudioStreamlines::IsValid(const FStudioStreamlineSettings& S)
@@ -44,6 +44,7 @@ bool StudioStreamlines::IsValid(const FStudioStreamlineSettings& S)
 TSharedRef<FJsonObject> StudioStreamlines::ToJSON(const FStudioStreamlineSettings& S)
 {
     auto O=MakeShared<FJsonObject>();O->SetNumberField(TEXT("direction"),uint8(S.Direction));
+    O->SetBoolField(TEXT("directionMarkers"),S.bDirectionMarkers);
     O->SetBoolField(TEXT("automaticSeeds"),S.bAutomaticSeeds);O->SetNumberField(TEXT("automaticSeedCount"),S.AutomaticSeedCount);
     O->SetNumberField(TEXT("stepFraction"),S.StepFraction);O->SetNumberField(TEXT("maximumLength"),S.MaximumLength);
     O->SetNumberField(TEXT("widthFraction"),S.WidthFraction);O->SetNumberField(TEXT("maximumSteps"),S.MaximumSteps);
@@ -59,6 +60,9 @@ bool StudioStreamlines::FromJSON(const TSharedPtr<FJsonObject>& O,FStudioStreaml
         !O->TryGetNumberField(TEXT("automaticSeedCount"),Count)||!StreamRange(Count,1,512)||Count!=FMath::FloorToDouble(Count)||
         !StreamRange(Direction,0,2)||!StreamRange(Steps,1,4096)||!StreamRange(Budget,1,MaximumWork)||
         Direction!=FMath::FloorToDouble(Direction)||Steps!=FMath::FloorToDouble(Steps)||Budget!=FMath::FloorToDouble(Budget))return false;
+    // Additive display preference: older documents retain unmarked streamlines.
+    if(O->HasField(TEXT("directionMarkers"))&&(!O->HasTypedField<EJson::Boolean>(TEXT("directionMarkers"))||
+        !O->TryGetBoolField(TEXT("directionMarkers"),S.bDirectionMarkers)))return false;
     S.Direction=EStudioStreamDirection(int32(Direction));S.MaximumSteps=int32(Steps);S.WorkBudget=int32(Budget);S.AutomaticSeedCount=int32(Count);
     if(!IsValid(S))return false;Out=MoveTemp(S);return true;
 }

@@ -1,5 +1,6 @@
 #include "StudioFlowPresentation.h"
 #include "StudioModel.h"
+#include "StudioSavedFieldView.h"
 
 bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Bounds,const FString& Scalar,
     double Aspect,const FStudioInspectionState& Current,FStudioInspectionState& Out)
@@ -11,7 +12,7 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
     D.bVolume=false;D.bVectors=false;D.bCutPlane=true;D.MeshStyle=0;
     D.SliceAxis=1;D.SlicePosition=Identity->SourceOffset.Y;
     D.bStreamlines=Identity->SpatialDimensions==2&&(!Field.Boundary().IsEmpty()||Field.Reconstruction());
-    D.StreamlineSettings.bAutomaticSeeds=true;D.StreamlineSettings.AutomaticSeedCount=48;
+    D.StreamlineSettings.bDirectionMarkers=true;D.StreamlineSettings.bAutomaticSeeds=true;D.StreamlineSettings.AutomaticSeedCount=48;
     D.StreamlineSettings.WidthFraction=.00105;D.StreamlineSettings.StepFraction=.003125;
     D.StreamlineSettings.MaximumSteps=768;D.StreamlineSettings.WorkBudget=65536;
     D.bReconstructedSurface=Field.Reconstruction().IsValid();
@@ -84,5 +85,42 @@ StudioFlowPresentation::FSlice StudioFlowPresentation::OriginalSlice(const IStud
             Out.Indices.Add(Out.Positions.Num());Out.Positions.Add(V.P*100.);Out.ScalarOpacity.Add(FVector2D(S,.18));Out.Velocity.Add(V.Velocity);
         }
     }
+    return Out;
+}
+
+TArray<StudioFlowPresentation::FDirectionMarker> StudioFlowPresentation::DirectionMarkers(
+    const IStudioField& Field,const FStudioStreamlineOutput& Streams,const FBox& Bounds,const FStudioLoadCancellation& Cancel)
+{
+    TArray<FDirectionMarker> Out;
+    const auto Identity=Field.Identity();
+    if(!Identity||!Streams.Identity||!StudioSavedFieldViews::SameIdentity(*Identity,*Streams.Identity)||!Bounds.IsValid)return Out;
+    const double Scale=Bounds.GetSize().GetMax(),Spacing=Scale*.075;
+    if(!FMath::IsFinite(Spacing)||Spacing<=0)return Out;
+    // Equal arc-length intervals with staggered rows avoid a grid of arrows.
+    // Every glyph samples the actual field; tracing backward never reverses flow.
+    for(const auto& Path:Streams.Paths)
+    {
+        if(Cancel&&Cancel->load())return {};
+        double Traveled=0,Next=Spacing*(.5+.17*(Path.SeedIndex%3));int32 Count=0;
+        for(int32 I=1;I<Path.PositionsMeters.Num()&&Count<32&&Out.Num()<2048;++I)
+        {
+            if(Cancel&&Cancel->load())return {};
+            const FVector A=Path.PositionsMeters[I-1],B=Path.PositionsMeters[I];const double Length=(B-A).Size();
+            if(!FMath::IsFinite(Length)||Length<=0)continue;
+            while(Next<=Traveled+Length&&Count<32&&Out.Num()<2048)
+            {
+                const FVector P=FMath::Lerp(A,B,(Next-Traveled)/Length);Next+=Spacing;++Count;
+                FVector V;double Value;
+                if(!Bounds.IsInsideOrOn(P)||Field.IsSolid(P)||!Field.SampleVelocity(P,V)||V.ContainsNaN()||
+                    !FMath::IsFinite(V.Size())||V.Size()<=0||!Field.SampleScalar(P,Streams.Scalar,Value)||!FMath::IsFinite(Value))continue;
+                const FVector D=V/V.Size();const double Head=Scale*.011,Radius=Scale*.0028;
+                const FVector Base=P-D*(Head*.5),Tip=P+D*(Head*.5);
+                if(!Bounds.IsInsideOrOn(Base)||!Bounds.IsInsideOrOn(Tip)||!Field.SupportsSegment(Base,Tip,Cancel))continue;
+                Out.Add({P,D,Value,Head,Radius});
+            }
+            Traveled+=Length;
+        }
+    }
+    if(Cancel&&Cancel->load())return {};
     return Out;
 }

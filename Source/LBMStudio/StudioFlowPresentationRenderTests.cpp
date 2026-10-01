@@ -89,7 +89,19 @@ public:
         }
         case 12:
             for(const auto& Pair:M.FloatingPanes)Test->TestTrue(TEXT("Reset panels restores position and expanded body"),!Pair.Value.bMoved&&!Pair.Value.bMinimized);
-            Capture(TEXT("reset-panels.png"));return true;
+            Capture(TEXT("reset-panels.png"));PaneBefore=M.InspectionState();PaneFrame=M.SelectedFrame;
+            VerifyMarkers(true);OpenStreamMenu();Next();break;
+        case 13:Capture(TEXT("direction-settings.png"));Press(TEXT("StreamDirectionMarkers"));Next();break;
+        case 14:
+            VerifyMarkers(false);Test->TestEqual(TEXT("Marker toggle leaves frame intact"),M.SelectedFrame,PaneFrame);
+            Test->TestTrue(TEXT("Marker toggle leaves camera intact"),StudioView::CameraEquals(M.InspectionState().Camera,PaneBefore.Camera));
+            Press(TEXT("StreamDirectionMarkers"));Next();break;
+        case 15:
+            VerifyMarkers(true);Test->TestTrue(TEXT("Direction markers are undoable"),M.UndoView());Next();break;
+        case 16:
+            VerifyMarkers(false);Test->TestTrue(TEXT("Direction markers can redo"),M.RedoView());Next();break;
+        case 17:
+            VerifyMarkers(true);FSlateApplication::Get().DismissAllMenus();Capture(TEXT("direction-markers.png"));return true;
         }
         return false;
     }
@@ -103,8 +115,28 @@ private:
     }
     void Press(FName Tag)
     {
-        auto W=Find(GEngine->GameViewport->GetWindow().ToSharedRef(),Tag);
-        if(!Test->TestTrue(TEXT("Overview is accessible"),W.IsValid()))return;
+        TSharedPtr<SWidget> W;TArray<TSharedRef<SWindow>> Windows;FSlateApplication::Get().GetAllVisibleWindowsOrdered(Windows);
+        for(const auto& Window:Windows)if(auto Found=Find(Window,Tag)){W=Found;break;}
+        if(!Test->TestTrue(TEXT("View control is accessible: ")+Tag.ToString(),W.IsValid()))return;
+        auto& App=FSlateApplication::Get();App.SetKeyboardFocus(W,EFocusCause::Navigation);
+        App.ProcessKeyDownEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));App.ProcessKeyUpEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));
+    }
+    void VerifyMarkers(bool Expected)
+    {
+        const auto Mesh=Scene->FindComponentByClass<UProceduralMeshComponent>();const auto Section=Mesh?Mesh->GetProcMeshSection(3):nullptr;
+        if(!Test->TestNotNull(TEXT("Streamline mesh exists"),Section))return;
+        const int32 Extra=Section->ProcVertexBuffer.Num()-Scene->PresentedStreams().Segments*24;
+        Test->TestEqual(TEXT("Marker setting applied"),Scene->Model->StreamlineSettings.bDirectionMarkers,Expected);
+        Test->TestTrue(TEXT("Only bounded arrowheads add vertices"),Expected?(Extra>0&&Extra%36==0&&Extra<=2048*36):Extra==0);
+    }
+    void OpenStreamMenu()
+    {
+        const auto Menu=Find(GEngine->GameViewport->GetWindow().ToSharedRef(),TEXT("StreamlineSettings"));
+        if(!Test->TestTrue(TEXT("Streamline settings available"),Menu.IsValid()))return;
+        TFunction<TSharedPtr<SWidget>(TSharedRef<SWidget>)> Button;
+        Button=[&](TSharedRef<SWidget> W)->TSharedPtr<SWidget>{if(W->GetType()==TEXT("SButton"))return W;
+            auto* C=W->GetChildren();for(int32 I=0;I<C->Num();++I)if(auto Found=Button(C->GetChildAt(I)))return Found;return {};};
+        const auto W=Button(Menu.ToSharedRef());if(!Test->TestTrue(TEXT("Menu has keyboard opener"),W.IsValid()))return;
         auto& App=FSlateApplication::Get();App.SetKeyboardFocus(W,EFocusCause::Navigation);
         App.ProcessKeyDownEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));App.ProcessKeyUpEvent(FKeyEvent(EKeys::Enter,FModifierKeysState(),0,false,0,0));
     }

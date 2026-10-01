@@ -159,7 +159,7 @@ bool FStudioStreamPersistence::RunTest(const FString&)
 {
     FStreamAnalyticField Field;auto Seed=StreamSeed(*Field.Identity());Seed.Kind=EStudioSeedKind::Points;Seed.Points={FVector(1.25,0,-.75),FVector(-.125,0,2.25)};
     FStudioProject P;P.View.InspectionObjects.Seeds.Add(Seed);P.View.StreamlineSettings.Direction=EStudioStreamDirection::Both;
-    P.View.StreamlineSettings.bAutomaticSeeds=false;P.View.StreamlineSettings.AutomaticSeedCount=173;
+    P.View.StreamlineSettings.bDirectionMarkers=true;P.View.StreamlineSettings.bAutomaticSeeds=false;P.View.StreamlineSettings.AutomaticSeedCount=173;
     P.View.StreamlineSettings.StepFraction=.001234567890123;P.View.StreamlineSettings.WorkBudget=2345;
     FStudioProject Loaded;FString Error;
     TestTrue(*Error,StudioProjectIO::Parse(StudioProjectIO::Serialize(P),Loaded,Error));
@@ -178,6 +178,11 @@ bool FStudioStreamPersistence::RunTest(const FString&)
         Settings->SetNumberField(TEXT("workBudget"),Bad);TestFalse(TEXT("Unbounded/fractional work rejected"),StudioStreamlines::FromJSON(Settings,Kept));
         TestTrue(TEXT("Invalid settings preserve prior state"),Kept==P.View.StreamlineSettings);
     }
+    Settings=StudioStreamlines::ToJSON(P.View.StreamlineSettings);Settings->RemoveField(TEXT("directionMarkers"));
+    TestTrue(TEXT("Older streamline documents retain plain curves"),StudioStreamlines::FromJSON(Settings,Kept)&&!Kept.bDirectionMarkers);
+    Settings->SetStringField(TEXT("directionMarkers"),TEXT("yes"));const auto PriorMarkers=Kept;
+    TestFalse(TEXT("Malformed direction marker preference rejected"),StudioStreamlines::FromJSON(Settings,Kept));
+    TestTrue(TEXT("Rejected marker settings are transactional"),Kept==PriorMarkers);
     FStudioInspectionState Before,After;After.Display=P.View;FStudioViewHistory History;History.Record(TEXT("Streamline seeds"),Before,After);
     FStudioInspectionState Restored;FString Label;
     TestTrue(TEXT("Shared view history undoes all seed settings together"),History.Restore(false,After,Restored,Label)&&Restored.Equals(Before));

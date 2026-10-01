@@ -1829,6 +1829,11 @@ TSharedRef<SWidget> SStudioWorkspace::StreamlineMenu()
             [SNew(STextBlock).Font(Font(10)).Text(FText::FromString(I==0?TEXT("Forward"):I==1?TEXT("Backward"):TEXT("Both")))
                 .ColorAndOpacity_Lambda([this,I]{return int32(M->StreamlineSettings.Direction)==I?Cyan:Text;})]];
     Items->AddSlot().AutoHeight().Padding(0,0,0,14)[Directions];
+    auto Markers=Check(TEXT("Direction markers"),[this]{return M->StreamlineSettings.bDirectionMarkers;},[this,Current](bool V)
+        {if(Current())M->EditView(TEXT("Streamline direction markers"),[V](auto& S){S.Display.StreamlineSettings.bDirectionMarkers=V;});});
+    Markers->SetTag(TEXT("StreamDirectionMarkers"));
+    Markers->SetToolTipText(FText::FromString(TEXT("Arrowheads follow recorded velocity, including on backward traces. Equal size shows direction only; color follows the selected scalar.")));
+    Items->AddSlot().AutoHeight().Padding(0,0,0,12)[Markers];
     auto Distance=[&](const TCHAR* Tag,const TCHAR* Name,double FStudioStreamlineSettings::*Member,double Low,double High)
     {
         Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Row(Name,Number(Tag,Name,[this,Member,Scale]{return M->StreamlineSettings.*Member*Scale;},

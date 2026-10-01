@@ -8,6 +8,7 @@ enum class EStudioStreamDirection : uint8 { Forward, Backward, Both };
 struct FStudioStreamlineSettings
 {
     bool bAutomaticSeeds = true;
+    bool bDirectionMarkers = false; // Display only; retained views keep plain traces by default.
     int32 AutomaticSeedCount = 84;
     EStudioStreamDirection Direction = EStudioStreamDirection::Forward;
     // Distances are relative to the longest domain side, so the same view

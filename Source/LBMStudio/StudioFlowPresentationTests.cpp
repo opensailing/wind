@@ -14,7 +14,7 @@ bool FStudioFlowPresentationTest::RunTest(const FString&)
     FStudioInspectionState Overview;
     if(!TestTrue(TEXT("Published airfoil supports overview"),StudioFlowPresentation::Overview(*Field,M.Solver->Descriptor().DisplayBounds,
         M.ActiveScalar().Id,1.9,Before,Overview)))return false;
-    TestTrue(TEXT("Readable layers"),Overview.Display.bStreamlines&&Overview.Display.bCutPlane&&!Overview.Display.bVolume&&!Overview.Display.bVectors);
+    TestTrue(TEXT("Readable layers"),Overview.Display.StreamlineSettings.bDirectionMarkers&&Overview.Display.bStreamlines&&Overview.Display.bCutPlane&&!Overview.Display.bVolume&&!Overview.Display.bVectors);
     TestTrue(TEXT("Valid arbitrary perspective camera"),StudioView::IsValid(Overview)&&!Overview.Camera.bOrthographic);
     TestTrue(TEXT("Apply as one view edit"),M.EditView(TEXT("Flow overview"),[&](auto& S){S=Overview;}));
     TestTrue(TEXT("Actual frame gets explicitly custom range"),M.ActiveColorMapping().bManualRange);
@@ -49,6 +49,29 @@ bool FStudioFlowPresentationTest::RunTest(const FString&)
         if(!TestTrue(TEXT("Shader inputs derive speed after interpolation, matching probes"),FMath::Abs(Velocity.Size()-Value)<1.e-5))return false;
     }
     TestTrue(TEXT("Cancelled source surface cannot publish partially"),StudioFlowPresentation::OriginalSlice(*Field,M.Solver->Descriptor().DisplayBounds,0,Mapping,TEXT("pressure"),Cancel).Positions.IsEmpty());
+    FStudioSeedObject Seed;Seed.Name=TEXT("Direction check");const auto Id=Field->Identity();const auto Bounds=M.Solver->Descriptor().DisplayBounds;
+    Seed.Source={Id->Dataset,Id->MetadataSHA256,Id->PayloadSHA256};Seed.Kind=EStudioSeedKind::Points;
+    Seed.Points={FVector(Bounds.GetCenter().X,Id->SourceOffset.Y,Bounds.Min.Z+Bounds.GetSize().Z*.8)};
+    auto Settings=M.StreamlineSettings;Settings.Direction=EStudioStreamDirection::Both;FStudioStreamlineOutput Streams;
+    if(!TestTrue(TEXT("Trace original field in both integration directions"),StudioStreamlines::Build(*Field,Bounds,{Seed},Settings,TEXT("pressure"),Streams,Error)))
+    {AddError(Error);return false;}
+    for(bool Backward:{false,true})
+    {
+        auto Branch=Streams;Branch.Paths.RemoveAll([Backward](const auto& P){return P.bBackward!=Backward;});
+        const auto Markers=StudioFlowPresentation::DirectionMarkers(*Field,Branch,Bounds);
+        if(!TestTrue(TEXT("Both tracing directions have readable markers"),!Markers.IsEmpty()))return false;
+        for(const auto& Marker:Markers)
+        {
+            FVector V;double Pressure;
+            if(!TestTrue(TEXT("Arrow follows recorded flow even on backward trace"),Field->SampleVelocity(Marker.PositionMeters,V)&&Marker.Direction.Equals(V.GetSafeNormal(),1.e-9)))return false;
+            if(!TestTrue(TEXT("Arrow uses actual selected scalar"),Field->SampleScalar(Marker.PositionMeters,TEXT("pressure"),Pressure)&&Marker.Scalar==Pressure))return false;
+        }
+    }
+    auto Many=Streams;for(int32 I=0;I<1024;++I)Many.Paths.Add(Streams.Paths[0]);
+    TestTrue(TEXT("Dense traces retain bounded arrow geometry"),StudioFlowPresentation::DirectionMarkers(*Field,Many,Bounds).Num()<=2048);
+    TestTrue(TEXT("Canceled markers never publish partially"),StudioFlowPresentation::DirectionMarkers(*Field,Streams,Bounds,Cancel).IsEmpty());
+    Streams.Identity->Ordinal+=1;
+    TestTrue(TEXT("Stale trace cannot borrow another frame's velocity"),StudioFlowPresentation::DirectionMarkers(*Field,Streams,Bounds).IsEmpty());
     return true;
 }
 #endif

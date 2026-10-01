@@ -424,6 +424,25 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                     for(int32 V=First;V<S.Vertices.Num();++V)if((V-First)%6==1||(V-First)%6==2||(V-First)%6==4)S.Colors[V]=EndColor;
                 }
             }
+            if(Settings.bDirectionMarkers)
+            {
+                const auto Markers=StudioFlowPresentation::DirectionMarkers(Field,Stream,StreamBounds,R.Cancellation);
+                for(const auto& Marker:Markers)
+                {
+                    if(R.IsCancelled())return {};
+                    const FVector D=Marker.Direction,P=Marker.PositionMeters*100.;
+                    const FVector Tip=P+D*Marker.LengthMeters*50.,Base=P-D*Marker.LengthMeters*50.;
+                    const FVector N=FVector::CrossProduct(D,FMath::Abs(D.Z)<.9?FVector::UpVector:FVector::RightVector).GetSafeNormal();
+                    const FVector T=FVector::CrossProduct(D,N);const auto Color=StudioColor::Map(Marker.Scalar,R.ColorMapping);
+                    for(int32 Side=0;Side<6;++Side)
+                    {
+                        const double A=2*PI*Side/6.,B=2*PI*(Side+1)/6.;
+                        const FVector U=Base+(N*FMath::Cos(A)+T*FMath::Sin(A))*Marker.RadiusMeters*100.;
+                        const FVector V=Base+(N*FMath::Cos(B)+T*FMath::Sin(B))*Marker.RadiusMeters*100.;
+                        Out->Sections[3].Triangle(Tip,U,V,Color);Out->Sections[3].Triangle(Base,V,U,Color);
+                    }
+                }
+            }
             if(!Summary.Lines)Summary.Notice=Summary.Seeds?TEXT("No traces at these seeds. Check coverage, source plane and recorded velocity."):
                 Settings.bAutomaticSeeds?TEXT("Streamlines need recorded velocity and verified interpolation."):TEXT("No visible seed sets for this recording.");
         }
