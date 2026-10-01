@@ -8,6 +8,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 */
 #include "StudioWorkspace.h"
 #include "StudioTheme.h"
+#include "SStudioFlowConditions.h"
 #include "SStudioCommandInput.h"
 #include "SStudioPerformancePanel.h"
 #include "SStudioResultsWorkspace.h"
@@ -1425,6 +1426,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
     RefreshBoundaries();
     RefreshLattice();
     RefreshRunSettings();
+    if(FlowConditions)FlowConditions->Refresh();
     RefreshMonitors();
     RefreshActivityLog();
     if(DisplayMenuProject!=M->Project.Id||DisplayMenuSource.Pin()!=M->Solver||DisplayMenuScalar!=M->ActiveScalar().Id)
@@ -2738,6 +2740,8 @@ TSharedRef<SWidget> SStudioWorkspace::CachedDisplayMenu(FName Kind,TFunction<TSh
 TSharedRef<SWidget> SStudioWorkspace::Settings()
 {
     auto Controls=SNew(SVerticalBox);
+    Controls->AddSlot().AutoHeight()[Section(TEXT("Flow conditions"),
+        SAssignNew(FlowConditions,SStudioFlowConditions).Model(M).OnMaterials_Lambda([this]{Navigate(EStudioWorkspace::Materials);}))];
     Controls->AddSlot().AutoHeight()[RunSettingsControls()];
     Controls->AddSlot().AutoHeight()[JobControls()];
     Controls->AddSlot().AutoHeight()[Section(TEXT("Recorded dataset"),SNew(SVerticalBox)
@@ -2858,6 +2862,13 @@ void SStudioWorkspace::RefreshRunSettings()
     if(State.Edit.Matches(M->Project.Draft))return;
     if(State.Edit.IsDirty()||State.bConflict)State.bConflict=true;
     else {State.Edit.Reset(M->Project.Draft);State.Synchronize();State.Notice.Empty();}
+}
+bool SStudioWorkspace::EnsureFlowConditionsResolved()
+{
+    if(!FlowConditions||!FlowConditions->HasUnapplied())return true;
+    if(!EnsurePlacementResolved())return false;
+    bInspectionOpen=false;bPerformanceOpen=false;CancelInspectionPlacement();M->bViewportExpanded=false;M->bActivityLogExpanded=false;M->InspectorTab=0;
+    Navigate(EStudioWorkspace::Solve);FlowConditions->RequireResolution();return false;
 }
 bool SStudioWorkspace::EnsureRunSettingsResolved()
 {
@@ -3279,7 +3290,7 @@ TSharedRef<SWidget> SStudioWorkspace::ViewHistoryControls()
 bool SStudioWorkspace::Save(bool bSaveAs)
 {
     if(Pipelines){Pipelines->SaveCamera();if(!Pipelines->EnsureResolved())return false;}
-    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved())return false;
     FString Path=M->ProjectPath;
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
     M->Project.Camera=Scene->SavedCameraState(); return M->SaveProject(Path);
@@ -3287,7 +3298,7 @@ bool SStudioWorkspace::Save(bool bSaveAs)
 bool SStudioWorkspace::DispatchControl(EStudioJobCommand Command)
 {
     if(Command==EStudioJobCommand::Submit&&M->Project.bControlHarness&&
-        !M->Job().Can(EStudioJobCommand::Resume)&&!EnsureRunSettingsResolved())return false;
+        !M->Job().Can(EStudioJobCommand::Resume)&&(!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved()))return false;
     return M->Control(Command);
 }
 bool SStudioWorkspace::ExecuteApplicationCommand(EStudioCommand Command,FString& Response)
@@ -3316,7 +3327,7 @@ bool SStudioWorkspace::ExecuteApplicationCommand(EStudioCommand Command,FString&
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
     if(Pipelines){Pipelines->SaveCamera();if(!Pipelines->EnsureResolved())return false;}
-    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved())return false;
     if(!M->CanReplaceProject())return false;
     if(!bAllowRecovery&&!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before switching projects.");return false;}
     M->Project.Camera=Scene->SavedCameraState();
@@ -3367,7 +3378,7 @@ void SStudioWorkspace::Execute(ECommand Command)
     case ECommand::DuplicateProject:
     {
         if(Pipelines&&!Pipelines->EnsureResolved())break;
-        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved())break;
+        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved())break;
         if(!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before duplicating a project.");break;}
         FString Path;
         if(!StudioFileDialog::Project(true,M->ProjectPath,M->Project.Name+TEXT(" copy"),Path)) break;

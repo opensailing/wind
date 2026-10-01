@@ -14,6 +14,7 @@ class SScrollBox;
 class SButton;
 class SStudioMenuButton;
 class SStudioPerformancePanel;
+class SStudioFlowConditions;
 class SStudioPipelineWorkspace;
 class SStudioResultsWorkspace;
 class FStudioPerformanceHistory;
@@ -111,6 +112,7 @@ private:
     TSharedPtr<FStudioBoundaryWorkspaceState> BoundaryState;
     TSharedPtr<FStudioLatticeWorkspaceState> LatticeState;
     TSharedPtr<FStudioRunSettingsState> RunSettingsState;
+    TSharedPtr<SStudioFlowConditions> FlowConditions;
     TSharedPtr<SVerticalBox> MonitorSeriesRows;
     TSharedPtr<const FStudioHistory,ESPMode::ThreadSafe> MonitorSeriesHistory;
     bool bMonitorExpanded=false;
@@ -175,6 +177,7 @@ private:
     TSharedRef<SWidget> RunSettingsControls();
     void RefreshRunSettings();
     bool EnsureRunSettingsResolved();
+    bool EnsureFlowConditionsResolved();
     TSharedRef<SWidget> ViewTools();
     TSharedRef<SWidget> ViewToolbar();
     TSharedRef<SWidget> ViewportMenu();
