@@ -165,12 +165,14 @@ void FStudioModel::InitializeNewFlowView()
     // Project deserialization retains legacy defaults and the user's saved view.
     if(Solver->FrameCount()==0||Solver->Descriptor().bSourcePoints)return;
     FStudioInspectionState Next;
-    if(!StudioFlowPresentation::Overview(*Solver->CaptureField(0),Solver->Descriptor().DisplayBounds,
+    const auto Field=Solver->CaptureField(0);
+    if(!StudioFlowPresentation::Overview(*Field,Solver->Descriptor().DisplayBounds,
         ActiveScalar().Id,16./9.,InspectionState(),Next))return;
     // The original mesh has no reconstructed representation. Preserve that
     // unrelated preference for a later attached point-source reconstruction.
     Next.Display.bReconstructedSurface=bReconstructedSurface;
     Project.Camera=Next.Camera;static_cast<FStudioViewSettings&>(*this)=Next.Display;Project.View=Next.Display;
+    NewFlowViewBounds=StudioFlowPresentation::OverviewBounds(*Field,Solver->Descriptor().DisplayBounds);
     NewFlowViewCamera=Next.Camera;++CameraRevision;
 }
 bool FStudioModel::FitNewFlowView(double Aspect)
@@ -179,7 +181,7 @@ bool FStudioModel::FitNewFlowView(double Aspect)
     const auto Expected=NewFlowViewCamera.GetValue();NewFlowViewCamera.Reset();
     if(!StudioView::CameraEquals(Project.Camera,Expected))return false;
     const bool WasDirty=HasUnsavedChanges();
-    Project.Camera=StudioView::FitBounds(Project.Camera,Solver->Descriptor().DisplayBounds,Aspect,.01);
+    Project.Camera=StudioView::FitBounds(Project.Camera,NewFlowViewBounds,Aspect,.01);
     ++CameraRevision;
     if(!WasDirty)AcceptLoadedView();
     return true;

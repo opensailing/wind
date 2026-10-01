@@ -471,6 +471,7 @@ public:
 private:
     void InitializeNewFlowView();
     TOptional<FStudioCameraState> NewFlowViewCamera;
+    FBox NewFlowViewBounds=FBox(ForceInit);
     bool bSnapshotView=false;
     FString StorageDirectory;
     FString SavedSnapshot;

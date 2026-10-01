@@ -1,4 +1,5 @@
 #include "StudioScene.h"
+#include "StudioFlowPresentation.h"
 #include "StudioAutomationForeground.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "ProceduralMeshComponent.h"
@@ -48,10 +49,11 @@ public:
             M.NewProject(TEXT("Airfoil · flow overview"));M.Navigate(EStudioWorkspace::Solve);M.Pause();M.bViewportExpanded=false;Next();break;
         case 1:
             Test->TestTrue(TEXT("New project starts with clear recorded-flow layers"),!M.bVectors&&!M.bVolume&&M.bCutPlane&&M.bStreamlines&&
-                M.StreamlineSettings.AutomaticSeedCount==48&&M.StreamlineSettings.bDirectionMarkers&&M.ActiveColorMapping().bManualRange);
+                M.StreamlineSettings.AutomaticSeedCount==60&&M.StreamlineSettings.bDirectionMarkers&&M.ActiveColorMapping().bManualRange);
             Test->TestFalse(TEXT("Starting view is not an undoable user action"),M.CanUndoView());
             Test->TestTrue(TEXT("Starting camera fits the actual native viewport"),StudioView::CameraEquals(M.Project.Camera,
-                StudioView::FitBounds(M.Project.Camera,M.Solver->Descriptor().DisplayBounds,double(Target->SizeX)/Target->SizeY,.01)));
+                StudioView::FitBounds(M.Project.Camera,StudioFlowPresentation::OverviewBounds(*M.Solver->CaptureField(0),M.Solver->Descriptor().DisplayBounds),
+                    double(Target->SizeX)/Target->SizeY,.01)));
             VerifyLowerFlowCoverage();
             VerifySolidShading();
             Capture(TEXT("new-project.png"));Scene->Orbit(8,5);
@@ -168,7 +170,14 @@ public:
         case 28:
             Test->TestTrue(TEXT("Camera remains movable during replay"),M.State==EStudioRunState::Running&&!M.Project.Camera.Position.Equals(Before.Camera.Position));
             M.Pause();Press(TEXT("ToolOrbit"));Next();break;
-        case 29:Capture(TEXT("navigation-tools.png"));return true;
+        case 29:Capture(TEXT("navigation-tools.png"));Press(TEXT("FlowOverview"));Next();break;
+        case 30:Before=M.InspectionState();PaneRevision=M.RenderIntentRevision;Press(TEXT("ViewFit"));Next();break;
+        case 31:
+            Test->TestTrue(TEXT("Fit retains complete domain framing after wing overview"),StudioView::CameraEquals(M.Project.Camera,
+                StudioView::FitBounds(Before.Camera,M.Solver->Descriptor().DisplayBounds,double(Target->SizeX)/Target->SizeY,.01)));
+            Test->TestTrue(TEXT("Full-domain Fit pulls back from wing overview"),M.Project.Camera.OrbitDistance>Before.Camera.OrbitDistance);
+            Test->TestEqual(TEXT("Camera framing never changes field geometry"),M.RenderIntentRevision,PaneRevision);
+            Capture(TEXT("full-domain.png"));Test->TestTrue(TEXT("Undo Fit restores exact overview"),M.UndoView()&&M.InspectionState().Equals(Before));return true;
         }
         return false;
     }

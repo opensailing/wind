@@ -2,6 +2,24 @@
 #include "StudioModel.h"
 #include "StudioSavedFieldView.h"
 
+FBox StudioFlowPresentation::OverviewBounds(const IStudioField& Field,const FBox& Bounds)
+{
+    const auto Identity=Field.Identity();
+    if(!Bounds.IsValid||!Identity||Identity->SpatialDimensions!=2||Field.Boundary().Num()<3)return Bounds;
+    FBox Wing(ForceInit);
+    for(const auto& P:Field.Boundary())
+    {
+        if(P.ContainsNaN())return Bounds;
+        Wing+=FVector(P.X,Identity->SourceOffset.Y,P.Y);
+    }
+    const double Chord=Wing.GetSize().X;
+    if(!FMath::IsFinite(Chord)||Chord<=1.e-9||!Bounds.IsInsideOrOn(Wing.Min)||!Bounds.IsInsideOrOn(Wing.Max))return Bounds;
+    // Keep upstream context and more room downstream. These are framing
+    // margins around exact source geometry, never substitute domain limits.
+    return FBox(FVector(FMath::Max(Bounds.Min.X,Wing.Min.X-.6*Chord),Bounds.Min.Y,Bounds.Min.Z),
+        FVector(FMath::Min(Bounds.Max.X,Wing.Max.X+1.25*Chord),Bounds.Max.Y,Bounds.Max.Z));
+}
+
 bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Bounds,const FString& Scalar,
     double Aspect,const FStudioInspectionState& Current,FStudioInspectionState& Out)
 {
@@ -12,8 +30,8 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
     D.bVolume=false;D.bVectors=false;D.bCutPlane=true;D.MeshStyle=0;
     D.SliceAxis=1;D.SlicePosition=Identity->SourceOffset.Y;
     D.bStreamlines=Identity->SpatialDimensions==2&&(!Field.Boundary().IsEmpty()||Field.Reconstruction());
-    D.StreamlineSettings.bDirectionMarkers=true;D.StreamlineSettings.bAutomaticSeeds=true;D.StreamlineSettings.AutomaticSeedCount=48;
-    D.StreamlineSettings.WidthFraction=.00105;D.StreamlineSettings.StepFraction=.003125;
+    D.StreamlineSettings.bDirectionMarkers=true;D.StreamlineSettings.bAutomaticSeeds=true;D.StreamlineSettings.AutomaticSeedCount=60;
+    D.StreamlineSettings.WidthFraction=.00065;D.StreamlineSettings.StepFraction=.003125;
     D.StreamlineSettings.MaximumSteps=768;D.StreamlineSettings.WorkBudget=65536;
     D.bReconstructedSurface=Field.Reconstruction().IsValid();
     double Minimum=DBL_MAX,Maximum=-DBL_MAX;
@@ -38,8 +56,8 @@ bool StudioFlowPresentation::Overview(const IStudioField& Field,const FBox& Boun
         D.ScalarStyles.Add(Style);
     }
     auto& C=Next.Camera;C.bOrthographic=false;C.bFreeCamera=false;C.bDepthClipping=false;C.FieldOfView=38;
-    C.Orientation=FVector(.24,-1.,-.18).Rotation().Quaternion();
-    C=StudioView::FitBounds(C,Bounds,Aspect,.01);
+    C.Orientation=FVector(.32,-1.,-.2).Rotation().Quaternion();
+    C=StudioView::FitBounds(C,OverviewBounds(Field,Bounds),Aspect,.01);
     if(!StudioView::IsValid(Next))return false;Out=MoveTemp(Next);return true;
 }
 
@@ -94,14 +112,14 @@ TArray<StudioFlowPresentation::FDirectionMarker> StudioFlowPresentation::Directi
     TArray<FDirectionMarker> Out;
     const auto Identity=Field.Identity();
     if(!Identity||!Streams.Identity||!StudioSavedFieldViews::SameIdentity(*Identity,*Streams.Identity)||!Bounds.IsValid)return Out;
-    const double Scale=Bounds.GetSize().GetMax(),Spacing=Scale*.075;
+    const double Scale=Bounds.GetSize().GetMax(),Spacing=Scale*.09;
     if(!FMath::IsFinite(Spacing)||Spacing<=0)return Out;
     // Equal arc-length intervals with staggered rows avoid a grid of arrows.
     // Every glyph samples the actual field; tracing backward never reverses flow.
     for(const auto& Path:Streams.Paths)
     {
         if(Cancel&&Cancel->load())return {};
-        double Traveled=0,Next=Spacing*(.5+.17*(Path.SeedIndex%3));int32 Count=0;
+        double Traveled=0,Next=Spacing*(.35+FMath::Frac(Path.SeedIndex*.61803398875));int32 Count=0;
         for(int32 I=1;I<Path.PositionsMeters.Num()&&Count<32&&Out.Num()<2048;++I)
         {
             if(Cancel&&Cancel->load())return {};
@@ -113,7 +131,7 @@ TArray<StudioFlowPresentation::FDirectionMarker> StudioFlowPresentation::Directi
                 FVector V;double Value;
                 if(!Bounds.IsInsideOrOn(P)||Field.IsSolid(P)||!Field.SampleVelocity(P,V)||V.ContainsNaN()||
                     !FMath::IsFinite(V.Size())||V.Size()<=0||!Field.SampleScalar(P,Streams.Scalar,Value)||!FMath::IsFinite(Value))continue;
-                const FVector D=V/V.Size();const double Head=Scale*.011,Radius=Scale*.0028;
+                const FVector D=V/V.Size();const double Head=Scale*.0075,Radius=Scale*.0016;
                 const FVector Base=P-D*(Head*.5),Tip=P+D*(Head*.5);
                 if(!Bounds.IsInsideOrOn(Base)||!Bounds.IsInsideOrOn(Tip)||!Field.SupportsSegment(Base,Tip,Cancel))continue;
                 Out.Add({P,D,Value,Head,Radius});

@@ -5,6 +5,9 @@ class IStudioField;
 struct FStudioStreamlineOutput;
 namespace StudioFlowPresentation
 {
+    /** Camera-only wing and near-wake region, clamped to supplied display bounds.
+     * Does not crop geometry, source sampling, streamline integration or exports. */
+    FBox OverviewBounds(const IStudioField& Field,const FBox& Bounds);
     /** Bounded current-domain sampling for a frozen custom display range.
      * Keeps source metadata and values intact. Returns false unless a 2D field supplies a wing boundary and scalar samples. */
     bool Overview(const IStudioField& Field,const FBox& Bounds,const FString& Scalar,

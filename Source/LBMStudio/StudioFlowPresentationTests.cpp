@@ -19,6 +19,28 @@ bool FStudioFlowPresentationTest::RunTest(const FString&)
         M.ActiveScalar().Id,1.9,Before,Overview)))return false;
     TestTrue(TEXT("Readable layers"),Overview.Display.StreamlineSettings.bDirectionMarkers&&Overview.Display.bStreamlines&&Overview.Display.bCutPlane&&!Overview.Display.bVolume&&!Overview.Display.bVectors);
     TestTrue(TEXT("Valid arbitrary perspective camera"),StudioView::IsValid(Overview)&&!Overview.Camera.bOrthographic);
+    const auto Domain=M.Solver->Descriptor().DisplayBounds;
+    const auto FocusBounds=StudioFlowPresentation::OverviewBounds(*Field,Domain);
+    TestTrue(TEXT("Overview crops peripheral context through camera framing only"),FocusBounds.IsValid&&
+        Domain.IsInsideOrOn(FocusBounds.Min)&&Domain.IsInsideOrOn(FocusBounds.Max)&&FocusBounds.GetSize().X<Domain.GetSize().X*.8);
+    for(const auto& P:Field->Boundary())
+        if(!TestTrue(TEXT("Complete original wing remains inside overview"),FocusBounds.IsInsideOrOn(FVector(P.X,0,P.Y))))return false;
+    TestTrue(TEXT("Overview brings original solid closer than whole-domain Fit"),Overview.Camera.OrbitDistance<
+        StudioView::FitBounds(Overview.Camera,Domain,1.9,.01).OrbitDistance);
+    for(double Aspect:{1.2,1.9,2.5})
+    {
+        const auto C=StudioView::FitBounds(Overview.Camera,FocusBounds,Aspect,.01);
+        const double TanH=FMath::Tan(FMath::DegreesToRadians(C.FieldOfView*.5));
+        for(int32 I=0;I<8;++I)
+        {
+            const FVector P=FVector(I&1?FocusBounds.Max.X:FocusBounds.Min.X,I&2?FocusBounds.Max.Y:FocusBounds.Min.Y,
+                I&4?FocusBounds.Max.Z:FocusBounds.Min.Z)-C.Position;
+            const double Depth=FVector::DotProduct(P,C.Orientation.GetForwardVector());
+            if(!TestTrue(TEXT("Wing/wake fit retains depth clearance and complete visible region at each aspect"),Depth>.01&&
+                FMath::Abs(FVector::DotProduct(P,C.Orientation.GetRightVector()))<Depth*TanH&&
+                FMath::Abs(FVector::DotProduct(P,C.Orientation.GetUpVector()))<Depth*TanH/Aspect))return false;
+        }
+    }
     TestTrue(TEXT("Apply as one view edit"),M.EditView(TEXT("Flow overview"),[&](auto& S){S=Overview;}));
     TestTrue(TEXT("Actual frame gets explicitly custom range"),M.ActiveColorMapping().bManualRange);
     TestTrue(TEXT("Local range improves use of the palette"),M.ActiveColorMapping().Maximum<OriginalRange.Maximum);
@@ -86,7 +108,7 @@ bool FStudioInitialFlowViewTest::RunTest(const FString&)
     FStudioModel M(Root);
     const auto OriginalField=M.ActiveScalar();const auto Case=StudioCaseIO::Serialize(M.Project.Draft);
     TestTrue(TEXT("New app opens with readable recorded flow"),!M.bVectors&&!M.bVolume&&M.bCutPlane&&M.bStreamlines&&
-        M.StreamlineSettings.AutomaticSeedCount==48&&M.StreamlineSettings.bDirectionMarkers&&M.ActiveColorMapping().bManualRange);
+        M.StreamlineSettings.AutomaticSeedCount==60&&M.StreamlineSettings.bDirectionMarkers&&M.ActiveColorMapping().bManualRange);
     TestFalse(TEXT("Initial view has no fabricated user edits"),M.HasUnsavedChanges()||M.CanUndoView());
     TestTrue(TEXT("Initial layout fits actual aspect"),M.FitNewFlowView(2.1));
     TestFalse(TEXT("Initial fit stays clean and outside history"),M.HasUnsavedChanges()||M.CanUndoView());
