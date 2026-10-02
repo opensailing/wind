@@ -10,6 +10,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioTheme.h"
 #include "SStudioFlowConditions.h"
 #include "SStudioHelpPanel.h"
+#include "SStudioNotifications.h"
 #include "SStudioCommandInput.h"
 #include "SStudioPerformancePanel.h"
 #include "SStudioResultsWorkspace.h"
@@ -381,6 +382,12 @@ namespace StudioUI
                 FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),Ring,ESlateDrawEffect::None,Color,true,1.15f);
                 Path({{.34,.35},{.35,.27},{.42,.22},{.55,.22},{.64,.29},{.65,.38},{.59,.45},{.51,.49},{.5,.59}});
                 Path({{.5,.71},{.5,.73}},2.f);
+            }
+            else if(Name==TEXT("bell"))
+            {
+                Path({{.18,.75},{.28,.65},{.28,.36},{.32,.22},{.43,.15},{.57,.15},{.68,.22},{.72,.36},{.72,.65},{.82,.75},{.18,.75}});
+                Path({{.42,.85},{.46,.9},{.54,.9},{.58,.85}});
+                Path({{.5,.08},{.5,.15}});
             }
             else if(Name==TEXT("pause")) {Path({{.32,.2},{.32,.8}},2); Path({{.68,.2},{.68,.8}},2);}
             else if(Name==TEXT("stop")) Path({{.2,.2},{.8,.2},{.8,.8},{.2,.8},{.2,.2}});
@@ -1222,6 +1229,23 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
             .OnMenuOpenChanged_Lambda([State=FieldExport](bool Open){State->MenuOpenChanged(Open);})
             .ButtonContent()[Live([this]{return FieldExport->IsBusy()?TEXT("Exporting…"):TEXT("Export");},10)]]
         +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10,0,0,0)
+            [SAssignNew(NotificationsButton,SStudioMenuButton).Tag(TEXT("HeaderNotifications")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7))
+                .HasDownArrow(false).AccessibleText(FText::FromString(TEXT("Notifications")))
+                .ToolTipText_Lambda([this]{return FText::FromString(FString::Printf(TEXT("Notifications · %d unread"),M->Notifications().UnreadCount()));})
+                .OnMenuOpenChanged_Lambda([this](bool Open){if(!Open)NotificationsButton->FocusButton();})
+                .OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
+                {
+                    return SNew(SStudioNotifications).Tag(TEXT("NotificationsPanel")).Model(M)
+                        .Reveal([this](uint64 Id){return RevealNotification(Id);})
+                        .OnClose_Lambda([this]{NotificationsButton->SetIsOpen(false);NotificationsButton->FocusButton();});
+                }).ButtonContent()[SNew(SHorizontalBox)
+                    +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SIcon).Name(TEXT("bell")).Size(17)
+                        .Color_Lambda([this]{return M->Notifications().UnreadCount()?Cyan:Muted;})]
+                    +SHorizontalBox::Slot().AutoWidth().Padding(4,0,0,0).VAlign(VAlign_Center)[SNew(STextBlock).Tag(TEXT("NotificationBadge"))
+                        .Font(Font(9,true)).ColorAndOpacity(Cyan)
+                        .Visibility_Lambda([this]{return M->Notifications().UnreadCount()?EVisibility::Visible:EVisibility::Collapsed;})
+                        .Text_Lambda([this]{const int32 Count=M->Notifications().UnreadCount();return FText::FromString(Count>99?TEXT("99+"):FString::FromInt(Count));})]]]
+        +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6,0,0,0)
             [SAssignNew(HelpButton,SStudioMenuButton).Tag(TEXT("HeaderHelp")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7))
                 .HasDownArrow(false).ToolTipText(FText::FromString(TEXT("Help and keyboard shortcuts · F1")))
                 .AccessibleText(FText::FromString(TEXT("Help")))
@@ -1236,6 +1260,25 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
 void SStudioWorkspace::OpenHelp()
 {
     HelpButton->SetIsOpen(true,true);
+}
+bool SStudioWorkspace::RevealNotification(uint64 Id)
+{
+    FString Reason;if(!M->CanRevealNotification(Id,Reason)){M->Notice=Reason;return false;}
+    const FStudioNotification Entry=*M->Notifications().Find(Id);
+    FSlateApplication::Get().DismissAllMenus();
+    if(Entry.Kind==EStudioNotificationKind::Completed)
+    {
+        Navigate(EStudioWorkspace::Results);
+        return Results->RevealNotification(Entry.RunId,Entry.SourceReference);
+    }
+    Navigate(EStudioWorkspace::Solve);RefreshActivityLog();
+    auto& S=*LogState;S.Query=FStudioLogQuery();S.Query.ProjectId=M->Project.Id;
+    S.bAllProjects=S.bCurrentRun=false;S.Search.Pin()->SetText(FText::GetEmpty());
+    S.View.SetFollowing(true,M->ActivityLog());S.View.SetFollowing(false,M->ActivityLog());S.View.ShowRetained();
+    S.SelectedSequence=Entry.LogSequence;S.bDirty=true;RefreshActivityLog();ExpandActivityLog(true);
+    if(auto* Row=S.Rows.FindByPredicate([&](const auto& Value){return Value->Sequence==Entry.LogSequence;}))
+    {S.List.Pin()->SetSelection(*Row);S.List.Pin()->RequestScrollIntoView(*Row);}
+    return true;
 }
 TSharedRef<SWidget> SStudioWorkspace::Navigation()
 {

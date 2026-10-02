@@ -52,11 +52,12 @@ TSharedRef<SWidget> ResultText(const FString& Value,int32 Size=10,FLinearColor C
     return SNew(STextBlock).Text(FText::FromString(Value)).Font(StudioUI::Font(Size,Bold))
         .ColorAndOpacity(Color).AutoWrapText(true);
 }
-TSharedRef<SWidget> ResultProperty(const FString& Caption,const FString& Value)
+TSharedRef<SWidget> ResultProperty(const FString& Caption,const FString& Value,FName Tag=NAME_None)
 {
+    auto Content=ResultText(Value,10);Content->SetTag(Tag);
     return SNew(SHorizontalBox)
         +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(145)[ResultText(Caption,9,StudioUI::Muted)]]
-        +SHorizontalBox::Slot().FillWidth(1)[ResultText(Value,10)];
+        +SHorizontalBox::Slot().FillWidth(1)[Content];
 }
 TSharedRef<SButton> ResultButton(FName Tag,const FString& Caption,TFunction<void()> Action)
 {
@@ -136,6 +137,16 @@ void SStudioResultsWorkspace::CloseComparison()
 
 void SStudioResultsWorkspace::SetRuns(bool Value)
 {bRuns=Value;bRowsDirty=bDetailsDirty=true;}
+bool SStudioResultsWorkspace::RevealNotification(const FGuid& Run,const FString& Recording)
+{
+    if(Run.IsValid())
+    {if(!M->Project.Runs.ContainsByPredicate([&](const auto& Entry){return Entry.GetId()==Run;}))return false;}
+    else if(Recording!=M->Project.Dataset)return false;
+    if(Comparison)CloseComparison();
+    ProjectId=M->Project.Id;RunId=Run;SearchBox->SetText(FText::GetEmpty());SetRuns(Run.IsValid());
+    RefreshRows();Details->SetContent(bRuns?RunDetails():RecordingDetails());bDetailsDirty=false;
+    FSlateApplication::Get().SetKeyboardFocus(SearchBox,EFocusCause::Navigation);return true;
+}
 void SStudioResultsWorkspace::OpenDataset(const FString& Id)
 {
     if(!Available())return;
@@ -308,7 +319,8 @@ TSharedRef<SWidget> SStudioResultsWorkspace::RunDetails()
                 TEXT("Toolbar playback and field export use ");
             return FText::FromString(Prefix+Source+TEXT(". Selecting a saved run only changes this inspection."));
         })];
-    auto Property=[&](const TCHAR* Name,const FString& Value){Content->AddSlot().AutoHeight().Padding(0,0,0,10)[ResultProperty(Name,Value)];};
+    auto Property=[&](const TCHAR* Name,const FString& Value){Content->AddSlot().AutoHeight().Padding(0,0,0,10)
+        [ResultProperty(Name,Value,FString(Name)==TEXT("Run ID")?FName(TEXT("ResultsRunIdentity")):NAME_None)];};
     Property(TEXT("Run ID"),R->GetId().ToString());
     Content->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(STextBlock).Tag(TEXT("ResultsRunStatus")).Font(Font(10)).ColorAndOpacity(Muted).AutoWrapText(true)
         .Text_Lambda([this,Id=R->GetId()]{const auto Status=M->RunStatus(Id);return FText::FromString(Status.IsEmpty()?TEXT("No job lifecycle is attached to this record."):Status);})];

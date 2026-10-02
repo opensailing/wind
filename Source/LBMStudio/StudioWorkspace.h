@@ -175,6 +175,8 @@ private:
     TSharedRef<SWidget> Settings();
     void OpenHelp();
     TSharedPtr<SStudioMenuButton> HelpButton;
+    TSharedPtr<SStudioMenuButton> NotificationsButton;
+    bool RevealNotification(uint64 Id);
     TSharedRef<SWidget> JobControls();
     TSharedRef<SWidget> RunSettingsControls();
     void RefreshRunSettings();

@@ -28,6 +28,8 @@ public:
     void Tick(const FGeometry& Geometry,double Time,float Delta) override;
     bool IsComparisonOpen() const {return Comparison.IsValid();}
     TOptional<FStudioComparisonExportRequest> ExportComparisonSnapshot(FString& Error) const;
+    /** Inspect metadata only; never open a recording or replace the live view. */
+    bool RevealNotification(const FGuid& Run,const FString& Recording);
 private:
     bool Available() const;
     bool HasRecording() const;
