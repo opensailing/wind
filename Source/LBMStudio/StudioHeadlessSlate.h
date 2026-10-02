@@ -17,6 +17,9 @@ public:
     FStudioHeadlessSlate& operator=(const FStudioHeadlessSlate&)=delete;
     void Layout();
     TSharedPtr<SWidget> Find(FName Tag);
+    bool Exists(FName Tag);
+    bool Focus(FName Tag);
+    void Key(FKey Key);
     bool Press(FName Tag);
     bool Type(FName Tag, const FString& Value);
     FString Text(FName Tag);
@@ -32,6 +35,5 @@ private:
     TSharedPtr<SWidget> FindIn(const TSharedRef<SWidget>& Widget, FName Tag);
     TSharedPtr<SWidget> Focusable(const TSharedRef<SWidget>& Widget);
     bool Focus(const TSharedPtr<SWidget>& Widget);
-    void Key(FKey Key);
 };
 #endif

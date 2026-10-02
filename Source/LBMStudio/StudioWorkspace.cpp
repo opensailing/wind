@@ -9,6 +9,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioWorkspace.h"
 #include "StudioTheme.h"
 #include "SStudioFlowConditions.h"
+#include "SStudioHelpPanel.h"
 #include "SStudioCommandInput.h"
 #include "SStudioPerformancePanel.h"
 #include "SStudioResultsWorkspace.h"
@@ -373,6 +374,14 @@ namespace StudioUI
             auto Path=[&](std::initializer_list<FVector2D> Points,float Width=1.15f)
             { TArray<FVector2D> P; for(auto V:Points) P.Add(V*G.GetLocalSize()); FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),P,ESlateDrawEffect::None,Color,true,Width); };
             if(Name==TEXT("run")) Path({{.25,.15},{.85,.5},{.25,.85},{.25,.15}});
+            else if(Name==TEXT("help"))
+            {
+                TArray<FVector2D> Ring;
+                for(int32 I=0;I<=24;++I){const double A=I*2.*PI/24.;Ring.Add((FVector2D(.5,.5)+FVector2D(FMath::Cos(A),FMath::Sin(A))*.43)*G.GetLocalSize());}
+                FSlateDrawElement::MakeLines(O,L,G.ToPaintGeometry(),Ring,ESlateDrawEffect::None,Color,true,1.15f);
+                Path({{.34,.35},{.35,.27},{.42,.22},{.55,.22},{.64,.29},{.65,.38},{.59,.45},{.51,.49},{.5,.59}});
+                Path({{.5,.71},{.5,.73}},2.f);
+            }
             else if(Name==TEXT("pause")) {Path({{.32,.2},{.32,.8}},2); Path({{.68,.2},{.68,.8}},2);}
             else if(Name==TEXT("stop")) Path({{.2,.2},{.8,.2},{.8,.8},{.2,.8},{.2,.2}});
             else if(Name==TEXT("step")) {Path({{.18,.2},{.68,.5},{.18,.8},{.18,.2}}); Path({{.8,.2},{.8,.8}});}
@@ -1211,7 +1220,22 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
         +SHorizontalBox::Slot().AutoWidth()[SNew(SStudioMenuButton).Tag(TEXT("ExportMenu")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(9,7))
             .OnGetMenuContent(this,&SStudioWorkspace::ExportMenu)
             .OnMenuOpenChanged_Lambda([State=FieldExport](bool Open){State->MenuOpenChanged(Open);})
-            .ButtonContent()[Live([this]{return FieldExport->IsBusy()?TEXT("Exporting…"):TEXT("Export");},10)]]]];
+            .ButtonContent()[Live([this]{return FieldExport->IsBusy()?TEXT("Exporting…"):TEXT("Export");},10)]]
+        +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10,0,0,0)
+            [SAssignNew(HelpButton,SStudioMenuButton).Tag(TEXT("HeaderHelp")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7))
+                .HasDownArrow(false).ToolTipText(FText::FromString(TEXT("Help and keyboard shortcuts · F1")))
+                .AccessibleText(FText::FromString(TEXT("Help")))
+                .OnMenuOpenChanged_Lambda([this](bool Open){if(!Open)HelpButton->FocusButton();})
+                .OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
+                {
+                    return SNew(SStudioHelpPanel).Tag(TEXT("HelpPanel")).Model(M).Scene(Scene.Get())
+                        .OnResults_Lambda([this]{FSlateApplication::Get().DismissAllMenus();Navigate(EStudioWorkspace::Results);})
+                        .OnClose_Lambda([this]{HelpButton->SetIsOpen(false);HelpButton->FocusButton();});
+                }).ButtonContent()[Icon(TEXT("help"),Muted,17)]]]];
+}
+void SStudioWorkspace::OpenHelp()
+{
+    HelpButton->SetIsOpen(true,true);
 }
 TSharedRef<SWidget> SStudioWorkspace::Navigation()
 {
@@ -3407,6 +3431,7 @@ void SStudioWorkspace::Execute(ECommand Command)
 }
 FReply SStudioWorkspace::OnKeyDown(const FGeometry& Geometry,const FKeyEvent& Event)
 {
+    if(Event.GetKey()==EKeys::F1){OpenHelp();return FReply::Handled();}
     UE_LOG(LogTemp,Verbose,TEXT("Studio key %s command=%d control=%d shift=%d"),*Event.GetKey().ToString(),Event.IsCommandDown(),Event.IsControlDown(),Event.IsShiftDown());
     if(Event.IsCommandDown()||Event.IsControlDown())
     {
@@ -3420,6 +3445,7 @@ FReply SStudioWorkspace::OnKeyDown(const FGeometry& Geometry,const FKeyEvent& Ev
 }
 FReply SStudioWorkspace::OnPreviewKeyDown(const FGeometry& Geometry,const FKeyEvent& Event)
 {
+    if(Event.GetKey()==EKeys::F1)return OnKeyDown(Geometry,Event);
     const auto Focused=FSlateApplication::Get().GetKeyboardFocusedWidget();
     if(Event.GetKey()==EKeys::Escape&&Focused&&Focused->HasMouseCapture()&&Focused->GetTag().ToString().StartsWith(TEXT("PaneDrag_")))
         return FReply::Unhandled();

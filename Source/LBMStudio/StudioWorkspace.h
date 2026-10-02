@@ -173,6 +173,8 @@ private:
     void Navigate(EStudioWorkspace Destination);
     void LocateProject(const FString& OldPath);
     TSharedRef<SWidget> Settings();
+    void OpenHelp();
+    TSharedPtr<SStudioMenuButton> HelpButton;
     TSharedRef<SWidget> JobControls();
     TSharedRef<SWidget> RunSettingsControls();
     void RefreshRunSettings();

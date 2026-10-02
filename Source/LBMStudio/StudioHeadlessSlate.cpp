@@ -12,6 +12,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Types/PaintArgs.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Input/SMultiLineEditableTextBox.h"
 #include "Widgets/Text/STextBlock.h"
 
 namespace
@@ -74,6 +75,14 @@ TSharedPtr<SWidget> FStudioHeadlessSlate::Find(FName Tag)
 {
     Layout();auto Found=FindIn(Window,Tag);Test.TestTrue(TEXT("Visible tagged control: ")+Tag.ToString(),Found.IsValid());return Found;
 }
+bool FStudioHeadlessSlate::Exists(FName Tag)
+{
+    Layout();return FindIn(Window,Tag).IsValid();
+}
+bool FStudioHeadlessSlate::Focus(FName Tag)
+{
+    return Focus(Find(Tag));
+}
 TSharedPtr<SWidget> FStudioHeadlessSlate::Focusable(const TSharedRef<SWidget>& Widget)
 {
     if(!Widget->GetVisibility().IsVisible()||!Widget->IsEnabled())return {};
@@ -112,6 +121,7 @@ FString FStudioHeadlessSlate::Text(FName Tag)
 {
     const auto Widget=Find(Tag);if(!Widget)return {};
     if(Widget->GetTypeAsString()==TEXT("STextBlock"))return StaticCastSharedPtr<STextBlock>(Widget)->GetText().ToString();
+    if(Widget->GetTypeAsString()==TEXT("SMultiLineEditableTextBox"))return StaticCastSharedPtr<SMultiLineEditableTextBox>(Widget)->GetText().ToString();
     if(Widget->GetTypeAsString()==TEXT("SFlowValueBox")||Widget->GetTypeAsString()==TEXT("SEditableTextBox"))
         return StaticCastSharedPtr<SEditableTextBox>(Widget)->GetText().ToString();
     Test.AddError(TEXT("Text requested from unsupported control: ")+Tag.ToString());return {};
@@ -137,6 +147,7 @@ bool FStudioHeadlessSlate::Inspect(const FString& Name,const TArray<FName>& Requ
             Item->SetBoolField(TEXT("enabled"),Enabled);Item->SetBoolField(TEXT("focused"),W->HasKeyboardFocus()||W->HasFocusedDescendants());
             Item->SetNumberField(TEXT("x"),P.X);Item->SetNumberField(TEXT("y"),P.Y);Item->SetNumberField(TEXT("width"),S.X);Item->SetNumberField(TEXT("height"),S.Y);
             if(W->GetTypeAsString()==TEXT("STextBlock"))Item->SetStringField(TEXT("text"),StaticCastSharedRef<STextBlock>(W)->GetText().ToString());
+            else if(W->GetTypeAsString()==TEXT("SMultiLineEditableTextBox"))Item->SetStringField(TEXT("text"),StaticCastSharedRef<SMultiLineEditableTextBox>(W)->GetText().ToString());
             else if(W->GetTypeAsString()==TEXT("SFlowValueBox")||W->GetTypeAsString()==TEXT("SEditableTextBox"))
                 Item->SetStringField(TEXT("text"),StaticCastSharedRef<SEditableTextBox>(W)->GetText().ToString());
             Controls.Add(MakeShared<FJsonValueObject>(Item));
