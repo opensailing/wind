@@ -19,3 +19,6 @@ rg -q 'BUILD SUCCESSFUL' tmp/debug/package.log
 # Validate the signed artifact, because Xcode may merge or replace source entitlements.
 python3 Tools/verify_macos_package.py "$PWD/Packaged/Mac/LBMStudio.app" > tmp/debug/package-entitlements.json
 echo "Packaged application: $PWD/Packaged/Mac/LBMStudio.app"
+echo "Local Development package; distribution signing/notarization has not been verified."
+echo "After Developer ID signing, notarization and stapling, check it with:"
+echo "python3 Tools/verify_macos_package.py Packaged/Mac/LBMStudio.app --distribution"

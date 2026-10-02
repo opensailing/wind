@@ -15,6 +15,18 @@ The first command verifies the pinned sample checksums, imports its original mes
 
 After packaging, `Tools/run.sh --packaged` opens the packaged application through the same launcher. The launcher prevents overlapping Studio/Unreal sessions, preserves arguments and exit status, and closes its own remaining children and crash reporters when the app exits. macOS reporters can detach into a separate process group; ownership is checked using the new reporter's exact project/PID/run-UUID argument and launch time. Existing unrelated reporters are retained. Session evidence is saved under `tmp/debug/launch-*.json`; crash report files are preserved. This launch guard applies to `Tools/run.sh`; Finder launches have separate application-level acceptance pending.
 
+### Sharing with another Mac
+
+`Tools/package.sh` creates a **local Development package**, not a distribution-verified app. Its default signature can be ad hoc with no signing team and a debugging entitlement. The package's ARM64 architecture and declared minimum macOS version do not establish startup on another Mac. The reported macOS 15.6 failure for build `56057345.0.222` occurs during macOS App Sandbox initialization, before Unreal starts; its exact sandbox rejection still requires receiving-machine diagnostics.
+
+Before distribution, sign nested code and the application with a **Developer ID Application** identity, enable hardened runtime, retain the required sandbox/document-access entitlements, remove `com.apple.security.get-task-allow`, then notarize and staple the application. Follow [Apple's Developer ID distribution guidance](https://developer.apple.com/developer-id/).
+
+```sh
+python3 Tools/verify_macos_package.py Packaged/Mac/LBMStudio.app --distribution
+```
+
+This read-only check requires a valid nested signature, Developer ID Application identity and signing team, hardened runtime, no debugging entitlement, Gatekeeper acceptance and a valid stapled notarization ticket. It does not sign, notarize or launch the app. Without `--distribution`, the verifier only checks the local signature, bundle identifier and document-access entitlements; its report explicitly sets `distribution_ready` to false. A distribution pass still needs an actual startup check on each supported macOS/hardware target. Keep external recordings separate from the bundled samples when preparing a handoff.
+
 Verify launcher and reporter ownership without opening Unreal:
 
 ```sh
