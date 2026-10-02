@@ -26,6 +26,7 @@
 #if WITH_EDITOR
 #include "AssetCompilingManager.h"
 #include "SStudioHelpPanel.h"
+#include "SStudioNotifications.h"
 #include "StudioWorkspace.h"
 #include "GenericPlatform/GenericApplication.h"
 #include "Interfaces/ISlateRHIRendererModule.h"
@@ -58,7 +59,7 @@ public:
     // Explicit design-review opt-in only. Routine renderer validation still
     // writes numerical JSON and no images. These are real offscreen Slate
     // renders, never desktop screenshots or native-window acceptance.
-    void ReviewHelp(const FString& Directory)
+    void ReviewHelp(const FString& Directory,bool bNotifications=false)
     {
         const bool OwnSlate=!FSlateApplication::IsInitialized();
         if(OwnSlate)
@@ -85,15 +86,37 @@ public:
             const bool Read=Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels,Flags);
             const FString Path=Directory/(Name+TEXT(".png"));TArray64<uint8> PNG;
             if(Read)FImageUtils::PNGCompressImageArray(int32(WidgetSize.X),int32(WidgetSize.Y),Pixels,PNG);
-            if(Check(TEXT("help.review.")+Name,Read&&!PNG.IsEmpty()&&FFileHelper::SaveArrayToFile(PNG,*Path)))
+            if(Check((bNotifications?TEXT("notifications.review."):TEXT("help.review."))+Name,
+                Read&&!PNG.IsEmpty()&&FFileHelper::SaveArrayToFile(PNG,*Path)))
                 ReviewImages.Add(MakeShared<FJsonValueString>(Path));
         };
+        if(bNotifications)
+        {
+            // UI automation messages are explicitly labeled fixtures; they
+            // contain no scientific arrays, solver metrics or generated CFD.
+            auto Panel=SNew(SStudioNotifications).Model(Model).OnClose_Lambda([]{}).Reveal([](uint64){return true;});
+            CaptureWidget(TEXT("notifications-empty"),Panel,FVector2D(500,500));
+            Model->AddLog(TEXT("UI automation fixture: imported geometry needs review. Original data retained."),EStudioLogSeverity::Warning);
+            Model->AddLog(TEXT("UI automation fixture: project save failed. Choose a writable location and try again."),EStudioLogSeverity::Error);
+            Panel=SNew(SStudioNotifications).Model(Model).OnClose_Lambda([]{}).Reveal([](uint64){return true;});
+            CaptureWidget(TEXT("notifications-history"),Panel,FVector2D(500,500));
+            Model->AddLog(TEXT("UI automation fixture: a new warning arrived while reading."),EStudioLogSeverity::Warning);
+            CaptureWidget(TEXT("notifications-arrival"),Panel,FVector2D(500,500));
+            Model->MarkNotificationsReadThrough(Model->Notifications().LastSequence());
+            Panel=SNew(SStudioNotifications).Model(Model).OnClose_Lambda([]{}).Reveal([](uint64){return true;});
+            CaptureWidget(TEXT("notifications-read"),Panel,FVector2D(500,500));
+            Model->SetNotificationRead(Model->Notifications().LastSequence(),false);
+        }
+        else
+        {
         const TCHAR* Names[]={TEXT("help-workspace"),TEXT("help-shortcuts"),TEXT("help-diagnostics"),TEXT("help-about")};
         for(int32 I=0;I<4;++I)
             CaptureWidget(Names[I],SNew(SStudioHelpPanel).Model(Model).Scene(Scene).Page(EStudioHelpPage(I))
                 .OnResults_Lambda([]{}).OnClose_Lambda([]{}),FVector2D(540,500));
+        }
         for(const auto WidgetSize:{FVector2D(1280,720),FVector2D(1320,740)})
-            CaptureWidget(FString::Printf(TEXT("help-header-%dx%d"),int32(WidgetSize.X),int32(WidgetSize.Y)),
+            CaptureWidget(FString(bNotifications?TEXT("notifications"):TEXT("help"))+
+                FString::Printf(TEXT("-header-%dx%d"),int32(WidgetSize.X),int32(WidgetSize.Y)),
                 SNew(SStudioWorkspace).Model(Model).Scene(Scene),WidgetSize);
         Scene->ResizeViewport(Size.X,Size.Y,true);Ready();
     }
@@ -234,6 +257,7 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
     {UE_LOG(LogTemp,Error,TEXT("Supply -StudioRenderReport=<absolute JSON path>."));return 1;}
     FRun Run;const double Started=FPlatformTime::Seconds();
     FString HelpReview;FParse::Value(*Params,TEXT("StudioHelpReview="),HelpReview);
+    FString NotificationsReview;FParse::Value(*Params,TEXT("StudioNotificationsReview="),NotificationsReview);
     const FString RHI=GDynamicRHI?GDynamicRHI->GetName():TEXT("unavailable");
     const bool Windowless=IsRunningCommandlet()&&FApp::CanEverRender()&&GEngine&&GEngine->GameViewport==nullptr&&
         (!FSlateApplication::IsInitialized()||FSlateApplication::Get().GetTopLevelWindows().IsEmpty());
@@ -259,6 +283,7 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
             const FString CaseBefore=StudioCaseIO::Serialize(Run.Model->Project.Draft);
             const auto CameraBefore=Run.Scene->CameraState();const uint32 First=Run.Record(TEXT("wing.first"),0,false);
             if(!HelpReview.IsEmpty())Run.ReviewHelp(HelpReview);
+            if(!NotificationsReview.IsEmpty())Run.ReviewHelp(NotificationsReview,true);
             const int32 Last=Wing.Source->FrameCount()-1;
             if(Run.ChangeFrame(Wing.Source,Last))
             {
