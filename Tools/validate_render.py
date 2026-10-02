@@ -185,7 +185,7 @@ def main():
         summary['module_sha256'] = digest(root/'Binaries/Mac/libUnrealEditor-LBMStudio.dylib')
         command = [str(editor), str(root/'LBMStudio.uproject'), '-run=StudioRenderValidation', '-LLM', '-unattended',
                    '-AllowCommandletRendering', '-RenderOffscreen', '-nosound', '-nosplash', '-stdout', '-FullStdOutLogOutput',
-                   '-NoZenAutoLaunch', '-ddc=InstalledNoZenLocalFallback', f'-StudioRenderReport={output/"renderer.json"}']
+                   '-notraceserver', '-NoZenAutoLaunch', '-ddc=InstalledNoZenLocalFallback', f'-StudioRenderReport={output/"renderer.json"}']
         code = _run_owned(command, root, timeout=args.timeout, log_path=output/'renderer.log', report_path=output/'process.json')
         lifecycle = json.loads((output/'process.json').read_text())
         summary.update({key: lifecycle[key] for key in ('processes_after', 'owned_processes_after', 'elapsed_seconds')})

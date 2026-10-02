@@ -94,7 +94,7 @@ def main():
         summary['module_sha256'] = digest(module)
         summary['headless_catalog_sha256'] = digest(root/'Tools/headless-tests.json')
         command = [str(editor), str(root/'LBMStudio.uproject'), '-LLM', '-unattended', '-nullrhi', '-RenderOffscreen',
-                   '-nosplash', '-nosound', '-stdout', '-FullStdOutLogOutput', '-NoZenAutoLaunch', '-ddc=InstalledNoZenLocalFallback',
+                   '-nosplash', '-nosound', '-stdout', '-FullStdOutLogOutput', '-notraceserver', '-NoZenAutoLaunch', '-ddc=InstalledNoZenLocalFallback',
                    f'-ExecCmds=Automation RunTests {args.suite}', '-TestExit=Automation Test Queue Empty',
                    f'-ReportExportPath={output/"automation"}', f'-StudioHeadlessOutput={output/"widgets"}']
         code = _run_owned(command, root, timeout=args.timeout, log_path=output/'tests.log', report_path=output/'process.json')
