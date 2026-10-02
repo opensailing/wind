@@ -5,7 +5,8 @@
 
 /** Unattended GPU regression using the production flow scene and attributed
  * original recordings. Owns an isolated world; never creates a game viewport,
- * changes a user's project, sends desktop input or saves screenshots. */
+ * changes a user's project or sends desktop input. Routine validation saves no
+ * images; StudioHelpReview explicitly enables offscreen Slate review artifacts. */
 UCLASS()
 class UStudioRenderValidationCommandlet final : public UCommandlet
 {

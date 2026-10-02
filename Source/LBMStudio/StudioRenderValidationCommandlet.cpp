@@ -25,6 +25,12 @@
 #include "UObject/StrongObjectPtr.h"
 #if WITH_EDITOR
 #include "AssetCompilingManager.h"
+#include "SStudioHelpPanel.h"
+#include "StudioWorkspace.h"
+#include "GenericPlatform/GenericApplication.h"
+#include "Interfaces/ISlateRHIRendererModule.h"
+#include "Slate/WidgetRenderer.h"
+#include "ImageUtils.h"
 #endif
 
 UStudioRenderValidationCommandlet::UStudioRenderValidationCommandlet()
@@ -43,10 +49,54 @@ public:
     TArray<FString> Errors;
     TArray<TSharedPtr<FJsonValue>> Cases;
     TArray<TSharedPtr<FJsonValue>> Checks;
+    TArray<TSharedPtr<FJsonValue>> ReviewImages;
     TSharedPtr<FStudioModel> Model;
     AStudioScene* Scene=nullptr;
     UWorld* World=nullptr;
     bool bVisible=true;
+
+    // Explicit design-review opt-in only. Routine renderer validation still
+    // writes numerical JSON and no images. These are real offscreen Slate
+    // renders, never desktop screenshots or native-window acceptance.
+    void ReviewHelp(const FString& Directory)
+    {
+        const bool OwnSlate=!FSlateApplication::IsInitialized();
+        if(OwnSlate)
+            FSlateApplication::InitializeAsStandaloneApplication(
+                FModuleManager::LoadModuleChecked<ISlateRHIRendererModule>(TEXT("SlateRHIRenderer")).CreateSlateRHIRenderer(),
+                MakeShared<GenericApplication>(nullptr));
+        ON_SCOPE_EXIT{FlushRenderingCommands();if(OwnSlate)FSlateApplication::Shutdown();};
+        FSlateApplication::Get().GetRenderer()->LoadStyleResources(FCoreStyle::Get());
+        auto* Renderer=new FWidgetRenderer(true,true);Renderer->SetApplyColorDeficiencyCorrection(false);
+        ON_SCOPE_EXIT{BeginCleanup(Renderer);FlushRenderingCommands();};
+        IFileManager::Get().MakeDirectory(*Directory,true);
+        const auto CaptureWidget=[&](const FString& Name,const TSharedRef<SWidget>& Widget,FVector2D WidgetSize)
+        {
+            TStrongObjectPtr<UTextureRenderTarget2D> Target(NewObject<UTextureRenderTarget2D>());
+            // Slate applies display gamma itself. A linear target prevents a
+            // second hardware gamma conversion from washing out the navy UI.
+            Target->InitCustomFormat(int32(WidgetSize.X),int32(WidgetSize.Y),PF_B8G8R8A8,true);
+            Target->UpdateResourceImmediate(true);
+            // Text auto-wrap and first-use brushes/font atlases settle after
+            // the first paint. Root layout also resizes its flow target.
+            for(int32 Paint=0;Paint<3;++Paint)
+            {Renderer->DrawWidget(Target.Get(),Widget,WidgetSize,0);FlushRenderingCommands();Ready();}
+            TArray<FColor> Pixels;FReadSurfaceDataFlags Flags;Flags.SetLinearToGamma(false);
+            const bool Read=Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels,Flags);
+            const FString Path=Directory/(Name+TEXT(".png"));TArray64<uint8> PNG;
+            if(Read)FImageUtils::PNGCompressImageArray(int32(WidgetSize.X),int32(WidgetSize.Y),Pixels,PNG);
+            if(Check(TEXT("help.review.")+Name,Read&&!PNG.IsEmpty()&&FFileHelper::SaveArrayToFile(PNG,*Path)))
+                ReviewImages.Add(MakeShared<FJsonValueString>(Path));
+        };
+        const TCHAR* Names[]={TEXT("help-workspace"),TEXT("help-shortcuts"),TEXT("help-diagnostics"),TEXT("help-about")};
+        for(int32 I=0;I<4;++I)
+            CaptureWidget(Names[I],SNew(SStudioHelpPanel).Model(Model).Scene(Scene).Page(EStudioHelpPage(I))
+                .OnResults_Lambda([]{}).OnClose_Lambda([]{}),FVector2D(540,500));
+        for(const auto WidgetSize:{FVector2D(1280,720),FVector2D(1320,740)})
+            CaptureWidget(FString::Printf(TEXT("help-header-%dx%d"),int32(WidgetSize.X),int32(WidgetSize.Y)),
+                SNew(SStudioWorkspace).Model(Model).Scene(Scene),WidgetSize);
+        Scene->ResizeViewport(Size.X,Size.Y,true);Ready();
+    }
 
     bool Check(const FString& Name,bool Passed,const FString& Detail=FString())
     {
@@ -183,6 +233,7 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
     if(!FParse::Value(*Params,TEXT("StudioRenderReport="),Output)||Output.IsEmpty())
     {UE_LOG(LogTemp,Error,TEXT("Supply -StudioRenderReport=<absolute JSON path>."));return 1;}
     FRun Run;const double Started=FPlatformTime::Seconds();
+    FString HelpReview;FParse::Value(*Params,TEXT("StudioHelpReview="),HelpReview);
     const FString RHI=GDynamicRHI?GDynamicRHI->GetName():TEXT("unavailable");
     const bool Windowless=IsRunningCommandlet()&&FApp::CanEverRender()&&GEngine&&GEngine->GameViewport==nullptr&&
         (!FSlateApplication::IsInitialized()||FSlateApplication::Get().GetTopLevelWindows().IsEmpty());
@@ -207,6 +258,7 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
         {
             const FString CaseBefore=StudioCaseIO::Serialize(Run.Model->Project.Draft);
             const auto CameraBefore=Run.Scene->CameraState();const uint32 First=Run.Record(TEXT("wing.first"),0,false);
+            if(!HelpReview.IsEmpty())Run.ReviewHelp(HelpReview);
             const int32 Last=Wing.Source->FrameCount()-1;
             if(Run.ChangeFrame(Wing.Source,Last))
             {
@@ -276,7 +328,8 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
         (!FSlateApplication::IsInitialized()||FSlateApplication::Get().GetTopLevelWindows().IsEmpty()));
     auto Report=MakeShared<FJsonObject>();Report->SetNumberField(TEXT("version"),1);Report->SetBoolField(TEXT("passed"),Run.Errors.IsEmpty());
     Report->SetStringField(TEXT("mode"),TEXT("windowless-gpu-commandlet"));Report->SetStringField(TEXT("rhi"),RHI);
-    Report->SetBoolField(TEXT("windowless"),Windowless);Report->SetNumberField(TEXT("screenshots"),0);
+    Report->SetBoolField(TEXT("windowless"),Windowless);Report->SetNumberField(TEXT("screenshots"),Run.ReviewImages.Num());
+    Report->SetArrayField(TEXT("review_images"),Run.ReviewImages);
     Report->SetNumberField(TEXT("elapsed_seconds"),FPlatformTime::Seconds()-Started);
     Report->SetArrayField(TEXT("cases"),Run.Cases);Report->SetArrayField(TEXT("checks"),Run.Checks);
     TArray<TSharedPtr<FJsonValue>> Errors;for(const auto& Error:Run.Errors)Errors.Add(MakeShared<FJsonValueString>(Error));
