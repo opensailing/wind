@@ -17,7 +17,15 @@ After packaging, `Tools/run.sh --packaged` opens the packaged application throug
 
 ### Sharing with another Mac
 
-`Tools/package.sh` creates a **local Development package**, not a distribution-verified app. Its default signature can be ad hoc with no signing team and a debugging entitlement. The package's ARM64 architecture and declared minimum macOS version do not establish startup on another Mac. The reported macOS 15.6 failure for build `56057345.0.222` occurs during macOS App Sandbox initialization, before Unreal starts; its exact sandbox rejection still requires receiving-machine diagnostics.
+`Tools/package.sh` creates a **local Development package**, not a distribution-verified app. Its default signature can be ad hoc with no signing team and a debugging entitlement. The package's ARM64 architecture and declared minimum macOS version do not establish startup on another Mac.
+
+Build `56057345.0.222` has a startup bug: its pre-main memory-tracking workaround executes the application again to add `-LLM`. On macOS 15.6 the first App Sandbox initialization succeeds, then the second is rejected with `forbidden-sandbox-reinit`. Supplying the flag directly skips the faulty restart; this workaround was confirmed to open the original package on the receiving M1 Pro:
+
+```sh
+open -n /Applications/LBMStudio.app --args -LLM
+```
+
+The corrected startup implementation in `Source/LBMStudio/Mac/StudioStartup.mm` supplies the flag through the Foundation argument getter used by Unreal's Mac launch code, without executing another image. It applies only to packaged Development builds and preserves existing arguments and flags. Regression fixtures fail any `execv` call and verify repeated argument reads, process identity, and Editor/Shipping isolation. Distribution signing and notarization remain separate from this startup fix.
 
 Before distribution, sign nested code and the application with a **Developer ID Application** identity, enable hardened runtime, retain the required sandbox/document-access entitlements, remove `com.apple.security.get-task-allow`, then notarize and staple the application. Follow [Apple's Developer ID distribution guidance](https://developer.apple.com/developer-id/).
 

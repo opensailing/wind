@@ -12,7 +12,7 @@ class LaunchServicesIdentityTests(unittest.TestCase):
     def row(self, path=None):
         return {'command': str(path or self.binary), 'started': 'start', 'parent': 1}
 
-    def test_identifies_reexec_without_launchservices_pid(self):
+    def test_identifies_exact_invocation_without_launchservices_pid(self):
         current = {73: self.row()}
         self.assertEqual(find_launched_process({}, current, self.binary, self.token,
                          lambda pid: f'{self.binary} -windowed {self.token} -LLM'), (73, current[73]))

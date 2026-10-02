@@ -24,8 +24,8 @@ from runtime_lane import serialized
 def find_launched_process(before, current, binary, token, arguments=process_arguments):
     """Match a launch by its executable and unique token, never by PID alone.
 
-    NSRunningApplication can report -1 after the pre-main exec even while the
-    replacement image is running. The launch token survives that exec.
+    Match the actual executable and invocation token independently of the PID
+    returned by LaunchServices; never adopt another process with a similar name.
     """
     candidates = [(pid, row) for pid, row in current.items()
                   if pid > 0 and pid not in before

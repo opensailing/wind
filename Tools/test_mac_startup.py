@@ -1,4 +1,4 @@
-"""Exercise the actual pre-main Mac bootstrap without starting Unreal or a GPU."""
+"""Exercise the real Foundation argument adapter; any self-exec fails the test."""
 import os
 from pathlib import Path
 import subprocess
@@ -16,33 +16,32 @@ class MacStartupTests(unittest.TestCase):
         debug.mkdir(parents=True, exist_ok=True)
         cls.temporary = tempfile.TemporaryDirectory(prefix='mac-startup-', dir=debug)
         cls.root = Path(cls.temporary.name)
-        fixture = cls.root/'fixture.cpp'
-        fixture.write_text('''#include <cstdio>
+        fixture = cls.root/'fixture.mm'
+        fixture.write_text('''#import <Foundation/Foundation.h>
+#include <cstdio>
 #include <cstdlib>
 #include <unistd.h>
-int main(int argc, char** argv) {
-    printf("%d\\n%s\\n", getpid(), getenv("STUDIO_STARTUP_FIXTURE"));
-    for (int i=1; i<argc; ++i) printf("%s\\n", argv[i]);
-    return 23;
+extern "C" int execv(const char*, char* const*) {
+    fputs("forbidden fixture self-exec\\n", stderr);
+    _exit(96);
 }
+int main() { @autoreleasepool {
+    printf("%d\\n%s\\n", getpid(), getenv("STUDIO_STARTUP_FIXTURE"));
+    NSArray<NSString*>* arguments=NSProcessInfo.processInfo.arguments;
+    for (NSUInteger i=1; i<arguments.count; ++i) printf("%s\\n", arguments[i].UTF8String);
+    if (![arguments isEqualToArray:NSProcessInfo.processInfo.arguments]) return 95;
+    return 23;
+} }
 ''')
         cls.binaries = {}
         for profile, editor, development in [('game', 0, 1), ('editor', 1, 1), ('shipping', 0, 0)]:
             binary = cls.root/(profile+' with spaces')
             subprocess.run(['xcrun', 'clang++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                             f'-DWITH_EDITOR={editor}', f'-DUE_BUILD_DEVELOPMENT={development}',
-                            str(root/'Source/LBMStudio/Mac/StudioStartup.cpp'), str(fixture),
+                            '-framework', 'Foundation',
+                            str(root/'Source/LBMStudio/Mac/StudioStartup.mm'), str(fixture),
                             '-o', str(binary)], check=True, capture_output=True, text=True)
             cls.binaries[profile] = binary
-        failed_exec = cls.root/'failed-exec.cpp'
-        failed_exec.write_text('''#include <cerrno>
-extern "C" int execv(const char*, char* const*) { errno=EACCES; return -1; }
-''')
-        cls.failure_binary = cls.root/'failed exec'
-        subprocess.run(['xcrun', 'clang++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
-                        '-DWITH_EDITOR=0', '-DUE_BUILD_DEVELOPMENT=1',
-                        str(root/'Source/LBMStudio/Mac/StudioStartup.cpp'), str(fixture), str(failed_exec),
-                        '-o', str(cls.failure_binary)], check=True, capture_output=True, text=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -57,35 +56,34 @@ extern "C" int execv(const char*, char* const*) { errno=EACCES; return -1; }
         stdout, stderr = proc.communicate(timeout=10)
         self.assertEqual(proc.returncode, 23)
         lines = stdout.splitlines()
-        self.assertEqual(int(lines[0]), proc.pid, 'exec must retain process ownership')
+        self.assertEqual(int(lines[0]), proc.pid, 'startup must retain process ownership')
         self.assertEqual(lines[1], 'retained')
         return lines[2:], stderr
 
-    def test_bare_launch_reexecutes_once_and_preserves_literal_arguments(self):
+    def test_bare_launch_never_executes_and_preserves_literal_arguments(self):
         values = ['-Example=literal $(text) with spaces', 'unicode-é', '-LLMCSV']
         arguments, stderr = self.launch(values, spoof_argv=True)
         self.assertEqual(arguments, [*values, '-LLM'])
-        self.assertEqual(stderr.count('retaining memory tracking'), 1)
+        self.assertEqual(stderr, '')
 
-    def test_existing_tracker_argument_does_not_reexecute(self):
+    def test_existing_tracker_argument_is_not_duplicated(self):
         for flag in ['-LLM', '-llm']:
             with self.subTest(flag=flag):
                 arguments, stderr = self.launch(['first', flag, 'last'])
                 self.assertEqual(arguments, ['first', flag, 'last'])
                 self.assertEqual(stderr, '')
 
-    def test_editor_and_shipping_profiles_do_not_reexecute(self):
+    def test_editor_and_shipping_profiles_keep_original_arguments(self):
         for profile in ['editor', 'shipping']:
             with self.subTest(profile=profile):
                 arguments, stderr = self.launch(['unchanged'], profile)
                 self.assertEqual(arguments, ['unchanged'])
                 self.assertEqual(stderr, '')
 
-    def test_failed_exec_does_not_continue_into_engine_startup(self):
-        result = subprocess.run([str(self.failure_binary)], capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 78)
-        self.assertEqual(result.stdout, '')
-        self.assertIn('memory-tracker launch failed: Permission denied', result.stderr)
+    def test_empty_command_line_and_repeated_foundation_reads_are_stable(self):
+        arguments, stderr = self.launch([])
+        self.assertEqual(arguments, ['-LLM'])
+        self.assertEqual(stderr, '')
 
 
 if __name__ == '__main__':
