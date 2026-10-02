@@ -32,14 +32,14 @@ Builds, packaged apps, logs, temporary plans, captures and Python caches stay ou
 Use this for routine development checks; it needs no screenshots or desktop interaction:
 
 ```sh
-python3 Tools/validate.py                                 # Compile, then all 278 headless tests
+python3 Tools/validate.py                                 # Compile, then all 283 headless tests
 python3 Tools/validate.py --suite Studio.HeadlessUI.       # Compile, then virtual Slate workflows
 python3 Tools/validate.py --no-build --suite Studio.FlowConditions. # Explicit existing-module check
 ```
 
 The default command compiles the Editor module with unity enabled, then runs Unreal Automation using `-nullrhi -RenderOffscreen`. A reviewed catalog in `Tools/headless-tests.json` makes missing, skipped, duplicate or unexpected tests fail. Each run creates a fresh `tmp/debug/headless-*/summary.json` containing failures, warnings, source/module hashes and process ownership, plus raw build/test logs. Exit code zero means the requested checks passed. `--no-build` is explicitly reported and does not establish compilation of current source.
 
-`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. The first two workflows cover Flow Conditions at 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. These are widget tests in addition to the 276 model cases; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
+`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. Two Flow Conditions workflows cover 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. Three Help widget cases exercise the panel and real routed keyboard behavior at 1280 × 720 and 1320 × 740; two additional Help model cases verify diagnostics and guidance. The full catalog has 278 model cases and five virtual Slate cases, totaling 283. Routine validation is headless and writes zero images; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
 
 Check the production CFD renderer on Metal without a window, desktop input or screenshots:
 
@@ -48,7 +48,7 @@ python3 Tools/validate_render.py             # Compile, then windowless GPU regr
 python3 Tools/validate_render.py --no-build  # Explicit existing-module check
 ```
 
-This command runs `StudioRenderValidation` through `UnrealEditor-Cmd -AllowCommandletRendering -RenderOffscreen`. It owns an isolated world with no game viewport or top-level Slate windows. Eleven cases use the original SU2 wing trajectory and the attributed three-frame 3D cylinder fixture: different original times, independent camera changes, inside perspective/orthographic views, clipping, isosurfaces, restored pixels and a frame-consistent snapshot. It compares original frame headers and identities independently, checks visible pixel counts and resource bounds, compares snapshot pixels to the live render target, and verifies idle/hidden capture suppression. No CFD values are generated. The sparse cylinder fixture is a renderer regression input; full animation and long-session acceptance use the complete recording.
+This command runs `StudioRenderValidation` through `UnrealEditor-Cmd -AllowCommandletRendering -RenderOffscreen`. It owns an isolated world with no game viewport or top-level Slate windows. Eleven cases use the original SU2 wing trajectory and the attributed three-frame 3D cylinder fixture: different original times, independent camera changes, inside perspective/orthographic views, clipping, isosurfaces, restored pixels and a frame-consistent snapshot. It compares original frame headers and identities independently, checks visible pixel counts and resource bounds, compares snapshot pixels to the live render target, and verifies idle/hidden capture suppression. No CFD values are generated. Routine renderer validation is headless and writes zero images; the separate optional `-StudioHelpReview=<dir>` flag deliberately writes offscreen visual-review artifacts. The sparse cylinder fixture is a renderer regression input; full animation and long-session acceptance use the complete recording.
 
 Each run writes `tmp/debug/windowless-render-*/summary.json`, `renderer.json`, logs, source/material/recording/module hashes and owned-process reports. Missing cases, wrong original identities, blank renders, failed checks or cleanup problems fail the command. First use can compile shaders; the default process deadline is 600 seconds. Later runs reuse Unreal's shader cache. `--no-build` does not establish current-source compilation.
 
@@ -62,6 +62,8 @@ The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexp
 
 | Action | Control |
 | --- | --- |
+| Open contextual guidance | Header Help icon or F1; choose This workspace, Shortcuts, Diagnostics or About. Escape or Close returns focus to Help |
+| Copy a diagnostic snapshot | Help → Diagnostics → Copy diagnostics; Refresh explicitly replaces the snapshot, and copied JSON matches the displayed snapshot |
 | Orbit around the wing | Tools → Orbit, then left-drag in the scene |
 | Pan | Tools → Pan, then left-drag; middle-drag also pans |
 | Zoom | Tools → Zoom, then left-drag up to zoom in or down to zoom out; mouse wheel also zooms |

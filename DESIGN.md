@@ -997,6 +997,14 @@ Positions use fractions of available panel travel and clamp to the viewport duri
 
 Source authority: `StudioFlowPresentation`, `StudioStreamlines`, `SStudioFloatingLayer`, `StudioFloatingPanes`, `StudioScene`, the Solve center and streamline settings in `StudioWorkspace`, and `StudioModel` session serialization. `StudioFlowPresentationTests.cpp`, `StudioFlowPresentationRenderTests.cpp` and `StudioStreamlineTests.cpp` cover marker direction/scalar sampling, bounded geometry, persistence and older-document defaults. Model and packaged tests also cover range/source isolation, original-scalar transport, view undo/save, pointer minimize, keyboard restore, dragging and clamping, canceled drag persistence, reset, and camera/frame isolation. The supplied dataset determines the flow's shape and color distribution; screenshot fidelity does not authorize invented CFD values.
 
+### Contextual Help popup — A08
+
+The header's small drawn question icon opens a bounded native Slate reading panel; F1 opens the same owner. Navy surfaces, thin outlines, compact CoreStyle type and cyan selected tabs extend the existing Operate vocabulary. The 540 × 500 panel keeps Help and Close above four local categories, with a scrollable content body; Diagnostics pins Refresh/Copy below its selectable read-only JSON. Workspace guidance follows the active owner, and its Results link delegates to the established Results workspace.
+
+Keyboard instructions name their focus scope. Escape and Close return focus to the real header Help button. Opening Help and moving among its categories preserve project, case, playback, selected frame, render intent and camera. Diagnostics captures one UTC snapshot on the first visit per popup opening and retains it across category changes until explicit Refresh; Copy transfers that same displayed string and confirms completion. About reads configured application and engine versions and distinguishes original recordings from the non-computing control harness.
+
+The accepted extension is bounded to Help/header. `tmp/analysis/help-ui-20261001/finish-review.md` records ship with no material fixes after six reviewed Metal offscreen renders and virtual Slate layout/input workflows at 1280 × 720 and 1320 × 740. Those render artifacts do not establish desktop screenshots or physical input. The final headless report records 283 passing cases with two existing optional-helper warnings; the routine windowless Metal report has 11 successful cases and zero images. Game-target compile/postbuild exited 0, but the package was not recooked. Physical input/native dialogs, broad accessibility, current long-session/release, remaining numerical controls and full-plan acceptance stay open.
+
 ## Do's and Don'ts
 
 ### Do:
