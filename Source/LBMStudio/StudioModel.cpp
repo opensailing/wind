@@ -46,10 +46,28 @@ FStudioModel::FStudioModel(TSharedRef<FStudioSnapshotSource,ESPMode::ThreadSafe>
     SavedSnapshot=StudioProjectIO::Serialize(SnapshotProject());
 }
 void FStudioModel::AddLog(const FString& M,EStudioLogSeverity Severity,EStudioLogSource Source,
-    const FGuid& RunId,const FString& SourceReference)
+    const FGuid& RunId,const FString& SourceReference,bool bNotifyCompletion)
 {
+    if(M.IsEmpty())return;
     Journal.Append(M,Severity,Source,Project.Id,RunId,
         SourceReference.IsEmpty()&&Source==EStudioLogSource::Playback?Project.Dataset:SourceReference);
+    if(const auto* Entry=Journal.Latest())NotificationJournal.Observe(*Entry,bNotifyCompletion);
+}
+bool FStudioModel::CanRevealNotification(uint64 Id,FString& Reason) const
+{
+    Reason.Empty();const auto* Item=NotificationJournal.Find(Id);
+    if(!Item){Reason=TEXT("This notification is no longer retained.");return false;}
+    if(Item->ProjectId!=Project.Id){Reason=TEXT("Open the notification's project to inspect its context.");return false;}
+    if(Item->Kind==EStudioNotificationKind::Completed)
+    {
+        if(Item->RunId.IsValid()&&!Project.Runs.ContainsByPredicate([&](const auto& Run){return Run.GetId()==Item->RunId;}))
+        {Reason=TEXT("The referenced run is no longer in this project.");return false;}
+        if(!Item->RunId.IsValid()&&Item->SourceReference!=Project.Dataset)
+        {Reason=TEXT("Open the original recording in Results to inspect this completion.");return false;}
+    }
+    else if(!Journal.Find(Item->LogSequence))
+    {Reason=TEXT("The activity log entry has expired. Its notification text is still retained here.");return false;}
+    return true;
 }
 void FStudioModel::BeginRun()
 {
@@ -89,7 +107,7 @@ void FStudioModel::Advance()
     if(!bReviewing) { SelectedFrame=PlaybackFrame; ++Revision; }
     if(PlaybackFrame%100==0) AddLog(FString::Printf(TEXT("Source frame %d · elapsed time %.4f s"),Frames[PlaybackFrame].Index,Frames[PlaybackFrame].Time),EStudioLogSeverity::Info,EStudioLogSource::Playback);
     if(PlaybackFrame+1==Solver->FrameCount()&&!bLoopPlayback)
-    { State=EStudioRunState::Complete; AddLog(FString::Printf(TEXT("All %d source snapshots replayed."),Solver->FrameCount()),EStudioLogSeverity::Info,EStudioLogSource::Playback); }
+    { State=EStudioRunState::Complete; AddLog(FString::Printf(TEXT("All %d source snapshots replayed."),Solver->FrameCount()),EStudioLogSeverity::Info,EStudioLogSource::Playback,{}, {},true); }
 }
 void FStudioModel::Step()
 {

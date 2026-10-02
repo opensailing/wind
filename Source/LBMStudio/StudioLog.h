@@ -43,6 +43,8 @@ public:
         FDateTime ObservedUTC=FDateTime::UtcNow());
     TArray<FStudioLogEntry> Snapshot() const;
     uint64 LastSequence() const { return Sequence; }
+    const FStudioLogEntry* Latest() const { return Entries.IsEmpty()?nullptr:&Entries[(First+Entries.Num()-1)%Entries.Num()]; }
+    const FStudioLogEntry* Find(uint64 Id) const {return Entries.FindByPredicate([Id](const auto& Entry){return Entry.Sequence==Id;});}
     uint64 EvictedCount() const { return Sequence-uint64(Entries.Num()); }
     int32 Num() const { return Entries.Num(); }
 private:

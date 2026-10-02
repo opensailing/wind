@@ -106,7 +106,8 @@ void FStudioModel::SyncJob()
         const auto Severity=Event.Kind==EStudioJobEventKind::Rejected||Event.State==EStudioJobState::Failed?
             EStudioLogSeverity::Error:Event.State==EStudioJobState::Disconnected?EStudioLogSeverity::Warning:EStudioLogSeverity::Info;
         AddLog(StudioJobs::StateName(Event.State)+TEXT(" · ")+Event.Message,Severity,
-            EStudioLogSource::ControlHarness,Event.RunId,Job().Capabilities().BackendId);
+            EStudioLogSource::ControlHarness,Event.RunId,Job().Capabilities().BackendId,
+            Event.Kind==EStudioJobEventKind::State&&Event.State==EStudioJobState::Completed);
         LastLoggedJobSequence=Event.Sequence;bLoggedCurrentNotice=Event.Message==H->Notice;
     }
     if(LastJobState!=H->LastState||LastJobNotice!=H->Notice)
@@ -117,7 +118,8 @@ void FStudioModel::SyncJob()
             const auto Severity=H->LastState==EStudioJobState::Failed?EStudioLogSeverity::Error:
                 H->LastState==EStudioJobState::Disconnected?EStudioLogSeverity::Warning:EStudioLogSeverity::Info;
             AddLog(StudioJobs::StateName(H->LastState)+TEXT(" · ")+H->Notice,Severity,
-                EStudioLogSource::ControlHarness,H->RunId,Job().Capabilities().BackendId);
+                EStudioLogSource::ControlHarness,H->RunId,Job().Capabilities().BackendId,
+                H->LastState==EStudioJobState::Completed&&LastJobState!=EStudioJobState::Completed);
         }
         LastJobState=H->LastState;LastJobNotice=H->Notice;bDirty=true;
     }

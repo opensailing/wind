@@ -13,6 +13,7 @@
 #include "StudioDomain.h"
 #include "StudioLattice.h"
 #include "StudioLog.h"
+#include "StudioNotifications.h"
 #include "Async/Future.h"
 
 enum class EStudioWorkspace : uint8
@@ -222,6 +223,10 @@ public:
     TArray<FStudioFrame> Frames;
     bool bActivityLogExpanded=false; // Session-only Solve panel state.
     const FStudioLogJournal& ActivityLog() const { return Journal; }
+    const FStudioNotificationJournal& Notifications() const {return NotificationJournal;}
+    bool SetNotificationRead(uint64 Id,bool bRead) {return NotificationJournal.SetRead(Id,bRead);}
+    void MarkNotificationsReadThrough(uint64 Id) {NotificationJournal.MarkReadThrough(Id);}
+    bool CanRevealNotification(uint64 Id,FString& Reason) const;
     EStudioRunState State = EStudioRunState::Ready;
     int32 SelectedFrame = 0;
     int32 PlaybackFrame = 0;
@@ -310,7 +315,7 @@ public:
     bool ReviewRecordedFrame(int32 Ordinal);
     void Scrub(double Fraction); void ReturnToLive(); void Reset();
     void AddLog(const FString& Message,EStudioLogSeverity Severity=EStudioLogSeverity::Info,
-        EStudioLogSource Source=EStudioLogSource::Application,const FGuid& RunId={},const FString& SourceReference={});
+        EStudioLogSource Source=EStudioLogSource::Application,const FGuid& RunId={},const FString& SourceReference={},bool bNotifyCompletion=false);
     void DisplayChanged() { ++Revision; ++RenderIntentRevision; }
     const FStudioFrame& DisplayFrame() const;
     const FStudioScalarDescriptor& ActiveScalar() const;
@@ -628,4 +633,5 @@ private:
     FString LastJobNotice;
     uint64 LastLoggedJobSequence=0;
     FStudioLogJournal Journal;
+    FStudioNotificationJournal NotificationJournal;
 };

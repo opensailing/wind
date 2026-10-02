@@ -170,6 +170,8 @@
     "Studio.Movie.FailureCancellationAndPublication",
     "Studio.Movie.IndexedNativeH264AndLosslessImages",
     "Studio.Movie.OptionsAndExactDimensions",
+    "Studio.Notifications.BoundedContextAndAcknowledgement",
+    "Studio.Notifications.OriginalReplayAndHarnessLifecycle",
     "Studio.Orientation.DirectionsProjectionAndPicking",
     "Studio.Orientation.HistoryAndProjectPersistence",
     "Studio.Performance.GapsValidationAndBoundedRetention",
