@@ -3466,6 +3466,41 @@
       "diagnostics": "Read-only selectable JSON captures once on the first Diagnostics visit per popup opening and retains that snapshot across category changes until explicit Refresh. It includes UTC identity, configured application and engine versions, recording source identities/hashes and requested/presented frame context, playback/job lifecycle, renderer counters and camera; missing recording/renderer are explicit. Copy uses exactly the displayed JSON and provides acknowledgement.",
       "about": "Reads configured application version (currently 0.1.0) and current Unreal version; explains the original-recording and non-computing control-harness distinction.",
       "acceptance": "Scoped ship review at 1280x720 and 1320x740 only. Metal offscreen renders are review artifacts; not desktop or physical-input acceptance."
+    },
+    "notificationsScope": {
+      "record": "A07 Notifications; local native Slate extension of the incumbent Operate header/session UI.",
+      "commits": [
+        "f5a1fde",
+        "46ceda3",
+        "acd96a7"
+      ],
+      "review": "tmp/analysis/notifications-20261002/finish-review.md",
+      "finishDisposition": "Ship for local A07 bell/popup/context links, with no material fixes.",
+      "acceptance": "tmp/analysis/notifications-20261002/acceptance.json",
+      "evidence": "288 successful cataloged cases: 280 model plus eight virtual Slate, including two notification model and three notification widget cases; 11 successful routine production Metal cases and zero routine images. Six separately requested FWidgetRenderer images were offscreen visual artifacts. The headless report has two existing optional Unreal iOS helper warnings.",
+      "buildBoundary": "Development game target compile/link/finalize and postbuild exited 0. The postbuild manifest lists three cleanup-required helper PIDs and an empty owned-process inventory afterward. No package recook/current packaged-runtime acceptance is claimed.",
+      "open": "Physical OS input/native dialogs, broad accessibility, current long-session/release, remaining numerical/Settings controls and the full UI plan remain open."
+    },
+    "nativeNotifications": {
+      "sources": [
+        "Source/LBMStudio/SStudioNotifications.cpp",
+        "Source/LBMStudio/SStudioNotifications.h",
+        "Source/LBMStudio/StudioNotifications.cpp",
+        "Source/LBMStudio/StudioNotifications.h",
+        "Source/LBMStudio/StudioModel.cpp",
+        "Source/LBMStudio/StudioModel.h",
+        "Source/LBMStudio/StudioModelJobs.cpp",
+        "Source/LBMStudio/StudioWorkspace.cpp",
+        "Source/LBMStudio/SStudioResultsWorkspace.cpp",
+        "Source/LBMStudio/StudioTheme.h"
+      ],
+      "world": "Inherits existing navy panels, thin outlines, compact CoreStyle type, Cyan actions and Amber warning/error status. No new visual token.",
+      "placement": "Authored SIcon bell beside Help opens a 500x500 native Slate popup.",
+      "content": "Actual warning/error log observations and explicit accepted playback/control-harness completion only. Retains actual origin, UTC application observation time, project/run/source identity and bounded message/truncation; no numerical telemetry.",
+      "journal": "256 session entries. Newest-first captured list stays stable until Refresh and reports arrivals. All/Unread are local filters; opening/closing acknowledges nothing; individual acknowledgement is reversible and Mark shown read applies only to captured entries.",
+      "handoff": "Warning/error opens the exact retained Activity log sequence in Solve; completion inspects the exact saved run or current original recording through Results without replacing source fields. Foreign project, expired log/run or changed recording context disables links with a reason while retained text remains.",
+      "focus": "Close and Escape return focus to the actual header notification button.",
+      "previewBoundary": "The HTML component below is a static appearance translation only; native Slate owns snapshot, journal, acknowledgement, context validation, handoff and focus behavior."
     }
   },
   "components": [
@@ -3805,7 +3840,8 @@
       "Do keep log observation/source context, paused snapshot identity, reversible clear and frozen CSV provenance visible within the existing Solve owner.",
       "Do keep command discovery and recall separate from sending, preserve recoverable input, and show job dispatch separately from observed state.",
       "Do keep performance units, measurement ownership, missing values and frozen UTC state explicit while the flow remains available in the existing Solve inspector.",
-      "Do keep recorded probe generation explicit, source/frame/scalar identity intact and gaps visible through chart inspection, exact-frame return and frozen CSV export."
+      "Do keep recorded probe generation explicit, source/frame/scalar identity intact and gaps visible through chart inspection, exact-frame return and frozen CSV export.",
+      "Do keep notification origin, UTC observation time and project/run/source context explicit; refresh a stable snapshot intentionally and acknowledge only with visible reversible actions."
     ],
     "donts": [
       "Don’t assign a movie rate to PNG-only sequences or confuse MP4 playback with physical time; never interpolate originals, retarget a pending export from live state, or write its completion into a replacement project.",
@@ -3836,7 +3872,8 @@
       "Don’t treat session observations or the M05 log verdict as scientific history, live solver transport, physical input/clipboard/dialog acceptance or long-session/full-plan completion.",
       "Don’t bypass command mode/state or shared save/run guards, or treat M06 acceptance as real backend transport, physical input or full-plan completion.",
       "Don’t treat application CPU timings or allocation bytes as GPU workload/residency, or extend the performance verdict to active-replay freeze testing, full keyboard/accessibility, long-session or full-plan acceptance.",
-      "Don’t treat a generated probe history as persistent project data, fill spatial gaps, silently decimate a request, or extend the F1-only verdict to physical input, native pickers, long-session/release or full-plan acceptance."
+      "Don’t treat a generated probe history as persistent project data, fill spatial gaps, silently decimate a request, or extend the F1-only verdict to physical input, native pickers, long-session/release or full-plan acceptance.",
+      "Don’t imply notifications are solver telemetry, acknowledge on open/close, acknowledge arrivals outside the captured snapshot, or treat this local ship review as packaged-runtime, physical-input, accessibility, long-session/release or full-plan acceptance."
     ]
   }
 }

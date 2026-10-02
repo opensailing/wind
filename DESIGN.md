@@ -1005,6 +1005,16 @@ Keyboard instructions name their focus scope. Escape and Close return focus to t
 
 The accepted extension is bounded to Help/header. `tmp/analysis/help-ui-20261001/finish-review.md` records ship with no material fixes after six reviewed Metal offscreen renders and virtual Slate layout/input workflows at 1280 × 720 and 1320 × 740. Those render artifacts do not establish desktop screenshots or physical input. The final headless report records 283 passing cases with two existing optional-helper warnings; the routine windowless Metal report has 11 successful cases and zero images. Game-target compile/postbuild exited 0, but the package was not recooked. Physical input/native dialogs, broad accessibility, current long-session/release, remaining numerical controls and full-plan acceptance stay open.
 
+### Session notifications — A07
+
+The drawn bell sits immediately beside Help in the existing header. It inherits the Operate navy panel, thin border, compact CoreStyle text and cyan actions; warning/error headings use the incumbent Amber and completion headings use Cyan. The bounded 500 × 500 popup contains a title and Close, local All/Unread filters, Refresh and captured-row acknowledgement, a retained/unread/pending summary, newest-first scrollable rows, then a quiet status line. Its layout adds no persistent workspace navigation and introduces no color, type, shadow or motion token.
+
+Rows identify actual Application, Recorded playback or Control harness origin and warning, error or completion. They retain UTC application observation time and project/run/source identity, plus bounded message text with explicit truncation. Only actual warning/error log observations and explicitly accepted completion lifecycle events enter the 256-row session journal; no solver telemetry or numerical fields are synthesized. Opening/closing does not acknowledge rows. The list remains captured until Refresh and announces arrivals. Individual read state is reversible; Mark shown read covers captured entries only. Expired log/run/recording context disables the link with a reason while the notification text remains. Error/warning links select the exact originating Activity log row in Solve. Completion links delegate the exact existing run or recording to Results without replacing source fields. Close and Escape return focus to the real header bell.
+
+The authored `SIcon` bell is recorded only as this header affordance; one local icon does not establish a reusable icon token or general component rule.
+
+`tmp/analysis/notifications-20261002/finish-review.md` gives **ship for the local A07 bell/popup/context links**, with no material fixes. Its six reviewed 500 × 500 / header FWidgetRenderer images are offscreen visual artifacts, not desktop captures or physical input. `acceptance.json` records 288 passing catalog cases (280 model, eight virtual Slate), including two new notification model and three new widget cases plus two existing optional Unreal iOS helper warnings; the matching routine Metal report records 11 successful cases and zero images. The Development game target compile/link/finalize and postbuild exited 0; the postbuild manifest lists three cleanup-required helper PIDs and an empty owned-process inventory afterward. The application was not recooked. Physical OS input/native dialogs, broad accessibility, long-session/release, remaining numerical/Settings controls and full-plan acceptance remain open.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -1045,6 +1055,7 @@ The accepted extension is bounded to Help/header. `tmp/analysis/help-ui-20261001
 
 - Do keep performance units, measurement ownership, missing values and frozen UTC state explicit while the flow remains available in the existing Solve inspector.
 - Do keep recorded probe generation explicit, source/frame/scalar identity intact and gaps visible through chart inspection, exact-frame return and frozen CSV export.
+- Do keep notification origin, UTC observation time and project/run/source context explicit; refresh a stable snapshot intentionally and acknowledge only with visible reversible actions.
 
 ### Don't:
 
@@ -1077,3 +1088,4 @@ The accepted extension is bounded to Help/header. `tmp/analysis/help-ui-20261001
 - Don’t bypass command mode/state or shared save/run guards, or treat M06 acceptance as real backend transport, physical input or full-plan completion.
 - Don’t treat application CPU timings or allocation bytes as GPU workload/residency, or extend the performance verdict to active-replay freeze testing, full keyboard/accessibility, long-session or full-plan acceptance.
 - Don’t treat a generated probe history as persistent project data, fill spatial gaps, silently decimate a request, or extend the F1-only verdict to physical input, native pickers, long-session/release or full-plan acceptance.
+- Don’t imply notifications are solver telemetry, acknowledge on open/close, acknowledge arrivals outside the captured snapshot, or treat this local ship review as packaged-runtime, physical-input, accessibility, long-session/release or full-plan acceptance.

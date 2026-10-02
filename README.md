@@ -32,14 +32,14 @@ Builds, packaged apps, logs, temporary plans, captures and Python caches stay ou
 Use this for routine development checks; it needs no screenshots or desktop interaction:
 
 ```sh
-python3 Tools/validate.py                                 # Compile, then all 283 headless tests
+python3 Tools/validate.py                                 # Compile, then all 288 headless tests
 python3 Tools/validate.py --suite Studio.HeadlessUI.       # Compile, then virtual Slate workflows
 python3 Tools/validate.py --no-build --suite Studio.FlowConditions. # Explicit existing-module check
 ```
 
 The default command compiles the Editor module with unity enabled, then runs Unreal Automation using `-nullrhi -RenderOffscreen`. A reviewed catalog in `Tools/headless-tests.json` makes missing, skipped, duplicate or unexpected tests fail. Each run creates a fresh `tmp/debug/headless-*/summary.json` containing failures, warnings, source/module hashes and process ownership, plus raw build/test logs. Exit code zero means the requested checks passed. `--no-build` is explicitly reported and does not establish compilation of current source.
 
-`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. Two Flow Conditions workflows cover 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. Three Help widget cases exercise the panel and real routed keyboard behavior at 1280 × 720 and 1320 × 740; two additional Help model cases verify diagnostics and guidance. The full catalog has 278 model cases and five virtual Slate cases, totaling 283. Routine validation is headless and writes zero images; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
+`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. Two Flow Conditions workflows cover 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. Three Help widget cases exercise the panel and real routed keyboard behavior at 1280 × 720 and 1320 × 740; two additional Help model cases verify diagnostics and guidance. The current catalog has 280 model cases and eight virtual Slate cases, totaling 288, including five notification cases (two model and three widget). Routine validation is headless and writes zero images; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
 
 Check the production CFD renderer on Metal without a window, desktop input or screenshots:
 
@@ -114,6 +114,7 @@ The investigation in `tmp/analysis/menu-reliability-20260928/` captured an unexp
 | Export selected history rows | Monitors → Export history; saves original rows in the selected time window as CSV |
 | Choose the compact history preview | Solve → Selected history → series picker; one named series, unit, selection count and Linear/Log scale |
 | Inspect session activity | Solve → Activity log → Open log; search/filter, pause, select details, clear/restore retained entries or Export CSV…; Restore Solve returns to the scene |
+| Review session notifications | Header bell beside Help; Refresh captures newest-first warning/error observations and accepted replay/control-harness completions; mark entries read explicitly |
 | Send application commands | Expanded Activity log → Command; Enter or Send executes, Commands… fills the field, Up/Down recalls, Tab/Shift+Tab completes, Esc clears |
 
 The floating Tools panel selects Orbit, Pan, Zoom or Fly for left-drag; each drag keeps the tool it started with. Pan moves the camera and focus together. Zoom changes orthographic width or perspective distance. Pan/Zoom selection is a local, unsaved input preference and does not edit the camera while already outside Fly. Entering or leaving Fly changes the saved, undoable camera mode while preserving pose, focus and display settings.
@@ -713,3 +714,11 @@ Tools/test-stability.sh 1200 --point-recording /absolute/path/to/recording.json 
 ```
 
 The runner validates the full descriptor hash, records the source mix and rejects missing point-source coverage. It performs sustained point playback, alternates both legacy sources and the point source, then tests visible idle/minimized playback and exact saved-view reopen. The app sandbox must already have access to the descriptor and members; a test copy inside the sandbox does not establish native picker permission acceptance.
+
+## Session notifications
+
+Use the drawn bell beside Help to open the 500 × 500 session history. The journal retains up to 256 actual warning/error observations and explicitly recorded playback or accepted control-harness completions. Each row preserves its origin, UTC observation time, project/run/source context and bounded message; truncation is labelled. It does not produce solver telemetry or numerical fields.
+
+Opening and closing does not acknowledge anything. The newest-first list is a captured snapshot until **Refresh**; arrivals are announced. **All** and **Unread** filter locally, individual **Mark read / Mark unread** is reversible, and **Mark shown read** applies only to captured rows. Historical text stays visible when its log entry or run expires. Links explain unavailable foreign-project, expired or original-recording mismatch contexts. Warning/error links reveal the exact retained Activity log row in Solve; completion links inspect the existing saved run or current original recording in Results without replacing source fields. Escape and Close return focus to the actual header bell.
+
+A07 has a scoped **ship** review in `tmp/analysis/notifications-20261002/finish-review.md`, with no material fixes, for the local bell, popup and exact context links. `acceptance.json` records 288 passing cataloged cases (280 model, eight virtual Slate; five new notification cases) with two existing optional Unreal iOS helper warnings, plus 11 routine production Metal cases with zero images. Six explicitly requested FWidgetRenderer renders were reviewed as offscreen artifacts, not desktop screenshots. The Development game target compile/link/finalize and postbuild exited 0; postbuild reported three cleanup-required helper PIDs and an empty owned-process inventory afterward. The package was not recooked, and this does not accept current packaged runtime, physical OS input/native dialogs, broad accessibility, long-session/release stability, remaining numerical/Settings controls or the full UI plan.
