@@ -8,7 +8,7 @@ public class LBMStudio : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[] { "ApplicationCore", "GeometryCore", "UMG" });
         if (Target.bBuildEditor)
             PrivateDependencyModuleNames.Add("SlateRHIRenderer");
-        AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
+        AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL", "zlib");
         if (Target.Platform == UnrealTargetPlatform.Mac)
             PublicFrameworks.AddRange(new[] { "Cocoa", "UniformTypeIdentifiers", "Metal", "AVFoundation", "CoreMedia", "CoreVideo" });
     }

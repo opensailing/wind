@@ -1,4 +1,5 @@
 #include "StudioModel.h"
+#include "StudioVolume.h"
 #include "StudioFlowPresentation.h"
 #include "StudioSnapshotSource.h"
 #include "StudioAssetPaths.h"
