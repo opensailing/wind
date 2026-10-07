@@ -104,7 +104,7 @@ struct FStudioSavedPipeline
 
 struct FStudioProject
 {
-    static constexpr int32 CurrentVersion = 21;
+    static constexpr int32 CurrentVersion = 22;
     FGuid Id = FGuid::NewGuid();
     FString Name = TEXT("Airfoil SU2 009");
     FString Dataset = TEXT("MeshGraphNets_Airfoil_test009");

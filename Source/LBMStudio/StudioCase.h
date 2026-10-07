@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "StudioHome4Config.h"
 
 class FJsonObject;
 
@@ -96,6 +97,8 @@ struct FStudioCaseDraft
     TArray<FStudioMaterial> Materials;
     TArray<FStudioBoundaryCondition> Boundaries;
     FStudioCaseSetup Setup;
+    // Optional solver-specific requests. Existing cases do not acquire invented HOME4 physics.
+    TOptional<FStudioHome4Spec> Home4;
 };
 
 enum class EStudioRunOrigin : uint8 { PublishedRecording, ControlHarness, Solver, ImportedRecording };

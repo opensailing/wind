@@ -187,6 +187,7 @@ TSharedRef<FJsonObject> StudioCaseIO::ToJSON(const FStudioCaseDraft& D)
     Setup->SetNumberField(TEXT("maxSteps"),double(S.MaxSteps)); OptionalField(Setup,TEXT("maxPhysicalTimeS"),S.MaxPhysicalTime);
     Setup->SetNumberField(TEXT("outputInterval"),double(S.OutputInterval)); Setup->SetBoolField(TEXT("checkpoints"),S.bCheckpoints);
     Setup->SetNumberField(TEXT("checkpointInterval"),double(S.CheckpointInterval)); O->SetObjectField(TEXT("setup"),Setup);
+    if (D.Home4.IsSet()) O->SetObjectField(TEXT("home4"),StudioHome4Config::ToJSON(*D.Home4));
     return O;
 }
 
@@ -251,6 +252,12 @@ bool StudioCaseIO::FromJSON(const FObject& O, FStudioCaseDraft& Out, FString& Er
         !J->TryGetBoolField(TEXT("checkpoints"),S.bCheckpoints) || !ReadInteger(J,TEXT("checkpointInterval"),S.CheckpointInterval)) return false;
     for (double V : Resolution) if (V < 1 || V > 1048576 || V != FMath::FloorToDouble(V)) return false;
     S.LatticeResolution = FIntVector(int32(Resolution[0]),int32(Resolution[1]),int32(Resolution[2]));
+    if (O->HasField(TEXT("home4")))
+    {
+        const FObject* Home4; FStudioHome4Spec Spec;
+        if (!O->TryGetObjectField(TEXT("home4"),Home4) || !StudioHome4Config::FromJSON(*Home4,Spec,Error)) return false;
+        D.Home4 = MoveTemp(Spec);
+    }
     if (!Validate(D,Error)) return false;
     Out = MoveTemp(D); Error.Empty(); return true;
 }
@@ -262,6 +269,7 @@ FString StudioCaseIO::Serialize(const FStudioCaseDraft& Draft)
 
 bool StudioCaseIO::Validate(const FStudioCaseDraft& D, FString& Error)
 {
+    if (D.Home4.IsSet() && !StudioHome4Config::Validate(*D.Home4,Error)) return false;
     auto Fail = [&Error](const TCHAR* Text) { Error = Text; return false; };
     TSet<FGuid> Ids;
     auto Unique = [&Ids](const FGuid& Id) { if (!Id.IsValid() || Ids.Contains(Id)) return false; Ids.Add(Id); return true; };
