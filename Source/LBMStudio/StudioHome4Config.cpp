@@ -124,7 +124,8 @@ namespace
             N("authoring","spongeLengthRatio",Authoring.SpongeLengthRatio,"Boundaries & Zones","L",0,1.e12),
             N("authoring","waveLengthCells",Authoring.WaveLengthCells,"Boundaries & Zones","cells",0,1.e12),
             N("authoring","wavePeriodSteps",Authoring.WavePeriodSteps,"Boundaries & Zones","steps",0,1.e12),
-            N("authoring","waveDepthCells",Authoring.WaveDepthCells,"Boundaries & Zones","cells",0,1.e12)
+            N("authoring","waveDepthCells",Authoring.WaveDepthCells,"Boundaries & Zones","cells",0,1.e12),
+            N("authoring","waveAmplitudeCells",Authoring.WaveAmplitudeCells,"Boundaries & Zones","cells",0,1.e12)
         }; return V;
     }
 #undef N
@@ -176,7 +177,7 @@ namespace
             S("authoring","preparationMethod",Authoring.PreparationMethod,"Geometry"), S("authoring","zoneUnits",Authoring.ZoneUnits,"Boundaries & Zones"),
             S("authoring","boundaryWall",Authoring.BoundaryWall,"Boundaries & Zones"), S("authoring","inletMode",Authoring.InletMode,"Boundaries & Zones"),
             S("authoring","outletMode",Authoring.OutletMode,"Boundaries & Zones"), S("authoring","pierceMode",Authoring.PierceMode,"Boundaries & Zones"),
-            S("authoring","waveModel",Authoring.WaveModel,"Boundaries & Zones"), S("authoring","deviceProfile",Authoring.DeviceProfile,"Run"),
+            S("authoring","waveModel",Authoring.WaveModel,"Boundaries & Zones"), S("authoring","waveAxis",Authoring.WaveAxis,"Boundaries & Zones"), S("authoring","deviceProfile",Authoring.DeviceProfile,"Run"),
             S("fluids","tauMethod",Fluids.TauMethod,"Fluids & Interface"), S("fluids","surfaceTensionForm",Fluids.SurfaceTensionForm,"Fluids & Interface"),
             S("geometry","sourcePath",Geometry.SourcePath,"Geometry"), S("geometry","patchClassification",Geometry.PatchClassification,"Geometry"),
             S("geometry","sdfBackend",Geometry.SdfBackend,"Geometry"), S("geometry","cptPath",Geometry.CptPath,"Geometry"),
@@ -187,7 +188,8 @@ namespace
             S("multidomain","sneqMode",Multidomain.SneqMode,"Lattice"),
             S("run","device",Run.Device,"Run"), S("run","queueTarget",Run.QueueTarget,"Run"), S("run","tag",Run.Tag,"Run"),
             S("run","outDirectory",Run.OutDirectory,"Run"), S("run","initState",Run.InitState,"Run"), S("run","saveState",Run.SaveState,"Run"),
-            S("run","vizDirectory",Run.VizDirectory,"Run"), S("performance","measurementSource",Performance.MeasurementSource,"Run")
+            S("run","vizDirectory",Run.VizDirectory,"Run"), S("performance","measurementSource",Performance.MeasurementSource,"Run"),
+            S("performance","outputEstimateSource",Performance.OutputEstimateSource,"Run"), S("performance","outputEstimateAssumption",Performance.OutputEstimateAssumption,"Run")
         }; return V;
     }
 #undef S
@@ -285,6 +287,7 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
         A.Add(Home4Field(TEXT("geometry"),TEXT("initialVelocityCellsPerStep"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("cells/step")));
         A.Add(Home4Field(TEXT("geometry"),TEXT("initialAngularVelocityRadiansPerStep"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("radians/step")));
         A.Add(Home4Field(TEXT("geometry"),TEXT("stiffness"),TEXT("Bodies"),EStudioHome4FieldType::NumberArray,TEXT("lu"),-1.e12,1.e12,false));
+        A.Add(Home4Field(TEXT("performance"),TEXT("outputByteEstimates"),TEXT("Run"),EStudioHome4FieldType::NumberArray,TEXT("bytes trace, slice, viz, restart; 0=unknown"),0,1.e12,false));
         A.Add(Home4Field(TEXT("multidomain"),TEXT("levelCells"),TEXT("Lattice"),EStudioHome4FieldType::IntegerArray,TEXT("cells"),1,Home4MaxCount,false));
         for(auto& F:A)
         {
@@ -297,13 +300,14 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Unit==TEXT("cells2/step")){F.bQuantity=true;F.Quantity=Q::KinematicViscosity;}
             if(F.Unit==TEXT("cells/step2")){F.bQuantity=true;F.Quantity=Q::Acceleration;}
             if(F.Unit==TEXT("radians/step")){F.bQuantity=true;F.Quantity=Q::AngularRate;}
+            if(F.Unit==TEXT("degrees")){F.bQuantity=true;F.Quantity=Q::Angle;}
             if(F.Unit==TEXT("cycles/step")){F.bQuantity=true;F.Quantity=Q::Frequency;}
             if(F.Unit==TEXT("L")){F.bQuantity=true;F.bBodyLengths=true;F.Quantity=Q::Length;}
             if(F.Key==TEXT("rhoHeavy")||F.Key==TEXT("rhoLight")){F.bQuantity=true;F.Quantity=Q::Density;}
             if(F.Key==TEXT("sigma")){F.bQuantity=true;F.Quantity=Q::SurfaceTension;}
             if(F.Key==TEXT("bodyMass")){F.bQuantity=true;F.Quantity=Q::Mass;}
             if(F.Key.StartsWith(TEXT("inertia"))){F.bQuantity=true;F.Quantity=Q::Inertia;}
-            if(F.Key==TEXT("stiffness")){F.bQuantity=true;F.Quantity=Q::StiffnessTranslation;}
+            if(F.Key==TEXT("stiffness")){F.bQuantity=false;}
             if(F.Key==TEXT("retabulateEvery")||F.Key==TEXT("measureEvery")||F.Key==TEXT("printEvery")||F.Key==TEXT("vizEvery")||F.Key==TEXT("restartEvery")||F.Key==TEXT("saveEvery")||F.Key==TEXT("steps")){F.bQuantity=true;F.Quantity=Q::Time;}
             if(F.Key==TEXT("extents")||F.Key==TEXT("levelCells")||F.Key==TEXT("streamwiseCells"))F.bQuantity=false;
             if(F.Key==TEXT("primitive"))F.Choices={TEXT(""),TEXT("box"),TEXT("cylinder"),TEXT("sphere")};
@@ -312,6 +316,7 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("inletMode"))F.Choices={TEXT("stream"),TEXT("cubic-ramp"),TEXT("wave")};
             if(F.Key==TEXT("outletMode"))F.Choices={TEXT("open"),TEXT("stream"),TEXT("periodic")};
             if(F.Key==TEXT("pierceMode"))F.Choices={TEXT("off"),TEXT("phase-pinned"),TEXT("free-interface")};
+            if(F.Key==TEXT("waveAxis"))F.Choices={TEXT("x"),TEXT("y")};
             if(F.Key==TEXT("waveModel"))F.Choices={TEXT("none"),TEXT("linear-gravity"),TEXT("declared-profile")};
             if(F.Key==TEXT("retabulationPolicy"))F.Choices={TEXT(""),TEXT("static"),TEXT("every-step"),TEXT("cadence")};
             if(F.Key==TEXT("deviceProfile"))F.Choices={TEXT(""),TEXT("M4-Pro-MPS-79.5M"),TEXT("declared-memory")};
@@ -448,6 +453,10 @@ bool StudioHome4Config::Validate(const FStudioHome4Spec& Spec,FString& Error)
     for(double N:Spec.Geometry.Stiffness)if(!FMath::IsFinite(N)||FMath::Abs(N)>1.e12)return Fail(TEXT("Stiffness contains a non-finite or unbounded value."));
     if(Spec.Multidomain.LevelCells.Num()>Home4MaxLevels)return Fail(TEXT("Too many MD level cell counts."));
     for(int64 N:Spec.Multidomain.LevelCells)if(N<1||N>Home4MaxCount)return Fail(TEXT("MD level cell counts must be positive bounded integers."));
+    if(!Spec.Performance.OutputByteEstimates.IsEmpty()&&Spec.Performance.OutputByteEstimates.Num()!=4)return Fail(TEXT("Output byte estimates must be empty or contain trace/slice/viz/restart estimates."));
+    for(double Bytes:Spec.Performance.OutputByteEstimates)if(!FMath::IsFinite(Bytes)||Bytes<0||Bytes>1.e12)return Fail(TEXT("Output byte estimates must be finite, nonnegative and at most 1 TB; zero leaves a channel unknown."));
+    if(!Spec.Authoring.SourceSHA256.IsEmpty()){if(Spec.Authoring.SourceSHA256.Len()!=64)return Fail(TEXT("Geometry source SHA256 must contain 64 hexadecimal digits."));for(TCHAR C:Spec.Authoring.SourceSHA256)if(!FChar::IsHexDigit(C))return Fail(TEXT("Geometry source SHA256 must contain 64 hexadecimal digits."));}
+    for(const auto& A:Spec.Performance.Allocations)if(!A.NodeScope.IsEmpty()&&A.NodeScope!=TEXT("fixed")&&A.NodeScope!=TEXT("root")){if(!A.NodeScope.StartsWith(TEXT("level:")))return Fail(TEXT("Allocation scope must be fixed, root or level:N."));const FString N=A.NodeScope.Mid(6);int32 Level=-1;if(N.IsEmpty()||N.Len()>2)return Fail(TEXT("Allocation level scope must be 0–15."));for(TCHAR C:N)if(!FChar::IsDigit(C))return Fail(TEXT("Allocation level scope must be 0–15."));Level=FCString::Atoi(*N);if(Level>15)return Fail(TEXT("Allocation level scope must be 0–15."));}
     if(Spec.Performance.Allocations.Num()>256)return Fail(TEXT("Allocation list exceeds 256 entries."));
     for(const auto& A:Spec.Performance.Allocations)
         if(A.Name.IsEmpty()||!Home4TextValid(A.Name)||A.Name.Len()>120||
@@ -513,6 +522,7 @@ TSharedRef<FJsonObject> StudioHome4Config::ToJSON(const FStudioHome4Spec& Spec)
     }
     Auth->SetArrayField(TEXT("zones"),Zones);Auth->SetArrayField(TEXT("patches"),Patches);
     Home4Array(Home4Section(O,TEXT("multidomain")),TEXT("levelCells"),V.Multidomain.LevelCells);
+    Home4Array(Home4Section(O,TEXT("performance")),TEXT("outputByteEstimates"),V.Performance.OutputByteEstimates);
     Home4FValues Allocations;
     for(const auto& A:V.Performance.Allocations)
     {
@@ -563,7 +573,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out
         bool B;if(J->Type!=EJson::Boolean||!J->TryGetBool(B))return false;F.Access(V)=B;
     }
     for(const auto& F:Home4Strings())
-    {const auto J=Home4Section(O,F.Field.Section)->TryGetField(F.Field.Key);if(!J){if(F.Field.Section==TEXT("authoring")||F.Field.Key==TEXT("parentRunId")||F.Field.Key==TEXT("parentSpecSHA256")||F.Field.Key==TEXT("branchId"))continue;return false;}if(J->Type!=EJson::String||!J->TryGetString(F.Access(V)))return false;}
+    {const auto J=Home4Section(O,F.Field.Section)->TryGetField(F.Field.Key);if(!J){if(F.Field.Section==TEXT("authoring")||F.Field.Key==TEXT("parentRunId")||F.Field.Key==TEXT("parentSpecSHA256")||F.Field.Key==TEXT("branchId")||F.Field.Key==TEXT("outputEstimateSource")||F.Field.Key==TEXT("outputEstimateAssumption"))continue;return false;}if(J->Type!=EJson::String||!J->TryGetString(F.Access(V)))return false;}
     FString Display,Backend;
     if(Home4Section(O,TEXT("units"))->TryGetField(TEXT("display"))==nullptr||Home4Section(O,TEXT("run"))->TryGetField(TEXT("backend"))==nullptr)return false;
     if(Home4Section(O,TEXT("units"))->TryGetField(TEXT("display"))->Type!=EJson::String||Home4Section(O,TEXT("run"))->TryGetField(TEXT("backend"))->Type!=EJson::String)return false;
@@ -591,6 +601,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out
     {if(!Home4ReadVector(Home4Section(O,TEXT("geometry")),Pair.Key,C,bSet))return false;if(bSet)*Pair.Value=FVector(C[0],C[1],C[2]);}
     if(!Home4ReadArray(Home4Section(O,TEXT("geometry")),TEXT("stiffness"),V.Geometry.Stiffness,36,false)||
        !Home4ReadArray(Home4Section(O,TEXT("multidomain")),TEXT("levelCells"),V.Multidomain.LevelCells,Home4MaxLevels,true))return false;
+    if(Home4Section(O,TEXT("performance"))->HasField(TEXT("outputByteEstimates"))&&!Home4ReadArray(Home4Section(O,TEXT("performance")),TEXT("outputByteEstimates"),V.Performance.OutputByteEstimates,4,false))return false;
     const auto Auth=Home4Section(O,TEXT("authoring"));
     if(!Home4ReadVector(Auth,TEXT("primitiveSizeCells"),C,bSet))return false;
     if(bSet)V.Authoring.PrimitiveSizeCells=FVector(C[0],C[1],C[2]);
@@ -911,6 +922,7 @@ TOptional<double> StudioHome4Config::ConvertUnits(double Value,EStudioHome4Quant
         case EStudioHome4Quantity::StiffnessRotation:Mass=1;Length=2;Time=-2;break;
         case EStudioHome4Quantity::Gradient:Length=-1;break;
         case EStudioHome4Quantity::ForceDensity:Mass=1;Length=-2;Time=-2;break;
+        case EStudioHome4Quantity::Angle:return From==To?Value:From==EStudioHome4UnitDisplay::Lattice?FMath::DegreesToRadians(Value):To==EStudioHome4UnitDisplay::Lattice?FMath::RadiansToDegrees(Value):Value;
         default:return {};
     }
     if(From==To)return Value;
@@ -1102,7 +1114,7 @@ bool StudioHome4Config::Resize(FStudioHome4Spec& Out,double Length,double Mach,d
         const int32 R=I/6,C=I%6;const int32 Power=3+(R>=3?1:0)+(C>=3?1:0);
         S.Geometry.Stiffness[I]*=FMath::Pow(Scale,Power)/(TimeScale*TimeScale);
     }
-    for(auto* V:{&S.Multidomain.Z1,&S.Multidomain.Z2,&S.Multidomain.Margin,&S.Multidomain.BandDepth,&S.Multidomain.Overlap,&S.Multidomain.RestrictionMargin,&S.Authoring.WaterlineCells,&S.Authoring.WaveLengthCells,&S.Authoring.WaveDepthCells})NumberScale(*V,Scale);
+    for(auto* V:{&S.Multidomain.Z1,&S.Multidomain.Z2,&S.Multidomain.Margin,&S.Multidomain.BandDepth,&S.Multidomain.Overlap,&S.Multidomain.RestrictionMargin,&S.Authoring.WaterlineCells,&S.Authoring.WaveLengthCells,&S.Authoring.WaveDepthCells,&S.Authoring.WaveAmplitudeCells})NumberScale(*V,Scale);
     NumberScale(S.Authoring.WavePeriodSteps,TimeScale);
     if(S.Authoring.ZoneUnits==TEXT("root-cells"))
     {

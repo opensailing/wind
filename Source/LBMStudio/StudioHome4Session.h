@@ -12,7 +12,10 @@ public:
     void Revert();
     void Set(const FString& Key,const FString& Value);
     FString Get(const FString& Key) const;
-    bool Build(FStudioHome4Spec& Out,FString& Error) const;
+    bool Build(FStudioHome4Spec& Out,FString& Error,bool bAllowPending=false) const;
+    void RetainPending(const FString& Group,const TMap<FString,FString>& Values);
+    TMap<FString,FString> Pending(const FString& Group)const;
+    bool HasPending()const{return !PendingGroups.IsEmpty();}
     bool Apply();
     /** Replace the retained draft transactionally, preserving the applied baseline/undo boundary. */
     bool Replace(const FStudioHome4Spec& Spec,FString& Error);
@@ -41,5 +44,6 @@ private:
     TMap<FString,FString> Edits,Original;
     TArray<TArray<FString>> AllocationEdits,OriginalAllocations;
     bool bConflict=false,bExtraDirty=false;
+    TMap<FString,TMap<FString,FString>> PendingGroups;
     void LoadValues(const FStudioHome4Spec& Spec);
 };

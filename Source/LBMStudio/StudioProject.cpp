@@ -83,6 +83,7 @@ namespace
         O->SetNumberField(TEXT("streamlineDensity"),V.StreamlineDensity); O->SetNumberField(TEXT("vectorScale"),V.VectorScale);
         O->SetObjectField(TEXT("streamlineSettings"),StudioStreamlines::ToJSON(V.StreamlineSettings));
         O->SetNumberField(TEXT("vectorCount"),V.VectorCount);O->SetBoolField(TEXT("uniformVectors"),V.bUniformVectors);
+        O->SetStringField(TEXT("vectorField"),V.VectorField);
         O->SetNumberField(TEXT("volumeOpacity"),V.VolumeOpacity); O->SetNumberField(TEXT("playbackRate"),V.PlaybackRate);
         O->SetBoolField(TEXT("loopPlayback"),V.bLoopPlayback); O->SetBoolField(TEXT("streamlines"),V.bStreamlines);
         O->SetBoolField(TEXT("vectors"),V.bVectors); O->SetBoolField(TEXT("cutPlane"),V.bCutPlane);
@@ -121,6 +122,11 @@ namespace
     }
     bool ReadView(const FObject& O, FStudioViewSettings& V, bool bLegacy, bool bPointSettings=false,bool bColorSettings=false,bool bSurfaceSettings=false,bool bVolumeSettings=false,bool bInspectionSettings=false,bool bVectorSettings=false,bool bStreamSettings=false)
     {
+        if(O->HasField(TEXT("vectorField")))
+        {
+            if(!O->TryGetStringField(TEXT("vectorField"),V.VectorField)||V.VectorField.IsEmpty()||V.VectorField.Len()>128)return false;
+            for(TCHAR C:V.VectorField)if(!FChar::IsAlnum(C)&&C!='_'&&C!='-'&&C!='.')return false;
+        }
         if(O->HasField(TEXT("home4AirMask"))&&!O->TryGetBoolField(TEXT("home4AirMask"),V.bHome4AirMask))return false;
         if(O->HasField(TEXT("home4InterfaceSurface"))&&!O->TryGetBoolField(TEXT("home4InterfaceSurface"),V.bHome4InterfaceSurface))return false;
         if(O->HasField(TEXT("home4ObstacleSurface"))&&!O->TryGetBoolField(TEXT("home4ObstacleSurface"),V.bHome4ObstacleSurface))return false;
@@ -247,6 +253,7 @@ FString StudioProjectIO::Serialize(const FStudioProject& P)
     O->SetArrayField(TEXT("recordings"),Recordings);
     O->SetNumberField(TEXT("selectedFrame"),P.SelectedFrame);
     O->SetObjectField(TEXT("view"),ViewJSON(P.View)); O->SetObjectField(TEXT("camera"),CameraJSON(P.Camera));
+    if(P.bHasViewerDefaults){auto Defaults=MakeShared<FJsonObject>();Defaults->SetObjectField(TEXT("view"),ViewJSON(P.ViewerDefaults));Defaults->SetObjectField(TEXT("camera"),CameraJSON(P.ViewerCameraDefaults));O->SetObjectField(TEXT("viewerDefaults"),Defaults);}
     TArray<TSharedPtr<FJsonValue>> Bookmarks;
     for (const auto& B : P.Cameras)
     {
@@ -290,6 +297,8 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
     if (!ReadInteger(O,TEXT("version"),Version,2,FStudioProject::CurrentVersion))
     { Error=TEXT("Unsupported project version. Open this file with a compatible LBM Studio build."); return false; }
     FStudioProject P;
+    if(O->HasField(TEXT("viewerDefaults")))
+    {const FObject *Defaults=nullptr,*View=nullptr,*Camera=nullptr;if(!O->TryGetObjectField(TEXT("viewerDefaults"),Defaults)||!(*Defaults)->TryGetObjectField(TEXT("view"),View)||!ReadView(*View,P.ViewerDefaults,false,true,true,true,true,true,true,true)||!(*Defaults)->TryGetObjectField(TEXT("camera"),Camera)||!ReadCamera(*Camera,P.ViewerCameraDefaults,true))return false;P.bHasViewerDefaults=true;}
     if (Version==2)
     {
         if (!O->TryGetStringField(TEXT("sample"),P.Dataset) || !ReadView(O,P.View,true)) return false;
@@ -435,7 +444,8 @@ bool StudioProjectIO::Parse(const FString& Text, FStudioProject& Out, FString& E
         {Error=TEXT("Saved pipelines are missing from the project.");return false;}
         if(!StudioPipelines::FromJSON(*Pipelines,P.Pipelines,Error))return false;
     }
-    if (P.Dataset.IsEmpty() || P.Dataset.Len()>256)
+    const bool AuthoringOnly=P.Dataset.IsEmpty()&&P.Recordings.IsEmpty()&&(P.Draft.Home4.IsSet()||P.Runs.IsEmpty())&&P.SelectedFrame==0;
+    if ((!AuthoringOnly&&P.Dataset.IsEmpty()) || P.Dataset.Len()>256)
     { Error=TEXT("Project recording identity is missing or too long."); return false; }
     Out=MoveTemp(P); Error.Empty(); return true;
 }

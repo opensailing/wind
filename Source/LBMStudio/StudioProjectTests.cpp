@@ -141,10 +141,11 @@ bool FStudioProjectRecovery::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioVectorPersistence,"Studio.Project.VectorSettingsMigrationAndHistory",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FStudioVectorPersistence::RunTest(const FString&)
 {
-    FStudioProject P;P.View.VectorCount=777;P.View.VectorScale=1.625;P.View.bUniformVectors=true;
+    FStudioProject P;P.View.VectorCount=777;P.View.VectorScale=1.625;P.View.bUniformVectors=true;P.View.VectorField=TEXT("F_cap");
     FStudioProject Loaded;FString Error;
     TestTrue(TEXT("Vector settings parse"),StudioProjectIO::Parse(StudioProjectIO::Serialize(P),Loaded,Error));
     TestTrue(TEXT("Vector settings retain exact values"),Loaded.View.VectorCount==777&&Loaded.View.VectorScale==1.625&&Loaded.View.bUniformVectors);
+    TestEqual(TEXT("Selected original vector survives save/open"),Loaded.View.VectorField,FString(TEXT("F_cap")));
     TSharedPtr<FJsonObject> JSON;
     if(!TestTrue(TEXT("Decode project for migration"),FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(StudioProjectIO::Serialize(P)),JSON)))return false;
     const auto Encode=[&]{FString Text;FJsonSerializer::Serialize(JSON.ToSharedRef(),TJsonWriterFactory<>::Create(&Text));return Text;};

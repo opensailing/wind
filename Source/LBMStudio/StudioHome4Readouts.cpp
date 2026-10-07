@@ -1,7 +1,27 @@
 #include "StudioHome4Readouts.h"
+namespace StudioHome4RecordedUnits
+{
+struct FUnit {const TCHAR* Name;EStudioHome4Quantity Quantity;EStudioHome4UnitDisplay From;};
+using Q=EStudioHome4Quantity;using D=EStudioHome4UnitDisplay;
+const FUnit Units[]={
+        {TEXT("1"),Q::Dimensionless,D::Lattice},{TEXT(""),Q::Dimensionless,D::Lattice},
+        {TEXT("1/m"),Q::Gradient,D::Physical},{TEXT("1/cell"),Q::Gradient,D::Lattice},{TEXT("1/cells"),Q::Gradient,D::Lattice},
+        {TEXT("N/m3"),Q::ForceDensity,D::Physical},{TEXT("N/m³"),Q::ForceDensity,D::Physical},{TEXT("lu_force_density"),Q::ForceDensity,D::Lattice},
+        {TEXT("m/s"),Q::Velocity,D::Physical},{TEXT("lu_velocity"),Q::Velocity,D::Lattice},
+        {TEXT("m"),Q::Length,D::Physical},{TEXT("lu_length"),Q::Length,D::Lattice},{TEXT("cells"),Q::Length,D::Lattice},
+        {TEXT("Pa"),Q::Pressure,D::Physical},{TEXT("lu_pressure"),Q::Pressure,D::Lattice},
+        {TEXT("kg/m3"),Q::Density,D::Physical},{TEXT("kg/m³"),Q::Density,D::Physical},{TEXT("lu_density"),Q::Density,D::Lattice},
+        {TEXT("m2/s"),Q::KinematicViscosity,D::Physical},{TEXT("m²/s"),Q::KinematicViscosity,D::Physical},{TEXT("cells2/step"),Q::KinematicViscosity,D::Lattice},
+        {TEXT("1/s"),Q::StrainRate,D::Physical},{TEXT("1/step"),Q::StrainRate,D::Lattice},
+        {TEXT("1/s2"),Q::SquaredRate,D::Physical},{TEXT("1/s²"),Q::SquaredRate,D::Physical},{TEXT("1/step2"),Q::SquaredRate,D::Lattice},
+        {TEXT("m/s2"),Q::Acceleration,D::Physical},{TEXT("m/s²"),Q::Acceleration,D::Physical},
+        {TEXT("m2/s3"),Q::SpecificDissipation,D::Physical},{TEXT("m²/s³"),Q::SpecificDissipation,D::Physical},{TEXT("cells2/step3"),Q::SpecificDissipation,D::Lattice}};
+}
+
 
 FString StudioHome4Readouts::Unit(EStudioHome4Quantity Q,EStudioHome4UnitDisplay Display)
 {
+    if(Q==EStudioHome4Quantity::Angle)return Display==EStudioHome4UnitDisplay::Lattice?TEXT("degrees"):TEXT("rad");
     if(Q==EStudioHome4Quantity::Dimensionless||Display==EStudioHome4UnitDisplay::Nondimensional)return TEXT("1");
     const bool SI=Display==EStudioHome4UnitDisplay::Physical;
     switch(Q)
@@ -50,21 +70,28 @@ FString StudioHome4Readouts::Time(int64 Step,const FStudioHome4Spec* Map,TOption
 
 FString StudioHome4Readouts::Scalar(double V,const FString& SourceUnit,EStudioHome4UnitDisplay To,const FStudioHome4Spec* Map,bool IsTooltip)
 {
-    struct FUnit {const TCHAR* Name;EStudioHome4Quantity Quantity;EStudioHome4UnitDisplay From;};
-    using Q=EStudioHome4Quantity;using D=EStudioHome4UnitDisplay;
-    static const FUnit Units[]={
-        {TEXT("1"),Q::Dimensionless,D::Lattice},{TEXT(""),Q::Dimensionless,D::Lattice},
-        {TEXT("1/m"),Q::Gradient,D::Physical},{TEXT("1/cell"),Q::Gradient,D::Lattice},{TEXT("1/cells"),Q::Gradient,D::Lattice},
-        {TEXT("N/m3"),Q::ForceDensity,D::Physical},{TEXT("N/m³"),Q::ForceDensity,D::Physical},{TEXT("lu_force_density"),Q::ForceDensity,D::Lattice},
-        {TEXT("m/s"),Q::Velocity,D::Physical},{TEXT("lu_velocity"),Q::Velocity,D::Lattice},
-        {TEXT("m"),Q::Length,D::Physical},{TEXT("lu_length"),Q::Length,D::Lattice},{TEXT("cells"),Q::Length,D::Lattice},
-        {TEXT("Pa"),Q::Pressure,D::Physical},{TEXT("lu_pressure"),Q::Pressure,D::Lattice},
-        {TEXT("kg/m3"),Q::Density,D::Physical},{TEXT("kg/m³"),Q::Density,D::Physical},{TEXT("lu_density"),Q::Density,D::Lattice},
-        {TEXT("m2/s"),Q::KinematicViscosity,D::Physical},{TEXT("m²/s"),Q::KinematicViscosity,D::Physical},{TEXT("cells2/step"),Q::KinematicViscosity,D::Lattice},
-        {TEXT("1/s"),Q::StrainRate,D::Physical},{TEXT("1/step"),Q::StrainRate,D::Lattice},
-        {TEXT("1/s2"),Q::SquaredRate,D::Physical},{TEXT("1/s²"),Q::SquaredRate,D::Physical},{TEXT("1/step2"),Q::SquaredRate,D::Lattice},
-        {TEXT("m/s2"),Q::Acceleration,D::Physical},{TEXT("m/s²"),Q::Acceleration,D::Physical},
-        {TEXT("m2/s3"),Q::SpecificDissipation,D::Physical},{TEXT("m²/s³"),Q::SpecificDissipation,D::Physical},{TEXT("cells2/step3"),Q::SpecificDissipation,D::Lattice}};
-    if(Map)for(const auto& U:Units)if(SourceUnit==U.Name)return IsTooltip?Tooltip(V,U.Quantity,U.From,Map):Value(V,U.Quantity,U.From,To,Map);
+    for(const auto& U:StudioHome4RecordedUnits::Units)if(SourceUnit==U.Name)return IsTooltip?Tooltip(V,U.Quantity,U.From,Map):Value(V,U.Quantity,U.From,To,Map);
     return FString::Printf(TEXT("%.6g %s%s"),V,*SourceUnit,IsTooltip?TEXT(" · original source units; conversion map or quantity convention not supplied"):TEXT(""));
+}
+
+bool StudioHome4Readouts::ScalarValue(double V,const FString& SourceUnit,EStudioHome4UnitDisplay Display,const FStudioHome4Spec* Map,double& Out,bool ToSource)
+{
+    if(!FMath::IsFinite(V)||int32(Display)>2)return false;
+    for(const auto& U:StudioHome4RecordedUnits::Units)if(SourceUnit==U.Name)
+    {
+        if(U.Quantity==EStudioHome4Quantity::Dimensionless||U.From==Display){Out=V;return true;}
+        if(!Map)return false;
+        const auto C=StudioHome4Config::ConvertUnits(V,U.Quantity,ToSource?Display:U.From,ToSource?U.From:Display,*Map);
+        if(!C)return false;
+        Out=*C;return true;
+    }
+    return false;
+}
+
+FString StudioHome4Readouts::ScalarUnit(const FString& SourceUnit,EStudioHome4UnitDisplay Display,const FStudioHome4Spec* Map)
+{
+    double Converted;
+    for(const auto& U:StudioHome4RecordedUnits::Units)if(SourceUnit==U.Name)
+        return ScalarValue(1,SourceUnit,Display,Map,Converted)?Unit(U.Quantity,Display):SourceUnit+TEXT(" · conversion unavailable");
+    return SourceUnit+TEXT(" · conversion unavailable");
 }

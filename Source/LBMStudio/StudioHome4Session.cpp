@@ -52,7 +52,7 @@ void FStudioHome4Session::Revert()
     Project=M->Project.Id;Case=M->Project.Draft.Id;Saved=M->Project.Draft.Home4.Get(FStudioHome4Spec());
     Baseline=M->Project.Draft.Home4.IsSet()?StudioHome4Config::Serialize(Saved):FString();Edits.Reset();
     LoadValues(Saved);
-    OriginalAllocations=AllocationEdits;Original=Edits;bConflict=false;bExtraDirty=false;Status.Empty();
+    OriginalAllocations=AllocationEdits;Original=Edits;PendingGroups.Reset();bConflict=false;bExtraDirty=false;Status.Empty();
 }
 void FStudioHome4Session::Refresh()
 {
@@ -68,7 +68,7 @@ void FStudioHome4Session::Refresh()
 void FStudioHome4Session::Set(const FString& Key,const FString& Value){if(Edits.Contains(Key)){Edits[Key]=Value;Status.Empty();}}
 FString FStudioHome4Session::Get(const FString& Key) const {const auto* V=Edits.Find(Key);return V?*V:FString();}
 bool FStudioHome4Session::IsDirty() const
-{if(bExtraDirty||AllocationEdits!=OriginalAllocations)return true;for(const auto& E:Edits){const auto* O=Original.Find(E.Key);if(!O||*O!=E.Value)return true;}return false;}
+{if(HasPending()||bExtraDirty||AllocationEdits!=OriginalAllocations)return true;for(const auto& E:Edits){const auto* O=Original.Find(E.Key);if(!O||*O!=E.Value)return true;}return false;}
 FString FStudioHome4Session::AllocationValue(int32 Row,int32 Column) const
 {return AllocationEdits.IsValidIndex(Row)&&AllocationEdits[Row].IsValidIndex(Column)?AllocationEdits[Row][Column]:FString();}
 void FStudioHome4Session::SetAllocation(int32 Row,int32 Column,const FString& Value)
@@ -82,12 +82,13 @@ void FStudioHome4Session::AddAllocation()
         const auto Cells=StudioHome4Config::Derive(Preview).RootCells;
         if(Cells.IsSet()&&*Cells<=9007199254740991ULL)Nodes=LexToString(*Cells);
     }
-    AllocationEdits.Add({TEXT("New array"),Nodes,TEXT("1"),TEXT("4"),TEXT("1")});
+    AllocationEdits.Add({TEXT("New array"),Nodes,TEXT("1"),TEXT("4"),TEXT("1"),TEXT("root")});
 }
 void FStudioHome4Session::RemoveAllocation(int32 Row)
 {if(AllocationEdits.IsValidIndex(Row))AllocationEdits.RemoveAt(Row);}
-bool FStudioHome4Session::Build(FStudioHome4Spec& Out,FString& Error) const
+bool FStudioHome4Session::Build(FStudioHome4Spec& Out,FString& Error,bool bAllowPending) const
 {
+    if(!bAllowPending&&HasPending()){Error=TEXT("Commit or revert pending converted/region editor text before applying, preparing or queuing this draft.");return false;}
     auto JSON=StudioHome4Config::ToJSON(Saved);
     for(const auto& F:StudioHome4Config::Fields())
     {
@@ -121,8 +122,7 @@ bool FStudioHome4Session::Build(FStudioHome4Spec& Out,FString& Error) const
     for(const auto& Draft:AllocationEdits)
     {
         auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("name"),Draft[0]);
-        const int32 Row=Allocations.Num();
-        A->SetStringField(TEXT("nodeScope"),Saved.Performance.Allocations.IsValidIndex(Row)?Saved.Performance.Allocations[Row].NodeScope:TEXT("root"));
+        A->SetStringField(TEXT("nodeScope"),Draft.IsValidIndex(5)?Draft[5]:TEXT("fixed"));
         const TCHAR* Keys[]={TEXT("nodes"),TEXT("components"),TEXT("bytesPerComponent"),TEXT("buffers")};
         for(int32 I=1;I<5;++I)
         {
@@ -164,7 +164,7 @@ void FStudioHome4Session::LoadValues(const FStudioHome4Spec& Spec)
         {const auto V=(*Section)->TryGetField(Field.Key);Edits.Add(Key(Field),ValueText(V));}
     }
     AllocationEdits.Reset();
-    for(const auto& A:Spec.Performance.Allocations)AllocationEdits.Add({A.Name,A.Nodes.IsSet()?LexToString(*A.Nodes):FString(),LexToString(A.Components),LexToString(A.BytesPerComponent),LexToString(A.Buffers)});
+    for(const auto& A:Spec.Performance.Allocations)AllocationEdits.Add({A.Name,A.Nodes.IsSet()?LexToString(*A.Nodes):FString(),LexToString(A.Components),LexToString(A.BytesPerComponent),LexToString(A.Buffers),A.NodeScope});
 }
 
 bool FStudioHome4Session::Replace(const FStudioHome4Spec& Spec,FString& Error)
@@ -184,7 +184,7 @@ bool FStudioHome4Session::DeriveFrom(const FStudioHome4Spec& Spec,const FString&
 FString FStudioHome4Session::DisplayText(const FStudioHome4Field& F,EStudioHome4UnitDisplay Display)const
 {
     const FString Raw=Get(Key(F));if(!F.bQuantity||Display==EStudioHome4UnitDisplay::Lattice||Raw.IsEmpty())return Raw;
-    FStudioHome4Spec Map;FString Error;if(!Build(Map,Error))return Raw;
+    FStudioHome4Spec Map;FString Error;if(!Build(Map,Error,true))return Raw;
     TArray<FString> Parts;Raw.ParseIntoArray(Parts,TEXT(","),false);TArray<FString> Converted;
     for(const auto& P:Parts)
     {
@@ -198,7 +198,7 @@ FString FStudioHome4Session::DisplayText(const FStudioHome4Field& F,EStudioHome4
 bool FStudioHome4Session::SetDisplayText(const FStudioHome4Field& F,const FString& Text,EStudioHome4UnitDisplay Display,FString& Error)
 {
     if(!F.bQuantity||Display==EStudioHome4UnitDisplay::Lattice||Text.TrimStartAndEnd().IsEmpty()){Set(Key(F),Text);return true;}
-    FStudioHome4Spec Map;if(!Build(Map,Error))return false;
+    FStudioHome4Spec Map;if(!Build(Map,Error,true))return false;
     TArray<FString> Parts;Text.ParseIntoArray(Parts,TEXT(","),false);TArray<FString> Converted;
     for(const auto& P:Parts)
     {
@@ -211,7 +211,7 @@ bool FStudioHome4Session::SetDisplayText(const FStudioHome4Field& F,const FStrin
 }
 FString FStudioHome4Session::FieldTooltip(const FStudioHome4Field& F)const
 {
-    const FString Raw=Get(Key(F));FStudioHome4Spec Map;FString Error;if(!Build(Map,Error))return F.Help+TEXT("\nCorrect the draft to inspect conversions.");
+    const FString Raw=Get(Key(F));FStudioHome4Spec Map;FString Error;if(!Build(Map,Error,true))return F.Help+TEXT("\nCorrect the draft to inspect conversions.");
     if(!F.bQuantity)return F.Help+TEXT("\nLattice / physical / nondimensional: ")+Raw+TEXT(" ")+F.Unit;
     TArray<FString> Parts;Raw.ParseIntoArray(Parts,TEXT(","),false);FString Out=F.Help;
     for(const auto& P:Parts)
@@ -226,3 +226,8 @@ FString FStudioHome4Session::FieldTooltip(const FStudioHome4Field& F)const
     }
     return Out;
 }
+
+void FStudioHome4Session::RetainPending(const FString& Group,const TMap<FString,FString>& Values)
+{if(Values.IsEmpty())PendingGroups.Remove(Group);else PendingGroups.Add(Group,Values);}
+TMap<FString,FString> FStudioHome4Session::Pending(const FString& Group)const
+{const auto* V=PendingGroups.Find(Group);return V?*V:TMap<FString,FString>();}

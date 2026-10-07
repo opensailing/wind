@@ -43,6 +43,7 @@ struct FStudioViewSettings
     double StreamlineDensity = .55;
     FStudioStreamlineSettings StreamlineSettings;
     double VectorScale = 1;
+    FString VectorField = TEXT("velocity");
     int32 VectorCount = 384;
     bool bUniformVectors = false;
     double VolumeOpacity = .28;
@@ -114,6 +115,9 @@ struct FStudioProject
     TArray<FStudioRecordingReference> Recordings;
     FStudioViewSettings View;
     FStudioCameraState Camera;
+    FStudioViewSettings ViewerDefaults;
+    FStudioCameraState ViewerCameraDefaults;
+    bool bHasViewerDefaults=false;
     TArray<FStudioCameraBookmark> Cameras;
     TArray<FStudioSavedComparison> Comparisons;
     TArray<FStudioSavedPipeline> Pipelines;

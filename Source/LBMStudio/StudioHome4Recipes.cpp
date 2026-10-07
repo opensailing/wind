@@ -136,6 +136,7 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         Multiply(R.Spec.Authoring.WaterlineCells,Base.Authoring.WaterlineCells,Scale);
         Multiply(R.Spec.Authoring.WaveLengthCells,Base.Authoring.WaveLengthCells,Scale);
         Multiply(R.Spec.Authoring.WaveDepthCells,Base.Authoring.WaveDepthCells,Scale);
+        Multiply(R.Spec.Authoring.WaveAmplitudeCells,Base.Authoring.WaveAmplitudeCells,Scale);
         Multiply(R.Spec.Authoring.WavePeriodSteps,Base.Authoring.WavePeriodSteps,Scale);
         if(Base.Authoring.ZoneUnits==TEXT("root-cells"))
         {

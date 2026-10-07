@@ -107,6 +107,12 @@ enum class EStudioRunOrigin : uint8 { PublishedRecording, ControlHarness, Solver
 struct FStudioRecordedRunProvenance
 {
     FString RunId, RecipeId, LineageId, ManifestPath, ManifestSHA256;
+    TArray<FString> OriginalArchives;
+    FString OriginalTag,OriginalBackend,MeasurementSource,MeasurementSHA256,GateStatus,GateSourceSHA256;
+    FString ParentRunId,ParentSpecSHA256;
+    TOptional<double> MeasuredMLUPS;
+    TOptional<FStudioHome4Spec> OriginalRunSpec; // Complete strict source request only; never editable next-run context.
+
 };
 
 /** Value object with no mutators; configuration is a deep, const snapshot. */

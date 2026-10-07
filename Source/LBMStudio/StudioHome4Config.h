@@ -10,7 +10,7 @@ enum class EStudioHome4Quantity : uint8
     Dimensionless, Length, Time, Density, Velocity, KinematicViscosity, Pressure,
     Acceleration, SurfaceTension, Mobility, Force, Moment, Energy, StrainRate,
     SquaredRate, SpecificDissipation, Mass, Inertia, Frequency, AngularRate,
-    StiffnessTranslation, StiffnessCoupling, StiffnessRotation, Gradient, ForceDensity
+    StiffnessTranslation, StiffnessCoupling, StiffnessRotation, Gradient, ForceDensity, Angle
 };
 enum class EStudioHome4IssueSeverity : uint8 { Information, Warning, Blocking };
 
@@ -126,7 +126,8 @@ struct FStudioHome4Authoring
     int32 SourceUpAxis=2, SourceForwardAxis=0;
     FString ZoneUnits=TEXT(""), BoundaryWall=TEXT("no-slip"), InletMode=TEXT("stream"), OutletMode=TEXT("open");
     FString PierceMode=TEXT("off"), WaveModel=TEXT("none"), DeviceProfile;
-    TOptional<double> WaveLengthCells, WavePeriodSteps, WaveDepthCells;
+    TOptional<double> WaveLengthCells, WavePeriodSteps, WaveDepthCells, WaveAmplitudeCells;
+    FString WaveAxis=TEXT("x");
     TOptional<bool> PreserveCahn;
     TArray<FStudioHome4AuthoredZone> Zones;
     TArray<FStudioHome4AuthoredPatch> Patches;
@@ -136,6 +137,8 @@ struct FStudioHome4Performance
     TArray<FStudioHome4Allocation> Allocations;
     TOptional<double> MeasuredMLUPS;
     FString MeasurementSource;
+    TArray<double> OutputByteEstimates; // Empty or trace/slice/viz/restart bytes per output.
+    FString OutputEstimateSource,OutputEstimateAssumption;
     TOptional<int64> AvailableBytes;
 };
 
