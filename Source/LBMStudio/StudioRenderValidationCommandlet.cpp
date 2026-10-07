@@ -4,6 +4,7 @@
 #include "StudioSnapshot.h"
 #include "StudioRecording.h"
 #include "StudioVolume.h"
+#include "StudioVolumeComponent.h"
 #include "Async/Async.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -177,6 +178,31 @@ public:
         auto Frozen=Freeze(Source,Ordinal);if(!Frozen)return false;
         Model->Solver=Frozen;Model->SelectedFrame=Model->PlaybackFrame=Ordinal;Model->DisplayChanged();return Ready();
     }
+    void CheckIndependentOpacity()
+    {
+        // Constant transfer weights isolate the GPU input contract. They are display-test
+        // controls over the existing recorded field, never published CFD measurements.
+        auto* Component=Scene->FindComponentByClass<UStudioVolumeComponent>();const auto Field=Scene->PresentedField();
+        if(!Check(TEXT("volume.independent_opacity.component"),Component&&Field&&Field->OriginalPoints()&&Field->VolumeReconstruction()))return;
+        auto Grid=StudioVolumes::Build(*Field->OriginalPoints(),*Field->VolumeReconstruction(),Scene->PresentedScalar().Id,Scene->PresentedColorMapping());
+        if(!Check(TEXT("volume.independent_opacity.grid"),Grid.Error.IsEmpty(),Grid.Error))return;
+        const auto Camera=Scene->CameraState();const auto Identity=Field->Identity();const int64 Before=Component->TextureBytes();
+        TArray<uint32> Hashes;FString Error;
+        for(const float Weight:{0.f,1.f})
+        {
+            Grid.OpacityTexels.Init(Weight,Grid.Texels.Num());
+            if(!Check(TEXT("volume.independent_opacity.upload"),Component->Present(Grid,Scene->PresentedColorMapping(),*Model,Error),Error))return;
+            FlushRenderingCommands();
+            FStudioSnapshot Snapshot;Snapshot.Options={Size,false,false,false};
+            if(!Check(TEXT("volume.independent_opacity.capture"),Scene->CaptureSnapshot(Snapshot,nullptr,Error),Error))return;
+            Hashes.Add(FCrc::MemCrc32(Snapshot.Pixels.GetData(),Snapshot.Pixels.Num()*sizeof(FColor)));
+            Check(TEXT("volume.independent_opacity.identity"),Snapshot.Identity.Ordinal==Identity->Ordinal&&StudioView::CameraEquals(Camera,Snapshot.Camera));
+        }
+        Check(TEXT("volume.independent_opacity.changes_pixels"),Hashes.Num()==2&&Hashes[0]!=Hashes[1]);
+        Check(TEXT("volume.independent_opacity.accounted"),Component->TextureBytes()==Before+int64(Grid.Texels.Num())*sizeof(float));
+        Grid.OpacityTexels.Reset();Component->Present(Grid,Scene->PresentedColorMapping(),*Model,Error);FlushRenderingCommands();
+        Check(TEXT("volume.independent_opacity.released"),Component->TextureBytes()==Before);
+    }
     void Retire()
     {
         if(Scene){Scene->Destroy();Scene=nullptr;}Model.Reset();FlushRenderingCommands();
@@ -345,6 +371,7 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
                 for(int32 I=0;I<10;++I)Run.Pump();
                 Run.bVisible=false;for(int32 I=0;I<10;++I)Run.Pump();Run.bVisible=true;
                 Run.Check(TEXT("idle.no_captures"),Run.Scene->GetCaptureCount()==Captures&&Run.Model->InspectionState().Equals(Inspection));
+                Run.CheckIndependentOpacity();
             }
         }
         Run.Retire();

@@ -28,7 +28,8 @@ CASE_NAMES = ['wing.first', 'wing.last', 'wing.camera', 'volume.first', 'volume.
 CHECK_NAMES = ['runtime.windowless', 'runtime.gpu', 'source.wing', 'wing.evolution',
                'wing.frame_keeps_camera', 'wing.camera_independent', 'assets.volume_material', 'source.volume',
                'volume.evolution', 'volume.clip_changes_pixels', 'volume.restored_pixels',
-               'idle.no_captures', 'runtime.still_windowless']
+               'idle.no_captures', 'runtime.still_windowless', 'volume.independent_opacity.changes_pixels',
+               'volume.independent_opacity.accounted', 'volume.independent_opacity.released']
 
 
 def expected_frames(root):
