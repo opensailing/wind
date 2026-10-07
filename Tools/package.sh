@@ -9,6 +9,7 @@ mkdir -p tmp/debug
 python3 Tools/import_airfoil_sample.py
 python3 Tools/import_airfoil_sample.py Content/Samples/MeshGraphNets_Airfoil_test010
 python3 Tools/import_nalu_history.py
+python3 Tools/stage_home4_cad_runtime.py Content/ThirdParty/Home4CAD --refresh > tmp/debug/home4-cad-runtime.json
 # Build code first, then finalize the app outside UBA. Xcode 27 cannot inherit
 # UBA's redirected descriptors when launching scheme pre-actions.
 UE_BUILD_FROM_XCODE=1 "$ENGINE_PATH/Engine/Build/BatchFiles/Mac/Build.sh" LBMStudio Mac Development -project="$PWD/LBMStudio.uproject" -NoUBA > tmp/debug/game-build.log 2>&1

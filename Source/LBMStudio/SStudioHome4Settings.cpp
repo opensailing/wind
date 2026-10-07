@@ -1,0 +1,31 @@
+#include "SStudioHome4Settings.h"
+#include "StudioModel.h"
+#include "StudioTheme.h"
+#include "StudioView.h"
+#include "StudioColor.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SEditableTextBox.h"
+void SStudioHome4Settings::Construct(const FArguments& A)
+{
+    Model=A._Model;auto Rows=SNew(SVerticalBox);
+    Rows->AddSlot().AutoHeight().Padding(0,12)[StudioUI::Label(TEXT("Viewer defaults & active view"),14,StudioUI::Text,true)];
+    auto Units=SNew(SHorizontalBox);const TCHAR* Names[]={TEXT("LU"),TEXT("SI"),TEXT("ND")};
+    for(int32 I=0;I<3;++I)Units->AddSlot().AutoWidth().Padding(0,0,8,0)[SNew(SButton).Tag(FName(*FString::Printf(TEXT("Home4Settings.Unit%d"),I))).ButtonStyle(&StudioUI::ButtonStyle()).OnClicked_Lambda([this,I]{Model->UnitDisplay=EStudioHome4UnitDisplay(I);Model->SaveSession();return FReply::Handled();})[StudioUI::Label(Names[I],10)]];Rows->AddSlot().AutoHeight()[Units];
+    auto Flag=[&](const FString& Label,const FString& Key,bool FStudioViewSettings::*Member)
+    {Rows->AddSlot().AutoHeight().Padding(0,6)[SNew(SCheckBox).Tag(FName(*(TEXT("Home4Settings.")+Key))).IsChecked_Lambda([this,Member]{return Model.Get()->*Member?ECheckBoxState::Checked:ECheckBoxState::Unchecked;}).OnCheckStateChanged_Lambda([this,Member,Label](ECheckBoxState State){Model->EditView(Label,[Member,State](auto& S){S.Display.*Member=State==ECheckBoxState::Checked;});})[StudioUI::Label(Label,10)]];};
+    Flag(TEXT("Mask air in scientific layers"),TEXT("airMask"),&FStudioViewSettings::bHome4AirMask);Flag(TEXT("Original source points"),TEXT("sourcePoints"),&FStudioViewSettings::bSourcePoints);Flag(TEXT("Velocity/selected vector arrows"),TEXT("vectors"),&FStudioViewSettings::bVectors);Flag(TEXT("Streamlines"),TEXT("streamlines"),&FStudioViewSettings::bStreamlines);Flag(TEXT("Slices"),TEXT("slices"),&FStudioViewSettings::bCutPlane);Flag(TEXT("Volume"),TEXT("volume"),&FStudioViewSettings::bVolume);
+    Rows->AddSlot().AutoHeight().Padding(0,7)[SNew(SCheckBox).Tag(TEXT("Home4Settings.orthographic")).IsChecked_Lambda([this]{return Model->Project.Camera.bOrthographic?ECheckBoxState::Checked:ECheckBoxState::Unchecked;}).OnCheckStateChanged_Lambda([this](ECheckBoxState State){Model->EditView(TEXT("Camera projection"),[State](auto& S){S.Camera.bOrthographic=State==ECheckBoxState::Checked;});})[StudioUI::Label(TEXT("Orthographic camera"),10)]];
+    auto Numeric=[&](const FString& Label,const FString& Key,TFunction<double()> Read,TFunction<void(double)> Write)
+    {Rows->AddSlot().AutoHeight().Padding(0,5)[SNew(SHorizontalBox)+SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(150)[StudioUI::Label(Label,10,StudioUI::Muted)]]+SHorizontalBox::Slot().FillWidth(1)[SNew(SEditableTextBox).Tag(FName(*(TEXT("Home4Settings.")+Key))).Style(&StudioUI::InputStyle()).Font(StudioUI::Font(10)).Text_Lambda([Read]{return FText::FromString(FString::Printf(TEXT("%.9g"),Read()));}).OnTextCommitted_Lambda([this,Write](const FText& T,ETextCommit::Type){double V;if(StudioColor::ParseNumber(T.ToString(),V))Write(V);else Model->Notice=TEXT("Keep a finite viewer setting; the current view was retained.");})]];};
+    Numeric(TEXT("Volume opacity"),TEXT("opacity"),[this]{return Model->VolumeOpacity;},[this](double V){Model->EditView(TEXT("Volume opacity"),[V](auto& S){S.Display.VolumeOpacity=V;});});
+    Numeric(TEXT("Point size"),TEXT("pointSize"),[this]{return Model->PointSize;},[this](double V){Model->EditView(TEXT("Point size"),[V](auto& S){S.Display.PointSize=V;});});
+    Numeric(TEXT("Near clip (m)"),TEXT("nearClip"),[this]{return Model->Project.Camera.NearClipMeters;},[this](double V){Model->EditView(TEXT("Near clipping"),[V](auto& S){S.Camera.NearClipMeters=V;S.Camera.bDepthClipping=true;});});
+    Numeric(TEXT("Far clip (m)"),TEXT("farClip"),[this]{return Model->Project.Camera.FarClipMeters;},[this](double V){Model->EditView(TEXT("Far clipping"),[V](auto& S){S.Camera.FarClipMeters=V;S.Camera.bDepthClipping=true;});});
+    auto Palettes=SNew(SHorizontalBox);for(int32 I=0;I<3;++I)Palettes->AddSlot().FillWidth(1).Padding(0,6,5,6)[SNew(SButton).Tag(FName(*FString::Printf(TEXT("Home4Settings.palette%d"),I))).ButtonStyle(&StudioUI::ButtonStyle()).OnClicked_Lambda([this,I]{const auto Map=Model->ActiveColorMapping();Model->SetScalarStyle(I,Map.bManualRange,Map.Minimum,Map.Maximum);return FReply::Handled();})[StudioUI::Label(StudioColor::PaletteName(I),10)]];Rows->AddSlot().AutoHeight()[Palettes];
+    auto Save=SNew(SHorizontalBox);Save->AddSlot().AutoWidth()[SNew(SButton).Tag(TEXT("Home4Settings.saveDefaults")).ButtonStyle(&StudioUI::ButtonStyle()).OnClicked_Lambda([this]{Model->Project.ViewerDefaults=static_cast<const FStudioViewSettings&>(*Model);Model->Project.ViewerCameraDefaults=Model->Project.Camera;Model->Project.bHasViewerDefaults=true;Model->bDirty=true;Model->Notice=TEXT("Viewer defaults retained in this project. Save persists them.");return FReply::Handled();})[StudioUI::Label(TEXT("Save current as project defaults"),10)]];
+    Save->AddSlot().AutoWidth().Padding(8,0)[SNew(SButton).Tag(TEXT("Home4Settings.restoreDefaults")).ButtonStyle(&StudioUI::ButtonStyle()).IsEnabled_Lambda([this]{return Model->Project.bHasViewerDefaults;}).OnClicked_Lambda([this]{Model->EditView(TEXT("Restore project viewer defaults"),[this](auto& S){S.Display=Model->Project.ViewerDefaults;S.Camera=Model->Project.ViewerCameraDefaults;});return FReply::Handled();})[StudioUI::Label(TEXT("Restore defaults"),10)]];Rows->AddSlot().AutoHeight().Padding(0,10)[Save];
+    ChildSlot[Rows];
+}

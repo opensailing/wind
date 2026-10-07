@@ -1,0 +1,138 @@
+{
+  "python": {
+    "source": "installed:lib/python3.11/LICENSE.txt",
+    "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+  },
+  "icu": {
+    "source": "installed:share/icu/75.1/LICENSE",
+    "sha256": "3ae033da0bfd60f4609c5c99fe50c0c840685889d3b705d3f527fd7b52032f5c"
+  },
+  "occt": {
+    "source": "installed:share/doc/opencascade/LICENSE_LGPL_21.txt",
+    "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
+  },
+  "occt-exception": {
+    "source": "installed:share/doc/opencascade/OCCT_LGPL_EXCEPTION.txt",
+    "sha256": "04580a884ea6cea294402649ff7b5cbb167d47462d1340a4ed33e550db10a81b"
+  },
+  "libjpeg-turbo": {
+    "source": "installed:share/doc/libjpeg-turbo/LICENSE.md",
+    "sha256": "2189dc45a8fe96204069f8124caa53a148dfdc193f50f584c6ca7849a6072872"
+  },
+  "FreeCAD": {
+    "source": "installed:share/doc/FreeCAD/LICENSE.html",
+    "sha256": "2e11ad2982e6cc734d145ca2d3d36db0f9af55acd8a9f6e9961ed573e191487f"
+  },
+  "double-conversion": {
+    "source": "https://raw.githubusercontent.com/google/double-conversion/v3.3.1/LICENSE",
+    "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca"
+  },
+  "imath": {
+    "source": "https://raw.githubusercontent.com/AcademySoftwareFoundation/Imath/v3.1.12/LICENSE.md",
+    "sha256": "c20236d3b39fd20eba8e3d1fb3b892a5483df2e7d8d61bf43f165d3fac22f601"
+  },
+  "jxrlib": {
+    "source": "https://raw.githubusercontent.com/4creators/jxrlib/master/LICENSE",
+    "sha256": "c5f651028d89cdc3b3825d6571deebb58b6081c2465a3d061d8a8e1263de8ca4"
+  },
+  "lcms2": {
+    "source": "https://raw.githubusercontent.com/mm2/Little-CMS/lcms2.17/LICENSE",
+    "sha256": "6dbd60437f8ef91d8de1f08ad75882547fd4931bfcc3566a0735f28db1484d31"
+  },
+  "lerc": {
+    "source": "https://raw.githubusercontent.com/Esri/lerc/v4.0.0/LICENSE",
+    "sha256": "77a8b761727c75e2167b15bfdf61b2c0bcf8792271228bebe80779106ad00671"
+  },
+  "libboost": {
+    "source": "https://raw.githubusercontent.com/boostorg/boost/boost-1.86.0/LICENSE_1_0.txt",
+    "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+  },
+  "libcxx": {
+    "source": "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.7/libcxx/LICENSE.TXT",
+    "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+  },
+  "libdeflate": {
+    "source": "https://raw.githubusercontent.com/ebiggers/libdeflate/v1.24/COPYING",
+    "sha256": "4ad69099cb4374836fd27583d9991e2838cd86b6e4666ab26b2d32582c91e73a"
+  },
+  "libexpat": {
+    "source": "https://raw.githubusercontent.com/libexpat/libexpat/R_2_7_3/expat/COPYING",
+    "sha256": "31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87"
+  },
+  "libffi": {
+    "source": "https://raw.githubusercontent.com/libffi/libffi/v3.4.6/LICENSE",
+    "sha256": "67894089811f93fca47a76f85e017da6f8582d4ba0905963c6e0f1ad6df7a195"
+  },
+  "libfreetype6": {
+    "source": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/docs/FTL.TXT",
+    "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
+  },
+  "libglib": {
+    "source": "https://raw.githubusercontent.com/GNOME/glib/2.84.3/COPYING",
+    "sha256": "65986a89240f59896ce42a3779bbe5ed486a0bca7df636a8eef030fd2e1a0984"
+  },
+  "libiconv": {
+    "source": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt",
+    "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+  },
+  "libintl": {
+    "source": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt",
+    "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+  },
+  "liblzma": {
+    "source": "https://raw.githubusercontent.com/tukaani-project/xz/v5.8.1/COPYING",
+    "sha256": "616a3ad264ce29b8f1cb97e53037b139d406899ca8d1f799651e17bfa09830b8"
+  },
+  "libsqlite": {
+    "source": "https://www.sqlite.org/copyright.html",
+    "sha256": "44ca9f793055c8e32fc65f65a4f5bcf813a33f5bdaaa084067dd617a4ed3cc70"
+  },
+  "libtiff": {
+    "source": "https://gitlab.com/libtiff/libtiff/-/raw/v4.7.1/LICENSE.md",
+    "sha256": "0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade"
+  },
+  "libwebp-base": {
+    "source": "https://raw.githubusercontent.com/webmproject/libwebp/v1.6.0/COPYING",
+    "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+  },
+  "libzlib": {
+    "source": "https://raw.githubusercontent.com/madler/zlib/v1.3.2/LICENSE",
+    "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"
+  },
+  "ncurses": {
+    "source": "https://invisible-island.net/archives/ncurses/ncurses-6.5.tar.gz",
+    "sha256": "b2feb54f39529abe226f709a292584fde48a2e5721559fee417d2cdd51cb7cc1"
+  },
+  "openjpeg": {
+    "source": "https://raw.githubusercontent.com/uclouvain/openjpeg/v2.5.4/LICENSE",
+    "sha256": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6"
+  },
+  "openssl": {
+    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.6.0/LICENSE.txt",
+    "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+  },
+  "pcre2": {
+    "source": "installed:share/doc/pcre2/COPYING",
+    "sha256": "99272c55f3dcfa07a8a7e15a5c1a33096e4727de74241d65fa049fccfdd59507"
+  },
+  "qt6-main": {
+    "source": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/LICENSES/LGPL-3.0-only.txt",
+    "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+  },
+  "qt6-main-GPL3": {
+    "source": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/LICENSES/GPL-3.0-only.txt",
+    "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+  },
+  "xerces-c": {
+    "source": "https://raw.githubusercontent.com/apache/xerces-c/v3.3.0/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "freeimage": {
+    "source": "https://freeimage.sourceforge.io/freeimage-license.txt",
+    "sha256": "37f80b2998523e0e780cbab2774e1ee7eb4b7945f1ff232f5ece22ce037b6282"
+  },
+  "bzip2": {
+    "source": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
+    "sha256": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3"
+  }
+}

@@ -15,3 +15,5 @@ __pycache__/
 /Build/Mac/PackageVersionCounter.txt
 
 /Build/Mac/*.PackageVersionCounter
+
+/Content/ThirdParty/Home4CAD/

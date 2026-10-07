@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "kind": "home4-request-template-catalog",
+  "description": "Documented HOME4 recipe requests. Complete required case inputs before numerical execution. No original recordings or validation evidence are contained in these projects.",
+  "templates": [
+    {
+      "recipeId": "rti-fakhari",
+      "path": "rti-fakhari.lbms",
+      "sha256": "8a77ace00f3f89d3b40014cb6a558eb84383e4b0c103d5bda1da42b25e0a7d51",
+      "name": "RTI · Fakhari",
+      "anchor": "Fakhari Rayleigh–Taylor instability",
+      "driver": "run_rti3d_multiphase.py",
+      "reference": "Spike and bubble front reference",
+      "gate": "Spike/bubble fronts and fixed-Cn refinement",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "breaking-wave-banari",
+      "path": "breaking-wave-banari.lbms",
+      "sha256": "72f9f662fe5ee2ab41d1e3240e08c149214eed5ef598146b2232ee3e224cd0ba",
+      "name": "Breaking wave · Banari grid 3",
+      "anchor": "Banari breaking-wave grid 3",
+      "driver": "run_breaking_wave3d_md.py",
+      "reference": "Banari jet geometry and energy",
+      "gate": "Jet geometry and energy agreement",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "colagrossi-wb",
+      "path": "colagrossi-wb.lbms",
+      "sha256": "564a8d044715d3ee9fb820552004e421a0c2f77758df7b7d705f730fa6c0c2bc",
+      "name": "Colagrossi WB cylinder",
+      "anchor": "Colagrossi 2018",
+      "driver": "run_cylinder3d_colagrossi.py",
+      "reference": "Colagrossi Cd, Cl and free-surface profiles",
+      "gate": "Drag, lift and surface profile agreement",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "oscillating-cylinder",
+      "path": "oscillating-cylinder.lbms",
+      "sha256": "4b4ff4eff6ff784ca65db5ee4581e153fb4253eea05936fc5ecaf1ca6a72af8c",
+      "name": "Oscillating cylinder · Dütsch",
+      "anchor": "Dütsch oscillating cylinder",
+      "driver": "run_cylinder3d_oscillating.py",
+      "reference": "Dütsch force history",
+      "gate": "Force history agreement",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "couette-spin",
+      "path": "couette-spin.lbms",
+      "sha256": "cd605dd52b14a3d2d9206abd18bb4f79e7611833f92fb0d4b7ffe3a010077c5a",
+      "name": "Couette spin gate",
+      "anchor": "Analytic Couette torque",
+      "driver": "run_cylinder3d_spinning.py",
+      "reference": "Analytic torque",
+      "gate": "Torque agreement with analytic reference",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "magnus",
+      "path": "magnus.lbms",
+      "sha256": "28c77ab889c7c35516cb466fc74f8b414c6b5ea6f3d72224e44b4665298ba987",
+      "name": "Magnus",
+      "anchor": "Literature anchor requires verification",
+      "driver": "run_md_magnus_patch.py",
+      "reference": "Lift reference not yet verified",
+      "gate": "Lift agreement; reference anchor unresolved",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "sedimentation",
+      "path": "sedimentation.lbms",
+      "sha256": "89092f12f75d9e6911fac9ca8322b0f520b0f46b887e1ac4327c29b6d140e5cf",
+      "name": "Sedimentation",
+      "anchor": "Sedimenting cylinder",
+      "driver": "run_cylinder3d_sedimenting.py",
+      "reference": "Terminal velocity reference",
+      "gate": "Terminal velocity agreement",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "vugts-barge",
+      "path": "vugts-barge.lbms",
+      "sha256": "40f24db9ee42581e06b56e542cc2a0a41935ecf60c90f0c5c9a7f980c95fad46",
+      "name": "Vugts barge · H2-c",
+      "anchor": "Vugts added mass and damping",
+      "driver": "run_barge_roll.py",
+      "reference": "Vugts/BEM coefficient curves",
+      "gate": "Added mass and damping agreement",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "th01-hull",
+      "path": "th01-hull.lbms",
+      "sha256": "faffa7eff05da52a14af8bb9c50c38232e3313b5a17d5285852ada51392aa3cc",
+      "name": "TH01 hull",
+      "anchor": "SYRF TH01 tank and BEM",
+      "driver": "run_hull_speed.py",
+      "reference": "th01_tank_data.py; th01_bem_capytaine.py",
+      "gate": "Heave, trim and drag vs tank; BEM intercepts",
+      "kind": "home4-request-template"
+    },
+    {
+      "recipeId": "hydrofoil-parkin",
+      "path": "hydrofoil-parkin.lbms",
+      "sha256": "f6e5cf4c24a85873bd3a5984979b2e61ed80f05b75fda15f88be68d5b8f04970",
+      "name": "Hydrofoil · Parkin",
+      "anchor": "Parkin–Wu",
+      "driver": "run_hydrofoil_parkin.py",
+      "reference": "Parkin–Wu free-surface profile",
+      "gate": "Surface profile agreement",
+      "kind": "home4-request-template"
+    }
+  ]
+}
