@@ -77,31 +77,80 @@ TArray<FString> StudioHome4Recipes::Departures(const FStudioHome4Spec& Spec)
 }
 bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>& Refinements,TArray<FStudioHome4LadderRung>& Out,FString& Error)
 {
-    if(Refinements.IsEmpty()||Refinements.Num()>12||!Base.Reference.LengthCells.IsSet()||!Base.Fluids.Xi.IsSet())
-    {Error=TEXT("A ladder needs body length, interface width and 1–12 refinement factors.");return false;}
+    if(!StudioHome4Config::Validate(Base,Error))return false;
+    if(Refinements.IsEmpty()||Refinements.Num()>12||!Base.Reference.LengthCells||!Base.Fluids.Xi||
+        *Base.Reference.LengthCells<=0||*Base.Fluids.Xi<=0)
+    {Error=TEXT("A ladder needs positive body length, interface width and 1–12 refinement factors.");return false;}
+    // Resolve only physics derived from supplied inputs, then retain U under acoustic refinement.
+    const auto Physics=StudioHome4Config::Derive(Base);
+    const FString Lineage=Base.LineageId.IsEmpty()?FGuid::NewGuid().ToString():Base.LineageId;
     TArray<FStudioHome4LadderRung> Result;int32 Previous=0;
     for(const int32 Scale:Refinements)
     {
         if(Scale<=Previous||Scale>64){Error=TEXT("Refinement factors must increase, from 1 to 64.");return false;}Previous=Scale;
-        FStudioHome4LadderRung R;R.Refinement=Scale;R.Spec=Base;
-        R.Spec.Reference.LengthCells=Base.Reference.LengthCells.GetValue()*Scale;R.Spec.Fluids.Xi=Base.Fluids.Xi.GetValue()*Scale;
-        R.Spec.Multidomain.FixedCahnRefinement=true;R.Spec.Multidomain.RecipeCahn=Base.Fluids.Xi.GetValue()/Base.Reference.LengthCells.GetValue();
-        if(Base.Units.DxMeters.IsSet())R.Spec.Units.DxMeters=Base.Units.DxMeters.GetValue()/Scale;
-        if(Base.Units.DtSeconds.IsSet())R.Spec.Units.DtSeconds=Base.Units.DtSeconds.GetValue()/Scale;
-        // Acoustic refinement retains U and dimensionless physics; nu, M, sigma scale with L, gravity inversely.
-        for(auto Pair:{TPair<TOptional<double>*,const TOptional<double>*>(&R.Spec.Fluids.NuHeavy,&Base.Fluids.NuHeavy),{&R.Spec.Fluids.NuLight,&Base.Fluids.NuLight},{&R.Spec.Fluids.Mobility,&Base.Fluids.Mobility},{&R.Spec.Fluids.Sigma,&Base.Fluids.Sigma}})
-            if(Pair.Value->IsSet())*Pair.Key=Pair.Value->GetValue()*Scale;
-        if(Base.Fluids.Gravity.IsSet())R.Spec.Fluids.Gravity=Base.Fluids.Gravity.GetValue()/Scale;
-        if(Base.Reference.TimeSteps.IsSet())R.Spec.Reference.TimeSteps=Base.Reference.TimeSteps.GetValue()*Scale;
-        if(Base.Run.Steps.IsSet())
-        {if(Base.Run.Steps.GetValue()>MAX_int64/Scale){Error=TEXT("Refinement step count overflows.");return false;}R.Spec.Run.Steps=Base.Run.Steps.GetValue()*Scale;}
-        if(Base.Lattice.Extents.IsSet())
+        const int64 Volume=int64(Scale)*Scale*Scale;
+        FStudioHome4LadderRung R;R.Refinement=Scale;R.Spec=Base;R.Spec.LineageId=Lineage;
+        if(Scale>1&&(Base.Zones.Sponge||Base.Zones.XBeach||Base.Zones.BeachY||Base.Zones.BeachGap))
+        {Error=TEXT("Zone widths/positions need their actual driver unit contract before refinement; driver-value units cannot be guessed.");return false;}
+        auto Multiply=[&](TOptional<double>& Value,const TOptional<double>& Original,double Factor)
+        {if(Original)Value=*Original*Factor;};
+        auto Count=[&](TOptional<int64>& Value,const TOptional<int64>& Original,int64 Factor)
         {
-            auto N=Base.Lattice.Extents.GetValue();for(int32 A=0;A<3;++A){if(N[A]>1048576/Scale){Error=TEXT("Refined lattice exceeds the supported axis count.");return false;}N[A]*=Scale;}R.Spec.Lattice.Extents=N;
+            if(!Original)return true;
+            if(*Original>1000000000000LL/Factor){Error=TEXT("Refinement count exceeds the supported integer budget.");return false;}
+            Value=*Original*Factor;return true;
+        };
+        Multiply(R.Spec.Reference.LengthCells,Base.Reference.LengthCells,Scale);
+        Multiply(R.Spec.Fluids.Xi,Base.Fluids.Xi,Scale);
+        if(Physics.Speed)R.Spec.Reference.SpeedCellsPerStep=Physics.Speed;
+        if(Physics.RhoHeavy)R.Spec.Fluids.RhoHeavy=Physics.RhoHeavy;
+        if(Physics.RhoLight)R.Spec.Fluids.RhoLight=Physics.RhoLight;
+        Multiply(R.Spec.Fluids.NuHeavy,Physics.NuHeavy,Scale);Multiply(R.Spec.Fluids.NuLight,Physics.NuLight,Scale);
+        Multiply(R.Spec.Fluids.Mobility,Physics.Mobility,Scale);Multiply(R.Spec.Fluids.Sigma,Physics.Sigma,Scale);
+        Multiply(R.Spec.Fluids.Gravity,Physics.Gravity,1./Scale);
+        Multiply(R.Spec.Reference.TimeSteps,Base.Reference.TimeSteps,Scale);
+        Multiply(R.Spec.Units.DxMeters,Base.Units.DxMeters,1./Scale);Multiply(R.Spec.Units.DtSeconds,Base.Units.DtSeconds,1./Scale);
+        Multiply(R.Spec.Geometry.SinkCells,Base.Geometry.SinkCells,Scale);Multiply(R.Spec.Geometry.BandCells,Base.Geometry.BandCells,Scale);
+        Multiply(R.Spec.Geometry.RetabulateEvery,Base.Geometry.RetabulateEvery,Scale);
+        if(Base.Geometry.CenterOfGravity)R.Spec.Geometry.CenterOfGravity=*Base.Geometry.CenterOfGravity*Scale;
+        Multiply(R.Spec.Geometry.BodyMass,Base.Geometry.BodyMass,double(Volume));
+        if(Scale>1&&!Base.Geometry.Stiffness.IsEmpty())
+        {Error=TEXT("A stiffness matrix needs its explicit translational/rotational unit contract before refinement.");return false;}
+        Multiply(R.Spec.Multidomain.Z1,Base.Multidomain.Z1,Scale);Multiply(R.Spec.Multidomain.Z2,Base.Multidomain.Z2,Scale);
+        Multiply(R.Spec.Multidomain.Margin,Base.Multidomain.Margin,Scale);Multiply(R.Spec.Multidomain.BandDepth,Base.Multidomain.BandDepth,Scale);
+        Multiply(R.Spec.Multidomain.Overlap,Base.Multidomain.Overlap,Scale);Multiply(R.Spec.Multidomain.RestrictionMargin,Base.Multidomain.RestrictionMargin,Scale);
+        Multiply(R.Spec.Multidomain.FinestMobility,Base.Multidomain.FinestMobility,Scale);
+        if(Base.Multidomain.TauFloor)R.Spec.Multidomain.TauFloor=.5+(*Base.Multidomain.TauFloor-.5)*Scale;
+        R.Spec.Multidomain.FixedCahnRefinement=true;R.Spec.Multidomain.RecipeCahn=*Base.Fluids.Xi/ *Base.Reference.LengthCells;
+        for(auto Pair:{TPair<TOptional<int64>*,const TOptional<int64>*>(&R.Spec.Run.Steps,&Base.Run.Steps),
+            {&R.Spec.Run.MeasureEvery,&Base.Run.MeasureEvery},{&R.Spec.Run.PrintEvery,&Base.Run.PrintEvery},
+            {&R.Spec.Run.SaveEvery,&Base.Run.SaveEvery},{&R.Spec.Run.VizEvery,&Base.Run.VizEvery},
+            {&R.Spec.Run.RestartEvery,&Base.Run.RestartEvery},{&R.Spec.Multidomain.MassFixEvery,&Base.Multidomain.MassFixEvery}})
+            if(!Count(*Pair.Key,*Pair.Value,Scale))return false;
+        if(Base.Lattice.Extents)
+        {
+            auto N=*Base.Lattice.Extents;for(int32 Axis=0;Axis<3;++Axis)
+            {if(N[Axis]>1048576/Scale){Error=TEXT("Refined lattice exceeds the supported axis count.");return false;}N[Axis]*=Scale;}
+            R.Spec.Lattice.Extents=N;
         }
-        R.Spec.Run.Tag=Base.Run.Tag+FString::Printf(TEXT("_r%d"),Scale);
+        for(auto& Cells:R.Spec.Multidomain.LevelCells)
+        {if(Cells>1000000000000LL/Volume){Error=TEXT("Refined level cell count exceeds the allocation budget.");return false;}Cells*=Volume;}
+        for(auto& Allocation:R.Spec.Performance.Allocations)if(Allocation.Nodes)
+        {if(*Allocation.Nodes>1000000000000LL/Volume){Error=TEXT("Refined allocation node count exceeds its budget.");return false;}Allocation.Nodes=*Allocation.Nodes*Volume;}
+        R.Spec.Run.Tag=(Base.Run.Tag.IsEmpty()?TEXT("home4"):Base.Run.Tag)+FString::Printf(TEXT("_r%d"),Scale);
+        if(Scale>1)R.Spec.Run.InitState.Empty(); // A coarse restart has no certified refined-grid compatibility.
+        if(!Base.Run.VizDirectory.IsEmpty())R.Spec.Run.VizDirectory=Base.Run.VizDirectory+FString::Printf(TEXT("_r%d"),Scale);
+        if(!Base.Run.SaveState.IsEmpty())R.Spec.Run.SaveState=Base.Run.SaveState+FString::Printf(TEXT("_r%d"),Scale);
         if(!StudioHome4Config::Validate(R.Spec,Error))return false;
-        R.EstimatedSeconds=StudioHome4Config::Derive(R.Spec).EstimatedSeconds;Result.Add(MoveTemp(R));
+        const auto Derived=StudioHome4Config::Derive(R.Spec);R.Cells=Derived.TotalCells;R.AllocationBytes=Derived.AllocationBytes;
+        // Reuse only a supplied measured rate with its attribution; never substitute a device peak.
+        if(Base.Performance.MeasuredMLUPS&&!Base.Performance.MeasurementSource.TrimStartAndEnd().IsEmpty())
+        {
+            R.EstimatedSeconds=Derived.EstimatedSeconds;
+            R.CostBasis=TEXT("Estimate assuming the supplied measured rate remains constant: ")+Base.Performance.MeasurementSource;
+        }
+        else R.CostBasis=TEXT("Cost unavailable without an attributed measured hardware/workload rate.");
+        Result.Add(MoveTemp(R));
     }
     Out=MoveTemp(Result);Error.Empty();return true;
 }
@@ -116,11 +165,13 @@ FStudioHome4GateResult StudioHome4Recipes::Compare(const TArray<double>& Actual,
     for(int32 I=0;I<Actual.Num();++I)
     {
         const double E=FMath::Abs(Actual[I]-Reference[I]);if(!FMath::IsFinite(E)){R.Reason=TEXT("Sample difference exceeds numeric range.");return R;}
-        Max=FMath::Max(Max,E);Passed&=E<=AbsTol+RelTol*FMath::Abs(Reference[I]);
+        const double Tolerance=AbsTol+RelTol*FMath::Abs(Reference[I]);
+        if(!FMath::IsFinite(Tolerance)){R.Reason=TEXT("Tolerance arithmetic exceeds numeric range.");return R;}
+        Max=FMath::Max(Max,E);Passed&=E<=Tolerance;
         if(Scale>0){ErrorSquared+=FMath::Square(E/Scale);RefSquared+=FMath::Square(Reference[I]/Scale);}
     }
     R.bEvaluated=true;R.bPassed=Passed;R.MaximumAbsoluteError=Max;
-    if(RefSquared>0)R.RelativeL2Error=FMath::Sqrt(ErrorSquared/RefSquared);
+    if(RefSquared>0){const double Norm=FMath::Sqrt(ErrorSquared/RefSquared);if(FMath::IsFinite(Norm))R.RelativeL2Error=Norm;}
     R.Reason=Passed?TEXT("Every paired sample meets the supplied absolute/relative tolerance."):TEXT("At least one paired sample exceeds the supplied tolerance.");return R;
 }
 TOptional<double> StudioHome4Recipes::ObservedOrder(double Coarse,double Medium,double Fine,double Refinement)

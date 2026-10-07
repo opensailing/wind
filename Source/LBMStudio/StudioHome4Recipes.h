@@ -10,8 +10,11 @@ struct FStudioHome4Recipe
 struct FStudioHome4LadderRung
 {
     int32 Refinement = 1;
+    FGuid PlannedRunId = FGuid::NewGuid(); // Development queue identity; no job is launched.
     FStudioHome4Spec Spec;
     TOptional<double> EstimatedSeconds;
+    TOptional<uint64> Cells, AllocationBytes;
+    FString CostBasis;
 };
 struct FStudioHome4GateResult
 {
