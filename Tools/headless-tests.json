@@ -144,6 +144,7 @@
     "Studio.Home4.Authoring.GlobalViewerDefaultsPreserveSourceRangesAndNewRequests",
     "Studio.Home4.Authoring.LineageTreeEdgesHashesOpaqueSourcesAndChanges",
     "Studio.Home4.Authoring.OriginalIndexSignedDistanceAndCutFractions",
+    "Studio.Home4.Authoring.PackagedCADRoundTrip",
     "Studio.Home4.Authoring.RecipeFamiliesAndRequestedNumericalEnvelope",
     "Studio.Home4.Authoring.ResizingAndExplicitMixedDimensions",
     "Studio.Home4.Authoring.ShippedRequestTemplatesHaveNoRecordingIdentity",

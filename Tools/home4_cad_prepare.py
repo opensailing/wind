@@ -46,7 +46,8 @@ def prepare(source: Path, destination: Path, tolerance: float, library: str = ""
 
     # The kernel parses a private byte-pinned copy, not a concurrently writable
     # original path. No new document or GUI is constructed.
-    with tempfile.TemporaryDirectory(prefix="home4-cad-") as work:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="home4-cad-", dir=destination.parent) as work:
         pinned = Path(work) / ("original" + source.suffix.lower())
         pinned.write_bytes(data)
         shape = Part.Shape()
