@@ -61,8 +61,8 @@ bool FStudioHome4PackagedCAD::RunTest(const FString&)
         ~FFixtureCleanup(){IFileManager::Get().DeleteDirectory(*Path,false,true);}
     } Cleanup{Work};
     const FString STEP=Work/TEXT("original with spaces.step"),IGES=Work/TEXT("original with spaces.iges");
-    const FString Script=TEXT("import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);import FreeCAD,Part;assert sys.flags.isolated==1;assert Path(FreeCAD.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve());shape=Part.makeBox(2,3,4);assert abs(shape.Volume-24)<1e-12;shape.exportStep(sys.argv[2]);shape.exportIges(sys.argv[3])");
-    if(!TestTrue(*Error,RunBoundedPython(Python,TEXT("-I -c ")+Quote(Script)+TEXT(" ")+Quote(Library)+TEXT(" ")+Quote(STEP)+TEXT(" ")+Quote(IGES),Error)))return false;
+    const FString Script=TEXT("import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);import FreeCAD,Part;assert sys.flags.isolated==1;assert sys.dont_write_bytecode;assert Path(FreeCAD.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve());shape=Part.makeBox(2,3,4);assert abs(shape.Volume-24)<1e-12;shape.exportStep(sys.argv[2]);shape.exportIges(sys.argv[3])");
+    if(!TestTrue(*Error,RunBoundedPython(Python,TEXT("-I -B -c ")+Quote(Script)+TEXT(" ")+Quote(Library)+TEXT(" ")+Quote(STEP)+TEXT(" ")+Quote(IGES),Error)))return false;
     const auto OriginalCache=CacheDirectories();const auto Cancel=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
     for(const FString& Input:{STEP,IGES})
     {
@@ -114,7 +114,7 @@ bool FStudioHome4CADLifecycle::RunTest(const FString&)
     const FString Input=Work/TEXT("lifecycle-original.step"),Child=Work/TEXT("child.py"),Launcher=Work/TEXT("owned-interpreter"),Ready=Work/TEXT("ready");
     if(!TestTrue(TEXT("Lifecycle fixture source writes"),FFileHelper::SaveStringToFile(TEXT("explicit process-only test source"),*Input)))return false;
     auto ShellQuote=[](FString Value){Value.ReplaceInline(TEXT("'"),TEXT("'\\''"));return TEXT("'")+Value+TEXT("'");};
-    const FString Launch=TEXT("#!/bin/sh\nexec ")+ShellQuote(Python)+TEXT(" -I ")+ShellQuote(Child)+TEXT(" \"$@\"\n");
+    const FString Launch=TEXT("#!/bin/sh\nexec ")+ShellQuote(Python)+TEXT(" -I -B ")+ShellQuote(Child)+TEXT(" \"$@\"\n");
     if(!TestTrue(TEXT("Private lifecycle executable is writable"),FFileHelper::SaveStringToFile(Launch,*Launcher,FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))||
        !TestTrue(TEXT("Only the fixture owner may execute its harness"),::chmod(TCHAR_TO_UTF8(*Launcher),0700)==0))return false;
     FStudioHome4AuthoringRequest Request;Request.Spec.Geometry.SourcePath=Input;Request.Spec.Authoring.TessellatorPython=Launcher;

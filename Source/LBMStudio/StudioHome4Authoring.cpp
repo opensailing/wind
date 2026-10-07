@@ -133,7 +133,7 @@ bool ReadCAD(const FStudioHome4AuthoringRequest& R,const FStudioAssetCancellatio
     {Source.Error=TEXT("Could not publish the byte-pinned private CAD input.");return false;}
     Bytes.Empty();
     auto Quoted=[](FString S){S.ReplaceInline(TEXT("\\"),TEXT("\\\\"));S.ReplaceInline(TEXT("\""),TEXT("\\\""));return TEXT("\"")+S+TEXT("\"");};
-    const FString Args=TEXT("-I ")+Quoted(Helper)+TEXT(" --input ")+Quoted(Pinned)+TEXT(" --output ")+Quoted(Output)+TEXT(" --library ")+Quoted(Library)+
+    const FString Args=TEXT("-I -B ")+Quoted(Helper)+TEXT(" --input ")+Quoted(Pinned)+TEXT(" --output ")+Quoted(Output)+TEXT(" --library ")+Quoted(Library)+
         FString::Printf(TEXT(" --tolerance %.17g --expected-sha256 "),*A.SurfaceTolerance)+Hash;
     uint32 OwnedPid=0;FProcHandle Process=FPlatformProcess::CreateProc(*Python,*Args,false,true,true,&OwnedPid,0,nullptr,nullptr);
     if(!Process.IsValid()){Source.Error=TEXT("The configured CAD interpreter could not start.");return false;}
