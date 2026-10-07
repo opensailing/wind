@@ -120,7 +120,7 @@ bool FStudioHelpGuidance::RunTest(const FString&)
     TestTrue(TEXT("Replay guidance names original snapshots"),StudioHelp::Guidance(EStudioWorkspace::Solve,false).Contains(TEXT("original snapshots")));
     TestTrue(TEXT("Harness guidance discloses no CFD"),StudioHelp::Guidance(EStudioWorkspace::Solve,true).Contains(TEXT("computes no CFD")));
     TestTrue(TEXT("Provenance belongs to Results"),StudioHelp::Guidance(EStudioWorkspace::Results,false).Contains(TEXT("source provenance")));
-    TestTrue(TEXT("Unimplemented preferences are disclosed"),StudioHelp::Guidance(EStudioWorkspace::Settings,false).Contains(TEXT("being implemented")));
+    TestTrue(TEXT("Settings disclose source map ownership"),StudioHelp::Guidance(EStudioWorkspace::Settings,false).Contains(TEXT("source unit map")));
     return !HasAnyErrors();
 }
 
@@ -138,7 +138,7 @@ bool FStudioHelpPanelWorkflow::RunTest(const FString&)
         .CopyText([&](const FString& Value){Copied=Value;});
     FStudioHeadlessSlate UI(*this,Panel,FVector2D(540,500));
     if(!UI.Inspect(TEXT("help-workspace"),{TEXT("HelpGuidance"),TEXT("HelpResults"),TEXT("HelpClose")}))return false;
-    TestEqual(TEXT("Guidance follows workspace"),UI.Text(TEXT("HelpWorkspaceTitle")),FString(TEXT("Solve")));
+    TestEqual(TEXT("Guidance follows workspace"),UI.Text(TEXT("HelpWorkspaceTitle")),FString(TEXT("Fields")));
     if(!UI.Press(TEXT("HelpResults")))return false;
     TestEqual(TEXT("Provenance delegates to existing owner"),Visits,1);
     M->Workspace=EStudioWorkspace::Geometry;

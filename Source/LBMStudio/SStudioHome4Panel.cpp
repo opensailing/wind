@@ -1,5 +1,9 @@
 #include "SStudioHome4Panel.h"
+#include "SStudioHome4RunControls.h"
+#include "SStudioHome4Sizing.h"
+#include "SStudioHome4Validation.h"
 #include "StudioHome4Recipes.h"
+#include "StudioHome4Readouts.h"
 #include "StudioHome4Reports.h"
 #include "StudioModel.h"
 #include "StudioTheme.h"
@@ -37,22 +41,51 @@ TSharedRef<SWidget> SStudioHome4Panel::Action(const FString& TextValue,FName Tag
 }
 void SStudioHome4Panel::Construct(const FArguments& Args)
 {
-    Model=Args._Model;Session=Args._Session;Page=Args._Page;OnRecipe=Args._OnRecipe;Sync();SetCanTick(true);
+    Model=Args._Model;Session=Args._Session;Page=Args._Page;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;Telemetry=Args._Telemetry;Sync();SetCanTick(true);
     auto Body=SNew(SVerticalBox);
-    if(Page==TEXT("Validation")||Page==TEXT("Projects"))Body->AddSlot().AutoHeight()[Recipes()];
+    if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Sizing).Session(Session)];
+    if(Page==TEXT("Validation")||Page==TEXT("Projects"))
+    {
+        Body->AddSlot().AutoHeight()[SNew(SStudioHome4Validation).Model(Model).State(Validation)];
+        Body->AddSlot().AutoHeight().Padding(0,20,0,0)[Recipes()];
+    }
     else
     {
         FString Previous;
         for(const auto& F:StudioHome4Config::Fields())
         {
-            if(F.Page!=Page||F.Section.IsEmpty())continue;
+            if(F.Page!=Page||F.Section.IsEmpty()||F.Key==TEXT("display"))continue;
             if(F.Section!=Previous)
             {Previous=F.Section;Body->AddSlot().AutoHeight().Padding(0,18,0,10)[StudioUI::Label(Home4PanelLocal::Human(Previous),13,StudioUI::Text,true)];}
             Body->AddSlot().AutoHeight().Padding(0,0,0,9)[Editor(F)];
         }
     }
+    if(Page==TEXT("Geometry"))
+    {
+        auto Formats=SNew(SHorizontalBox);
+        for(const TCHAR* Extension:{TEXT("step"),TEXT("iges"),TEXT("stl"),TEXT("obj")})
+            Formats->AddSlot().AutoWidth().Padding(0,0,7,0)[Action(FString(TEXT("Choose "))+FString(Extension).ToUpper()+TEXT("…"),FName(*(FString(TEXT("Home4CAD."))+Extension)),[this,Ext=FString(Extension)]
+            {FString Path;if(StudioFileDialog::DataFile(false,TEXT("Select body geometry"),TEXT(""),Ext,Path)){Session->Set(TEXT("geometry.sourcePath"),Path);Sync();}})];
+        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Formats];
+        Body->InsertSlot(1).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("SDF build · awaiting geometry adapter\nTessellation cache, signed-distance band and cut-link fractions are not supplied. STEP/IGES are retained as source requests. Imported STL/OBJ surfaces can be inspected under Import & surfaces."),StudioUI::Amber)];
+    }
+    if(Page==TEXT("Bodies"))
+    {
+        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("Body forces are inspected in Monitors as separate pressure, viscous and momentum-exchange channels. Moving-body retabulation is a solver operation; no body motion is simulated by this development adapter."),StudioUI::Muted)];
+        Body->AddSlot().AutoHeight().Padding(0,18)[Home4PanelLocal::Paragraph(TEXT("Retabulation cost reference\nThe supplied HOME4 note reports 47.8 MLUPS for a static mask, 5.9 for an oscillating cylinder and 0.63 for sedimentation on an M1 Pro. These are different measured workloads, not a prediction for this case."),StudioUI::Muted)];
+    }
+    if(Page==TEXT("Boundaries & Zones"))
+        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("Zone extents and strength profiles belong to the run configuration. Driver-specific widths remain labeled as driver values until the solver supplies their coordinate convention. Original field masks are inspected in Fields."),StudioUI::Muted)];
+    if(Page==TEXT("Settings"))
+    {
+        Body->AddSlot().AutoHeight().Padding(0,0,0,10)[StudioUI::Label(TEXT("Readout units"),14,StudioUI::Text,true)];
+        Body->AddSlot().AutoHeight().Padding(0,0,0,18)[Home4PanelLocal::Paragraph(TEXT("Use LU / SI / ND in the header to set the global readout mode. Converted values offer all three forms in their tooltip. A recording must supply its original unit map; editing the next-run map cannot change old results."))];
+        Body->AddSlot().AutoHeight()[StudioUI::Label(TEXT("Viewer preferences"),14,StudioUI::Text,true)];
+        Body->AddSlot().AutoHeight().Padding(0,8)[Home4PanelLocal::Paragraph(TEXT("Palette, range, camera projection, clipping and layer visibility are saved with each project view. Edit them in the Fields inspector; source ranges and provenance remain attached to the original recording."))];
+    }
     if(Page==TEXT("Run"))
     {
+        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,18)[SNew(SStudioHome4RunControls).Model(Model).OnSubmit(Args._OnSubmit)];
         Body->AddSlot().AutoHeight().Padding(0,18,0,8)[StudioUI::Label(TEXT("Equivalent command line"),13,StudioUI::Text,true)];
         Body->AddSlot().AutoHeight()[SNew(SMultiLineEditableTextBox).IsReadOnly(true).AutoWrapText(true).Font(StudioUI::Font(10))
             .Text_Lambda([this]{return FText::FromString(Command());})];
@@ -138,15 +171,25 @@ TSharedRef<SWidget> SStudioHome4Panel::Recipes()
             +SVerticalBox::Slot().AutoHeight()[Home4PanelLocal::Paragraph(TEXT("Not evaluated · reference results not supplied"),StudioUI::Amber)]
             +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,0)[SNew(SSeparator)]];
     }
-    Rows->AddSlot().AutoHeight().Padding(0,8)[Action(TEXT("Build 1× / 2× / 4× convergence ladder"),TEXT("Home4Ladder"),[this]{BuildLadder();})];
-    Rows->AddSlot().AutoHeight()[SNew(STextBlock).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Text).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(LadderText);})];
     return Rows;
 }
 TSharedRef<SWidget> SStudioHome4Panel::Feasibility()
 {
+    auto Values=SNew(SVerticalBox);
+    auto Add=[&](const TCHAR* Name,EStudioHome4Quantity Q,TFunction<TOptional<double>()> Read)
+    {
+        Values->AddSlot().AutoHeight().Padding(0,0,0,9)[SNew(STextBlock).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Cyan).AutoWrapText(true)
+            .Text_Lambda([this,Name,Q,Read]{const auto V=Read();return FText::FromString(FString(Name)+TEXT("  ")+(V.IsSet()?StudioHome4Readouts::Value(V.GetValue(),Q,EStudioHome4UnitDisplay::Lattice,Model->UnitDisplay,&Preview):TEXT("Not supplied")));})
+            .ToolTipText_Lambda([this,Q,Read]{const auto V=Read();return FText::FromString(V.IsSet()?StudioHome4Readouts::Tooltip(V.GetValue(),Q,EStudioHome4UnitDisplay::Lattice,&Preview):TEXT("Supply this case quantity to view its unit conversions."));})];
+    };
+    Add(TEXT("Speed"),EStudioHome4Quantity::Velocity,[this]{return Derived.Speed;});
+    Add(TEXT("Heavy viscosity"),EStudioHome4Quantity::KinematicViscosity,[this]{return Derived.NuHeavy;});
+    Add(TEXT("Length"),EStudioHome4Quantity::Length,[this]{return Preview.Reference.LengthCells;});
     return SNew(SScrollBox).Tag(TEXT("Home4Feasibility"))+SScrollBox::Slot()[SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[StudioUI::Label(TEXT("Feasibility"),15,StudioUI::Text,true)]
+        +SVerticalBox::Slot().AutoHeight()[Values]
         +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Tag(TEXT("Home4FeasibilitySummary")).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Text).AutoWrapText(true)
+            .ToolTipText_Lambda([this]{return FText::FromString(TEXT("Derived Kn ≈ Ma/Re: ")+Home4PanelLocal::N(Derived.Knudsen));})
             .Text_Lambda([this]{return FText::FromString(Summary());})]];
 }
 FString SStudioHome4Panel::Summary() const
@@ -157,20 +200,16 @@ FString SStudioHome4Panel::Summary() const
         TEXT("\nPeclet / Cahn  ")+Home4PanelLocal::N(Derived.Peclet)+TEXT(" / ")+Home4PanelLocal::N(Derived.Cahn)+TEXT("\nAtwood  ")+Home4PanelLocal::N(Derived.Atwood)+
         TEXT("\n\nHeavy τ  ")+Home4PanelLocal::N(Derived.TauHeavy)+TEXT("\nLight τ  ")+Home4PanelLocal::N(Derived.TauLight)+TEXT("\nLight τ − ½  ")+Home4PanelLocal::N(Derived.TauLightMargin)+
         TEXT("\nWake wavelength  ")+Home4PanelLocal::N(Derived.WakeWavelength)+TEXT(" cells\n");
-    const auto Display=Preview.Units.Display;
-    const FString UnitName=Display==EStudioHome4UnitDisplay::Lattice?TEXT("lattice"):Display==EStudioHome4UnitDisplay::Physical?TEXT("physical"):TEXT("nondimensional");
-    auto Convert=[&](const TOptional<double>& V,EStudioHome4Quantity Q){return V.IsSet()?Home4PanelLocal::N(StudioHome4Config::ConvertUnits(V.GetValue(),Q,EStudioHome4UnitDisplay::Lattice,Display,Preview)):FString(TEXT("Not supplied"));};
-    Out+=TEXT("\nCase values · ")+UnitName+TEXT("\nSpeed  ")+Convert(Derived.Speed,EStudioHome4Quantity::Velocity)+TEXT("\nHeavy viscosity  ")+Convert(Derived.NuHeavy,EStudioHome4Quantity::KinematicViscosity)+TEXT("\nBody length  ")+Convert(Preview.Reference.LengthCells,EStudioHome4Quantity::Length)+TEXT("\n");
     if(Derived.AllocationBytes.IsSet())Out+=FString::Printf(TEXT("\nAllocation estimate  %.2f GiB"),double(Derived.AllocationBytes.GetValue())/1073741824.);
     else Out+=TEXT("\nMemory: allocation list not supplied");
-    Out+=Derived.EstimatedSeconds.IsSet()?FString::Printf(TEXT("\nEstimated duration  %.2f h"),Derived.EstimatedSeconds.GetValue()/3600):TEXT("\nDuration: measured throughput required");
+    Out+=Derived.EstimatedSeconds.IsSet()&&!Preview.Performance.MeasurementSource.IsEmpty()?FString::Printf(TEXT("\nEstimated duration  %.2f h"),Derived.EstimatedSeconds.GetValue()/3600):TEXT("\nDuration: measured throughput required");
     if(Derived.Levels.Num()>1)
     {
         Out+=TEXT("\n\nMultidomain levels");for(const auto& L:Derived.Levels)
             Out+=FString::Printf(TEXT("\nL%d ×%.0f · ν %s · σ %s\nM %s · g %s · τL %s"),L.Depth,L.Scale,*Home4PanelLocal::N(L.NuHeavy),*Home4PanelLocal::N(L.Sigma),*Home4PanelLocal::N(L.Mobility),*Home4PanelLocal::N(L.Gravity),*Home4PanelLocal::N(L.TauLight));
     }
     Out+=TEXT("\n\nChecks");if(Derived.Issues.IsEmpty())Out+=TEXT("\nNo reported issues in supplied values. Missing solver capabilities still prevent numerical execution.");
-    for(const auto& I:Derived.Issues)Out+=TEXT("\n\n")+(I.Severity==EStudioHome4IssueSeverity::Blocking?FString(TEXT("BLOCK · ")):I.Severity==EStudioHome4IssueSeverity::Warning?FString(TEXT("WARN · ")):FString())+I.Message;
+    for(const auto& I:Derived.Issues)Out+=TEXT("\n\n")+(I.Severity==EStudioHome4IssueSeverity::Blocking?FString(TEXT("BLOCK · ")):I.Severity==EStudioHome4IssueSeverity::Warning?FString(TEXT("WARN · ")):FString())+I.Field+TEXT(": ")+I.Message;
     if(!Preview.RecipeId.IsEmpty())for(const auto& D:StudioHome4Recipes::Departures(Preview))Out+=TEXT("\n\n")+D;
     return Out;
 }
@@ -208,20 +247,15 @@ void SStudioHome4Panel::ImportSpec()
     FString Path;if(!StudioFileDialog::DataFile(false,TEXT("Import HOME4 run specification"),TEXT(""),TEXT("json"),Path))return;
     FStudioFileAccess Access(Path);const int64 Size=IFileManager::Get().FileSize(*Path);
     if(Size<0||Size>1024*1024){Session->Status=TEXT("Run specification must be a readable JSON file under 1 MiB.");return;}
-    FString TextValue,E;FStudioHome4Spec S;
-    if(!FFileHelper::LoadFileToString(TextValue,*Path)||!StudioHome4Config::Parse(TextValue,S,E)){Session->Status=E.IsEmpty()?TEXT("Could not read the run specification."):E;return;}
+    FString E;FStudioHome4Spec S;
+    if(!StudioHome4Config::Load(Path,S,E)){Session->Status=E.IsEmpty()?TEXT("Could not read the run specification."):E;return;}
     if(Model->EditCase(TEXT("Import HOME4 run specification"),[&](auto& C){C.Home4=S;})){Session->Revert();Sync();Session->Status=TEXT("Run specification imported; original recording and camera retained.");}
-}
-void SStudioHome4Panel::BuildLadder()
-{
-    FStudioHome4Spec S;FString E;TArray<FStudioHome4LadderRung> Rungs;
-    if(!Session->Build(S,E)||!StudioHome4Recipes::Ladder(S,{1,2,4},Rungs,E)){LadderText=E;return;}
-    LadderText=TEXT("Fixed-Cn ladder · specifications prepared; no solver jobs launched.");
-    for(const auto& R:Rungs)LadderText+=FString::Printf(TEXT("\n%d× · L=%s cells · ξ=%s cells · time estimate %s s"),R.Refinement,*Home4PanelLocal::N(R.Spec.Reference.LengthCells),*Home4PanelLocal::N(R.Spec.Fluids.Xi),*Home4PanelLocal::N(R.EstimatedSeconds));
 }
 void SStudioHome4Panel::ExportReport()
 {
     if(Session->IsDirty()){Session->Status=TEXT("Apply or revert edits before exporting the applied report.");return;}
     FString Parent;if(!StudioFileDialog::ExportFolder(Parent))return;
-    FString Destination,Error;Session->Status=StudioHome4Reports::Export(Parent,ReportName,Model->SnapshotProject(),nullptr,Destination,Error)?TEXT("Report saved to ")+Destination:Error;
+    const auto* Evidence=Validation&&Validation->ProjectId==Model->Project.Id&&Validation->CaseId==Model->Project.Draft.Id&&
+        Model->Project.Draft.Home4.IsSet()&&Validation->RecipeId==Model->Project.Draft.Home4->RecipeId?Validation->Evidence.Get():nullptr;
+    FString Destination,Error;Session->Status=StudioHome4Reports::Export(Parent,ReportName,Model->SnapshotProject(),Telemetry.Get(nullptr),Destination,Error,Evidence)?TEXT("Report saved to ")+Destination:Error;
 }

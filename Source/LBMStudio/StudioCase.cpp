@@ -356,6 +356,12 @@ FStudioRunRecord FStudioRunRecord::Recording(const FString& InName, const FStrin
     R.Origin=bPublished?EStudioRunOrigin::PublishedRecording:EStudioRunOrigin::ImportedRecording;
     R.BackendId=bPublished?TEXT("published-recording"):TEXT("imported-recording"); return R;
 }
+FStudioRunRecord FStudioRunRecord::WithProvenance(const FStudioRecordedRunProvenance& Source) const
+{
+    FStudioRunRecord Copy=*this;
+    if(Origin==EStudioRunOrigin::ImportedRecording)Copy.Provenance=Source;
+    return Copy;
+}
 FStudioRunRecord FStudioRunRecord::Capture(const FString& InName, const FStudioCaseDraft& Draft, EStudioRunOrigin InOrigin)
 {
     FStudioRunRecord R; R.Name = InName; R.Origin = InOrigin; R.BackendId = Draft.Setup.BackendId;
@@ -370,6 +376,13 @@ TSharedRef<FJsonObject> FStudioRunRecord::ToJSON() const
     O->SetStringField(TEXT("backendId"),BackendId); O->SetStringField(TEXT("datasetId"),DatasetId);
     if (Configuration) O->SetObjectField(TEXT("configuration"),StudioCaseIO::ToJSON(*Configuration));
     else O->SetField(TEXT("configuration"),MakeShared<FJsonValueNull>());
+    if(Provenance)
+    {
+        auto Source=MakeShared<FJsonObject>();Source->SetStringField(TEXT("runId"),Provenance->RunId);
+        Source->SetStringField(TEXT("recipeId"),Provenance->RecipeId);Source->SetStringField(TEXT("lineageId"),Provenance->LineageId);
+        Source->SetStringField(TEXT("manifestPath"),Provenance->ManifestPath);Source->SetStringField(TEXT("manifestSHA256"),Provenance->ManifestSHA256);
+        O->SetObjectField(TEXT("originalSource"),Source);
+    }
     return O;
 }
 bool FStudioRunRecord::FromJSON(const FObject& O, FStudioRunRecord& Out, FString& Error)
@@ -395,6 +408,21 @@ bool FStudioRunRecord::FromJSON(const FObject& O, FStudioRunRecord& Out, FString
         if (Draft.Setup.BackendId != R.BackendId)
         { Error=TEXT("Run backend does not match its captured case."); return false; }
         R.Configuration = MakeShared<const FStudioCaseDraft>(MoveTemp(Draft));
+    }
+    if(O->HasField(TEXT("originalSource")))
+    {
+        const FObject* Source=nullptr;FStudioRecordedRunProvenance P;
+        if(R.Origin!=EStudioRunOrigin::ImportedRecording||!O->TryGetObjectField(TEXT("originalSource"),Source)||!Source||!Source->IsValid())return false;
+        for(const auto& Pair:{TPair<const TCHAR*,FString*>(TEXT("runId"),&P.RunId),{TEXT("recipeId"),&P.RecipeId},{TEXT("lineageId"),&P.LineageId},
+            {TEXT("manifestPath"),&P.ManifestPath},{TEXT("manifestSHA256"),&P.ManifestSHA256}})
+        {
+            if(!(*Source)->TryGetStringField(Pair.Key,*Pair.Value)||Pair.Value->Len()>4096)return false;
+            for(TCHAR C:*Pair.Value)if(C<32||C==127)return false;
+        }
+        if(!P.ManifestSHA256.IsEmpty()&&P.ManifestSHA256.Len()!=64)return false;
+        for(TCHAR C:P.ManifestSHA256)if(!FChar::IsHexDigit(C))return false;
+        if(P.RunId.Len()>128||P.RecipeId.Len()>128||P.LineageId.Len()>256)return false;
+        R.Provenance=MoveTemp(P);
     }
     Out = MoveTemp(R); Error.Empty(); return true;
 }

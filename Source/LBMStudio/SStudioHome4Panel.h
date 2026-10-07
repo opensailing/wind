@@ -5,6 +5,7 @@
 class FStudioModel;
 class SEditableTextBox;
 class SVerticalBox;
+struct FStudioHome4ValidationState;
 
 DECLARE_DELEGATE_OneParam(FStudioHome4RecipeAction,const FString&);
 /** Shared HOME4 authoring component inside the existing single-sidebar shell. */
@@ -15,6 +16,9 @@ public:
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4Session>,Session)
         SLATE_ARGUMENT(FString,Page)
+        SLATE_ARGUMENT(TSharedPtr<FStudioHome4ValidationState>,Validation)
+        SLATE_EVENT(FSimpleDelegate,OnSubmit)
+        SLATE_ATTRIBUTE(const FStudioHome4TelemetryStream*,Telemetry)
         SLATE_EVENT(FStudioHome4RecipeAction,OnRecipe)
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
@@ -28,12 +32,13 @@ private:
     FString Command() const;
     void ExportSpec();
     void ImportSpec();
-    void BuildLadder();
     void ExportReport();
     void Sync();
     TSharedPtr<FStudioModel> Model;
     TSharedPtr<FStudioHome4Session> Session;
+    TSharedPtr<FStudioHome4ValidationState> Validation;
     FStudioHome4RecipeAction OnRecipe;
+    TAttribute<const FStudioHome4TelemetryStream*> Telemetry;
     FString Page,LadderText,ReportName=TEXT("home4_viz");
     TMap<FString,TWeakPtr<SEditableTextBox>> Inputs;
     FString LastValues;

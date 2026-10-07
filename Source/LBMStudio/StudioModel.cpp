@@ -781,6 +781,12 @@ void FStudioModel::PollRecording()
         if(!Candidate.Runs.ContainsByPredicate([&](const auto& Run){return Run.GetDatasetId()==Id;}))
             Candidate.Runs.Add(FStudioRunRecord::Recording(Source->Descriptor().Title.Left(120),Id,!Result.Reference.IsSet()));
     }
+    if(const auto Grid=Source->VolumeReconstruction();Grid&&Grid->OriginalGrid)
+    {
+        const auto& G=*Grid->OriginalGrid;
+        for(auto& Run:Candidate.Runs)if(Run.GetDatasetId()==Id)
+            Run=Run.WithProvenance({G.SourceRunId,G.RecipeId,G.LineageId,G.SourceManifestPath,G.SourceManifestSHA256});
+    }
     FStudioProject Validated;FString Error;
     if(!StudioProjectIO::Parse(StudioProjectIO::Serialize(Candidate),Validated,Error))
     {Notice=TEXT("Recording could not be added: ")+Error;return;}

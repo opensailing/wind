@@ -103,6 +103,12 @@ struct FStudioCaseDraft
 
 enum class EStudioRunOrigin : uint8 { PublishedRecording, ControlHarness, Solver, ImportedRecording };
 
+/** Original recording identity only. No editable next-run properties are copied here. */
+struct FStudioRecordedRunProvenance
+{
+    FString RunId, RecipeId, LineageId, ManifestPath, ManifestSHA256;
+};
+
 /** Value object with no mutators; configuration is a deep, const snapshot. */
 class FStudioRunRecord
 {
@@ -113,6 +119,8 @@ public:
     const FString& GetBackendId() const { return BackendId; }
     const FString& GetDatasetId() const { return DatasetId; }
     const FStudioCaseDraft* GetConfiguration() const { return Configuration.Get(); }
+    const TOptional<FStudioRecordedRunProvenance>& GetProvenance() const { return Provenance; }
+    FStudioRunRecord WithProvenance(const FStudioRecordedRunProvenance& Source) const;
     /** Recording import deliberately has no invented case configuration. */
     static FStudioRunRecord Recording(const FString& Name, const FString& DatasetId, bool bPublished = true);
     /** Captures settings only. Does not claim a job was started or computed fields. */
@@ -120,6 +128,7 @@ public:
     TSharedRef<FJsonObject> ToJSON() const;
     static bool FromJSON(const TSharedPtr<FJsonObject>& Object, FStudioRunRecord& Out, FString& Error);
 private:
+    TOptional<FStudioRecordedRunProvenance> Provenance;
     FGuid Id = FGuid::NewGuid();
     FString Name;
     EStudioRunOrigin Origin = EStudioRunOrigin::PublishedRecording;

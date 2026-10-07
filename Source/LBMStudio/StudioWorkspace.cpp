@@ -9,6 +9,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "StudioWorkspace.h"
 #include "StudioTheme.h"
 #include "SStudioHome4Panel.h"
+#include "SStudioHome4Monitors.h"
+#include "SStudioHome4Lineage.h"
+#include "StudioHome4Validation.h"
+#include "StudioHome4Readouts.h"
 #include "StudioHome4Recipes.h"
 #include "SStudioFlowConditions.h"
 #include "SStudioHelpPanel.h"
@@ -1101,7 +1105,8 @@ struct FStudioLogWorkspaceState
 void SStudioWorkspace::Construct(const FArguments& A)
 {
     M=A._Model;Scene=A._Scene; SetCanTick(true);
-    Home4=MakeShared<FStudioHome4Session>(M);
+    Home4=MakeShared<FStudioHome4Session>(M);Home4Validation=MakeShared<FStudioHome4ValidationState>();
+    bNewHome4Project=M->Workspace==EStudioWorkspace::Validation&&M->ProjectPath.IsEmpty()&&!M->Project.Draft.Home4.IsSet();
     PerformanceHistory=MakeShared<FStudioPerformanceHistory>();PerformanceProject=M->Project.Id;
     InspectionMarkers=MakeShared<FStudioProbeMarkerScheduler>();
     InspectionExport=MakeShared<FStudioProbeExportTask>();
@@ -1118,7 +1123,8 @@ void SStudioWorkspace::Construct(const FArguments& A)
         +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(322)
             .Visibility_Lambda([this]{return M->bViewportExpanded&&!bInspectionOpen&&!M->CameraPlacement()&&!bPerformanceOpen?EVisibility::Collapsed:EVisibility::Visible;})
             [SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->CameraPlacement()?1:bInspectionOpen?2:bPerformanceOpen?3:0;})
-                +SWidgetSwitcher::Slot()[Settings()]
+                +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()?1:0;})
+                    +SWidgetSwitcher::Slot()[Settings()]+SWidgetSwitcher::Slot()[Home4Inspector()]]
                 +SWidgetSwitcher::Slot()[CameraPlacementControls()]
                 +SWidgetSwitcher::Slot()[InspectionControls()]
                 +SWidgetSwitcher::Slot()[SAssignNew(PerformancePanel,SStudioPerformancePanel).Tag(TEXT("PerformancePanel"))
@@ -1131,6 +1137,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
     ChildSlot[SNew(SBorder).BorderImage(&Background).Padding(0)
     [SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight()[Header()]
+        +SVerticalBox::Slot().AutoHeight()[WorkspaceContext()]
         +SVerticalBox::Slot().AutoHeight()
         [SNew(SBorder).BorderImage(&RaisedBrush).Padding(12,6).Visibility_Lambda([this]{return M->PendingRecovery.IsEmpty()?EVisibility::Collapsed:EVisibility::Visible;})
             [SNew(SHorizontalBox)
@@ -1167,12 +1174,20 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[SolveSurface]
                 +SWidgetSwitcher::Slot()[ProjectsSurface]
                 +SWidgetSwitcher::Slot()[DashboardSurface]
-                +SWidgetSwitcher::Slot()[GeometryWorkspace()]
-                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Fluids & Interface"))]
+                +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return bHome4Geometry&&M->Project.Draft.Home4.IsSet()?1:0;})
+                    +SWidgetSwitcher::Slot()[GeometryWorkspace()]+SWidgetSwitcher::Slot()[Home4Page(TEXT("Geometry"))]]
+                +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()?1:0;})
+                    +SWidgetSwitcher::Slot()[MaterialsWorkspace()]+SWidgetSwitcher::Slot()[Home4Page(TEXT("Fluids & Interface"))]]
                 +SWidgetSwitcher::Slot()[DomainWorkspace()]
-                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Boundaries & Zones"))]
-                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Lattice"))]
-                +SWidgetSwitcher::Slot()[MonitorWorkspace()]
+                +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()&&!bHome4FaceAssignments?1:0;})
+                    +SWidgetSwitcher::Slot()[BoundaryWorkspace()]+SWidgetSwitcher::Slot()[Home4Page(TEXT("Boundaries & Zones"))]]
+                +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()&&!bHome4LatticePreview?1:0;})
+                    +SWidgetSwitcher::Slot()[LatticeWorkspace()]+SWidgetSwitcher::Slot()[Home4Page(TEXT("Lattice"))]]
+                +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()&&!bHome4RecordingMonitors?1:0;})
+                    +SWidgetSwitcher::Slot()[MonitorWorkspace()]
+                    +SWidgetSwitcher::Slot()[SAssignNew(Home4Monitors,SStudioHome4Monitors).Model(M)
+                        .UnitDisplay_Lambda([this]{return M->UnitDisplay;})
+                        .OnLocateCell_Lambda([this](const FStudioHome4CellFacts& Facts){LocateHome4Cell(Facts);})]]
                 +SWidgetSwitcher::Slot()[SAssignNew(Results,SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
@@ -1186,8 +1201,8 @@ void SStudioWorkspace::Construct(const FArguments& A)
                 +SWidgetSwitcher::Slot()[Home4Page(TEXT("Settings"))]]]
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
-            +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):TEXT("RECORDED CFD");},8,Amber)]
-            +SHorizontalBox::Slot().FillWidth(1).Padding(12,0).VAlign(VAlign_Center)[Live([this]{return M->IsProjectOpenPending()?M->ProjectOpenStatus():SnapshotUI->IsBusy()?SnapshotUI->ButtonLabel()+TEXT(" · Open Snapshot in Solve for progress or Cancel"):M->Notice.IsEmpty()?M->Solver->Descriptor().Title+TEXT(" · Recorded CFD · Custom solver not connected"):M->Notice;},9,Muted)]
+            +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):(M->Project.bControlHarness?TEXT("DEVELOPMENT ADAPTER"):TEXT("REPLAY · RECORDED CFD"));},8,Amber)]
+            +SHorizontalBox::Slot().FillWidth(1).Padding(12,0).VAlign(VAlign_Center)[Live([this]{return M->IsProjectOpenPending()?M->ProjectOpenStatus():SnapshotUI->IsBusy()?SnapshotUI->ButtonLabel()+TEXT(" · Open Snapshot in Fields for progress or Cancel"):M->Notice.IsEmpty()?(M->Project.bControlHarness?FString(TEXT("Development controls · no CFD computed")):M->Solver->Descriptor().Title+TEXT(" · Replay")):M->Notice;},9,Muted)]
             +SHorizontalBox::Slot().AutoWidth().Padding(0,0,12,0)
                 [SNew(SBox).Visibility_Lambda([this]{return M->IsProjectOpenPending()?EVisibility::Visible:EVisibility::Collapsed;})
                 [SNew(SButton).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,3))
@@ -1205,8 +1220,10 @@ void SStudioWorkspace::Construct(const FArguments& A)
 }
 TSharedRef<SWidget> SStudioWorkspace::Home4Page(const FString& Page)
 {
-    return SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page)
-        .OnRecipe_Lambda([this](const FString& Id){ChooseHome4Recipe(Id);});
+    return SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page).Validation(Home4Validation)
+        .OnRecipe_Lambda([this](const FString& Id){ChooseHome4Recipe(Id);})
+        .OnSubmit_Lambda([this]{DispatchControl(EStudioJobCommand::Submit);})
+        .Telemetry_Lambda([this]{return Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;});
 }
 bool SStudioWorkspace::EnsureHome4Resolved()
 {
@@ -1229,6 +1246,110 @@ void SStudioWorkspace::ChooseHome4Recipe(const FString& Id)
     else if(!Home4->ApplyRecipe(Id))return;
     Navigate(EStudioWorkspace::Materials);
 }
+void SStudioWorkspace::LocateHome4Cell(const FStudioHome4CellFacts& Facts)
+{
+    const auto Volume=M->Solver->VolumeReconstruction();
+    const auto Stream=Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;
+    if(!Facts.Cell.IsSet()||!Volume||!Volume->OriginalGrid||!Stream||!Stream->Latest().IsSet())
+    {M->Notice=TEXT("Load the matching original HOME4 grid and identified science log before locating a cell.");return;}
+    const auto& Grid=*Volume->OriginalGrid;const auto& Sample=Stream->Latest().GetValue();FGuid SourceRun;
+    if(!Home4Monitors->OriginalRunIdentity().IsSet()||!FGuid::Parse(Grid.SourceRunId,SourceRun)||
+        SourceRun!=Home4Monitors->OriginalRunIdentity().GetValue()||SourceRun!=Sample.Source.RunId)
+    {M->Notice=TEXT("The science log and recording need the same explicit original run ID. The camera was retained.");return;}
+    if(Facts.Level.Get(0)!=0){M->Notice=TEXT("Select the matching multidomain level recording before locating this cell. Patches are not auto-stitched.");return;}
+    const auto Cell=Facts.Cell.GetValue();FIntVector Selected;
+    for(int32 A=0;A<3;++A)
+    {
+        const int32 Delta=Cell[A]-Grid.CropMinimum[A];
+        if(Delta<0||Cell[A]>=Grid.CropMaximum[A]||Delta%Grid.PreviewStride!=0)
+        {M->Notice=TEXT("This cell is outside the loaded crop or preview stride. Load the original full grid to locate it.");return;}
+        Selected[A]=Delta/Grid.PreviewStride;
+    }
+    const FVector Source=Grid.OriginMeters+Grid.SpacingMeters*FVector(Selected);
+    const FVector Position(Source.X,Source.Z,Source.Y);
+    auto Camera=M->Project.Camera;const FVector Shift=Position-Camera.Focus;Camera.Position+=Shift;Camera.Focus=Position;
+    M->EditView(TEXT("Locate original HOME4 cell"),[&](auto& View){View.Camera=Camera;});Scene->ApplyCamera(Camera);Navigate(EStudioWorkspace::Solve);
+    FStudioProbeObject Probe;Probe.Name=FString::Printf(TEXT("Trouble cell %d,%d,%d"),Cell.X,Cell.Y,Cell.Z);Probe.A=Position;Probe.Method=EStudioProbeMethod::OriginalPoint;
+    Probe.PointId=int64(Cell.X)+int64(Grid.OriginalDimensions.X)*(int64(Cell.Y)+int64(Grid.OriginalDimensions.Y)*Cell.Z);
+    Probe.Field=Grid.PhaseField;const FGuid ProbeId=Probe.Id;if(M->AddProbe(Probe))M->SelectInspectionObject(ProbeId);
+    M->Notice=FString::Printf(TEXT("Original cell (%d, %d, %d) · phi %s · tau %s · %s · camera focused; replay frame unchanged"),Cell.X,Cell.Y,Cell.Z,
+        *(Facts.Phi.IsSet()?FString::Printf(TEXT("%.6g"),Facts.Phi.GetValue()):TEXT("not supplied")),
+        *(Facts.Tau.IsSet()?FString::Printf(TEXT("%.6g"),Facts.Tau.GetValue()):TEXT("not supplied")),*Facts.Zone);
+}
+TSharedRef<SWidget> SStudioWorkspace::WorkspaceContext()
+{
+    auto Rows=SNew(SHorizontalBox);
+    auto Add=[&](const TCHAR* Name,FName Tag,TFunction<bool()> Visible,TFunction<bool()> Selected,TFunction<void()> Select)
+    {
+        Rows->AddSlot().AutoWidth().Padding(0,0,4,0)[SNew(SButton).Tag(Tag).ButtonStyle(&NavigationStyle()).ContentPadding(FMargin(12,8))
+            .Visibility_Lambda([Visible]{return Visible()?EVisibility::Visible:EVisibility::Collapsed;})
+            .OnClicked_Lambda([Select]{Select();return FReply::Handled();})
+            [SNew(STextBlock).Font(Font(10)).Text(FText::FromString(Name)).ColorAndOpacity_Lambda([Selected]{return Selected()?Cyan:Muted;})]];
+    };
+    auto Fields=[this]{return M->Workspace==EStudioWorkspace::Solve||M->Workspace==EStudioWorkspace::Results||M->Workspace==EStudioWorkspace::PostProcessing;};
+    Add(TEXT("Scene"),TEXT("FieldsScene"),Fields,[this]{return M->Workspace==EStudioWorkspace::Solve;},[this]{Navigate(EStudioWorkspace::Solve);});
+    Add(TEXT("Recordings & runs"),TEXT("FieldsRecordings"),Fields,[this]{return M->Workspace==EStudioWorkspace::Results;},[this]{Navigate(EStudioWorkspace::Results);});
+    Add(TEXT("Analysis"),TEXT("FieldsAnalysis"),Fields,[this]{return M->Workspace==EStudioWorkspace::PostProcessing;},[this]{Navigate(EStudioWorkspace::PostProcessing);});
+    auto Geometry=[this]{return M->Project.Draft.Home4.IsSet()&&M->Workspace==EStudioWorkspace::Geometry;};
+    Add(TEXT("Import & surfaces"),TEXT("GeometrySurfaces"),Geometry,[this]{return !bHome4Geometry;},[this]{bHome4Geometry=false;});
+    Add(TEXT("Attitude & SDF"),TEXT("GeometrySDF"),Geometry,[this]{return bHome4Geometry;},[this]{bHome4Geometry=true;});
+    auto Lattice=[this]{return M->Workspace==EStudioWorkspace::Meshing||M->Workspace==EStudioWorkspace::Domain;};
+    Add(TEXT("Grid & units"),TEXT("LatticeGrid"),[this,Lattice]{return Lattice()&&M->Project.Draft.Home4.IsSet();},[this]{return M->Workspace==EStudioWorkspace::Meshing&&!bHome4LatticePreview;},[this]{bHome4LatticePreview=false;Navigate(EStudioWorkspace::Meshing);});
+    Add(TEXT("Domain bounds"),TEXT("LatticeDomain"),Lattice,[this]{return M->Workspace==EStudioWorkspace::Domain;},[this]{Navigate(EStudioWorkspace::Domain);});
+    Add(TEXT("Occupancy preview"),TEXT("LatticeOccupancy"),Lattice,[this]{return M->Workspace==EStudioWorkspace::Meshing&&(bHome4LatticePreview||!M->Project.Draft.Home4.IsSet());},[this]{bHome4LatticePreview=true;Navigate(EStudioWorkspace::Meshing);});
+    auto Zones=[this]{return M->Project.Draft.Home4.IsSet()&&M->Workspace==EStudioWorkspace::BoundaryConditions;};
+    Add(TEXT("Zones & damping"),TEXT("BoundaryZones"),Zones,[this]{return !bHome4FaceAssignments;},[this]{bHome4FaceAssignments=false;});
+    Add(TEXT("Face assignments"),TEXT("BoundaryFaces"),Zones,[this]{return bHome4FaceAssignments;},[this]{bHome4FaceAssignments=true;});
+    auto Monitors=[this]{return M->Project.Draft.Home4.IsSet()&&M->Workspace==EStudioWorkspace::Monitors;};
+    Add(TEXT("Ledgers & budgets"),TEXT("MonitorScience"),Monitors,[this]{return !bHome4RecordingMonitors;},[this]{bHome4RecordingMonitors=false;});
+    Add(TEXT("Recording channels"),TEXT("MonitorRecorded"),Monitors,[this]{return bHome4RecordingMonitors;},[this]{bHome4RecordingMonitors=true;});
+    return SNew(SBorder).BorderImage(&PanelBrush).Padding(203,0,8,0)
+        .Visibility_Lambda([Fields,Geometry,Lattice,Zones,Monitors]{return Fields()||Geometry()||Lattice()||Zones()||Monitors()?EVisibility::Visible:EVisibility::Collapsed;})[Rows];
+}
+TSharedRef<SWidget> SStudioWorkspace::Home4Inspector()
+{
+    auto Layers=SNew(SVerticalBox);
+    struct FLayer {const TCHAR* Label;const TCHAR* Id;int32 Mode;};
+    const FLayer Choices[]={{TEXT("Speed slice"),TEXT("speed"),0},
+        {TEXT("Positive-Q surface"),TEXT("q"),3},{TEXT("Signed helicity plane"),TEXT("helicity"),0},
+        {TEXT("Vorticity · Q color, |ω|² opacity"),TEXT("q"),4}};
+    for(const auto& Layer:Choices)
+    {
+        Layers->AddSlot().AutoHeight().Padding(0,0,0,5)[SNew(SButton).Tag(FName(*(FString(TEXT("Home4Layer."))+(Layer.Mode==4?TEXT("vorticity"):Layer.Id))))
+            .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
+            .IsEnabled_Lambda([this,Id=FString(Layer.Id),Mode=Layer.Mode]{return M->Solver->VolumeReconstruction()&&M->Solver->VolumeReconstruction()->OriginalGrid&&M->Solver->Descriptor().Scalars.ContainsByPredicate([&](const auto& S){return S.Id==Id;})&&(Mode!=4||M->Solver->Descriptor().Scalars.ContainsByPredicate([](const auto& S){return S.Id==TEXT("vorticity_magnitude");}));})
+            .ToolTipText(FText::FromString(TEXT("Requires the named original or explicitly derived source field. Isovalue and slice controls remain adjustable.")))
+            .OnClicked_Lambda([this,Id=FString(Layer.Id),Mode=Layer.Mode]
+            {
+                M->EditView(TEXT("HOME4 field layer"),[&](auto& View)
+                {
+                    View.Display.ScalarField=Id;View.Display.bHome4Vorticity=Mode==4;View.Display.bVolume=Mode==4;View.Display.bCutPlane=Mode==0;View.Display.bVolumeIsosurface=Mode==1||Mode==2||Mode==3;
+                    View.Display.VolumeIsovalue=Mode==1?.5:Mode==2?0:FMath::Max(1.e-12,M->Solver->Descriptor().Scalars.FindByPredicate([&](const auto& S){return S.Id==Id;})->DefaultDisplayMaximum.Get(1.)*.25);
+                });return FReply::Handled();
+            })[Label(Layer.Label,9)]];
+    }
+    struct FSurfaceLayer{const TCHAR* Name;const TCHAR* Id;bool FStudioViewSettings::*Member;};
+    for(const auto& Layer:TArray<FSurfaceLayer>{{TEXT("Interface surface"),TEXT("phi"),&FStudioViewSettings::bHome4InterfaceSurface},{TEXT("Obstacle mask"),TEXT("solid"),&FStudioViewSettings::bHome4ObstacleSurface},{TEXT("SDF zero surface"),TEXT("sdf"),&FStudioViewSettings::bHome4SdfSurface}})
+    {
+        auto Toggle=Check(Layer.Name,[this,Member=Layer.Member]{return M.Get()->*Member;},[this,Member=Layer.Member](bool V){M->EditView(TEXT("HOME4 surface layer"),[&](auto& View){View.Display.*Member=V;});});
+        Toggle->SetEnabled(TAttribute<bool>::CreateLambda([this,Id=FString(Layer.Id)]{return M->Solver->VolumeReconstruction()&&M->Solver->VolumeReconstruction()->OriginalGrid&&M->Solver->Descriptor().Scalars.ContainsByPredicate([&](const auto& S){return S.Id==Id;});}));
+        Layers->AddSlot().AutoHeight().Padding(0,5)[Toggle];
+    }
+    Layers->AddSlot().AutoHeight()[Row(TEXT("Surface φ"),Number([this]{return M->Home4InterfaceIsovalue;},[this](double V){M->EditView(TEXT("Interface isovalue"),[&](auto& View){View.Display.Home4InterfaceIsovalue=V;});},.001,.999,TEXT(""),.05))];
+    Layers->AddSlot().AutoHeight().Padding(0,8)[Check(TEXT("Mask air in diagnostic fields"),[this]{return M->bHome4AirMask;},[this](bool V){M->EditView(TEXT("HOME4 air mask"),[&](auto& View){View.Display.bHome4AirMask=V;});})];
+    Layers->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("Derivative fields retain their supplied validity mask and exclude one-node stencils touching air, solid or grid edges. Multidomain patches keep their own origin and spacing."),9,Muted,true)];
+
+    return SNew(SBorder).BorderImage(&PanelBrush).Padding(10)[SNew(SScrollBox)+SScrollBox::Slot()[SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight().Padding(0,10)[Label(TEXT("Fields"),14,Text,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return M->Solver->Descriptor().Title;},10,Cyan,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("Original recording · case edits do not alter recorded fields or their unit map."),9,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight()[Layers]
+        +SVerticalBox::Slot().AutoHeight()[DisplayTools()]
+        +SVerticalBox::Slot().AutoHeight()[Section(TEXT("Replay"),SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight().Padding(0,8)[Row(TEXT("Replay speed"),Number([this]{return M->PlaybackRate;},[this](double V){M->PlaybackRate=V;},.25,4.,TEXT("×"),.25))]
+            +SVerticalBox::Slot().AutoHeight()[Check(TEXT("Loop recording"),[this]{return M->bLoopPlayback;},[this](bool V){M->bLoopPlayback=V;})])]]];
+}
+
 TSharedRef<SWidget> SStudioWorkspace::Header()
 {
     auto Run=Button(TEXT("Run"),TEXT("run"),[this]
@@ -1279,6 +1400,15 @@ TSharedRef<SWidget> SStudioWorkspace::Header()
                         .Font(Font(9,true)).ColorAndOpacity(Cyan)
                         .Visibility_Lambda([this]{return M->Notifications().UnreadCount()?EVisibility::Visible:EVisibility::Collapsed;})
                         .Text_Lambda([this]{const int32 Count=M->Notifications().UnreadCount();return FText::FromString(Count>99?TEXT("99+"):FString::FromInt(Count));})]]]
+        +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6,0,0,0)
+            [SNew(SStudioMenuButton).Tag(TEXT("GlobalUnits")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7))
+                .ToolTipText(FText::FromString(TEXT("Readout units. Conversion requires the original source map; case fields keep their labeled input units.")))
+                .OnGetMenuContent_Lambda([this]() -> TSharedRef<SWidget>
+                {
+                    auto Choices=SNew(SVerticalBox);const TCHAR* Names[]={TEXT("Lattice"),TEXT("Physical"),TEXT("Nondimensional")};
+                    for(int32 I=0;I<3;++I)Choices->AddSlot().AutoHeight()[Button(Names[I],TEXT("select"),[this,I]{M->UnitDisplay=EStudioHome4UnitDisplay(I);M->SaveSession();FSlateApplication::Get().DismissAllMenus();})];
+                    return Choices;
+                }).ButtonContent()[Live([this]{return M->UnitDisplay==EStudioHome4UnitDisplay::Physical?TEXT("SI"):M->UnitDisplay==EStudioHome4UnitDisplay::Nondimensional?TEXT("ND"):TEXT("LU");},9,Cyan)]]
         +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6,0,0,0)
             [SAssignNew(HelpButton,SStudioMenuButton).Tag(TEXT("HeaderHelp")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7))
                 .HasDownArrow(false).ToolTipText(FText::FromString(TEXT("Help and keyboard shortcuts · F1")))
@@ -1418,7 +1548,11 @@ TSharedRef<SWidget> SStudioWorkspace::Projects()
                     +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Refresh"),TEXT("orbit"),[this]{M->RefreshProjectCatalog();})]]
                 +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return M->bCatalogLoading?TEXT("Reading project files…"):TEXT("Recent files");},9,Muted)]
                 +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12.f)
-                    +SScrollBox::Slot()[SAssignNew(RecentProjectRows,SVerticalBox)]]]
+                    +SScrollBox::Slot()[SAssignNew(RecentProjectRows,SVerticalBox)]
+                    +SScrollBox::Slot()[SNew(SStudioHome4Lineage).Model(M)
+                        .Telemetry([this]{return Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;})
+                        .Evidence([this]{return Home4Validation->Evidence;})
+                        .OnFields_Lambda([this]{Navigate(EStudioWorkspace::Solve);})]]]
             +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(280)
                 [SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12.f)
                     +SScrollBox::Slot()[Details]]]]];
@@ -1441,9 +1575,22 @@ TSharedRef<SWidget> SStudioWorkspace::Dashboard()
             +SHorizontalBox::Slot().FillWidth(1)[SNew(SVerticalBox)
                 +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Saved camera views"),Live([this]{return FString::FromInt(M->Project.Cameras.Num());}))]
                 +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Custom solver"),Label(TEXT("Not connected"),10,Muted))]
-                +SVerticalBox::Slot().AutoHeight()[Live([]{return TEXT("Playback continues while browsing. Returning to Solve keeps your camera and review frame.");},10,Muted,true)]]]
+                +SVerticalBox::Slot().AutoHeight()[Live([]{return TEXT("Playback continues while browsing. Returning to Fields keeps your camera and review frame.");},10,Muted,true)]]]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,22,0,8)[Label(TEXT("Latest science evidence"),12,Text,true)]
+        +SVerticalBox::Slot().AutoHeight()[Live([this]
+        {
+            const auto T=Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;
+            if(!T||T->History().IsEmpty())return FString(TEXT("No solver measurements imported. Open Ledgers & Monitors to attach original JSONL."));
+            const auto& V=T->History().Last();
+            FString Summary=TEXT("REPLAY · ")+V.Source.SourceId+TEXT(" · run ")+V.Source.RunId.ToString();
+            for(const auto& Health:FStudioHome4Diagnostics::Evaluate(V,Home4Monitors->DiagnosticPolicy()))
+                Summary+=TEXT("\n")+Health.Label+TEXT(": ")+Health.Reason;
+            if(!T->ActionRequests().IsEmpty())Summary+=TEXT("\nLatest recorded failure: ")+T->ActionRequests().Last().Reason;
+            return Summary;
+        },10,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight()[Button(TEXT("Inspect ledgers and failure location"),TEXT("probe"),[this]{Navigate(EStudioWorkspace::Monitors);})]
         +SVerticalBox::Slot().AutoHeight().Padding(0,22,0,8)[Label(TEXT("Recordings and runs"),12,Text,true)]
-        +SVerticalBox::Slot().AutoHeight()[Live([this]{return FString::Printf(TEXT("%d saved records. Inspect recordings and captured run settings in Results."),M->Project.Runs.Num());},10,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight()[Live([this]{return FString::Printf(TEXT("%d saved records. Inspect their provenance in Projects."),M->Project.Runs.Num());},10,Muted,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,22,0,8)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Recent projects"),12,Text,true)]
             +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("All projects"),TEXT("folder"),[this]{Navigate(EStudioWorkspace::Projects);})]]
@@ -1563,6 +1710,7 @@ void SStudioWorkspace::OpenPerformance(bool bOpen)
 }
 void SStudioWorkspace::Navigate(EStudioWorkspace Destination)
 {
+    if(Destination!=EStudioWorkspace::Validation)bNewHome4Project=false;
     if(Pipelines)Pipelines->SaveCamera();
     if(M->Navigate(Destination))
     {
@@ -1581,7 +1729,8 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
     Floating->AddPane(TEXT("Status"),TEXT("Playback"),SNew(SBorder).BorderImage(&PanelBrush).Padding(6,3)[SNew(SHorizontalBox)
                 +SHorizontalBox::Slot().AutoWidth()[SNew(SBorder).BorderImage(&RaisedBrush).Padding(10,6)[Live([this]{return TEXT("Replay ")+M->StatusText().ToLower();},10,Green)]]
                 +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(18,0)[Live([this]{return Scene->HasPresentedFrame()?FString::Printf(TEXT("Showing frame %d"),Scene->PresentedFrame().Index):TEXT("Loading frame…");},10)]
-                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,18,0)[Live([this]{return Scene->HasPresentedFrame()?FString::Printf(TEXT("%.4f s"),Scene->PresentedFrame().Time):TEXT("");},10)]
+                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,18,0)[Live([this]{if(!Scene->HasPresentedFrame())return FString();const auto Field=Scene->PresentedField();const auto V=Field?Field->VolumeReconstruction():nullptr;
+                    if(V&&V->OriginalGrid){const auto Context=V->OriginalGrid->UnitContext();return StudioHome4Readouts::Time(Scene->PresentedFrame().Index,&Context,Scene->PresentedFrame().Time);}return FString::Printf(TEXT("%.4f s · source unit map not supplied"),Scene->PresentedFrame().Time);},10)]
                 +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
                 [SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Cyan).OverflowPolicy(ETextOverflowPolicy::Ellipsis)
                     .Text_Lambda([this]{return FText::FromString((Scene->HasCurrentFrame()?FString():TEXT("Updating · "))+Scene->PresentedSource());})
@@ -1786,7 +1935,7 @@ TSharedRef<SWidget> SStudioWorkspace::DisplayTools()
             +SVerticalBox::Slot().AutoHeight()[Live([this]
             {
                 if(M->bFocusWingRegion&&M->bReconstructedSurface&&M->MeshStyle==0&&M->Solver->Reconstruction())return TEXT("Focused 2D field · inferred wing extruded for viewing. No spanwise flow. Turn off Focus wing region for full coverage.");
-                if(M->bStreamlines&&M->Solver->VolumeReconstruction())return TEXT("Instantaneous streamlines use derived 3D grid interpolation. Raw export retains every row.");
+                if(M->bStreamlines&&M->Solver->VolumeReconstruction())return M->Solver->VolumeReconstruction()->OriginalGrid?TEXT("Instantaneous streamlines sample original liquid cells, colored by speed."):TEXT("Instantaneous streamlines use derived 3D grid interpolation. Raw export retains every row.");
                 if(M->bStreamlines&&M->Solver->Reconstruction())return TEXT("Instantaneous streamlines use derived 2D triangle interpolation. Raw export retains every row.");
                 if(M->Solver->VolumeReconstruction())return (M->bVolume||M->bVolumeIsosurface)?TEXT("Derived 3D field. Original values retained; unsupported regions stay empty."):TEXT("Original 3D point subset. Volume is hidden; export retains every row.");if(M->Solver->Reconstruction()){return M->bReconstructedSurface?
                 TEXT("Derived 2D surface. Colors interpolate recorded values; the inferred solid stays empty."):
@@ -1912,7 +2061,7 @@ FString SStudioWorkspace::StreamlineSummary() const
     if(!Scene.IsValid()||!Scene->HasCurrentFrame())return TEXT("Updating streamlines…");
     const auto& S=Scene->PresentedStreams();
     if(!S.Notice.IsEmpty())return S.Notice;
-    return FString::Printf(TEXT("%d seed%s · %d trace%s · frame %d%s"),S.Seeds,S.Seeds==1?TEXT(""):TEXT("s"),S.Lines,S.Lines==1?TEXT(""):TEXT("s"),Scene->PresentedFrame().Index,
+    return FString::Printf(TEXT("%s · %d rejected / %d attempts\n"),S.Method==EStudioStreamMethod::DormandPrince45?TEXT("Adaptive RK45"):TEXT("Midpoint"),S.RejectedAttempts,S.Attempts)+FString::Printf(TEXT("%d seed%s · %d trace%s · frame %d%s"),S.Seeds,S.Seeds==1?TEXT(""):TEXT("s"),S.Lines,S.Lines==1?TEXT(""):TEXT("s"),Scene->PresentedFrame().Index,
         S.bBudgetExhausted?TEXT("\nWork limit reached. Increase the budget or reduce seeds/length."):TEXT(""));
 }
 TSharedRef<SWidget> SStudioWorkspace::StreamlineControls()
@@ -1949,7 +2098,7 @@ TSharedRef<SWidget> SStudioWorkspace::StreamlineMenu()
     for(bool Automatic:{true,false})Modes->AddSlot().FillWidth(1).Padding(Automatic?0:4,0,0,0)
         [SNew(SButton).Tag(Automatic?TEXT("StreamAutomatic"):TEXT("StreamSavedSeeds")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(6,7))
             .OnClicked_Lambda([this,Current,Automatic]{if(Current())M->EditView(TEXT("Streamline seed source"),[Automatic](auto& S){S.Display.StreamlineSettings.bAutomaticSeeds=Automatic;});return FReply::Handled();})
-            .ToolTipText(FText::FromString(Automatic?TEXT("Seed where recorded flow enters the domain. Backward traces start where it leaves."):TEXT("Use the exact saved inlet, line, plane or point seeds.")))
+            .ToolTipText(FText::FromString(Automatic?TEXT("Original grids use supported liquid cell centers. Other recordings seed actual inflow/outflow faces. No positions are projected into missing data."):TEXT("Use the exact saved inlet, line, plane or point seeds.")))
             [SNew(STextBlock).Font(Font(10)).Text(FText::FromString(Automatic?TEXT("Automatic flow"):TEXT("Saved seed sets")))
                 .ColorAndOpacity_Lambda([this,Automatic]{return M->StreamlineSettings.bAutomaticSeeds==Automatic?Cyan:Text;})]];
     Items->AddSlot().AutoHeight().Padding(0,0,0,10)[Modes];
@@ -1991,8 +2140,10 @@ TSharedRef<SWidget> SStudioWorkspace::StreamlineMenu()
         Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Row(Name,Number(Tag,Name,[this,Member,Scale]{return M->StreamlineSettings.*Member*Scale;},
             [this,Member,Scale,Name,Low,High](double V){M->EditView(Name,[=](auto& S){S.Display.StreamlineSettings.*Member=FMath::Clamp(V/Scale,Low,High);});},Low*Scale,High*Scale),145)];
     };
+    Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Check(TEXT("Adaptive RK45"),[this]{return M->StreamlineSettings.Method==EStudioStreamMethod::DormandPrince45;},[this](bool V){M->EditView(TEXT("Streamline method"),[&](auto& S){S.Display.StreamlineSettings.Method=V?EStudioStreamMethod::DormandPrince45:EStudioStreamMethod::Midpoint;});})];
+    Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("RK45 adapts within the maximum step. Every rejected attempt counts toward the work limit. Original grids seed supported liquid cells; integration never advances source time."),9,Muted,true)];
     Distance(TEXT("StreamWidth"),TEXT("Width (m)"),&FStudioStreamlineSettings::WidthFraction,1.e-6,.02);
-    Distance(TEXT("StreamStep"),TEXT("Step (m)"),&FStudioStreamlineSettings::StepFraction,1.e-5,.1);
+    Distance(TEXT("StreamStep"),TEXT("Max step (m)"),&FStudioStreamlineSettings::StepFraction,1.e-5,.1);
     Distance(TEXT("StreamLength"),TEXT("Max length (m)"),&FStudioStreamlineSettings::MaximumLength,.001,100);
     Items->AddSlot().AutoHeight().Padding(0,0,0,8)[Row(TEXT("Max steps / branch"),Number(TEXT("StreamMaxSteps"),TEXT("Maximum steps"),
         [this]{return double(M->StreamlineSettings.MaximumSteps);},[this](double V){M->EditView(TEXT("Streamline step limit"),[V](auto& S){S.Display.StreamlineSettings.MaximumSteps=int32(V);});},1,4096,true),145)];
@@ -2105,7 +2256,7 @@ TSharedRef<SWidget> SStudioWorkspace::ScalarMenu()
             .OnClicked_Lambda([this,Id=Field.Id]
             {
                 if(M->Solver->Descriptor().Scalars.ContainsByPredicate([&](const auto& F){return F.Id==Id;}))
-                    M->EditView(TEXT("Color field"),[&](auto& S){S.Display.ScalarField=Id;});
+                    M->EditView(TEXT("Color field"),[&](auto& S){S.Display.ScalarField=Id;S.Display.bHome4Vorticity=false;});
                 FSlateApplication::Get().DismissAllMenus();return FReply::Handled();
             })
             [SNew(SVerticalBox)
@@ -2113,6 +2264,14 @@ TSharedRef<SWidget> SStudioWorkspace::ScalarMenu()
                 +SVerticalBox::Slot().AutoHeight().Padding(0,3,0,0)[Label(Field.Unit+TEXT(" · ")+Field.Origin,9,Muted)]]];
     }
     return SNew(SBox).WidthOverride(248).MaxDesiredHeight(320)[SNew(SScrollBox)+SScrollBox::Slot()[Items]];
+}
+FString SStudioWorkspace::FieldReadout(double Value,bool Tooltip) const
+{
+    const auto Field=Scene.IsValid()?Scene->PresentedField():nullptr;const auto Volume=Field?Field->VolumeReconstruction():nullptr;
+    const auto& Scalar=Scene->HasPresentedFrame()?Scene->PresentedScalar():M->ActiveScalar();
+    if(!Volume||!Volume->OriginalGrid)return StudioHome4Readouts::Scalar(Value,Scalar.Unit,M->UnitDisplay,nullptr,Tooltip);
+    const auto Map=Volume->OriginalGrid->UnitContext();
+    return StudioHome4Readouts::Scalar(Value,Scalar.Unit,M->UnitDisplay,&Map,Tooltip);
 }
 TSharedRef<SWidget> SStudioWorkspace::ColorLegend()
 {
@@ -2123,17 +2282,21 @@ TSharedRef<SWidget> SStudioWorkspace::ColorLegend()
             .BorderBackgroundColor_Lambda([Mapping,I]{const auto C=Mapping();return StudioColor::Map(FMath::Lerp(C.Minimum,C.Maximum,1.-I/32.),C);})];
     for(int32 I=0;I<4;++I)
         Values->AddSlot().FillHeight(1)
-            [Live([Mapping,I]{const auto C=Mapping();return FString::Printf(TEXT("%.4g"),FMath::Lerp(C.Minimum,C.Maximum,1.-I/4.));},9)];
-    Values->AddSlot().AutoHeight()[Live([Mapping]{return FString::Printf(TEXT("%.4g"),Mapping().Minimum);},9)];
+            [SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Text)
+                .Text_Lambda([this,Mapping,I]{const auto C=Mapping();return FText::FromString(FieldReadout(FMath::Lerp(C.Minimum,C.Maximum,1.-I/4.)));})
+                .ToolTipText_Lambda([this,Mapping,I]{const auto C=Mapping();return FText::FromString(FieldReadout(FMath::Lerp(C.Minimum,C.Maximum,1.-I/4.),true));})];
+    Values->AddSlot().AutoHeight()[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Text)
+        .Text_Lambda([this,Mapping]{return FText::FromString(FieldReadout(Mapping().Minimum));})
+        .ToolTipText_Lambda([this,Mapping]{return FText::FromString(FieldReadout(Mapping().Minimum,true));})];
     return SNew(SBorder).Tag(TEXT("ColorLegend")).BorderImage(&PanelBrush).Padding(10)
         [SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,7)[Live([this]
-                {const auto& F=Scene->HasPresentedFrame()?Scene->PresentedScalar():M->ActiveScalar();return F.Label+TEXT(" (")+F.Unit+TEXT(")");},9)]
+                {const auto& F=Scene->HasPresentedFrame()?Scene->PresentedScalar():M->ActiveScalar();return F.Label;},9)]
             +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
                 +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(11).HeightOverride(64)[Bar]]
                 +SHorizontalBox::Slot().AutoWidth().Padding(7,0)[SNew(SBox).HeightOverride(64)[Values]]]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,7,0,0)[Live([Mapping]
-                {const auto C=Mapping();return FString(C.bManualRange?TEXT("Custom range"):TEXT("Source range"))+TEXT(" · ")+StudioColor::PaletteName(C.Palette);},8,Muted)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,7,0,0)[Live([this,Mapping]
+                {const auto C=Mapping();const auto& S=Scene->HasPresentedFrame()?Scene->PresentedScalar():M->ActiveScalar();return FString(C.bManualRange?TEXT("Custom range"):S.DefaultDisplayMaximum.IsSet()?TEXT("First-frame 99% range"):TEXT("Source range"))+TEXT(" · ")+StudioColor::PaletteName(C.Palette);},8,Muted)]
             +SVerticalBox::Slot().AutoHeight()[SNew(SBox).WidthOverride(166)
                 .Visibility_Lambda([this]{return Scene->PresentedMesh().Notice.IsEmpty()?EVisibility::Collapsed:EVisibility::Visible;})
                 .Padding(FMargin(0,8,0,0))[Live([this]
@@ -3482,6 +3645,7 @@ bool SStudioWorkspace::CanClose()
 // FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 bool SStudioWorkspace::OpenProject(const FString& Path,const FString& ReplacedRecentPath)
 {
+    bNewHome4Project=false;
     if(M->IsProjectOpenPending()) {M->Notice=TEXT("A project is already opening. Cancel it before choosing another.");return false;}
     return ConfirmReplace()&&M->RequestProjectOpen(Path,ReplacedRecentPath);
 }

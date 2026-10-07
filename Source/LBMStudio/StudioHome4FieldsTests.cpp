@@ -256,4 +256,25 @@ bool FStudioHome4LiquidStreams::RunTest(const FString&)
     TestFalse(TEXT("First-frame snapshot does not acquire later solid"),First->IsSolid(SolidPoint));
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4ViewPersistence,"Studio.Home4.Fields.LayerAndOriginalLineagePersistence",StudioHome4FieldsTestPrivate::Flags)
+bool FStudioHome4ViewPersistence::RunTest(const FString&)
+{
+    FStudioModel Model;auto P=Model.SnapshotProject();
+    P.View.bHome4InterfaceSurface=true;P.View.bHome4ObstacleSurface=true;P.View.bHome4SdfSurface=true;
+    P.View.bHome4Vorticity=true;P.View.Home4InterfaceIsovalue=.45;
+    FStudioRecordedRunProvenance Source{FGuid::NewGuid().ToString(),TEXT("rti"),TEXT("original lineage"),TEXT("/original/source.json"),FString::ChrN(64,'a')};
+    P.Runs.Add(FStudioRunRecord::Recording(TEXT("Original test contract"),TEXT("fixture"),false).WithProvenance(Source));
+    FStudioProject Read;FString Error;
+    TestTrue(TEXT("All independent layers and original lineage round-trip"),StudioProjectIO::Parse(StudioProjectIO::Serialize(P),Read,Error));
+    TestTrue(TEXT("Layer switches independent"),Read.View.bHome4InterfaceSurface&&Read.View.bHome4ObstacleSurface&&Read.View.bHome4SdfSurface&&Read.View.bHome4Vorticity);
+    TestEqual(TEXT("Exact interface contour retained"),Read.View.Home4InterfaceIsovalue,.45);
+    const auto Provenance=Read.Runs.Last().GetProvenance();
+    TestTrue(TEXT("Original lineage has no authored case"),Provenance.IsSet()&&!Read.Runs.Last().GetConfiguration());
+    if(Provenance)TestEqual(TEXT("Original manifest hash persists"),Provenance->ManifestSHA256,Source.ManifestSHA256);
+    auto Bad=P;Bad.View.Home4InterfaceIsovalue=2;
+    TestFalse(TEXT("Out-of-range interface contour rejected"),StudioProjectIO::Parse(StudioProjectIO::Serialize(Bad),Read,Error));
+    Source.ManifestSHA256=TEXT("invalid");Bad=P;Bad.Runs.Last()=Bad.Runs.Last().WithProvenance(Source);
+    TestFalse(TEXT("Malformed original provenance hash rejected"),StudioProjectIO::Parse(StudioProjectIO::Serialize(Bad),Read,Error));
+    return true;
+}
 #endif
