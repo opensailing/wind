@@ -68,8 +68,8 @@
     "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
   },
   "libglib": {
-    "source": "https://raw.githubusercontent.com/GNOME/glib/2.84.3/COPYING",
-    "sha256": "65986a89240f59896ce42a3779bbe5ed486a0bca7df636a8eef030fd2e1a0984"
+    "source": "https://raw.githubusercontent.com/GNOME/glib/2.84.3/LICENSES/LGPL-2.1-or-later.txt",
+    "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
   },
   "libiconv": {
     "source": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt",
@@ -112,8 +112,8 @@
     "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
   },
   "pcre2": {
-    "source": "installed:share/doc/pcre2/COPYING",
-    "sha256": "99272c55f3dcfa07a8a7e15a5c1a33096e4727de74241d65fa049fccfdd59507"
+    "source": "https://raw.githubusercontent.com/PCRE2Project/pcre2/pcre2-10.45/LICENCE.md",
+    "sha256": "9cf7ac6976099a1d856826d3ef1b093bd6b84489dc6100628ac79e740cf9885a"
   },
   "qt6-main": {
     "source": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/LICENSES/LGPL-3.0-only.txt",

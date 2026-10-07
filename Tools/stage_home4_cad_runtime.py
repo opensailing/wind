@@ -3,21 +3,20 @@
 
 Only Python standard library, native extension modules and their Mach-O library
 closure are copied. No FreeCAD GUI program/workbenches, CAD examples or user data.
-The destination must not exist. Generated provenance includes every copied SHA.
+An existing generated destination is replaced transactionally with --refresh. Generated provenance includes every copied SHA.
 """
 from __future__ import annotations
 import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import urllib.request
 import tempfile
 import uuid
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
 
 
 def dependencies(path: Path) -> list[str]:
@@ -175,20 +174,22 @@ def _stage(resources: Path, destination: Path) -> dict:
         "No HOME4 solver or numerical validation is included.\n", encoding="utf-8")
     # Verify relocatability with no inherited PYTHONPATH or GUI environment.
     code = "import sys;from pathlib import Path;sys.path.insert(0,str(Path(sys.executable).resolve().parent.parent/'lib'));import FreeCAD,Part;assert '.'.join(FreeCAD.Version()[:3])=='" + pin["freecad_version"] + "';assert abs(Part.makeBox(2,3,4).Volume-24)<1e-12;print(FreeCAD.__file__)"
-    verified = subprocess.run([str(destination / "bin/python"), "-I", "-c", code], env={"PATH":"/usr/bin:/bin", "HOME":str(destination)}, text=True, capture_output=True, check=True, timeout=45)
+    verified = subprocess.run([str(destination / "bin/python"), "-I", "-B", "-c", code], env={"PATH":"/usr/bin:/bin", "HOME":str(destination)}, text=True, capture_output=True, check=True, timeout=45)
     if str(destination.resolve()) not in verified.stdout:
         raise ValueError("CAD runtime resolved an external FreeCAD installation")
     files = {}
     for path in sorted(destination.rglob("*")):
         if path.is_file():
             files[str(path.relative_to(destination))] = {"bytes": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-    manifest = {"version": 1, "source_resources": str(resources), "files": files,
+    manifest = {"license_manifest_sha256": hashlib.sha256(Path(__file__).parent.joinpath("ThirdParty/Home4CADLicenses/manifest.json").read_bytes()).hexdigest(), "version": 1, "source_resources": str(resources), "files": files,
                 "bytes": sum(entry["bytes"] for entry in files.values()), "binary_closure_count": len(closure), "freecad_version": pin["freecad_version"], "source_manifest_sha256": hashlib.sha256(PIN.read_bytes()).hexdigest(), "isolated_kernel_volume_check": 24}
     destination.joinpath("runtime-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
 
 def stage(resources: Path, destination: Path, refresh: bool = False) -> dict:
+    if destination.is_symlink():
+        raise ValueError("Runtime destination must not be a symlink")
     destination = destination.resolve()
     expected_pin = hashlib.sha256(PIN.read_bytes()).hexdigest()
     helper_sha = hashlib.sha256(Path(__file__).parent.joinpath("home4_cad_prepare.py").read_bytes()).hexdigest()
@@ -197,7 +198,19 @@ def stage(resources: Path, destination: Path, refresh: bool = False) -> dict:
         if not manifest_path.is_file():
             raise ValueError("Existing directory is not an owned HOME4 CAD runtime")
         original = json.loads(manifest_path.read_text())
-        same = original.get("source_manifest_sha256") == expected_pin and original.get("files", {}).get("home4_cad_prepare.py", {}).get("sha256") == helper_sha
+        files = original.get("files", {})
+        if not isinstance(files, dict) or not 1 <= len(files) <= 20000:
+            raise ValueError("Existing runtime inventory is invalid")
+        for relative in files:
+            name = PurePosixPath(relative)
+            path = destination / relative
+            if name.is_absolute() or '..' in name.parts or path.is_symlink() or not path.resolve().is_relative_to(destination):
+                raise ValueError("Existing runtime inventory is not a regular internal path")
+        source_licenses = Path(__file__).parent / "ThirdParty/Home4CADLicenses/manifest.json"
+        expected_licenses = hashlib.sha256(source_licenses.read_bytes()).hexdigest()
+        same = original.get("source_manifest_sha256") == expected_pin and original.get("license_manifest_sha256") == expected_licenses and original.get("files", {}).get("home4_cad_prepare.py", {}).get("sha256") == helper_sha
+        actual = {str(path.relative_to(destination)) for path in destination.rglob('*') if path.is_file() or path.is_symlink()}
+        same = same and actual == set(files) | {"runtime-manifest.json"}
         if same and all(path.is_file() and path.stat().st_size == entry["bytes"] and hashlib.sha256(path.read_bytes()).hexdigest() == entry["sha256"] for relative, entry in original["files"].items() for path in [destination / relative]):
             return original
         if not refresh:

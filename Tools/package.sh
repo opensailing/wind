@@ -19,6 +19,7 @@ rg -q 'Result: Succeeded' tmp/debug/game-build.log
 rg -q 'BUILD SUCCESSFUL' tmp/debug/package.log
 # Validate the signed artifact, because Xcode may merge or replace source entitlements.
 python3 Tools/verify_macos_package.py "$PWD/Packaged/Mac/LBMStudio.app" > tmp/debug/package-entitlements.json
+python3 Tools/verify_home4_cad_package.py "$PWD/Packaged/Mac/LBMStudio.app" --output "$PWD/tmp/debug/home4-cad-package-$(date -u +%Y%m%dT%H%M%SZ)" > tmp/debug/home4-cad-package.json
 echo "Packaged application: $PWD/Packaged/Mac/LBMStudio.app"
 echo "Local Development package; distribution signing/notarization has not been verified."
 echo "After Developer ID signing, notarization and stapling, check it with:"
