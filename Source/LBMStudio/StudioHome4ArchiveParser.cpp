@@ -281,6 +281,28 @@ bool FNpzReader::Read(const FString& Name,FNumericArray& Out,FString& E,bool bNu
     const int32 Closed=unzCloseCurrentFile(Impl->Zip);if(!Good||Closed!=UNZ_OK||Cancelled(Impl->Cancel))return false;
     Out=MoveTemp(Candidate);E.Empty();return true;
 }
+bool FNpzReader::ScanHeadersAndCRC(FString& E)
+{
+    for (const auto& Meta : Impl->Meta)
+    {
+        E = TEXT("NPY header or streamed payload CRC failed: ") + Meta.Name;
+        const auto* Entry = Impl->Entries.Find(Meta.Name);
+        if (Cancelled(Impl->Cancel) || !Entry || unzGoToFilePos64(Impl->Zip, &Entry->Position) != UNZ_OK || unzOpenCurrentFile(Impl->Zip) != UNZ_OK) return false;
+        FStudioHome4ArchiveMember Member; Member.Name = Meta.Name;
+        bool bGood = Impl->Header(Member, Entry->Expanded) && Member.DType == Meta.DType && Member.Shape == Meta.Shape && Member.bFortran == Meta.bFortran;
+        uint8 Buffer[65536]; int64 Remaining = bGood ? Member.PayloadBytes : 0;
+        while (bGood && Remaining > 0)
+        {
+            const int32 Count = int32(FMath::Min<int64>(sizeof(Buffer), Remaining));
+            bGood = Impl->Exact(Buffer, Count); Remaining -= Count;
+        }
+        uint8 Tail = 0;
+        if (bGood) bGood = unzReadCurrentFile(Impl->Zip, &Tail, 1) == 0;
+        const int32 Closed = unzCloseCurrentFile(Impl->Zip);
+        if (!bGood || Closed != UNZ_OK || Cancelled(Impl->Cancel)) return false;
+    }
+    E.Empty(); return true;
+}
 bool FNpzReader::Scan(FString& E)
 {
     for(const auto& M:Impl->Meta){FNumericArray A;if(!Read(M.Name,A,E,M.DType[1]!='S'&&M.DType[1]!='U'))return false;}return true;

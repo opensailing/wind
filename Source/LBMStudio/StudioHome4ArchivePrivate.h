@@ -26,6 +26,8 @@ public:
     const TArray<FStudioHome4ArchiveMember>& Members() const;
     bool Read(const FString& Name,FNumericArray& Out,FString& Error,bool bNumeric=true);
     bool Scan(FString& Error);
+    /** Stream verified literal headers and payload CRCs without materialising numeric arrays. */
+    bool ScanHeadersAndCRC(FString& Error);
 private:
     struct FImpl;
     TUniquePtr<FImpl> Impl;
