@@ -143,6 +143,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
     using namespace StudioUI;
     using namespace StudioHome4MonitorPrivate;
     Model = A._Model; SessionStream = A._Stream; OnLocate = A._OnLocateCell;
+    if (const auto M = Model.Pin()) ScopedProjectId = M->Project.Id;
     PolicyDraft.SetNum(8);
     Status = TEXT("Choose an original HOME4 JSONL log, or connect a session science stream.");
     auto Rows = SNew(SVerticalBox);
@@ -209,6 +210,12 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
         .OnClicked_Lambda([this] { ApplyPolicy(); return FReply::Handled(); })[Label(TEXT("Apply health thresholds"), 9)]];
     ChildSlot[SNew(SBorder).BorderImage(&PanelBrush).Padding(14)[SNew(SVerticalBox)
         + SVerticalBox::Slot().AutoHeight()[Label(TEXT("HOME4 Monitors"), 17, Text, true)]
+        + SVerticalBox::Slot().AutoHeight().Padding(0, 8, 0, 0)[SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Original run ID (optional GUID)"), 9, Muted)]
+            + SHorizontalBox::Slot().FillWidth(1)[SNew(SEditableTextBox).Tag(TEXT("Home4OriginalRunId")).Style(&InputStyle()).Font(Font(9))
+                .HintText(FText::FromString(TEXT("Replay stays unbound when omitted")))
+                .Text_Lambda([this] { return FText::FromString(OriginalRunIdDraft); })
+                .OnTextChanged_Lambda([this](const FText& T) { OriginalRunIdDraft = T.ToString(); })]]
         + SVerticalBox::Slot().AutoHeight().Padding(0, 8)[SNew(SHorizontalBox)
             + SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("Home4ImportTelemetry")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8, 5))
                 .IsEnabled_Lambda([this] { return !IsImporting(); }).OnClicked_Lambda([this] { ImportDialog(); return FReply::Handled(); })[Label(TEXT("Import JSONL"), 9)]]
@@ -227,7 +234,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
 
 SStudioHome4Monitors::~SStudioHome4Monitors() { CancelImport(); }
 void SStudioHome4Monitors::Tick(const FGeometry& G, double At, float Delta)
-{ SCompoundWidget::Tick(G, At, Delta); PollImport(); RefreshOutputs(); }
+{ SCompoundWidget::Tick(G, At, Delta); ScopeProject(); PollImport(); RefreshOutputs(); }
 FReply SStudioHome4Monitors::OnKeyDown(const FGeometry& G, const FKeyEvent& E)
 {
     if (E.GetKey() == EKeys::Home) { Scroll->ScrollToStart(); return FReply::Handled(); }
@@ -236,8 +243,16 @@ FReply SStudioHome4Monitors::OnKeyDown(const FGeometry& G, const FKeyEvent& E)
     { Scroll->SetScrollOffset(FMath::Max(0.f, Scroll->GetScrollOffset() + (E.GetKey() == EKeys::PageDown ? 1.f : -1.f) * Scroll->GetCachedGeometry().GetLocalSize().Y * .8f)); return FReply::Handled(); }
     return SCompoundWidget::OnKeyDown(G, E);
 }
-const FStudioHome4TelemetryStream* SStudioHome4Monitors::DisplayStream() const
+FStudioHome4TelemetryStream* SStudioHome4Monitors::DisplayStream() const
 { return IsImportedReplay() ? ImportedStream.Get() : SessionStream.Get(); }
+TOptional<FGuid> SStudioHome4Monitors::OriginalRunIdentity() const
+{
+    if (IsImportedReplay() && !bImportedOriginalRunIdentity) return {};
+    const auto* Stream = DisplayStream();
+    if (Stream && Stream->Latest()) return Stream->Latest()->Source.RunId;
+    if (Stream && !Stream->OutputEvents().IsEmpty()) return Stream->OutputEvents().Last().Source.RunId;
+    return {};
+}
 const FStudioHome4Sample* SStudioHome4Monitors::Sample() const
 { const auto* Stream = DisplayStream(); return Stream && Stream->Latest() ? &*Stream->Latest() : nullptr; }
 FStudioHome4HealthSignal SStudioHome4Monitors::Health(int32 Index) const
@@ -253,8 +268,10 @@ FString SStudioHome4Monitors::SourceText() const
     }
     return FString::Printf(TEXT("%s · %s\nRun %s · source %s\nStep %s · t lattice %s · t physical %s · t* %s%s"),
         IsImportedReplay() ? TEXT("Imported replay") : TEXT("Session measurements"), S->Backend.IsEmpty() ? TEXT("Backend unavailable") : *S->Backend,
-        *S->Source.RunId.ToString(EGuidFormats::Short), *S->Source.SourceId, *Count(S->Step), *Number(S->LatticeTime), *Number(S->PhysicalTime, TEXT("s")),
-        *Number(S->DimensionlessTime), IsImportedReplay() ? *FString(TEXT("\nOriginal log: ") + ImportPath + TEXT("\nRecovery records are historical; importing never stops or checkpoints a job.")) : TEXT(""));
+        *S->Source.RunId.ToString(), *S->Source.SourceId, *Count(S->Step), *Number(S->LatticeTime), *Number(S->PhysicalTime, TEXT("s")),
+        *Number(S->DimensionlessTime), IsImportedReplay() ? *FString(TEXT("\nOriginal log: ") + ImportPath +
+            (bImportedOriginalRunIdentity ? TEXT("\nOriginal run ID supplied by owner; spatial binding requires an exact original-grid match.") : TEXT("\nIndependent replay identity; original run ID unavailable, spatial binding disabled.")) +
+            TEXT("\nRecovery records are historical; importing never stops or checkpoints a job.")) : TEXT(""));
 }
 FString SStudioHome4Monitors::DetailText(FName Key) const
 {
@@ -331,7 +348,7 @@ void SStudioHome4Monitors::ApplyPolicy()
 }
 bool SStudioHome4Monitors::CanLocate() const
 {
-    const auto* S = Sample(); if (!S || !OnLocate.IsBound()) return false;
+    const auto* S = Sample(); if (!S || !OnLocate.IsBound() || !OriginalRunIdentity()) return false;
     const auto* Stream = DisplayStream();
     if (!Stream->ActionRequests().IsEmpty()) return Stream->ActionRequests().Last().Facts.Cell.IsSet();
     return S->Trouble.Cell.IsSet() || S->MaximumSpeedCell.IsSet();
@@ -372,36 +389,60 @@ void SStudioHome4Monitors::RefreshOutputs()
 }
 void SStudioHome4Monitors::ImportDialog()
 {
+    const FString Identity = OriginalRunIdDraft.TrimStartAndEnd(); FGuid Original;
+    if (!Identity.IsEmpty() && (!FGuid::Parse(Identity, Original) || !Original.IsValid()))
+    { Status = TEXT("Original run ID must be a valid GUID or empty. Previous science source retained."); return; }
     FString Path;
     if (!StudioFileDialog::DataFile(false, TEXT("Import original HOME4 science JSONL log"), TEXT(""), TEXT("jsonl"), Path))
     { Status = TEXT("Import cancelled. Previous science source retained."); return; }
-    BeginImportPath(Path);
+    BeginImportPath(Path, OriginalRunIdDraft);
 }
-bool SStudioHome4Monitors::BeginImportPath(const FString& Path)
+bool SStudioHome4Monitors::BeginImportPath(const FString& Path, const FString& OriginalRunId)
 {
+    ScopeProject();
     if (Pending.IsValid()) { Status = TEXT("A science log is already being read."); return false; }
     if (Path.IsEmpty()) { Status = TEXT("Import cancelled. Previous science source retained."); return false; }
+    const FString Identity = OriginalRunId.TrimStartAndEnd(); FGuid Run = FGuid::NewGuid();
+    if (!Identity.IsEmpty() && (!FGuid::Parse(Identity, Run) || !Run.IsValid()))
+    { Status = TEXT("Original run ID must be a valid GUID or empty. Previous science source retained."); return false; }
+    const FStudioHome4Source Source{Run, FPaths::ConvertRelativePathToFull(Path)};
+    const bool bOriginalIdentity = !Identity.IsEmpty();
+    const auto M = Model.Pin(); ImportProjectId = M ? M->Project.Id : FGuid();
     Cancellation = MakeShared<std::atomic<bool>, ESPMode::ThreadSafe>(false);
     Status = TEXT("Reading original JSONL in the background. Previous science source remains visible.");
-    Pending = Async(EAsyncExecution::ThreadPool, [Path, Cancel = Cancellation] { return ReadImport(Path, Cancel); });
+    Pending = Async(EAsyncExecution::ThreadPool, [Path, Source, bOriginalIdentity, Cancel = Cancellation]
+        { return ReadImport(Path, Source, bOriginalIdentity, Cancel); });
     return true;
 }
 void SStudioHome4Monitors::CancelImport()
 { if (Cancellation) Cancellation->store(true, std::memory_order_relaxed); }
 void SStudioHome4Monitors::PollImport()
 {
+    ScopeProject();
     if (!Pending.IsValid() || !Pending.IsReady()) return;
     const bool bCancelled = Cancellation && Cancellation->load(std::memory_order_relaxed);
     auto Result = MoveTemp(Pending.GetMutable()); Pending = {}; Cancellation.Reset();
+    const auto M = Model.Pin();
+    if (M && M->Project.Id != ImportProjectId)
+    { Status = TEXT("Project changed while importing; the previous replay was cleared and the new replay was not attached."); return; }
     if (bCancelled) { Status = TEXT("Science import cancelled. Previous science source retained."); return; }
     if (!Result.Error.IsEmpty()) { Status = Result.Error + TEXT(" Previous science source retained."); return; }
     ImportedStream = MakeShared<FStudioHome4TelemetryStream>(MoveTemp(*Result.Stream)); ImportedStream->SetDiagnosticPolicy(Policy);
+    bImportedOriginalRunIdentity = Result.bOriginalRunIdentity;
     ImportPath = Result.Path; bShowImported = true;
     Status = FString::Printf(TEXT("Imported replay · %lld original bytes, %lld lines; %lld unknown records skipped. Last %d measurements retained."), Result.Bytes, Result.Lines, Result.Unknown, ImportedStream->History().Num());
     RefreshOutputs();
 }
+void SStudioHome4Monitors::ScopeProject()
+{
+    const auto M = Model.Pin(); if (!M || M->Project.Id == ScopedProjectId) return;
+    ScopedProjectId = M->Project.Id; SessionStream.Reset(); ImportedStream.Reset(); ImportPath.Empty(); bImportedOriginalRunIdentity = false;
+    OriginalRunIdDraft.Empty(); bShowImported = false; CancelImport();
+    Status = TEXT("Project changed; imported replay cleared. Supply this project's explicitly identified original log.");
+    RefreshOutputs();
+}
 SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FString& Path,
-    const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel)
+    const FStudioHome4Source& Source, bool bOriginalRunIdentity, const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel)
 {
     FImportResult R;
     auto Cancelled = [&] { return Cancel->load(std::memory_order_relaxed); };
@@ -414,8 +455,7 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
     const int64 Size = File->TotalSize();
     if (Size <= 0 || Size > 64LL * 1024 * 1024) return Fail(TEXT("Science log must contain between 1 byte and 64 MiB."));
     R.Stream = MakeUnique<FStudioHome4TelemetryStream>();
-    const FGuid RunId = FGuid::NewGuid();
-    R.Stream->BeginRun({RunId, TEXT("jsonl-replay:") + RunId.ToString(EGuidFormats::Short)});
+    R.Stream->BeginRun(Source); R.bOriginalRunIdentity = bOriginalRunIdentity;
     TArray<uint8> Chunk; Chunk.SetNumUninitialized(65536);
     uint8 LastByte = '\n';
     auto Consume = [&](const uint8* Bytes, int32 N)

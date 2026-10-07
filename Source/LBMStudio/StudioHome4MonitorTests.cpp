@@ -1,4 +1,5 @@
 #include "SStudioHome4Monitors.h"
+#include "StudioModel.h"
 #include "StudioHeadlessSlate.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/AutomationTest.h"
@@ -71,12 +72,13 @@ namespace StudioHome4MonitorTestFixtures
             Good = Root / TEXT("unit-test-fixture.jsonl"); Bad = Root / TEXT("malformed-unit-test-fixture.jsonl");
             Test.TestTrue(TEXT("Write original unit fixture"), FFileHelper::SaveStringToFile(TEXT("{\"step\":7,\"nonfinite\":true}\n"), *Good, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
             Test.TestTrue(TEXT("Write malformed unit fixture"), FFileHelper::SaveStringToFile(TEXT("{\"step\":\"bad\"}\n"), *Bad, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
-            Panel = SNew(SStudioHome4Monitors).Stream(UnitTestStream());
+            Model = MakeShared<FStudioModel>(Root/TEXT("project"));
+            Panel = SNew(SStudioHome4Monitors).Model(Model).Stream(UnitTestStream());
             UI = MakeUnique<FStudioHeadlessSlate>(Test, Panel.ToSharedRef(), FVector2D(720, 1000));
             Panel->BeginImportPath(Good); Started = FPlatformTime::Seconds();
         }
         ~FImportWorkflow()
-        { UI.Reset(); Panel.Reset(); IFileManager::Get().DeleteDirectory(*Root, false, true); }
+        { UI.Reset(); Panel.Reset(); Model.Reset(); IFileManager::Get().DeleteDirectory(*Root, false, true); }
         bool Update() override
         {
             Panel->PollImport();
@@ -88,6 +90,8 @@ namespace StudioHome4MonitorTestFixtures
                 Test.TestTrue(TEXT("Original bytes attributed as replay"), UI->Text(TEXT("Home4MonitorSource")).Contains(TEXT("Imported replay")));
                 Test.TestTrue(TEXT("Guard remains historical"), UI->Text(TEXT("Home4MonitorSource")).Contains(TEXT("never stops or checkpoints")));
                 Test.TestEqual(TEXT("Original science step retained"), Panel->ImportedReplay()->Latest()->Step.Get(-1), int64(7));
+                Test.TestFalse(TEXT("Unidentified imported replay cannot bind to a grid"), Panel->OriginalRunIdentity().IsSet());
+                Test.TestTrue(TEXT("Reports access the displayed replay"), Panel->DisplayedTelemetry() == Panel->ImportedReplay().Get());
                 Preserved = Panel->ImportedReplay();
                 Panel->BeginImportPath(Bad); Stage = 1; return false;
             }
@@ -97,10 +101,31 @@ namespace StudioHome4MonitorTestFixtures
                 Test.TestTrue(TEXT("Failure cause visible"), Panel->StatusText().Contains(TEXT("invalid or regressing")));
                 Test.TestFalse(TEXT("Empty path treated as cancellation"), Panel->BeginImportPath(TEXT("")));
                 Test.TestTrue(TEXT("Cancelled selection preserves replay"), Panel->ImportedReplay() == Preserved);
+                Test.TestFalse(TEXT("Malformed explicit original run rejected"), Panel->BeginImportPath(Good,TEXT("not-a-guid")));
+                Test.TestTrue(TEXT("Invalid identity retains previous original replay"), Panel->ImportedReplay() == Preserved);
+                UI->Type(TEXT("Home4OriginalRunId"),TEXT("not-a-guid"));UI->Press(TEXT("Home4ImportTelemetry"));
+                Test.TestTrue(TEXT("Native identity validation rejects before opening picker"), Panel->StatusText().Contains(TEXT("valid GUID")));
+                UI->Type(TEXT("Home4OriginalRunId"),TEXT(""));
                 Panel->BeginImportPath(Good); Panel->CancelImport(); Stage = 2; return false;
             }
-            Test.TestTrue(TEXT("Background cancellation preserves prior replay"), Panel->ImportedReplay() == Preserved);
-            Test.TestTrue(TEXT("Background cancellation visibly recorded"), Panel->StatusText().Contains(TEXT("cancelled")));
+            if(Stage==2)
+            {
+                Test.TestTrue(TEXT("Background cancellation preserves prior replay"), Panel->ImportedReplay() == Preserved);
+                Test.TestTrue(TEXT("Background cancellation visibly recorded"), Panel->StatusText().Contains(TEXT("cancelled")));
+                OriginalRun=FGuid::NewGuid();Panel->BeginImportPath(Good,OriginalRun.ToString());Stage=3;return false;
+            }
+            if(Stage==3)
+            {
+                if(!Test.TestTrue(TEXT("Identified replay has an original measurement"),Panel->LatestDisplayedMeasurement()!=nullptr))return true;
+                Test.TestTrue(TEXT("Explicit original run supplied to science owner"),Panel->OriginalRunIdentity()&&*Panel->OriginalRunIdentity()==OriginalRun);
+                Test.TestEqual(TEXT("Measurement keeps exact externally supplied run identity"),Panel->LatestDisplayedMeasurement()->Source.RunId,OriginalRun);
+                Test.TestEqual(TEXT("Original file path is source identity"),Panel->LatestDisplayedMeasurement()->Source.SourceId,FPaths::ConvertRelativePathToFull(Good));
+                Test.TestTrue(TEXT("Native source makes explicit original identity visible"),UI->Text(TEXT("Home4MonitorSource")).Contains(TEXT("Original run ID supplied by owner")));
+                Panel->BeginImportPath(Good,OriginalRun.ToString());Model->Project.Id=FGuid::NewGuid();Stage=4;return false;
+            }
+            Test.TestFalse(TEXT("Project change clears prior imported replay"),Panel->ImportedReplay().IsValid());
+            Test.TestTrue(TEXT("Project change clears prior session source"),Panel->DisplayedTelemetry()==nullptr);
+            Test.TestTrue(TEXT("Pending original replay cannot attach to another project"),Panel->StatusText().Contains(TEXT("not attached")));
             return true;
         }
     private:
@@ -109,6 +134,8 @@ namespace StudioHome4MonitorTestFixtures
         double Started = 0;
         int32 Stage = 0;
         TSharedPtr<SStudioHome4Monitors> Panel;
+        TSharedPtr<FStudioModel> Model;
+        FGuid OriginalRun;
         TUniquePtr<FStudioHeadlessSlate> UI;
         TSharedPtr<FStudioHome4TelemetryStream> Preserved;
     };

@@ -25,12 +25,17 @@ public:
     bool SupportsKeyboardFocus() const override { return true; }
     FReply OnKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override;
     /** Starts a transactional asynchronous read of an original JSONL file. */
-    bool BeginImportPath(const FString& Path);
+    bool BeginImportPath(const FString& Path, const FString& OriginalRunId = FString());
     void CancelImport();
     void PollImport();
     bool IsImporting() const { return Pending.IsValid(); }
     bool IsImportedReplay() const { return ImportedStream.IsValid() && bShowImported; }
     const TSharedPtr<FStudioHome4TelemetryStream>& ImportedReplay() const { return ImportedStream; }
+    /** The displayed source remains science/replay data, never a job acknowledgement. */
+    FStudioHome4TelemetryStream* DisplayedTelemetry() const { return DisplayStream(); }
+    const FStudioHome4Sample* LatestDisplayedMeasurement() const { return Sample(); }
+    /** Imported logs bind spatially only when the owner supplied their original run GUID. */
+    TOptional<FGuid> OriginalRunIdentity() const;
     FString StatusText() const { return Status; }
     const FStudioHome4DiagnosticPolicy& DiagnosticPolicy() const { return Policy; }
 private:
@@ -38,10 +43,12 @@ private:
     {
         TUniquePtr<FStudioHome4TelemetryStream> Stream;
         FString Path, Error;
+        bool bOriginalRunIdentity = false;
         int64 Bytes = 0, Lines = 0, Malformed = 0, Unknown = 0, Oversized = 0, Regressing = 0;
     };
-    static FImportResult ReadImport(const FString& Path, const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel);
-    const FStudioHome4TelemetryStream* DisplayStream() const;
+    static FImportResult ReadImport(const FString& Path, const FStudioHome4Source& Source, bool bOriginalRunIdentity,
+        const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel);
+    FStudioHome4TelemetryStream* DisplayStream() const;
     const FStudioHome4Sample* Sample() const;
     FStudioHome4HealthSignal Health(int32 Index) const;
     FString SourceText() const;
@@ -49,6 +56,7 @@ private:
     void ImportDialog();
     void ApplyPolicy();
     void RefreshOutputs();
+    void ScopeProject();
     bool CanLocate() const;
     void Locate();
     TWeakPtr<FStudioModel> Model;
@@ -58,8 +66,10 @@ private:
     FStudioHome4LocateCell OnLocate;
     FStudioHome4DiagnosticPolicy Policy;
     TArray<FString> PolicyDraft;
-    FString Status, ImportPath;
+    FString Status, ImportPath, OriginalRunIdDraft;
     bool bShowImported = true;
+    bool bImportedOriginalRunIdentity = false;
+    FGuid ScopedProjectId, ImportProjectId;
     uint64 DisplayedOutputIndex = MAX_uint64;
     const FStudioHome4TelemetryStream* DisplayedStream = nullptr;
     TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe> Cancellation;
