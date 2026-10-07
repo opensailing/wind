@@ -1116,7 +1116,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
 {
     M=A._Model;Scene=A._Scene; SetCanTick(true);
     Home4Runtime=MakeShared<FStudioHome4RuntimeSession>(M);
-    Home4Runtime->SetLocate([this](const FStudioHome4ActionRequest& Request){LocateHome4Cell(Request.Facts);});
+    Home4Runtime->SetLocate([this](const FStudioHome4ActionRequest& Request){LocateHome4Cell(Request.Facts,&Request);});
     Home4=MakeShared<FStudioHome4Session>(M);Home4Spatial=MakeShared<FStudioHome4SpatialSession>(M);Home4Validation=MakeShared<FStudioHome4ValidationState>();
     Home4Authoring=MakeShared<FStudioHome4AuthoringSession>(Home4);
     Home4Checkpoint=MakeShared<FStudioHome4CheckpointSession>(M,Home4);Home4Runtime->SetCheckpointSession(Home4Checkpoint);
@@ -1240,12 +1240,37 @@ void SStudioWorkspace::Construct(const FArguments& A)
 }
 TSharedRef<SWidget> SStudioWorkspace::Home4Page(const FString& Page)
 {
-    return SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page).Validation(Home4Validation).Spatial(Home4Spatial).Runtime(Home4Runtime).Authoring(Home4Authoring).Monitors(Home4Monitors)
+    auto Home4Panel=SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page).Validation(Home4Validation).Spatial(Home4Spatial).Runtime(Home4Runtime).Authoring(Home4Authoring).Monitors(Home4Monitors)
         .OnLocateSpatial_Lambda([this](const FStudioHome4SpatialLocation& Location){LocateHome4Spatial(Location);})
         .OnRecipe_Lambda([this](const FString& Id){ChooseHome4Recipe(Id);})
+        .OnFocusField_Lambda([this](const FString& TargetPage,const FString& Key){FocusHome4Field(TargetPage,Key);})
         .OnSubmit_Lambda([this]{DispatchControl(EStudioJobCommand::Submit);})
         .Telemetry_Lambda([this]{return Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;})
         .TelemetryProvenance_Lambda([this]{return Home4Monitors?Home4Monitors->ReportProvenance():TOptional<FStudioHome4TelemetryProvenance>();});
+    Home4Panels.Add(Page,Home4Panel);return Home4Panel;
+}
+void SStudioWorkspace::FocusHome4Field(const FString& Page,const FString& Key)
+{
+    const auto* WeakPanel=Home4Panels.Find(Page);const auto Home4Panel=WeakPanel?WeakPanel->Pin():nullptr;
+    if(!M->Project.Draft.Home4||!Home4Panel||!Home4Panel->HasField(Key))return;
+    static const TMap<FString,EStudioWorkspace> Destinations={
+        {TEXT("Geometry"),EStudioWorkspace::Geometry},{TEXT("Lattice"),EStudioWorkspace::Meshing},
+        {TEXT("Fluids & Interface"),EStudioWorkspace::Materials},{TEXT("Boundaries & Zones"),EStudioWorkspace::BoundaryConditions},
+        {TEXT("Bodies"),EStudioWorkspace::Bodies},{TEXT("Run"),EStudioWorkspace::Run},
+        {TEXT("Validation"),EStudioWorkspace::Validation},{TEXT("Reports"),EStudioWorkspace::Reports},{TEXT("Settings"),EStudioWorkspace::Settings}};
+    const auto* Destination=Destinations.Find(Page);if(!Destination)return;
+    Navigate(*Destination);if(M->Workspace!=*Destination)return;
+    Home4FocusPage=Page;Home4FocusKey=Key;Home4FocusWorkspace=*Destination;
+    Home4FocusProject=M->Project.Id;Home4FocusCase=M->Project.Draft.Id;Home4FocusAttempts=120;
+}
+void SStudioWorkspace::TickHome4FieldFocus()
+{
+    if(Home4FocusAttempts<=0)return;
+    if(Home4FocusProject!=M->Project.Id||Home4FocusCase!=M->Project.Draft.Id||M->Workspace!=Home4FocusWorkspace)
+    {Home4FocusAttempts=0;return;}
+    const auto* WeakPanel=Home4Panels.Find(Home4FocusPage);const auto Home4Panel=WeakPanel?WeakPanel->Pin():nullptr;
+    if(Home4Panel&&Home4Panel->FocusField(Home4FocusKey)){Home4FocusAttempts=0;return;}
+    if(--Home4FocusAttempts==0)M->Notice=TEXT("The requested editor could not receive focus. Open its field on this page.");
 }
 FString SStudioWorkspace::Home4ModeBadge() const
 {
@@ -1298,14 +1323,28 @@ void SStudioWorkspace::LocateHome4Spatial(const FStudioHome4SpatialLocation& Loc
     const auto Id=Probe.Id;if(M->AddProbe(Probe))M->SelectInspectionObject(Id);
     M->Notice=TEXT("Focused the original diagnostic cell. The recorded time is unchanged.");
 }
-void SStudioWorkspace::LocateHome4Cell(const FStudioHome4CellFacts& Facts)
+FString SStudioWorkspace::Home4CellDetailsText() const
+{
+    const auto* Probe=M->FindProbe(Home4CellProbe);
+    if(Home4CellProject!=M->Project.Id||Home4CellCase!=M->Project.Draft.Id||Home4CellRecording.Pin()!=M->Solver||!Probe||
+        !Probe->bVisible||Probe->Method!=EStudioProbeMethod::OriginalPoint||Probe->PointId!=Home4CellPointId||!(Probe->Source==M->InspectionSource()))return {};
+    return Home4CellDetails;
+}
+void SStudioWorkspace::LocateHome4Cell(const FStudioHome4CellFacts& Facts,const FStudioHome4ActionRequest* Context)
 {
     const auto Volume=M->Solver->VolumeReconstruction();
-    const auto* Stream=Home4Runtime&&Home4Runtime->IsTailing()?Home4Runtime->ScienceStream().Get():Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;
-    if(!Facts.Cell.IsSet()||!Volume||!Volume->OriginalGrid||!Stream||!Stream->Latest().IsSet())
+    const auto* Stream=Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;
+    FStudioHome4ActionRequest SelectedRequest;
+    if(Context)SelectedRequest=*Context;
+    else if(Stream&&Stream->Latest()&&Home4Monitors->OriginalRunIdentity())
+    {
+        if(!Stream->ActionRequests().IsEmpty())SelectedRequest=Stream->ActionRequests().Last();
+        else{SelectedRequest.Source=Stream->Latest()->Source;SelectedRequest.Step=Stream->Latest()->Step;SelectedRequest.RecordIndex=Stream->Latest()->RecordIndex;}
+    }
+    if(!Facts.Cell.IsSet()||!Volume||!Volume->OriginalGrid||!SelectedRequest.Source.RunId.IsValid()||M->IsRecordingLoadPending())
     {M->Notice=TEXT("Load the matching original HOME4 grid and identified science log before locating a cell.");return;}
-    const auto& Grid=*Volume->OriginalGrid;const auto& Sample=Stream->Latest().GetValue();FGuid SourceRun;
-    if(!FGuid::Parse(Grid.SourceRunId,SourceRun)||SourceRun!=Sample.Source.RunId)
+    const auto& Grid=*Volume->OriginalGrid;FGuid SourceRun;
+    if(!FGuid::Parse(Grid.SourceRunId,SourceRun)||SourceRun!=SelectedRequest.Source.RunId)
     {M->Notice=TEXT("The science log and recording need the same explicit original run ID. The camera was retained.");return;}
     if(Facts.Level.Get(0)!=Grid.PatchLevel||(Grid.PatchLevel>0&&(Facts.PatchId.IsEmpty()||Facts.PatchId!=Grid.PatchId))){M->Notice=TEXT("Select the matching multidomain level recording before locating this cell. Patches are not auto-stitched.");return;}
     const auto Cell=Facts.Cell.GetValue();FIntVector Selected;
@@ -1318,14 +1357,23 @@ void SStudioWorkspace::LocateHome4Cell(const FStudioHome4CellFacts& Facts)
     }
     const FVector Source=Grid.OriginMeters+Grid.SpacingMeters*FVector(Selected);
     const FVector Position(Source.X,Source.Z,Source.Y);
+    FStudioProbeObject Probe;Probe.Name=FString::Printf(TEXT("Trouble cell %d,%d,%d · %s"),Cell.X,Cell.Y,Cell.Z,*Probe.Id.ToString(EGuidFormats::Digits).Left(8));Probe.A=Position;Probe.Method=EStudioProbeMethod::OriginalPoint;
+    Probe.PointId=int64(Cell.X)+int64(Grid.OriginalDimensions.X)*(int64(Cell.Y)+int64(Grid.OriginalDimensions.Y)*Cell.Z);
+    Probe.Field=Grid.PhaseField;FGuid ProbeId=Probe.Id;
+    if(const auto* Existing=M->FindProbe(Home4CellProbe);Existing&&Existing->bVisible&&Existing->PointId==Probe.PointId&&Existing->Source==M->InspectionSource())ProbeId=Existing->Id;
+    else if(!M->AddProbe(Probe)){M->Notice=TEXT("The original cell could not be marked. ")+M->InspectionNotice;return;}
+    M->SelectInspectionObject(ProbeId);
     auto Camera=M->Project.Camera;const FVector Shift=Position-Camera.Focus;Camera.Position+=Shift;Camera.Focus=Position;
     M->EditView(TEXT("Locate original HOME4 cell"),[&](auto& View){View.Camera=Camera;});Scene->ApplyCamera(Camera);Navigate(EStudioWorkspace::Solve);
-    FStudioProbeObject Probe;Probe.Name=FString::Printf(TEXT("Trouble cell %d,%d,%d"),Cell.X,Cell.Y,Cell.Z);Probe.A=Position;Probe.Method=EStudioProbeMethod::OriginalPoint;
-    Probe.PointId=int64(Cell.X)+int64(Grid.OriginalDimensions.X)*(int64(Cell.Y)+int64(Grid.OriginalDimensions.Y)*Cell.Z);
-    Probe.Field=Grid.PhaseField;const FGuid ProbeId=Probe.Id;if(M->AddProbe(Probe))M->SelectInspectionObject(ProbeId);
-    M->Notice=FString::Printf(TEXT("Original cell (%d, %d, %d) · phi %s · tau %s · %s · camera focused; replay frame unchanged"),Cell.X,Cell.Y,Cell.Z,
-        *(Facts.Phi.IsSet()?FString::Printf(TEXT("%.6g"),Facts.Phi.GetValue()):TEXT("not supplied")),
-        *(Facts.Tau.IsSet()?FString::Printf(TEXT("%.6g"),Facts.Tau.GetValue()):TEXT("not supplied")),*Facts.Zone);
+    auto Flag=[](TOptional<bool> V){return V?(V.GetValue()?TEXT("yes"):TEXT("no")):TEXT("not supplied");};
+    auto Value=[](TOptional<double> V){return V?FString::Printf(TEXT("%.6g"),*V):FString(TEXT("not supplied"));};
+    Home4CellProject=M->Project.Id;Home4CellCase=M->Project.Draft.Id;Home4CellProbe=ProbeId;Home4CellRecording=M->Solver;
+    Home4CellPointId=Probe.PointId;
+    Home4CellDetails=FString::Printf(TEXT("Run %s · source %s\nOriginal step %s · record %llu\nCell (%d, %d, %d) · level %d · patch %s\nφ %s · τ %s\nLimiter %s · force threshold %s\nBand %s · sponge %s · beach %s · cut-link shell %s\nZone %s\nThese are the reported cell facts at the original step. The displayed field frame is unchanged."),
+        *SelectedRequest.Source.RunId.ToString(),*SelectedRequest.Source.SourceId,*(SelectedRequest.Step?FString::Printf(TEXT("%lld"),*SelectedRequest.Step):FString(TEXT("not supplied"))),SelectedRequest.RecordIndex,
+        Cell.X,Cell.Y,Cell.Z,Grid.PatchLevel,*(Grid.PatchId.IsEmpty()?FString(TEXT("root")):Grid.PatchId),*Value(Facts.Phi),*Value(Facts.Tau),Flag(Facts.Limiter),Flag(Facts.ForceThreshold),Flag(Facts.InBand),Flag(Facts.InSponge),Flag(Facts.InBeach),Flag(Facts.InCutLinkShell),*(Facts.Zone.IsEmpty()?FString(TEXT("not supplied")):Facts.Zone));
+    bInspectionOpen=false;bPerformanceOpen=false;M->bViewportExpanded=false;
+    M->Notice=TEXT("Focused and marked the original reported cell. Details are beside the flow view.");
 }
 TSharedRef<SWidget> SStudioWorkspace::WorkspaceContext()
 {
@@ -1358,7 +1406,7 @@ TSharedRef<SWidget> SStudioWorkspace::Home4Inspector()
         {TEXT("Positive-Q surface"),TEXT("q"),3},{TEXT("Signed helicity plane"),TEXT("helicity"),0},
         {TEXT("Vorticity · Q color, |ω|² opacity"),TEXT("q"),4},
         {TEXT("Relaxation margin · log10(τ − ½)"),TEXT("log10_tau_margin"),0},
-        {TEXT("Dynamic pressure p*"),TEXT("p_star"),0},{TEXT("Hydrostatic pressure Πh"),TEXT("Pi_h"),0},
+        {TEXT("Normalized pressure p* · dynamic under WB"),TEXT("p_star"),0},{TEXT("Hydrostatic pressure Πh"),TEXT("Pi_h"),0},
         {TEXT("Reassembled pressure"),TEXT("pressure"),0},{TEXT("Stored-strain dissipation"),TEXT("dissipation"),0},
         {TEXT("Interface limiter ratio / tanh"),TEXT("grad_phi_tanh_ratio"),0}};
     for(const auto& Layer:Choices)
@@ -1398,6 +1446,10 @@ TSharedRef<SWidget> SStudioWorkspace::Home4Inspector()
         +SVerticalBox::Slot().AutoHeight().Padding(0,10)[Label(TEXT("Fields"),14,Text,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return M->Solver->Descriptor().Title;},10,Cyan,true)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("Original recording · case edits do not alter recorded fields or their unit map."),9,Muted,true)]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,10)[SNew(SBox).Visibility_Lambda([this]{return Home4CellDetailsText().IsEmpty()?EVisibility::Collapsed:EVisibility::Visible;})
+            [SNew(SVerticalBox)+SVerticalBox::Slot().AutoHeight()[Label(TEXT("Reported trouble cell"),11,Amber,true)]
+                +SVerticalBox::Slot().AutoHeight().Padding(0,5)[SNew(STextBlock).Tag(TEXT("Home4LocatedCellFacts")).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true)
+                    .Text_Lambda([this]{return FText::FromString(Home4CellDetailsText());})]]]
         +SVerticalBox::Slot().AutoHeight()[Layers]
         +SVerticalBox::Slot().AutoHeight()[DisplayTools()]
         +SVerticalBox::Slot().AutoHeight()[Section(TEXT("Replay"),SNew(SVerticalBox)
@@ -1733,6 +1785,7 @@ void SStudioWorkspace::Tick(const FGeometry& Geometry,double Time,float Delta)
 {
     const double UpdateStart=FPlatformTime::Seconds();
     SCompoundWidget::Tick(Geometry,Time,Delta);
+    TickHome4FieldFocus();
     if(Home4Runtime)Home4Runtime->Tick(Time);
     if(Home4Authoring)Home4Authoring->Poll();
     if(Home4Checkpoint)Home4Checkpoint->Tick();
@@ -2544,12 +2597,17 @@ TSharedRef<SWidget> SStudioWorkspace::ColorMenu()
 }
 TSharedRef<SWidget> SStudioWorkspace::Timeline()
 {
+    const auto HasFrames=TAttribute<bool>::CreateLambda([this]{return M->Solver->FrameCount()>0;});
+    auto Scrubber=Slider([this]{return M->Frames.Num()<2?0.:static_cast<double>(M->SelectedFrame)/(M->Frames.Num()-1);},[this](double V){M->Scrub(V);});
+    Scrubber->SetEnabled(HasFrames);Scrubber->SetTag(TEXT("TimelineScrubber"));
+    auto Follow=Button(TEXT("Follow replay"),TEXT("run"),[this]{M->ReturnToLive();},Cyan);Follow->SetEnabled(HasFrames);Follow->SetTag(TEXT("TimelineFollow"));
+    auto FrameLabel=Live([this]{return M->Solver->FrameCount()>0?FString::Printf(TEXT("Snapshot %d / %d"),M->SelectedFrame+1,M->Solver->FrameCount()):FString(TEXT("No original frames"));},10);FrameLabel->SetTag(TEXT("TimelineFrameCount"));
     return SNew(SBorder).BorderImage(&PanelBrush).Padding(10,8)
     [SNew(SVerticalBox)
     +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
-        +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,12,0)[Live([this]{return FString::Printf(TEXT("Snapshot %d / %d"),M->SelectedFrame+1,M->Solver->FrameCount());},10)]
-        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Slider([this]{return M->Frames.Num()<2?0.:static_cast<double>(M->SelectedFrame)/(M->Frames.Num()-1);},[this](double V){M->Scrub(V);})]
-        +SHorizontalBox::Slot().AutoWidth().Padding(12,0,0,0)[Button(TEXT("Follow replay"),TEXT("run"),[this]{M->ReturnToLive();},Cyan)]
+        +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,12,0)[FrameLabel]
+        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Scrubber]
+        +SHorizontalBox::Slot().AutoWidth().Padding(12,0,0,0)[Follow]
         +SHorizontalBox::Slot().AutoWidth().Padding(8,0,0,0)[SAssignNew(SnapshotButton,SStudioMenuButton).Tag(TEXT("SnapshotOptions"))
             .ButtonStyle(&ButtonStyle()).OnGetMenuContent(this,&SStudioWorkspace::SnapshotMenu)
             .ButtonContent()[SNew(SHorizontalBox)+SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Icon(TEXT("camera"))]
