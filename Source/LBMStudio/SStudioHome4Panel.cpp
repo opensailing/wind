@@ -184,7 +184,7 @@ TSharedRef<SWidget> SStudioHome4Panel::Feasibility()
     auto Values=SNew(SVerticalBox);
     auto Add=[&](const TCHAR* Name,EStudioHome4Quantity Q,TFunction<TOptional<double>()> Read)
     {
-        Values->AddSlot().AutoHeight().Padding(0,0,0,9)[SNew(STextBlock).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Cyan).AutoWrapText(true)
+        Values->AddSlot().AutoHeight().Padding(0,0,0,9)[SNew(STextBlock).Tag(FName(*(FString(TEXT("Home4FeasibilityValue_"))+Name))).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Cyan).AutoWrapText(true)
             .Text_Lambda([this,Name,Q,Read]{const auto V=Read();return FText::FromString(FString(Name)+TEXT("  ")+(V.IsSet()?StudioHome4Readouts::Value(V.GetValue(),Q,EStudioHome4UnitDisplay::Lattice,Model->UnitDisplay,&Preview):TEXT("Not supplied")));})
             .ToolTipText_Lambda([this,Q,Read]{const auto V=Read();return FText::FromString(V.IsSet()?StudioHome4Readouts::Tooltip(V.GetValue(),Q,EStudioHome4UnitDisplay::Lattice,&Preview):TEXT("Supply this case quantity to view its unit conversions."));})];
     };
@@ -233,6 +233,7 @@ void SStudioHome4Panel::Sync()
     Session->Refresh();for(const auto& P:Inputs)if(const auto W=P.Value.Pin())
         if(W->GetText().ToString()!=Session->Get(P.Key))W->SetText(FText::FromString(Session->Get(P.Key)));
     if(Session->Build(Preview,PreviewError))Derived=StudioHome4Config::Derive(Preview);
+    else { Preview=FStudioHome4Spec();Derived=FStudioHome4Derived(); }
 }
 void SStudioHome4Panel::Tick(const FGeometry& G,double T,float D)
 {

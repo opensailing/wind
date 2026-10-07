@@ -144,6 +144,8 @@ bool FStudioHome4AllocationLayoutTest::RunTest(const FString&)
     const auto Before=UI.Text(TEXT("Home4FeasibilitySummary"));Session->SetAllocation(0,4,TEXT("4"));UI.Layout();
     TestTrue(TEXT("Allocation edits refresh live estimate before Apply"),UI.Text(TEXT("Home4FeasibilitySummary"))!=Before);
     Session->SetAllocation(0,4,TEXT("nan"));UI.Layout();TestTrue(TEXT("Invalid allocation suppresses stale estimate"),UI.Text(TEXT("Home4FeasibilitySummary")).Contains(TEXT("Correct the draft")));
+    for(const TCHAR* Name:{TEXT("Speed"),TEXT("Heavy viscosity"),TEXT("Length")})
+        TestTrue(FString(TEXT("Invalid draft clears source-free feasibility row: "))+Name,UI.Text(FName(*(FString(TEXT("Home4FeasibilityValue_"))+Name))).Contains(TEXT("Not supplied")));
     return !HasAnyErrors();
 }
 #endif
