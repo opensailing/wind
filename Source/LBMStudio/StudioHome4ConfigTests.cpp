@@ -292,4 +292,30 @@ bool FStudioHome4StrictImportTest::RunTest(const FString&)
     TestEqual(TEXT("All rejected imports retain prior request"),StudioHome4Config::Serialize(Loaded),Kept);
     IFileManager::Get().DeleteDirectory(*Dir,false,true);return !HasAnyErrors();
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4EnergyFrames,"Studio.Home4.Config.EnergyDomainsExplicitFramesCrossUnitsAndPersistence",Home4Flags)
+bool FStudioHome4EnergyFrames::RunTest(const FString&)
+{
+    auto S=Home4Complete();FString Error;S.Reference.LengthCells=10;S.Units.DxMeters=.1;
+    FStudioHome4EnergyBudgetRegion Near;Near.Role=TEXT("near");Near.BodyId=S.Authoring.BodyId;Near.Units=TEXT("body-lengths");Near.Minimum=FVector(-.2);Near.Maximum=FVector(.2);Near.Frame=TEXT("body-CoG-local-XYZ");Near.Tracking=TEXT("follow-body");Near.Region=TEXT("inside-box");Near.PhaseMask=TEXT("source-all-phases");
+    auto Far=Near;Far.Role=TEXT("far");Far.Units=TEXT("physical-metres");Far.Minimum=FVector(-.3);Far.Maximum=FVector(.3);Far.Region=TEXT("shell-excluding-near");S.Authoring.EnergyBudgetRegions={Near,Far};
+    TestTrue(TEXT("Explicit mixed frames compare ±2 root cells near against ±3 root cells far"),StudioHome4Config::Validate(S,Error));FStudioHome4Spec Parsed;
+    TestTrue(*Error,StudioHome4Config::Parse(StudioHome4Config::Serialize(S),Parsed,Error));TestEqual(TEXT("Integration semantics persist exactly"),StudioHome4Config::Serialize(Parsed),StudioHome4Config::Serialize(S));
+    auto Water=S;for(auto& B:Water.Authoring.EnergyBudgetRegions)B.PhaseMask=TEXT("original phi >= 0.9, solid excluded");TestTrue(TEXT("Source-declared water domains may exclude independently measured air"),StudioHome4Config::Validate(Water,Error));Water.Authoring.EnergyBudgetRegions[1].PhaseMask=TEXT("original phi <= 0.1");TestFalse(TEXT("Near/far masks must agree exactly"),StudioHome4Config::Validate(Water,Error));Water=S;Water.Authoring.EnergyBudgetRegions[0].PhaseMask.Empty();TestFalse(TEXT("No near/far phase mask is guessed"),StudioHome4Config::Validate(Water,Error));
+    auto Invalid=S;Invalid.Authoring.EnergyBudgetRegions[1].Maximum=FVector(.1);TestFalse(TEXT("Actual converted nonnesting is rejected"),StudioHome4Config::Validate(Invalid,Error));
+    Invalid=S;Invalid.Units.DxMeters.Reset();TestFalse(TEXT("Missing original physical scale cannot prove mixed nesting"),StudioHome4Config::Validate(Invalid,Error));
+    Invalid=S;Invalid.Authoring.EnergyBudgetRegions[1].Tracking=TEXT("fixed-initial-body");TestFalse(TEXT("Boxes with different motion frames cannot compose an energy domain"),StudioHome4Config::Validate(Invalid,Error));
+    Invalid=S;Invalid.Authoring.EnergyBudgetRegions[1].Region=TEXT("inside-box");TestFalse(TEXT("Far domain cannot double count near"),StudioHome4Config::Validate(Invalid,Error));
+    Invalid=S;Invalid.Authoring.EnergyBudgetRegions.RemoveAt(0);TestFalse(TEXT("Far shell cannot infer its missing near exclusion"),StudioHome4Config::Validate(Invalid,Error));
+    Invalid=S;Invalid.Authoring.EnergyBudgetRegions[0].Frame.Empty();TestFalse(TEXT("Missing body frame cannot become a guessed convention"),StudioHome4Config::Validate(Invalid,Error));
+    auto Air=Near;Air.Role=TEXT("air");Air.PhaseMask=TEXT("original phi <= 0.1, solid excluded");S.Authoring.EnergyBudgetRegions.Add(Air);TestTrue(TEXT("Air domain retains a user-declared phase-mask request"),StudioHome4Config::Validate(S,Error));
+    Invalid=S;Invalid.Authoring.EnergyBudgetRegions.Last().PhaseMask.Empty();TestFalse(TEXT("Air threshold cannot be fabricated"),StudioHome4Config::Validate(Invalid,Error));
+    Invalid=S;Invalid.Authoring.EnergyBudgetRegions[0].Units=TEXT("root-cells");Invalid.Authoring.EnergyBudgetRegions[0].Minimum=FVector(-2);Invalid.Authoring.EnergyBudgetRegions[0].Maximum=FVector(2);Invalid.Authoring.EnergyBudgetRegions[1].Units=TEXT("root-cells");Invalid.Authoring.EnergyBudgetRegions[1].Minimum=FVector(-3);Invalid.Authoring.EnergyBudgetRegions[1].Maximum=FVector(3);Invalid.Authoring.EnergyBudgetRegions.RemoveAt(2);Invalid.Units.DxMeters.Reset();Invalid.Reference.LengthCells.Reset();TestTrue(TEXT("Same units need no unrelated map"),StudioHome4Config::Validate(Invalid,Error));
+    const auto Kept=StudioHome4Config::Serialize(Parsed);auto Bad=StudioHome4Config::ToJSON(S);Bad->GetObjectField(TEXT("authoring"))->GetArrayField(TEXT("energyBudgetRegions"))[0]->AsObject()->SetStringField(TEXT("tracking"),TEXT("guessed"));TestFalse(TEXT("Invalid imported domain is transactional"),StudioHome4Config::FromJSON(Bad,Parsed,Error));TestEqual(TEXT("Failed domain import retains previous immutable spec"),StudioHome4Config::Serialize(Parsed),Kept);
+    auto Preset=Home4Complete();Preset.Authoring.TankZonePresetName=TEXT("G");Preset.Authoring.TankZonePresetSourceId=TEXT("original-user-definition");Preset.Authoring.TankZonePresetSourceSHA256=FString::ChrN(64,'a');TestTrue(*Error,StudioHome4Config::Parse(StudioHome4Config::Serialize(Preset),Parsed,Error));TestTrue(TEXT("Optional G/Q/P source is retained without synthesizing numeric zones"),Parsed.Authoring.TankZonePresetName==TEXT("G")&&Parsed.Authoring.TankZonePresetSourceSHA256==FString::ChrN(64,'a')&&Parsed.Authoring.Zones.IsEmpty());
+    Preset.Authoring.TankZonePresetSourceSHA256=TEXT("bad");TestFalse(TEXT("Named preset hash is verified structurally"),StudioHome4Config::Validate(Preset,Error));
+    auto Old=StudioHome4Config::ToJSON(Home4Complete());for(const TCHAR* K:{TEXT("tankZonePresetName"),TEXT("tankZonePresetSourceId"),TEXT("tankZonePresetSourceSHA256"),TEXT("energyBudgetRegions")})Old->GetObjectField(TEXT("authoring"))->RemoveField(K);TestTrue(TEXT("Old requests migrate with no invented preset or energy domains"),StudioHome4Config::FromJSON(Old,Parsed,Error));TestTrue(TEXT("Old schema keeps explicit absence"),Parsed.Authoring.TankZonePresetName.IsEmpty()&&Parsed.Authoring.EnergyBudgetRegions.IsEmpty());
+    return !HasAnyErrors();
+}
+
 #endif

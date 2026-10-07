@@ -120,6 +120,7 @@ struct FStudioHome4AuthoredPatch
 struct FStudioHome4EnergyBudgetRegion
 {
     FString Role,BodyId,Units; // Unique near/far/air; explicit root-cells/body-lengths/physical-metres.
+    FString Frame,Tracking,Region,PhaseMask; // Explicit integration domain/mask; unset is not an invented convention.
     FVector Minimum=FVector::ZeroVector,Maximum=FVector::ZeroVector; // Body-relative XYZ box; no inferred world origin.
 };
 struct FStudioHome4Authoring
@@ -128,6 +129,7 @@ struct FStudioHome4Authoring
     FString Primitive, TessellatorPython, TessellatorLibrary, PreparationMethod;
     TArray<FStudioHome4EnergyBudgetRegion> EnergyBudgetRegions;
     FString BenchmarkConvention; // Explicit frontend reference choice, never an inferred driver default.
+    FString TankZonePresetName, TankZonePresetSourceId, TankZonePresetSourceSHA256; // Supplied G/Q/P provenance; no numeric defaults.
     TOptional<double> BenchmarkDraftCells;
     TOptional<double> MetersPerSourceUnit, WaterlineCells, SurfaceTolerance;
     TOptional<double> DomainLengthRatio, DomainWidthRatio, DomainHeightRatio, SpongeLengthRatio;

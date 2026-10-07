@@ -153,6 +153,7 @@
     "Studio.Home4.Checkpoint.VizUnknownAndIncompleteStateBlocked",
     "Studio.Home4.Config.AppendixArgvAndShellQuoting",
     "Studio.Home4.Config.DimensionlessFormulas",
+    "Studio.Home4.Config.EnergyDomainsExplicitFramesCrossUnitsAndPersistence",
     "Studio.Home4.Config.MetalIndexAndAllocationOverflow",
     "Studio.Home4.Config.MissingInvalidAndNumericalBoundaries",
     "Studio.Home4.Config.MultidomainScalingAndCost",

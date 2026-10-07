@@ -34,7 +34,7 @@ namespace
             N("units","dxMeters",Units.DxMeters,"Lattice","m/cell",0,1.e12),
             N("units","dtSeconds",Units.DtSeconds,"Lattice","s/step",0,1.e12),
             N("units","densityReferenceKgM3",Units.DensityReferenceKgM3,"Lattice","kg/m3",0,1.e12),
-            N("reference","lengthCells",Reference.LengthCells,"Lattice","cells",0,1.e12),
+            N("reference","lengthCells",Reference.LengthCells,"Geometry","cells",0,1.e12),
             N("reference","speedCellsPerStep",Reference.SpeedCellsPerStep,"Fluids & Interface","cells/step",0,1.e12),
             N("reference","timeSteps",Reference.TimeSteps,"Lattice","steps",0,1.e12),
             N("reference","mach",Reference.Mach,"Fluids & Interface","",0,1.e12),
@@ -70,7 +70,7 @@ namespace
             N("fluids","lightForceFactor",Fluids.LightForceFactor,"Fluids & Interface","",0,1.e12),
             N("fluids","lightPhaseCutoff",Fluids.LightPhaseCutoff,"Fluids & Interface","",0,1),
             N("geometry","heelDegrees",Geometry.HeelDegrees,"Geometry","degrees",-360,360),
-            N("geometry","trimDegrees",Geometry.TrimDegrees,"Geometry","degrees",-360,360),
+            N("geometry","trimDegrees",Geometry.TrimDegrees,"Bodies","degrees",-360,360),
             N("geometry","yawDegrees",Geometry.YawDegrees,"Geometry","degrees",-360,360),
             N("geometry","sinkCells",Geometry.SinkCells,"Bodies","cells",-1.e12,1.e12),
             N("geometry","bandCells",Geometry.BandCells,"Geometry","cells",0,1.e12),
@@ -174,6 +174,9 @@ namespace
             S("","recipeId",RecipeId,"Projects"), S("","lineageId",LineageId,"Projects"),
             S("","parentRunId",ParentRunId,"Projects"), S("","parentSpecSHA256",ParentSpecSHA256,"Projects"), S("","branchId",BranchId,"Projects"),
             S("authoring","benchmarkConvention",Authoring.BenchmarkConvention,"Bodies"),
+            S("authoring","tankZonePresetName",Authoring.TankZonePresetName,"Boundaries & Zones"),
+            S("authoring","tankZonePresetSourceId",Authoring.TankZonePresetSourceId,"Boundaries & Zones"),
+            S("authoring","tankZonePresetSourceSHA256",Authoring.TankZonePresetSourceSHA256,"Boundaries & Zones"),
             S("authoring","bodyId",Authoring.BodyId,"Bodies"), S("authoring","geometryAssetId",Authoring.GeometryAssetId,"Geometry"),
             S("authoring","sourceSHA256",Authoring.SourceSHA256,"Geometry"), S("authoring","primitive",Authoring.Primitive,"Geometry"),
             S("authoring","tessellatorPython",Authoring.TessellatorPython,"Geometry"), S("authoring","tessellatorLibrary",Authoring.TessellatorLibrary,"Geometry"),
@@ -325,6 +328,7 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("waveModel"))F.Choices={TEXT("none"),TEXT("linear-gravity"),TEXT("declared-profile")};
             if(F.Key==TEXT("retabulationPolicy"))F.Choices={TEXT(""),TEXT("static"),TEXT("every-step"),TEXT("cadence")};
             if(F.Key==TEXT("deviceProfile"))F.Choices={TEXT(""),TEXT("M4-Pro-MPS-79.5M"),TEXT("declared-memory")};
+            if(F.Key==TEXT("tankZonePresetName"))F.Choices={TEXT(""),TEXT("G"),TEXT("Q"),TEXT("P")};
             F.Help=F.Label+TEXT(" request. Unset stays unknown; the command preview reports any unverified driver encoding.");
             if(F.Key==TEXT("patchClassification"))F.Choices={TEXT(""),TEXT("CB"),TEXT("HKR"),TEXT("HKr"),TEXT("full")};
             if(F.Key==TEXT("sdfBackend"))F.Choices={TEXT(""),TEXT("libigl"),TEXT("CPT")};
@@ -390,6 +394,9 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("pierceBoundary"))F.Help=TEXT("Hull --pierce_bc mode request. The appendix omits accepted values and argument arity; preserved but not encoded yet.");
             if(F.Key==TEXT("phiTop")||F.Key==TEXT("phiBottom")||F.Key==TEXT("pinPhaseWalls"))F.Help=TEXT("Phase-wall pinning request (φtop/φbot and pin_phase_walls). Not an appendix-supported hull flag.");
             if(F.Section==TEXT("authoring"))F.Help=F.Label+TEXT(" frontend preview contract; coordinates and units are explicit. HOME4 driver encoding is separately verified.");
+            if(F.Key==TEXT("tankZonePresetName")){F.Label=TEXT("TH01 tank/zone preset");F.Help=TEXT("Named G/Q/P provenance from an explicitly supplied preset. This name alone supplies no tank or zone values; use the preset import, review and apply action.");}
+            if(F.Key==TEXT("tankZonePresetSourceId")){F.Label=TEXT("Preset original source");F.Help=TEXT("Immutable supplied preset source identity/path. Applied values may later depart; exact match is checked against retained original preset bytes.");}
+            if(F.Key==TEXT("tankZonePresetSourceSHA256")){F.Label=TEXT("Preset original SHA256");F.Help=TEXT("SHA256 of the complete original supplied G/Q/P preset JSON, never an inferred preset definition.");}
             if(F.Key==TEXT("preserveCahn"))F.Help=TEXT("Scale interface width with reference resolution during sizing to retain the supplied Cahn number.");
             if(F.Key==TEXT("pierceMode"))F.Help=TEXT("Frontend boundary contract: off leaves the interface unchanged; phase-pinned fixes wall phase; free-interface permits an intersecting interface. This is not an assertion of --pierce_bc driver values.");
             if(F.Key==TEXT("levels"))F.Help=TEXT("Total MD levels including root; finest depth is levels−1 and each refinement factor is 2. Hull appendix has no MD flags.");
@@ -463,6 +470,11 @@ bool StudioHome4Config::Validate(const FStudioHome4Spec& Spec,FString& Error)
     for(double Bytes:Spec.Performance.OutputByteEstimates)if(!FMath::IsFinite(Bytes)||Bytes<0||Bytes>1.e12)return Fail(TEXT("Output byte estimates must be finite, nonnegative and at most 1 TB; zero leaves a channel unknown."));
     if(!Spec.Authoring.SourceSHA256.IsEmpty()){if(Spec.Authoring.SourceSHA256.Len()!=64)return Fail(TEXT("Geometry source SHA256 must contain 64 hexadecimal digits."));for(TCHAR C:Spec.Authoring.SourceSHA256)if(!FChar::IsHexDigit(C))return Fail(TEXT("Geometry source SHA256 must contain 64 hexadecimal digits."));}
     for(const auto& A:Spec.Performance.Allocations)if(!A.NodeScope.IsEmpty()&&A.NodeScope!=TEXT("fixed")&&A.NodeScope!=TEXT("root")){if(!A.NodeScope.StartsWith(TEXT("level:")))return Fail(TEXT("Allocation scope must be fixed, root or level:N."));const FString N=A.NodeScope.Mid(6);int32 Level=-1;if(N.IsEmpty()||N.Len()>2)return Fail(TEXT("Allocation level scope must be 0–15."));for(TCHAR C:N)if(!FChar::IsDigit(C))return Fail(TEXT("Allocation level scope must be 0–15."));Level=FCString::Atoi(*N);if(Level>15)return Fail(TEXT("Allocation level scope must be 0–15."));}
+    if(!Spec.Authoring.TankZonePresetSourceSHA256.IsEmpty())
+    {
+        if(Spec.Authoring.TankZonePresetSourceSHA256.Len()!=64)return Fail(TEXT("Tank/zone preset SHA256 must contain 64 hexadecimal digits."));
+        for(TCHAR C:Spec.Authoring.TankZonePresetSourceSHA256)if(!FChar::IsHexDigit(C))return Fail(TEXT("Tank/zone preset SHA256 must contain 64 hexadecimal digits."));
+    }
     if(Spec.Performance.Allocations.Num()>256)return Fail(TEXT("Allocation list exceeds 256 entries."));
     for(const auto& A:Spec.Performance.Allocations)
         if(A.Name.IsEmpty()||!Home4TextValid(A.Name)||A.Name.Len()>120||
@@ -488,9 +500,39 @@ bool StudioHome4Config::Validate(const FStudioHome4Spec& Spec,FString& Error)
     if(Spec.Authoring.EnergyBudgetRegions.Num()>3)return Fail(TEXT("Energy-budget request supports at most three explicitly named boxes."));
     TSet<FString> EnergyRoles;
     for(const auto& Box:Spec.Authoring.EnergyBudgetRegions)
-    {if(!TSet<FString>{TEXT("near"),TEXT("far"),TEXT("air")}.Contains(Box.Role)||EnergyRoles.Contains(Box.Role)||Box.BodyId.IsEmpty()||!Home4TextValid(Box.BodyId)||Box.BodyId!=Spec.Authoring.BodyId||!TSet<FString>{TEXT("root-cells"),TEXT("body-lengths"),TEXT("physical-metres")}.Contains(Box.Units)||Box.Minimum.ContainsNaN()||Box.Maximum.ContainsNaN()||Box.Minimum.GetAbsMax()>1.e12||Box.Maximum.GetAbsMax()>1.e12||(Box.Maximum-Box.Minimum).GetMin()<=0)return Fail(TEXT("Energy boxes need unique near/far/air roles, matching explicit body identity, declared units and increasing finite XYZ bounds."));EnergyRoles.Add(Box.Role);}
+    {
+        if(!TSet<FString>{TEXT("near"),TEXT("far"),TEXT("air")}.Contains(Box.Role)||EnergyRoles.Contains(Box.Role)||Box.BodyId.IsEmpty()||!Home4TextValid(Box.BodyId)||Box.BodyId!=Spec.Authoring.BodyId||!TSet<FString>{TEXT("root-cells"),TEXT("body-lengths"),TEXT("physical-metres")}.Contains(Box.Units)||Box.Minimum.ContainsNaN()||Box.Maximum.ContainsNaN()||Box.Minimum.GetAbsMax()>1.e12||Box.Maximum.GetAbsMax()>1.e12||(Box.Maximum-Box.Minimum).GetMin()<=0)
+            return Fail(TEXT("Energy boxes need unique near/far/air roles, matching explicit body identity, declared units and increasing finite XYZ bounds."));
+        if(Box.Frame!=TEXT("body-CoG-local-XYZ")||!TSet<FString>{TEXT("follow-body"),TEXT("fixed-initial-body")}.Contains(Box.Tracking)||Box.PhaseMask.IsEmpty()||!Home4TextValid(Box.PhaseMask)||
+            (Box.Role==TEXT("far")?Box.Region!=TEXT("shell-excluding-near"):Box.Region!=TEXT("inside-box")))
+            return Fail(TEXT("Energy domains require explicit body-CoG-local-XYZ frame, tracking, integration region and phase mask; far is a shell excluding near."));
+        EnergyRoles.Add(Box.Role);
+    }
     const auto* Near=Spec.Authoring.EnergyBudgetRegions.FindByPredicate([](const auto& B){return B.Role==TEXT("near");});const auto* Far=Spec.Authoring.EnergyBudgetRegions.FindByPredicate([](const auto& B){return B.Role==TEXT("far");});
-    if(Near&&Far&&Near->Units==Far->Units&&Near->BodyId==Far->BodyId)for(int32 Axis=0;Axis<3;++Axis)if(Near->Minimum[Axis]<=Far->Minimum[Axis]||Near->Maximum[Axis]>=Far->Maximum[Axis])return Fail(TEXT("The near energy box must lie strictly inside far when their body/unit frame agrees."));
+    if(Far&&!Near)return Fail(TEXT("A far energy shell requires its explicitly supplied near exclusion box."));
+    if(Near&&Far)
+    {
+        if(Near->BodyId!=Far->BodyId||Near->Frame!=Far->Frame||Near->Tracking!=Far->Tracking||Near->PhaseMask!=Far->PhaseMask)return Fail(TEXT("Near/far energy domains require the same body, frame, tracking and phase mask."));
+        auto RootScale=[&](const FString& Unit)->TOptional<double>
+        {
+            if(Unit==TEXT("root-cells"))return 1.;
+            if(Unit==TEXT("body-lengths")&&Spec.Reference.LengthCells&&*Spec.Reference.LengthCells>0)return *Spec.Reference.LengthCells;
+            if(Unit==TEXT("physical-metres")&&Spec.Units.DxMeters&&*Spec.Units.DxMeters>0)return 1/ *Spec.Units.DxMeters;
+            return {};
+        };
+        double NearScale=1,FarScale=1;
+        if(Near->Units!=Far->Units)
+        {
+            const auto NS=RootScale(Near->Units),FS=RootScale(Far->Units);
+            if(!NS||!FS||!FMath::IsFinite(*NS)||!FMath::IsFinite(*FS))return Fail(TEXT("Mixed-unit near/far energy boxes require explicit positive L and/or dx to verify nesting."));
+            NearScale=*NS;FarScale=*FS;
+        }
+        for(int32 Axis=0;Axis<3;++Axis)
+        {
+            const double NMin=Near->Minimum[Axis]*NearScale,NMax=Near->Maximum[Axis]*NearScale,FMin=Far->Minimum[Axis]*FarScale,FMax=Far->Maximum[Axis]*FarScale;
+            if(!FMath::IsFinite(NMin)||!FMath::IsFinite(NMax)||!FMath::IsFinite(FMin)||!FMath::IsFinite(FMax)||NMin<=FMin||NMax>=FMax)return Fail(TEXT("The near energy box must lie strictly inside far in their verified common body-relative frame."));
+        }
+    }
     if(Spec.Authoring.Zones.Num()>128||Spec.Authoring.Patches.Num()>32)return Fail(TEXT("Authoring region count exceeds the bounded preview contract."));
     TSet<FString> ZoneIds,PatchIds;
     for(const auto& Z:Spec.Authoring.Zones)
@@ -555,7 +597,7 @@ TSharedRef<FJsonObject> StudioHome4Config::ToJSON(const FStudioHome4Spec& Spec)
         Allocations.Add(MakeShared<FJsonValueObject>(Item));
     }
     Home4Section(O,TEXT("performance"))->SetArrayField(TEXT("allocations"),Allocations);
-    Home4FValues Energy;for(const auto& B:Spec.Authoring.EnergyBudgetRegions){auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("role"),B.Role);J->SetStringField(TEXT("bodyId"),B.BodyId);J->SetStringField(TEXT("units"),B.Units);J->SetArrayField(TEXT("minimum"),Home4Components(B.Minimum));J->SetArrayField(TEXT("maximum"),Home4Components(B.Maximum));Energy.Add(MakeShared<FJsonValueObject>(J));}Home4Section(O,TEXT("authoring"))->SetArrayField(TEXT("energyBudgetRegions"),Energy);
+    Home4FValues Energy;for(const auto& B:Spec.Authoring.EnergyBudgetRegions){auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("role"),B.Role);J->SetStringField(TEXT("bodyId"),B.BodyId);J->SetStringField(TEXT("units"),B.Units);J->SetStringField(TEXT("frame"),B.Frame);J->SetStringField(TEXT("tracking"),B.Tracking);J->SetStringField(TEXT("region"),B.Region);J->SetStringField(TEXT("phaseMask"),B.PhaseMask);J->SetArrayField(TEXT("minimum"),Home4Components(B.Minimum));J->SetArrayField(TEXT("maximum"),Home4Components(B.Maximum));Energy.Add(MakeShared<FJsonValueObject>(J));}Home4Section(O,TEXT("authoring"))->SetArrayField(TEXT("energyBudgetRegions"),Energy);
     return O;
 }
 
@@ -654,7 +696,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out
     {
         if(!Auth->TryGetArrayField(TEXT("energyBudgetRegions"),Items)||Items->Num()>3)return false;
         for(const auto& Item:*Items)
-        {if(!Item||Item->Type!=EJson::Object)return false;const auto J=Item->AsObject();FStudioHome4EnergyBudgetRegion B;if(!Strict(J,{TEXT("role"),TEXT("bodyId"),TEXT("units"),TEXT("minimum"),TEXT("maximum")})||!J->TryGetStringField(TEXT("role"),B.Role)||!J->TryGetStringField(TEXT("bodyId"),B.BodyId)||!J->TryGetStringField(TEXT("units"),B.Units))return false;if(!Home4ReadVector(J,TEXT("minimum"),C,bSet)||!bSet)return false;B.Minimum=FVector(C[0],C[1],C[2]);if(!Home4ReadVector(J,TEXT("maximum"),C,bSet)||!bSet)return false;B.Maximum=FVector(C[0],C[1],C[2]);V.Authoring.EnergyBudgetRegions.Add(B);}
+        {if(!Item||Item->Type!=EJson::Object)return false;const auto J=Item->AsObject();FStudioHome4EnergyBudgetRegion B;if(!Strict(J,{TEXT("role"),TEXT("bodyId"),TEXT("units"),TEXT("frame"),TEXT("tracking"),TEXT("region"),TEXT("phaseMask"),TEXT("minimum"),TEXT("maximum")})||!J->TryGetStringField(TEXT("role"),B.Role)||!J->TryGetStringField(TEXT("bodyId"),B.BodyId)||!J->TryGetStringField(TEXT("units"),B.Units)||!J->TryGetStringField(TEXT("frame"),B.Frame)||!J->TryGetStringField(TEXT("tracking"),B.Tracking)||!J->TryGetStringField(TEXT("region"),B.Region)||!J->TryGetStringField(TEXT("phaseMask"),B.PhaseMask))return false;if(!Home4ReadVector(J,TEXT("minimum"),C,bSet)||!bSet)return false;B.Minimum=FVector(C[0],C[1],C[2]);if(!Home4ReadVector(J,TEXT("maximum"),C,bSet)||!bSet)return false;B.Maximum=FVector(C[0],C[1],C[2]);V.Authoring.EnergyBudgetRegions.Add(B);}
     }
     if(Auth->HasField(TEXT("patches")))
     {
