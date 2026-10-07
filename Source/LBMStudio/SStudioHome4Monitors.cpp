@@ -12,6 +12,7 @@
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SLeafWidget.h"
+#include "Widgets/Images/SImage.h"
 #include "Rendering/DrawElements.h"
 #include "InputCoreTypes.h"
 #include <cerrno>
@@ -211,7 +212,11 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
         Sections.Add(Key,Open);auto Content=SNew(SVerticalBox);
         Rows->AddSlot().AutoHeight().Padding(0,12,0,4)[SNew(SButton).Tag(FName(*(TEXT("Home4Section_")+Key.ToString()))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,5))
             .OnClicked_Lambda([this,Key]{Sections[Key]=!Sections[Key];return FReply::Handled();})
-            [SNew(STextBlock).Font(Font(11,true)).ColorAndOpacity(Text).Text_Lambda([this,Key,Title]{return FText::FromString(FString(Sections[Key]?TEXT("▾ "):TEXT("▸ "))+Title);})]];
+            [SNew(SHorizontalBox)
+                +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)
+                    [SNew(SImage).ColorAndOpacity(Text).Image_Lambda([this,Key]{return FCoreStyle::Get().GetBrush(Sections[Key]?TEXT("TreeArrow_Expanded"):TEXT("TreeArrow_Collapsed"));})]
+                +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)
+                    [SNew(STextBlock).Font(Font(11,true)).ColorAndOpacity(Text).Text(FText::FromString(Title))]]];
         Rows->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([this,Key]{return Sections[Key]?EVisibility::Visible:EVisibility::Collapsed;})[Content]];
         return Content;
     };
