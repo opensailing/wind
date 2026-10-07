@@ -138,6 +138,7 @@
     "Studio.Home4.Archive.RejectUnsafeUnknownAndChangedInputs",
     "Studio.Home4.Authoring.AllRecipeProtocolsRetainEveryTypedInput",
     "Studio.Home4.Authoring.AuthoredZoneProfilesPatchesAndMotion",
+    "Studio.Home4.Authoring.CADActiveChildCancellationAndBoundedMetadata",
     "Studio.Home4.Authoring.ClosedMeshFlotationAndHydrostaticStiffness",
     "Studio.Home4.Authoring.ClosedTriangleMassPropertiesAndBoundGeometryIdentity",
     "Studio.Home4.Authoring.ExplicitRecipeRelationshipsAndOriginalParameterBlocks",

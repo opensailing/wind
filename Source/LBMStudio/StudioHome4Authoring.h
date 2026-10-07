@@ -36,6 +36,10 @@ struct FStudioHome4AuthoringRequest
     FGuid ProjectId,CaseId;
     FStudioHome4Spec Spec;
     int32 SampleBudget=32768;
+#if WITH_DEV_AUTOMATION_TESTS
+    /** Worker observer for deterministic owned-child lifecycle tests; never serialized. */
+    TFunction<void(uint32,const FString&)> OnCADProcessStarted;
+#endif
 };
 namespace StudioHome4Authoring
 {

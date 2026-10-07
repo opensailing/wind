@@ -1,6 +1,10 @@
 #include "StudioHome4Authoring.h"
 #include "StudioModel.h"
 #include "StudioFileDialog.h"
+#include "StudioHome4JSON.h"
+#if PLATFORM_MAC
+#include <signal.h>
+#endif
 #include "Async/Async.h"
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/DynamicMeshAABBTree3.h"
@@ -57,6 +61,43 @@ TSharedPtr<FStudioImportedMesh,ESPMode::ThreadSafe> Primitive(const FString& Kin
     for(const FVector& P:M->Positions)M->Bounds+=P;
     return M;
 }
+bool ReadCADBytes(const FString& Path,int64 Limit,const FStudioAssetCancellation& Cancel,TArray64<uint8>& Out,FString& Error,int64 ExactSize=-1)
+{
+    const auto Before=IFileManager::Get().GetTimeStamp(*Path);
+    TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*Path,FILEREAD_Silent));
+    if(!Reader){Error=TEXT("Cannot read this CAD input. Locate an accessible original copy.");return false;}
+    const int64 Size=Reader->TotalSize();
+    if(Size<=0||Size>Limit||(ExactSize>=0&&Size!=ExactSize))
+    {Error=TEXT("CAD input changed size or exceeds its bounded read contract.");return false;}
+    TArray64<uint8> Bytes;Bytes.SetNumUninitialized(Size);
+    for(int64 Offset=0;Offset<Size;)
+    {
+        if(Cancel->load()){Error=TEXT("Geometry preparation cancelled.");return false;}
+        const int64 Count=FMath::Min<int64>(64*1024,Size-Offset);Reader->Serialize(Bytes.GetData()+Offset,Count);
+        if(Reader->IsError()){Error=TEXT("CAD input could not be read completely.");return false;}Offset+=Count;
+    }
+    // The loop uses the opened reader's bounded size, even if the file grows.
+    if(Reader->TotalSize()!=Size||IFileManager::Get().FileSize(*Path)!=Size||Before!=IFileManager::Get().GetTimeStamp(*Path))
+    {Error=TEXT("CAD input changed during its bounded read.");return false;}
+    Out=MoveTemp(Bytes);return true;
+}
+bool StopCADChild(FProcHandle& Process,uint32 OwnedPid)
+{
+    if(!FPlatformProcess::IsProcRunning(Process))return true;
+    FPlatformProcess::TerminateProc(Process,false);
+    const double Grace=FPlatformTime::Seconds()+.25;
+    while(FPlatformProcess::IsProcRunning(Process)&&FPlatformTime::Seconds()<Grace)FPlatformProcess::Sleep(.01f);
+#if PLATFORM_MAC
+    // CreateProc owns this unreaped child; its PID cannot be reused while the
+    // retained handle still reports it running. Never signal an unowned group.
+    if(FPlatformProcess::IsProcRunning(Process)&&OwnedPid>0)::kill(static_cast<pid_t>(OwnedPid),SIGKILL);
+#else
+    if(FPlatformProcess::IsProcRunning(Process))FPlatformProcess::TerminateProc(Process,false);
+#endif
+    const double ReapDeadline=FPlatformTime::Seconds()+2;
+    while(FPlatformProcess::IsProcRunning(Process)&&FPlatformTime::Seconds()<ReapDeadline)FPlatformProcess::Sleep(.01f);
+    return !FPlatformProcess::IsProcRunning(Process);
+}
 bool ReadCAD(const FStudioHome4AuthoringRequest& R,const FStudioAssetCancellation& Cancel,FStudioMeshImportResult& Source,FString& Method)
 {
     const auto& A=R.Spec.Authoring;
@@ -71,21 +112,10 @@ bool ReadCAD(const FStudioHome4AuthoringRequest& R,const FStudioAssetCancellatio
     if(!IFileManager::Get().FileExists(*Python)||!IFileManager::Get().FileExists(*Helper))
     {Source.Error=TEXT("The headless CAD runtime is missing. Package the verified FreeCAD dependency or select its explicit interpreter/library in Geometry.");return false;}
     if(!A.SurfaceTolerance){Source.Error=TEXT("Declare a positive CAD tessellation tolerance in original source units.");return false;}
-    const auto Before=IFileManager::Get().GetTimeStamp(*R.Spec.Geometry.SourcePath);
-    TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*R.Spec.Geometry.SourcePath,FILEREAD_Silent));
-    if(!Reader){Source.Error=TEXT("Cannot read this CAD source. Locate an accessible original copy.");return false;}
-    const int64 Size=Reader->TotalSize();
-    if(Size<=0||Size>StudioMeshImport::MaxFileBytes){Source.Error=TEXT("CAD source must be nonempty and at most 64 MiB.");return false;}
-    TArray64<uint8> Bytes;Bytes.SetNumUninitialized(Size);
-    for(int64 Offset=0;Offset<Size;)
-    {
-        if(Cancel->load()){Source.bCancelled=true;Source.Error=TEXT("Geometry preparation cancelled.");return false;}
-        const int64 Count=FMath::Min<int64>(64*1024,Size-Offset);Reader->Serialize(Bytes.GetData()+Offset,Count);
-        if(Reader->IsError()){Source.Error=TEXT("CAD source could not be copied completely.");return false;}Offset+=Count;
-    }
-    if(Reader->TotalSize()!=Size||IFileManager::Get().FileSize(*R.Spec.Geometry.SourcePath)!=Size||Before!=IFileManager::Get().GetTimeStamp(*R.Spec.Geometry.SourcePath))
-    {Source.Error=TEXT("CAD source changed while copying its private input.");return false;}
-    Reader.Reset();uint8 Digest[32];SHA256(Bytes.GetData(),Size,Digest);Hash=BytesToHex(Digest,32).ToLower();
+    TArray64<uint8> Bytes;
+    if(!ReadCADBytes(R.Spec.Geometry.SourcePath,StudioMeshImport::MaxFileBytes,Cancel,Bytes,Source.Error))
+    {Source.bCancelled=Cancel->load();return false;}
+    const int64 Size=Bytes.Num();uint8 Digest[32];SHA256(Bytes.GetData(),Size,Digest);Hash=BytesToHex(Digest,32).ToLower();
     if(!A.SourceSHA256.IsEmpty()&&!A.SourceSHA256.Equals(Hash,ESearchCase::IgnoreCase))
     {Source.Error=TEXT("Geometry source differs from the pinned SHA256; choose/re-pin the actual source explicitly.");return false;}
     const FString Parent=FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()/TEXT("Home4CAD"));
@@ -94,8 +124,8 @@ bool ReadCAD(const FStudioHome4AuthoringRequest& R,const FStudioAssetCancellatio
     if(!StudioFileDialog::CreateExportStage(Parent,Work,Error)){Source.Error=Error;return false;}
     struct FPrivateCADWork
     {
-        FString Path;
-        ~FPrivateCADWork(){IFileManager::Get().DeleteDirectory(*Path,false,true);}
+        FString Path;bool bRemove=true;
+        ~FPrivateCADWork(){if(bRemove)IFileManager::Get().DeleteDirectory(*Path,false,true);}
     } Cleanup{Work};
     const FString Pinned=Work/(TEXT("original.")+FPaths::GetExtension(R.Spec.Geometry.SourcePath).ToLower());
     const FString Output=Work/TEXT("prepared.stl");
@@ -105,27 +135,46 @@ bool ReadCAD(const FStudioHome4AuthoringRequest& R,const FStudioAssetCancellatio
     auto Quoted=[](FString S){S.ReplaceInline(TEXT("\\"),TEXT("\\\\"));S.ReplaceInline(TEXT("\""),TEXT("\\\""));return TEXT("\"")+S+TEXT("\"");};
     const FString Args=TEXT("-I ")+Quoted(Helper)+TEXT(" --input ")+Quoted(Pinned)+TEXT(" --output ")+Quoted(Output)+TEXT(" --library ")+Quoted(Library)+
         FString::Printf(TEXT(" --tolerance %.17g --expected-sha256 "),*A.SurfaceTolerance)+Hash;
-    FProcHandle Process=FPlatformProcess::CreateProc(*Python,*Args,false,true,true,nullptr,0,nullptr,nullptr);
+    uint32 OwnedPid=0;FProcHandle Process=FPlatformProcess::CreateProc(*Python,*Args,false,true,true,&OwnedPid,0,nullptr,nullptr);
     if(!Process.IsValid()){Source.Error=TEXT("The configured CAD interpreter could not start.");return false;}
+#if WITH_DEV_AUTOMATION_TESTS
+    if(R.OnCADProcessStarted)R.OnCADProcessStarted(OwnedPid,Work);
+#endif
     const double Deadline=FPlatformTime::Seconds()+45;
     while(FPlatformProcess::IsProcRunning(Process))
     {
-        if(Cancel->load()||FPlatformTime::Seconds()>Deadline){FPlatformProcess::TerminateProc(Process,true);Source.Error=Cancel->load()?TEXT("Geometry preparation cancelled."):TEXT("CAD tessellation exceeded its 45-second deadline.");break;}
+        if(Cancel->load()||FPlatformTime::Seconds()>Deadline)
+        {
+            Source.bCancelled=Cancel->load();Source.Error=Source.bCancelled?TEXT("Geometry preparation cancelled."):TEXT("CAD tessellation exceeded its 45-second deadline.");
+            if(!StopCADChild(Process,OwnedPid)){Cleanup.bRemove=false;Source.Error+=TEXT(" The owned child did not stop within its termination bound; its private cache was retained.");}
+            break;
+        }
         FPlatformProcess::Sleep(.02f);
     }
-    int32 Code=1;FPlatformProcess::GetProcReturnCode(Process,&Code);FPlatformProcess::CloseProc(Process);
+    int32 Code=1;
+    // Mac GetProcReturnCode asserts/waits for an active child. Ask only after
+    // IsProcRunning has observed and reaped its exit.
+    if(!FPlatformProcess::IsProcRunning(Process))FPlatformProcess::GetProcReturnCode(Process,&Code);
+    FPlatformProcess::CloseProc(Process);
     if(Code==0&&Source.Error.IsEmpty())
     {
+        TArray64<uint8> Metadata;
+        if(!ReadCADBytes(Output+TEXT(".json"),65536,Cancel,Metadata,Source.Error))
+        {Source.bCancelled=Cancel->load();return false;}
         FString JSON;TSharedPtr<FJsonObject> Manifest;FString Original,Prepared,Kernel,InputPath;
-        if(!FFileHelper::LoadFileToString(JSON,*(Output+TEXT(".json")))||JSON.Len()>65536||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(JSON),Manifest)||
+        if(StudioHome4JSON::UTF8(Metadata.GetData(),int32(Metadata.Num())))
+        {const FUTF8ToTCHAR Text(reinterpret_cast<const ANSICHAR*>(Metadata.GetData()),int32(Metadata.Num()));JSON=FString(Text.Length(),Text.Get());}
+        if(JSON.IsEmpty()||!StudioHome4JSON::Preflight(JSON,8)||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(JSON),Manifest)||!Manifest||
             !Manifest->TryGetStringField(TEXT("source_sha256"),Original)||Original!=Hash||!Manifest->TryGetStringField(TEXT("source_path"),InputPath)||!FPaths::IsSamePath(InputPath,Pinned)||
             !Manifest->TryGetStringField(TEXT("output_sha256"),Prepared)||!Manifest->TryGetStringField(TEXT("kernel_version"),Kernel))
             Source.Error=TEXT("CAD preparation returned invalid private-input/kernel provenance.");
         else
         {
-            FString FinalHash;
-            if(!StudioAssets::HashFile(R.Spec.Geometry.SourcePath,Cancel,FinalHash,Error)||FinalHash!=Hash)
-            {Source.Error=Error.IsEmpty()?TEXT("Original CAD source changed during preparation."):Error;Source.bCancelled=Cancel->load();return false;}
+            TArray64<uint8> FinalBytes;
+            if(!ReadCADBytes(R.Spec.Geometry.SourcePath,StudioMeshImport::MaxFileBytes,Cancel,FinalBytes,Source.Error,Size))
+            {Source.bCancelled=Cancel->load();return false;}
+            SHA256(FinalBytes.GetData(),FinalBytes.Num(),Digest);FinalBytes.Empty();
+            if(BytesToHex(Digest,32).ToLower()!=Hash){Source.Error=TEXT("Original CAD source changed during preparation.");return false;}
             Source=StudioMeshImport::Read(Output,Cancel);
             if(Source.IsValid()&&Source.SHA256!=Prepared)Source.Error=TEXT("Prepared CAD mesh differs from its output SHA256.");
             if(Source.IsValid()){Source.SHA256=Hash;Source.Path=R.Spec.Geometry.SourcePath;Method=TEXT("FreeCAD/OpenCASCADE ")+Kernel+TEXT(" · source-pinned tessellation");}
