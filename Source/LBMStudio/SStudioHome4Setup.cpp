@@ -3,6 +3,7 @@
 #include "StudioModel.h"
 #include "StudioTheme.h"
 #include "StudioColor.h"
+#include "SStudioHome4TankPresets.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SLeafWidget.h"
 #include "Widgets/Layout/SBorder.h"
@@ -60,6 +61,7 @@ void SStudioHome4Setup::Construct(const FArguments& A)
     }
     if(Page==TEXT("Boundaries & Zones"))
     {
+        Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SStudioHome4TankPresets).Session(Session).Authoring(Authoring)];
         Rows->AddSlot().AutoHeight()[StudioUI::Label(TEXT("Reviewed zone geometry and named boundary faces"),14,StudioUI::Text,true)];
         Action(TEXT("Realize declared zone widths"),TEXT("Home4Setup.zones"),[this]{RealizeZones();});
         Rows->AddSlot().AutoHeight().Padding(0,8)[Buttons];
