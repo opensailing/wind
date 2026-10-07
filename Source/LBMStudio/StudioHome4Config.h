@@ -39,6 +39,7 @@ struct FStudioHome4Fluids
 struct FStudioHome4Geometry
 {
     FString SourcePath, PatchClassification, SdfBackend, CptPath;
+    FString InertiaFrame,MassPropertySource; // Empty retains legacy body-frame contract; source-xyz is explicit posed geometry.
     TOptional<double> HeelDegrees, TrimDegrees, YawDegrees, SinkCells, BandCells, Refine;
     TOptional<bool> Float, NoEquilibrate;
     FString BodyMotion, RetabulationPolicy;
@@ -48,12 +49,12 @@ struct FStudioHome4Geometry
     // Translation uses source XYZ root cells; rotations use roll/pitch/yaw degrees.
     // These requests have no asserted solver/driver encoding.
     TOptional<double> HeaveAmplitudeCells, RollAmplitudeDegrees, PitchAmplitudeDegrees;
-    TOptional<double> MotionFrequencyCyclesPerStep, MotionPhaseDegrees, SpinRadiansPerStep;
+    TOptional<double> MotionFrequencyCyclesPerStep, MotionPhaseDegrees, SpinRadiansPerStep,SpinRampSteps;
     TOptional<FVector> CenterOfGravity;
     TOptional<FVector> InitialPositionCells, InitialAttitudeDegrees;
     TOptional<FVector> InitialVelocityCellsPerStep, InitialAngularVelocityRadiansPerStep;
     TArray<double> Stiffness; // Empty or 36 row-major entries for a 6-DOF stiffness matrix.
-    TOptional<FVector> InertiaDiagonal, InertiaProducts; // Body-frame LU, xy/xz/yz products.
+    TOptional<FVector> InertiaDiagonal, InertiaProducts; // LU about CoG, xy/xz/yz products; frame declared by InertiaFrame.
 };
 struct FStudioHome4Lattice
 {
@@ -116,10 +117,18 @@ struct FStudioHome4AuthoredPatch
     FIntVector Extents=FIntVector(16);
     bool bFollowBody=false;
 };
+struct FStudioHome4EnergyBudgetRegion
+{
+    FString Role,BodyId,Units; // Unique near/far/air; explicit root-cells/body-lengths/physical-metres.
+    FVector Minimum=FVector::ZeroVector,Maximum=FVector::ZeroVector; // Body-relative XYZ box; no inferred world origin.
+};
 struct FStudioHome4Authoring
 {
     FString BodyId=TEXT("body"), GeometryAssetId, SourceSHA256;
     FString Primitive, TessellatorPython, TessellatorLibrary, PreparationMethod;
+    TArray<FStudioHome4EnergyBudgetRegion> EnergyBudgetRegions;
+    FString BenchmarkConvention; // Explicit frontend reference choice, never an inferred driver default.
+    TOptional<double> BenchmarkDraftCells;
     TOptional<double> MetersPerSourceUnit, WaterlineCells, SurfaceTolerance;
     TOptional<double> DomainLengthRatio, DomainWidthRatio, DomainHeightRatio, SpongeLengthRatio;
     TOptional<FVector> PrimitiveSizeCells;

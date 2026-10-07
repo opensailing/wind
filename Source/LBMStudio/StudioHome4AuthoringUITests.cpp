@@ -6,6 +6,7 @@
 #include "StudioHeadlessSlate.h"
 #include "StudioModel.h"
 #include "StudioHome4Authoring.h"
+#include "StudioHome4Setup.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "InputCoreTypes.h"
@@ -75,4 +76,34 @@ bool FStudioHome4SettingsUI::RunTest(const FString&)
     FStudioProject P;FString E;TestTrue(TEXT("Viewer defaults persist with the project"),StudioProjectIO::Parse(StudioProjectIO::Serialize(M->SnapshotProject()),P,E)&&P.bHasViewerDefaults);
     return !HasAnyErrors();
 }
+namespace StudioHome4AuthoringCompletionTestsLocal
+{
+struct FActualBody final:IAutomationLatentCommand
+{
+    FAutomationTestBase* Test;TSharedPtr<FStudioModel> Model;TSharedPtr<FStudioHome4Session> Draft;TSharedPtr<FStudioHome4AuthoringSession> Authoring;double Deadline=FPlatformTime::Seconds()+15;
+    explicit FActualBody(FAutomationTestBase* T):Test(T)
+    {Model=MakeShared<FStudioModel>(FPaths::ProjectDir()/TEXT("tmp/debug/home4-mass-native")/FGuid::NewGuid().ToString());Draft=StudioHome4AuthoringUITestsLocal::Setup(Model);Authoring=MakeShared<FStudioHome4AuthoringSession>(Draft);Authoring->Request();}
+    bool Update()override
+    {
+        Authoring->Poll();if(Authoring->IsPreparing()&&FPlatformTime::Seconds()<Deadline)return false;const auto P=Authoring->Preview();Test->TestTrue(*Authoring->Status,P&&P->Mesh);if(!P||!P->Mesh)return true;
+        auto Widget=SNew(SStudioHome4Authoring).Session(Authoring).Page(TEXT("Bodies"));FStudioHeadlessSlate UI(*Test,Widget,FVector2D(690,800));UI.Type(TEXT("Home4MassDensity"),TEXT("2"));UI.Press(TEXT("Home4AdoptMass"));FStudioHome4Spec S;FString E;Test->TestTrue(*E,Draft->Build(S,E));Test->TestTrue(TEXT("Native mass action changes actual retained mass and provenance"),S.Geometry.BodyMass&&FMath::IsNearlyEqual(*S.Geometry.BodyMass,2*4.5*4.5*4.5,1e-9)&&S.Geometry.InertiaFrame==TEXT("source-xyz")&&S.Geometry.MassPropertySource.Contains(P->RequestSHA256));Test->TestTrue(TEXT("Native action remains a draft until Apply"),Draft->IsDirty());
+        UI.Press(TEXT("Home4Preview.motion"));UI.Press(TEXT("Home4PreviewPlay"));Widget->Tick(FGeometry(),0,.5f);Test->TestTrue(TEXT("Actual geometric play changes time instead of a static label"),UI.Text(TEXT("Home4PreviewPlayLabel")).Contains(TEXT("step 15")));return true;
+    }
+};
+struct FActualWave final:IAutomationLatentCommand
+{
+    FAutomationTestBase* Test;TSharedPtr<FStudioModel> Model;TSharedPtr<FStudioHome4Session> Draft;TSharedPtr<FStudioHome4AuthoringSession> Authoring;double Deadline=FPlatformTime::Seconds()+15;
+    explicit FActualWave(FAutomationTestBase* T):Test(T)
+    {Model=MakeShared<FStudioModel>(FPaths::ProjectDir()/TEXT("tmp/debug/home4-wave-native")/FGuid::NewGuid().ToString());Draft=MakeShared<FStudioHome4Session>(Model);Draft->ApplyRecipe(TEXT("breaking-wave-banari"));Draft->Set(TEXT("lattice.extents"),TEXT("80,24,24"));Draft->Set(TEXT("authoring.waveModel"),TEXT("linear-gravity"));Draft->Set(TEXT("authoring.waveAxis"),TEXT("x"));Draft->Set(TEXT("authoring.waveLengthCells"),TEXT("40"));Draft->Set(TEXT("authoring.waveDepthCells"),TEXT("12"));Draft->Set(TEXT("authoring.waveAmplitudeCells"),TEXT("1"));Draft->Set(TEXT("authoring.wavePeriodSteps"),TEXT(""));Draft->Set(TEXT("reference.wavePhaseSpeed"),TEXT(""));Draft->Set(TEXT("reference.waveSlope"),TEXT(""));Draft->Set(TEXT("fluids.gravity"),TEXT("0.001"));Draft->Set(TEXT("authoring.waterlineCells"),TEXT("12"));Draft->Set(TEXT("authoring.pierceMode"),TEXT("phase-pinned"));Authoring=MakeShared<FStudioHome4AuthoringSession>(Draft);Authoring->Request();}
+    bool Update()override
+    {Authoring->Poll();if(Authoring->IsPreparing()&&FPlatformTime::Seconds()<Deadline)return false;const auto P=Authoring->Preview();Test->TestTrue(*Authoring->Status,P&&P->IsValid()&&!P->Mesh);if(!P)return true;
+        TArray<FVector> Curve;TArray<FStudioHome4BoundaryFace> Faces;FString E;Test->TestTrue(*E,StudioHome4Setup::WaveCurve(P->Spec,0,128,Curve,E));Test->TestTrue(*E,StudioHome4Setup::BoundaryFaces(P->Spec,Faces,E));Test->TestTrue(TEXT("Real computed wave and declared pinned side faces drive meshless render"),Curve.Num()==129&&Curve[0].Z==13&&Faces.Num()==6&&Faces[2].PhaseConstraint.Contains(TEXT("phase-pinned")));
+        auto Widget=SNew(SStudioHome4Authoring).Session(Authoring).Page(TEXT("Boundaries & Zones"));FStudioHeadlessSlate UI(*Test,Widget,FVector2D(690,780));UI.Press(TEXT("Home4Preview.tank"));UI.Focus(TEXT("Home4PreparedGeometry"));UI.Key(EKeys::Two);UI.Layout();Test->TestTrue(TEXT("Shared orbit camera renders actual tank-only prepared request"),Authoring->Camera().Yaw==-PI/2.);Test->TestTrue(TEXT("No fabricated body mesh is described"),UI.Text(TEXT("Home4PreparedDetails")).Contains(TEXT("Tank-only")));return true;}
+};
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4ActualBodyUI,"Studio.HeadlessUI.Home4.Authoring.ActualMassAdoptionAndGeometricPlay",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4ActualBodyUI::RunTest(const FString&){ADD_LATENT_AUTOMATION_COMMAND(StudioHome4AuthoringCompletionTestsLocal::FActualBody(this));return true;}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4ActualWaveUI,"Studio.HeadlessUI.Home4.Authoring.MeshlessWaveAndPhaseFaceRendering",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4ActualWaveUI::RunTest(const FString&){ADD_LATENT_AUTOMATION_COMMAND(StudioHome4AuthoringCompletionTestsLocal::FActualWave(this));return true;}
+
 #endif

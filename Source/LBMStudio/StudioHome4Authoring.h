@@ -27,9 +27,9 @@ struct FStudioHome4AuthoringPreview
     TArray<FVector> SdfSurfacePositions;TArray<int32> SdfSurfaceIndices; // Interpolated zero surface of actual sampled SDF.
     TArray<FStudioHome4PreviewRegion> Regions;
     TOptional<FStudioHome4Hydrostatics> Hydrostatics;
-    int64 RequestedCells=0;int32 Stride=1;
+    int64 RequestedCells=0;int32 Stride=1;double GeometricPreparationSeconds=0;
     bool bClosed=false,bCancelled=false,bCacheHit=false;
-    bool IsValid()const{return Mesh.IsValid()&&Error.IsEmpty()&&!bCancelled;}
+    bool IsValid()const{return (Mesh.IsValid()||Tank.IsValid)&&Error.IsEmpty()&&!bCancelled;}
 };
 struct FStudioHome4AuthoringRequest
 {

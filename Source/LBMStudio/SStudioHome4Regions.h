@@ -11,6 +11,9 @@ public:
 private:
     TSharedPtr<FStudioHome4Session> Session;TSharedPtr<SVerticalBox> Rows;bool bPatches=false;int32 Selected=0,ShownCount=-1;
     TMap<FString,FString> Pending;
+    FString ShownSHA;
+    EStudioHome4UnitDisplay CoordinateDisplay=EStudioHome4UnitDisplay::Lattice;
+    EStudioHome4UnitDisplay RequestedDisplay=EStudioHome4UnitDisplay::Lattice;
     FString PendingKey()const{return bPatches?TEXT("region.patches"):TEXT("region.zones");}
     void KeepPending();
     void Refresh();void Add();void Remove();bool Commit();

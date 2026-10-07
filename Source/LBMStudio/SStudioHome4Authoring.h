@@ -13,8 +13,8 @@ public:
     void Tick(const FGeometry&,double,float)override;
 private:
     TSharedPtr<FStudioHome4AuthoringSession> Session;
-    FString Page,Mode=TEXT("mesh"),TimeText=TEXT("0");double Step=0;
-    int32 SelectedLink=0;
-    FString Detail()const;
-    void PinSource();void ApplyEquilibrium();
+    FString Page,Mode=TEXT("mesh"),TimeText=TEXT("0"),DensityText;double Step=0;bool bPlaying=false;
+    int32 SelectedLink=0;EStudioHome4UnitDisplay DensityDisplay=EStudioHome4UnitDisplay::Lattice;
+    FString Detail()const;FString ReadoutTooltip()const;
+    void PinSource();void ApplyEquilibrium();void AdoptMass();void AdoptStiffness();
 };

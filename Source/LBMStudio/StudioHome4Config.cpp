@@ -86,6 +86,7 @@ namespace
             N("geometry","motionFrequencyCyclesPerStep",Geometry.MotionFrequencyCyclesPerStep,"Bodies","cycles/step",0,1.e12),
             N("geometry","motionPhaseDegrees",Geometry.MotionPhaseDegrees,"Bodies","degrees",-360,360),
             N("geometry","spinRadiansPerStep",Geometry.SpinRadiansPerStep,"Bodies","radians/step",-1.e12,1.e12),
+            N("geometry","spinRampSteps",Geometry.SpinRampSteps,"Bodies","steps",0,1.e12),
             N("lattice","padUp",Lattice.PadUp,"Lattice","L",0,1.e12),
             N("lattice","padDown",Lattice.PadDown,"Lattice","L",0,1.e12),
             N("lattice","padSide",Lattice.PadSide,"Lattice","L",0,1.e12),
@@ -125,7 +126,8 @@ namespace
             N("authoring","waveLengthCells",Authoring.WaveLengthCells,"Boundaries & Zones","cells",0,1.e12),
             N("authoring","wavePeriodSteps",Authoring.WavePeriodSteps,"Boundaries & Zones","steps",0,1.e12),
             N("authoring","waveDepthCells",Authoring.WaveDepthCells,"Boundaries & Zones","cells",0,1.e12),
-            N("authoring","waveAmplitudeCells",Authoring.WaveAmplitudeCells,"Boundaries & Zones","cells",0,1.e12)
+            N("authoring","waveAmplitudeCells",Authoring.WaveAmplitudeCells,"Boundaries & Zones","cells",0,1.e12),
+            N("authoring","benchmarkDraftCells",Authoring.BenchmarkDraftCells,"Bodies","cells",0,1.e12)
         }; return V;
     }
 #undef N
@@ -171,6 +173,7 @@ namespace
         static const TArray<Home4FStringField> V = {
             S("","recipeId",RecipeId,"Projects"), S("","lineageId",LineageId,"Projects"),
             S("","parentRunId",ParentRunId,"Projects"), S("","parentSpecSHA256",ParentSpecSHA256,"Projects"), S("","branchId",BranchId,"Projects"),
+            S("authoring","benchmarkConvention",Authoring.BenchmarkConvention,"Bodies"),
             S("authoring","bodyId",Authoring.BodyId,"Bodies"), S("authoring","geometryAssetId",Authoring.GeometryAssetId,"Geometry"),
             S("authoring","sourceSHA256",Authoring.SourceSHA256,"Geometry"), S("authoring","primitive",Authoring.Primitive,"Geometry"),
             S("authoring","tessellatorPython",Authoring.TessellatorPython,"Geometry"), S("authoring","tessellatorLibrary",Authoring.TessellatorLibrary,"Geometry"),
@@ -181,6 +184,7 @@ namespace
             S("fluids","tauMethod",Fluids.TauMethod,"Fluids & Interface"), S("fluids","surfaceTensionForm",Fluids.SurfaceTensionForm,"Fluids & Interface"),
             S("geometry","sourcePath",Geometry.SourcePath,"Geometry"), S("geometry","patchClassification",Geometry.PatchClassification,"Geometry"),
             S("geometry","sdfBackend",Geometry.SdfBackend,"Geometry"), S("geometry","cptPath",Geometry.CptPath,"Geometry"),
+            S("geometry","inertiaFrame",Geometry.InertiaFrame,"Bodies"), S("geometry","massPropertySource",Geometry.MassPropertySource,"Bodies"),
             S("geometry","bodyMotion",Geometry.BodyMotion,"Bodies"), S("geometry","retabulationPolicy",Geometry.RetabulationPolicy,"Bodies"),
             S("zones","massCorrection",Zones.MassCorrection,"Boundaries & Zones"), S("zones","pierceBoundary",Zones.PierceBoundary,"Boundaries & Zones"),
             S("zones","walls",Zones.Walls,"Boundaries & Zones"), S("zones","inlet",Zones.Inlet,"Boundaries & Zones"),
@@ -306,10 +310,11 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("rhoHeavy")||F.Key==TEXT("rhoLight")){F.bQuantity=true;F.Quantity=Q::Density;}
             if(F.Key==TEXT("sigma")){F.bQuantity=true;F.Quantity=Q::SurfaceTension;}
             if(F.Key==TEXT("bodyMass")){F.bQuantity=true;F.Quantity=Q::Mass;}
-            if(F.Key.StartsWith(TEXT("inertia"))){F.bQuantity=true;F.Quantity=Q::Inertia;}
+            if(F.Key==TEXT("inertiaDiagonal")||F.Key==TEXT("inertiaProducts")){F.bQuantity=true;F.Quantity=Q::Inertia;}
             if(F.Key==TEXT("stiffness")){F.bQuantity=false;}
             if(F.Key==TEXT("retabulateEvery")||F.Key==TEXT("measureEvery")||F.Key==TEXT("printEvery")||F.Key==TEXT("vizEvery")||F.Key==TEXT("restartEvery")||F.Key==TEXT("saveEvery")||F.Key==TEXT("steps")){F.bQuantity=true;F.Quantity=Q::Time;}
             if(F.Key==TEXT("extents")||F.Key==TEXT("levelCells")||F.Key==TEXT("streamwiseCells"))F.bQuantity=false;
+            if(F.Key==TEXT("benchmarkConvention"))F.Choices={TEXT(""),TEXT("diameter-reference"),TEXT("spin-surface-diameter"),TEXT("spin-omega-radius"),TEXT("sedimentation-diameter-fluid-heavy"),TEXT("barge-beam-draft"),TEXT("foil-cog-chord")};
             if(F.Key==TEXT("primitive"))F.Choices={TEXT(""),TEXT("box"),TEXT("cylinder"),TEXT("sphere")};
             if(F.Key==TEXT("zoneUnits"))F.Choices={TEXT(""),TEXT("root-cells"),TEXT("body-lengths"),TEXT("physical-metres")};
             if(F.Key==TEXT("boundaryWall"))F.Choices={TEXT("no-slip"),TEXT("free-slip")};
@@ -325,6 +330,7 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("sdfBackend"))F.Choices={TEXT(""),TEXT("libigl"),TEXT("CPT")};
             if(F.Key==TEXT("massCorrection"))F.Choices={TEXT(""),TEXT("beach"),TEXT("global"),TEXT("off")};
             if(F.Key==TEXT("sneqMode"))F.Choices={TEXT(""),TEXT("dorschner"),TEXT("derived")};
+            if(F.Key==TEXT("inertiaFrame"))F.Choices={TEXT(""),TEXT("body-xyz"),TEXT("source-xyz")};
             if(F.Key==TEXT("bodyMotion"))F.Choices={TEXT(""),TEXT("fixed"),TEXT("forced-heave"),TEXT("forced-pitch"),TEXT("forced-roll"),TEXT("forced-spin"),TEXT("free")};
             if(F.Key==TEXT("surfaceTensionForm"))F.Help=TEXT("Force form request (the feedback identifies muphi). Exact driver support is unverified.");
             if(F.Key==TEXT("mobility"))F.Help=TEXT("Root-level mobility. For MD, finest mobility is root mobility times 2^(levels-1).");
@@ -467,13 +473,31 @@ bool StudioHome4Config::Validate(const FStudioHome4Spec& Spec,FString& Error)
     if(Spec.Authoring.PrimitiveSizeCells&&(Spec.Authoring.PrimitiveSizeCells->ContainsNaN()||Spec.Authoring.PrimitiveSizeCells->GetMin()<=0||Spec.Authoring.PrimitiveSizeCells->GetMax()>1.e9))return Fail(TEXT("Primitive sizes must be finite positive root-cell dimensions."));
     if(Spec.Geometry.InertiaDiagonal&&(Spec.Geometry.InertiaDiagonal->ContainsNaN()||Spec.Geometry.InertiaDiagonal->GetMin()<=0))return Fail(TEXT("Principal body inertia components must be positive and finite."));
     if(Spec.Geometry.InertiaProducts&&(Spec.Geometry.InertiaProducts->ContainsNaN()||Spec.Geometry.InertiaProducts->GetAbsMax()>1.e12))return Fail(TEXT("Inertia products must be bounded and finite."));
+    if(Spec.Geometry.InertiaProducts&&!Spec.Geometry.InertiaDiagonal)return Fail(TEXT("Inertia products require the full inertia diagonal in the same declared frame."));
+    if(Spec.Geometry.InertiaDiagonal)
+    {
+        const FVector D=*Spec.Geometry.InertiaDiagonal,P=Spec.Geometry.InertiaProducts.Get(FVector::ZeroVector);const double Scale=FMath::Max(1.,D.GetAbsMax()),Eps=Scale*1e-10;
+        // I has negative products; positive kinetic energy is required. The
+        // covariance J=trace(I)/2*identity-I also must be positive semidefinite.
+        const double XY=-P.X,XZ=-P.Y,YZ=-P.Z,Det=D.X*D.Y*D.Z+2*XY*XZ*YZ-D.X*YZ*YZ-D.Y*XZ*XZ-D.Z*XY*XY;
+        if(D.X<=0||D.X*D.Y-XY*XY<=0||Det<=0)return Fail(TEXT("Body inertia must be a positive definite symmetric tensor about the declared CoG."));
+        const FVector J((D.Y+D.Z-D.X)*.5,(D.X+D.Z-D.Y)*.5,(D.X+D.Y-D.Z)*.5);
+        const double JD=J.X*J.Y*J.Z+2*P.X*P.Y*P.Z-J.X*P.Z*P.Z-J.Y*P.Y*P.Y-J.Z*P.X*P.X;
+        if(J.GetMin()<-Eps||J.X*J.Y-P.X*P.X<-Eps*Scale||J.X*J.Z-P.Y*P.Y<-Eps*Scale||J.Y*J.Z-P.Z*P.Z<-Eps*Scale||JD<-Eps*Scale*Scale)return Fail(TEXT("Body inertia violates physical principal-moment bounds for a nonnegative mass distribution."));
+    }
+    if(Spec.Authoring.EnergyBudgetRegions.Num()>3)return Fail(TEXT("Energy-budget request supports at most three explicitly named boxes."));
+    TSet<FString> EnergyRoles;
+    for(const auto& Box:Spec.Authoring.EnergyBudgetRegions)
+    {if(!TSet<FString>{TEXT("near"),TEXT("far"),TEXT("air")}.Contains(Box.Role)||EnergyRoles.Contains(Box.Role)||Box.BodyId.IsEmpty()||!Home4TextValid(Box.BodyId)||Box.BodyId!=Spec.Authoring.BodyId||!TSet<FString>{TEXT("root-cells"),TEXT("body-lengths"),TEXT("physical-metres")}.Contains(Box.Units)||Box.Minimum.ContainsNaN()||Box.Maximum.ContainsNaN()||Box.Minimum.GetAbsMax()>1.e12||Box.Maximum.GetAbsMax()>1.e12||(Box.Maximum-Box.Minimum).GetMin()<=0)return Fail(TEXT("Energy boxes need unique near/far/air roles, matching explicit body identity, declared units and increasing finite XYZ bounds."));EnergyRoles.Add(Box.Role);}
+    const auto* Near=Spec.Authoring.EnergyBudgetRegions.FindByPredicate([](const auto& B){return B.Role==TEXT("near");});const auto* Far=Spec.Authoring.EnergyBudgetRegions.FindByPredicate([](const auto& B){return B.Role==TEXT("far");});
+    if(Near&&Far&&Near->Units==Far->Units&&Near->BodyId==Far->BodyId)for(int32 Axis=0;Axis<3;++Axis)if(Near->Minimum[Axis]<=Far->Minimum[Axis]||Near->Maximum[Axis]>=Far->Maximum[Axis])return Fail(TEXT("The near energy box must lie strictly inside far when their body/unit frame agrees."));
     if(Spec.Authoring.Zones.Num()>128||Spec.Authoring.Patches.Num()>32)return Fail(TEXT("Authoring region count exceeds the bounded preview contract."));
     TSet<FString> ZoneIds,PatchIds;
     for(const auto& Z:Spec.Authoring.Zones)
     {
         if(Z.Id.IsEmpty()||!Home4TextValid(Z.Id)||ZoneIds.Contains(Z.Id)||Z.Minimum.ContainsNaN()||Z.Maximum.ContainsNaN()||Z.Minimum.GetAbsMax()>1.e9||Z.Maximum.GetAbsMax()>1.e9||
             Z.Maximum.X<=Z.Minimum.X||Z.Maximum.Y<=Z.Minimum.Y||Z.Maximum.Z<=Z.Minimum.Z||!FMath::IsFinite(Z.Strength)||Z.Strength<0||Z.Strength>1||!FMath::IsFinite(Z.LevelExponent)||FMath::Abs(Z.LevelExponent)>16||
-            !TSet<FString>{TEXT("sponge"),TEXT("beach"),TEXT("floor"),TEXT("wave-absorption")}.Contains(Z.Kind)||!TSet<FString>{TEXT("linear"),TEXT("cubic"),TEXT("constant")}.Contains(Z.Profile)||!TSet<FString>{TEXT("x"),TEXT("y"),TEXT("z")}.Contains(Z.Axis))return Fail(TEXT("Authored zones need unique IDs, valid bounds, declared profiles and strength in [0,1]."));
+            !TSet<FString>{TEXT("sponge"),TEXT("beach"),TEXT("floor"),TEXT("wave-absorption")}.Contains(Z.Kind)||!TSet<FString>{TEXT("linear"),TEXT("cubic"),TEXT("constant"),TEXT("linear-reverse"),TEXT("cubic-reverse")}.Contains(Z.Profile)||!TSet<FString>{TEXT("x"),TEXT("y"),TEXT("z")}.Contains(Z.Axis))return Fail(TEXT("Authored zones need unique IDs, valid bounds, declared profiles and strength in [0,1]."));
         ZoneIds.Add(Z.Id);
     }
     for(const auto& P:Spec.Authoring.Patches)
@@ -531,6 +555,7 @@ TSharedRef<FJsonObject> StudioHome4Config::ToJSON(const FStudioHome4Spec& Spec)
         Allocations.Add(MakeShared<FJsonValueObject>(Item));
     }
     Home4Section(O,TEXT("performance"))->SetArrayField(TEXT("allocations"),Allocations);
+    Home4FValues Energy;for(const auto& B:Spec.Authoring.EnergyBudgetRegions){auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("role"),B.Role);J->SetStringField(TEXT("bodyId"),B.BodyId);J->SetStringField(TEXT("units"),B.Units);J->SetArrayField(TEXT("minimum"),Home4Components(B.Minimum));J->SetArrayField(TEXT("maximum"),Home4Components(B.Maximum));Energy.Add(MakeShared<FJsonValueObject>(J));}Home4Section(O,TEXT("authoring"))->SetArrayField(TEXT("energyBudgetRegions"),Energy);
     return O;
 }
 
@@ -548,7 +573,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out
     for(const TCHAR* Name:Home4Sections){Allowed.FindOrAdd(TEXT("")).Add(Name);if(!Home4Section(O,Name))return false;}
     for(const auto& F:Fields())Allowed.FindOrAdd(F.Section).Add(F.Key);
     Allowed.FindOrAdd(TEXT("performance")).Add(TEXT("allocations"));
-    Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("zones"));Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("patches"));
+    Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("energyBudgetRegions"));Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("zones"));Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("patches"));
     for(const auto& Pair:Allowed)
     {
         const auto Obj=Home4Section(O,Pair.Key);
@@ -573,7 +598,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out
         bool B;if(J->Type!=EJson::Boolean||!J->TryGetBool(B))return false;F.Access(V)=B;
     }
     for(const auto& F:Home4Strings())
-    {const auto J=Home4Section(O,F.Field.Section)->TryGetField(F.Field.Key);if(!J){if(F.Field.Section==TEXT("authoring")||F.Field.Key==TEXT("parentRunId")||F.Field.Key==TEXT("parentSpecSHA256")||F.Field.Key==TEXT("branchId")||F.Field.Key==TEXT("outputEstimateSource")||F.Field.Key==TEXT("outputEstimateAssumption"))continue;return false;}if(J->Type!=EJson::String||!J->TryGetString(F.Access(V)))return false;}
+    {const auto J=Home4Section(O,F.Field.Section)->TryGetField(F.Field.Key);if(!J){if(F.Field.Section==TEXT("authoring")||F.Field.Key==TEXT("parentRunId")||F.Field.Key==TEXT("parentSpecSHA256")||F.Field.Key==TEXT("branchId")||F.Field.Key==TEXT("outputEstimateSource")||F.Field.Key==TEXT("outputEstimateAssumption")||F.Field.Key==TEXT("inertiaFrame")||F.Field.Key==TEXT("massPropertySource"))continue;return false;}if(J->Type!=EJson::String||!J->TryGetString(F.Access(V)))return false;}
     FString Display,Backend;
     if(Home4Section(O,TEXT("units"))->TryGetField(TEXT("display"))==nullptr||Home4Section(O,TEXT("run"))->TryGetField(TEXT("backend"))==nullptr)return false;
     if(Home4Section(O,TEXT("units"))->TryGetField(TEXT("display"))->Type!=EJson::String||Home4Section(O,TEXT("run"))->TryGetField(TEXT("backend"))->Type!=EJson::String)return false;
@@ -624,6 +649,12 @@ bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out
             if(!Home4ReadVector(J,TEXT("minimum"),C,bSet)||!bSet)return false;Z.Minimum=FVector(C[0],C[1],C[2]);
             if(!Home4ReadVector(J,TEXT("maximum"),C,bSet)||!bSet)return false;Z.Maximum=FVector(C[0],C[1],C[2]);V.Authoring.Zones.Add(MoveTemp(Z));
         }
+    }
+    if(Auth->HasField(TEXT("energyBudgetRegions")))
+    {
+        if(!Auth->TryGetArrayField(TEXT("energyBudgetRegions"),Items)||Items->Num()>3)return false;
+        for(const auto& Item:*Items)
+        {if(!Item||Item->Type!=EJson::Object)return false;const auto J=Item->AsObject();FStudioHome4EnergyBudgetRegion B;if(!Strict(J,{TEXT("role"),TEXT("bodyId"),TEXT("units"),TEXT("minimum"),TEXT("maximum")})||!J->TryGetStringField(TEXT("role"),B.Role)||!J->TryGetStringField(TEXT("bodyId"),B.BodyId)||!J->TryGetStringField(TEXT("units"),B.Units))return false;if(!Home4ReadVector(J,TEXT("minimum"),C,bSet)||!bSet)return false;B.Minimum=FVector(C[0],C[1],C[2]);if(!Home4ReadVector(J,TEXT("maximum"),C,bSet)||!bSet)return false;B.Maximum=FVector(C[0],C[1],C[2]);V.Authoring.EnergyBudgetRegions.Add(B);}
     }
     if(Auth->HasField(TEXT("patches")))
     {
@@ -1100,10 +1131,12 @@ bool StudioHome4Config::Resize(FStudioHome4Spec& Out,double Length,double Mach,d
     if(D.Sigma)S.Fluids.Sigma=*D.Sigma*VelocityScale*VelocityScale*Scale;
     if(D.Mobility)S.Fluids.Mobility=*D.Mobility*VelocityScale*Scale;
     NumberScale(S.Multidomain.FinestMobility,VelocityScale*Scale);
+    for(auto& B:S.Authoring.EnergyBudgetRegions)if(B.Units==TEXT("root-cells")){B.Minimum*=Scale;B.Maximum*=Scale;}
+    if(S.Authoring.BenchmarkDraftCells)S.Authoring.BenchmarkDraftCells=*S.Authoring.BenchmarkDraftCells*Scale;
     if(S.Authoring.PreserveCahn.Get(true)&&D.Xi)S.Fluids.Xi=*D.Xi*Scale;
     NumberScale(S.Units.DxMeters,1/Scale);NumberScale(S.Units.DtSeconds,1/TimeScale);
     NumberScale(S.Reference.TimeSteps,TimeScale);NumberScale(S.Geometry.SinkCells,Scale);NumberScale(S.Geometry.BandCells,Scale);
-    NumberScale(S.Geometry.HeaveAmplitudeCells,Scale);NumberScale(S.Geometry.MotionFrequencyCyclesPerStep,1/TimeScale);NumberScale(S.Geometry.SpinRadiansPerStep,1/TimeScale);
+    NumberScale(S.Geometry.HeaveAmplitudeCells,Scale);NumberScale(S.Geometry.MotionFrequencyCyclesPerStep,1/TimeScale);NumberScale(S.Geometry.SpinRadiansPerStep,1/TimeScale);NumberScale(S.Geometry.SpinRampSteps,TimeScale);
     NumberScale(S.Geometry.BodyMass,Scale*Scale*Scale);
     for(auto* V:{&S.Geometry.CenterOfGravity,&S.Geometry.InitialPositionCells,&S.Authoring.PrimitiveSizeCells})if(*V)**V=**V*Scale;
     if(S.Geometry.InitialVelocityCellsPerStep)S.Geometry.InitialVelocityCellsPerStep=*S.Geometry.InitialVelocityCellsPerStep*VelocityScale;

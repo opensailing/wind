@@ -6,12 +6,18 @@
 #include "SStudioHome4Reports.h"
 #include "StudioHome4Runtime.h"
 #include "SStudioHome4Sizing.h"
+#include "SStudioHome4Setup.h"
+#include "StudioHome4Body.h"
 #include "SStudioHome4Authoring.h"
 #include "SStudioHome4Regions.h"
 #include "SStudioHome4Settings.h"
 #include "SStudioHome4Stiffness.h"
 #include "SStudioHome4Validation.h"
 #include "StudioHome4Recipes.h"
+#include "StudioHome4RecipeAuthoring.h"
+#include "StudioHome4RequestActions.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "StudioHome4Readouts.h"
 #include "StudioHome4Reports.h"
 #include "StudioModel.h"
@@ -50,9 +56,13 @@ TSharedRef<SWidget> SStudioHome4Panel::Action(const FString& TextValue,FName Tag
 }
 void SStudioHome4Panel::Construct(const FArguments& Args)
 {
-    Model=Args._Model;Session=Args._Session;Runtime=Args._Runtime;Monitors=Args._Monitors;Authoring=Args._Authoring?Args._Authoring:MakeShared<FStudioHome4AuthoringSession>(Session);Spatial=Args._Spatial;Page=Args._Page;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;Telemetry=Args._Telemetry;TelemetryProvenance=Args._TelemetryProvenance;Sync();SetCanTick(true);
+    Model=Args._Model;Session=Args._Session;Runtime=Args._Runtime;Monitors=Args._Monitors;Authoring=Args._Authoring?Args._Authoring:MakeShared<FStudioHome4AuthoringSession>(Session);Spatial=Args._Spatial;Page=Args._Page;ImportPath=Args._ImportPath;ExportPath=Args._ExportPath;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;OnFocusField=Args._OnFocusField;Telemetry=Args._Telemetry;TelemetryProvenance=Args._TelemetryProvenance;Sync();SetCanTick(true);
     auto Body=SNew(SVerticalBox);
-    if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Sizing).Session(Session)];
+    if(Page!=TEXT("Settings")&&Page!=TEXT("Reports"))Body->AddSlot().AutoHeight().Padding(0,0,0,12)[SNew(SVerticalBox)
+        +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Tag(TEXT("Home4RecipeParameters")).AutoWrapText(true).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Muted).Text_Lambda([this]{return FText::FromString(StudioHome4RecipeAuthoring::Parameters(Session->Get(TEXT("recipeId"))));})]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,6)[SNew(STextBlock).AutoWrapText(true).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Muted).Text_Lambda([this]{FStudioHome4Spec S;FString E;return FText::FromString(Session->Build(S,E)?StudioHome4RecipeAuthoring::Relationship(S):E);})]
+        +SVerticalBox::Slot().AutoHeight()[Action(TEXT("Apply reviewed recipe relationships"),TEXT("Home4RecipeResolve"),[this]{FStudioHome4Spec S,Out;FString E;if(!CommitPending()||!Session->Build(S,E)||!StudioHome4RecipeAuthoring::Resolve(S,Out,E)||!Session->Replace(Out,E))Session->Status=E;else Session->Status=TEXT("Recipe relationships retained with explicit frontend reference convention. Review actual dimensions/physics and Apply.");Sync();})]];
+    if(Page==TEXT("Lattice")||Page==TEXT("Fluids & Interface"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Sizing).Session(Session)];
     if(Page==TEXT("Validation")||Page==TEXT("Projects"))
     {
         Body->AddSlot().AutoHeight()[SNew(SStudioHome4Validation).Model(Model).State(Validation).Runtime(Runtime)];
@@ -69,6 +79,7 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
             Body->AddSlot().AutoHeight().Padding(0,0,0,9)[Editor(F)];
         }
     }
+    if(Page==TEXT("Lattice")||Page==TEXT("Boundaries & Zones")||Page==TEXT("Run"))Body->AddSlot().AutoHeight().Padding(0,10)[SNew(SStudioHome4Setup).Session(Session).Authoring(Authoring).Page(Page)];
     if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Allocations).Session(Session)];
     if(Page==TEXT("Lattice")||Page==TEXT("Boundaries & Zones"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Regions).Session(Session).Patches(Page==TEXT("Lattice"))];
     if(Page==TEXT("Geometry")||Page==TEXT("Lattice")||Page==TEXT("Bodies")||Page==TEXT("Boundaries & Zones"))Body->AddSlot().AutoHeight().Padding(0,18)[SNew(SStudioHome4Authoring).Session(Authoring).Page(Page)];
@@ -84,11 +95,12 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
             Formats->AddSlot().AutoWidth().Padding(0,0,7,0)[Action(FString(TEXT("Choose "))+FString(Extension).ToUpper()+TEXT("…"),FName(*(FString(TEXT("Home4CAD."))+Extension)),[this,Ext=FString(Extension)]
             {FString Path;if(StudioFileDialog::DataFile(false,TEXT("Select body geometry"),TEXT(""),Ext,Path)){Session->Set(TEXT("geometry.sourcePath"),Path);Session->Set(TEXT("authoring.primitive"),TEXT(""));Session->Set(TEXT("authoring.sourceSHA256"),TEXT(""));Sync();}})];
         Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Formats];
+        auto Bindings=SNew(SVerticalBox);for(const auto& Asset:Model->Project.Draft.Geometry)Bindings->AddSlot().AutoHeight().Padding(0,4)[Action(TEXT("Bind verified project geometry: ")+Asset.Name,FName(*(TEXT("Home4BindGeometry.")+Asset.Id.ToString())),[this,Asset]{FStudioHome4Spec Base,Out;FString E;if(!Session->Build(Base,E)||!StudioHome4Body::Bind(Asset,Base,Out,E)||!Session->Replace(Out,E))Session->Status=E;else Session->Status=TEXT("Bound original geometry identity and explicit source length. Review pose and Apply.");Sync();})];Body->InsertSlot(1).AutoHeight()[Bindings];
 
     }
     if(Page==TEXT("Bodies"))
     {
-        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("Body forces are inspected in Monitors as separate pressure, viscous and momentum-exchange channels. Moving-body retabulation is a solver operation; no body motion is simulated by this development adapter."),StudioUI::Muted)];
+        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("Body forces are inspected in Monitors as separate pressure, viscous and momentum-exchange channels. The geometric preview animates declared body kinematics and measures local SDF/link preparation cost. Hydrodynamic body response remains with the numerical solver adapter."),StudioUI::Muted)];
         Body->AddSlot().AutoHeight().Padding(0,18)[Home4PanelLocal::Paragraph(TEXT("Retabulation cost reference\nThe supplied HOME4 note reports 47.8 MLUPS for a static mask, 5.9 for an oscillating cylinder and 0.63 for sedimentation on an M1 Pro. These are different measured workloads, not a prediction for this case."),StudioUI::Muted)];
     }
     if(Page==TEXT("Boundaries & Zones"))
@@ -101,8 +113,13 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
         Body->AddSlot().AutoHeight()[StudioUI::Label(TEXT("Viewer preferences"),14,StudioUI::Text,true)];
         Body->AddSlot().AutoHeight().Padding(0,8)[Home4PanelLocal::Paragraph(TEXT("Palette, range, camera projection, clipping and layer visibility are saved with each project view. Edit them in the Fields inspector; source ranges and provenance remain attached to the original recording."))];
     }
+    if(Page==TEXT("Fluids & Interface"))Body->AddSlot().AutoHeight().Padding(0,12)[Action(TEXT("Apply documented safeguard values"),TEXT("Home4SafeguardsPreset"),[this]{FStudioHome4Spec S,Out;FString E;if(!CommitPending()||!Session->Build(S,E)||!StudioHome4RequestActions::Safeguards(S,Out,E)||!Session->Replace(Out,E))Session->Status=E;else Session->Status=TEXT("Documented safeguards retained: gradient 1.6, force 60, light force 0.6, phase cutoff 0.1. Review and Apply.");Sync();})];
     if(Page==TEXT("Run"))
     {
+        auto Presets=SNew(SHorizontalBox);
+        Presets->AddSlot().FillWidth(1).Padding(0,0,6,0)[Action(TEXT("Smoke: 256 steps / every 64"),TEXT("Home4SmokePreset"),[this]{FStudioHome4Spec S,Out;FString E;if(!CommitPending()||!Session->Build(S,E)||!StudioHome4RequestActions::Smoke(S,256,64,Out,E)||!Session->Replace(Out,E))Session->Status=E;else Session->Status=TEXT("Reviewed frontend smoke preset: 256 steps, all outputs every 64, fresh destinations. Apply before queueing.");Sync();})];
+        Presets->AddSlot().FillWidth(1)[Action(TEXT("Create _viz figure request"),TEXT("Home4FigurePreset"),[this]{FStudioHome4Spec S,Out;FString E;if(!CommitPending()||!Session->Build(S,E)||!StudioHome4RequestActions::Figure(S,Out,E)||!Session->Replace(Out,E))Session->Status=E;else Session->Status=TEXT("Figure request retained with _viz tag and fresh output destinations. Review duration/cadences and Apply.");Sync();})];
+        Body->AddSlot().AutoHeight().Padding(0,10)[Presets];
         if(Runtime){Body->AddSlot().AutoHeight().Padding(0,18)[SNew(SStudioHome4Runtime).Model(Model).Runtime(Runtime)];Body->AddSlot().AutoHeight().Padding(0,18)[SNew(SStudioHome4Checkpoint).Model(Model).Editor(Session).Session(Runtime->Checkpoint())];}
         else Body->InsertSlot(0).AutoHeight().Padding(0,0,0,18)[SNew(SStudioHome4RunControls).Model(Model).OnSubmit(Args._OnSubmit)];
         Body->AddSlot().AutoHeight().Padding(0,18,0,8)[StudioUI::Label(TEXT("Equivalent command line"),13,StudioUI::Text,true)];
@@ -119,7 +136,7 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
                 Page==TEXT("Validation")?TEXT("Start from a documented recipe. Gates require identified reference data and measured results."):
                 TEXT("HOME4 D3Q27 · retained case settings. Blank values remain unspecified; Apply commits one undoable edit."),StudioUI::Muted)]
             +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
-                +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,22,0)[SNew(SScrollBox).NavigationScrollPadding(12).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
+                +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,22,0)[SAssignNew(EditorScroll,SScrollBox).NavigationScrollPadding(12).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
                     +SScrollBox::Slot()[Body]]
                 +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(280)[Feasibility()]]]
             +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,8)[SNew(SSeparator)]
@@ -160,6 +177,7 @@ TSharedRef<SWidget> SStudioHome4Panel::Editor(const FStudioHome4Field& F)
             .OnTextCommitted_Lambda([this](const FText&,ETextCommit::Type Type){if(CommitPending()&&Type==ETextCommit::OnEnter)Session->Apply();Sync();});
         Inputs.Add(K,Edit);
     }
+    FieldTargets.Add(K,Input);
     Input->SetToolTipText(TAttribute<FText>::CreateLambda([this,F]{return FText::FromString(Session->FieldTooltip(F));}));
     return SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
@@ -180,7 +198,7 @@ TSharedRef<SWidget> SStudioHome4Panel::Recipes()
                 {if(OnRecipe.IsBound())OnRecipe.Execute(Id);else Session->ApplyRecipe(Id);Sync();})]]
             +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Home4PanelLocal::Paragraph(R.Anchor+TEXT(" · ")+R.Driver,StudioUI::Muted)]
             +SVerticalBox::Slot().AutoHeight()[Home4PanelLocal::Paragraph(TEXT("Gate: ")+R.Gate)]
-            +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Home4PanelLocal::Paragraph(R.Notes,StudioUI::Muted)]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Home4PanelLocal::Paragraph(StudioHome4RecipeAuthoring::Parameters(R.Id),StudioUI::Muted)]
             +SVerticalBox::Slot().AutoHeight()[Home4PanelLocal::Paragraph(TEXT("Not evaluated · reference results not supplied"),StudioUI::Amber)]
             +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,0)[SNew(SSeparator)]];
     }
@@ -203,7 +221,8 @@ TSharedRef<SWidget> SStudioHome4Panel::Feasibility()
         +SVerticalBox::Slot().AutoHeight()[Values]
         +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Tag(TEXT("Home4FeasibilitySummary")).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Text).AutoWrapText(true)
             .ToolTipText_Lambda([this]{return FText::FromString(TEXT("Derived Kn ≈ Ma/Re: ")+Home4PanelLocal::N(Derived.Knudsen));})
-            .Text_Lambda([this]{return FText::FromString(Summary());})]];
+            .Text_Lambda([this]{return FText::FromString(Summary());})]
+        +SVerticalBox::Slot().AutoHeight().Padding(0,8)[SAssignNew(IssueRows,SVerticalBox)]];
 }
 FString SStudioHome4Panel::Summary() const
 {
@@ -230,10 +249,10 @@ FString SStudioHome4Panel::Command() const
 {
     if(!PreviewError.IsEmpty())return PreviewError;
     const auto* R=StudioHome4Recipes::Find(Preview.RecipeId);
-    if(R&&R->Driver!=TEXT("run_hull_speed.py"))return R->Driver+TEXT("\nDriver argument contract not supplied. Export run_spec.json to retain every request.");
+    if(R&&R->Driver!=TEXT("run_hull_speed.py"))return StudioHome4RequestActions::CompleteProtocol(Preview);
     FStudioHome4DriverCommand C;FString E;
     if(!StudioHome4Config::BuildHullDriverArgv(Preview,TEXT("python3"),TEXT("run_hull_speed.py"),C,E))return E;
-    FString TextValue=C.Display;for(const auto& M:C.MissingContracts)TextValue+=TEXT("\n# ")+M;return TextValue;
+    FString TextValue=StudioHome4RequestActions::CompleteProtocol(Preview)+TEXT("\n\nVerified hull-driver argument preview:\n")+C.Display;for(const auto& M:C.MissingContracts)TextValue+=TEXT("\n# ")+M;return TextValue;
 }
 EStudioHome4UnitDisplay SStudioHome4Panel::FieldDisplay(const FStudioHome4Field& F)const
 {
@@ -275,6 +294,16 @@ void SStudioHome4Panel::Sync()
     bSyncing=false;
     if(Session->Build(Preview,PreviewError))Derived=StudioHome4Config::Derive(Preview);
     else { Preview=FStudioHome4Spec();Derived=FStudioHome4Derived(); }
+    if(IssueRows)
+    {
+        IssueRows->ClearChildren();TSet<FString> Added;
+        for(const auto& Issue:Derived.Issues)
+        {
+            FString Key=Issue.Field;if(Key==TEXT("fluids.nu"))Key=TEXT("fluids.nuHeavy");if(Key==TEXT("fluids.phaseRates"))Key=TEXT("fluids.phaseST");if(Key==TEXT("fluids.safeguards"))Key=TEXT("fluids.gradientLimiter");
+            const auto* Field=StudioHome4Config::Fields().FindByPredicate([&](const auto& F){return FStudioHome4Session::Key(F)==Key;});if(!Field||Added.Contains(Key))continue;Added.Add(Key);const FString Destination=Field->Page;
+            IssueRows->AddSlot().AutoHeight().Padding(0,3)[Action(TEXT("Edit ")+Field->Label,FName(*(TEXT("Home4Issue.")+Key)),[this,Key,Destination]{if(OnFocusField.IsBound())OnFocusField.Execute(Destination,Key);else if(Destination==Page){PendingLocalFocus=Key;LocalFocusRetries=120;FocusField(Key);}else Session->Status=TEXT("Open ")+Destination+TEXT(" to edit ")+Key;})];
+        }
+    }
 }
 void SStudioHome4Panel::Tick(const FGeometry& G,double T,float D)
 {
@@ -283,22 +312,24 @@ void SStudioHome4Panel::Tick(const FGeometry& G,double T,float D)
     for(int32 Row=0;Row<Session->AllocationCount();++Row)
         for(int32 Column=0;Column<6;++Column)Values+=Session->AllocationValue(Row,Column)+TEXT("\x1e");
     if(Values!=LastValues){LastValues=Values;Sync();}
+    if(!PendingLocalFocus.IsEmpty()){if(FocusField(PendingLocalFocus)||--LocalFocusRetries<=0)PendingLocalFocus.Empty();}
 }
 void SStudioHome4Panel::ExportSpec()
 {
     if(Session->IsDirty()){Session->Status=TEXT("Apply or revert edits before exporting the applied run specification.");return;}
     if(!Model->Project.Draft.Home4.IsSet()){Session->Status=TEXT("Choose a recipe or apply a HOME4 configuration first.");return;}
-    FString Path;if(!StudioFileDialog::DataFile(true,TEXT("Export HOME4 run specification"),TEXT("run_spec.json"),TEXT("json"),Path))return;
-    FString E;Session->Status=StudioFileDialog::WriteAtomic(Path,StudioHome4Config::Serialize(Model->Project.Draft.Home4.GetValue()),E)?TEXT("Run specification saved to ")+Path:E;
+    FString Path=ExportPath;if(Path.IsEmpty()){if(FParse::Param(FCommandLine::Get(),TEXT("StudioHeadlessTests"))){Session->Status=TEXT("Headless export requires an explicit output path.");return;}if(!StudioFileDialog::DataFile(true,TEXT("Export HOME4 run specification"),TEXT("run_spec.json"),TEXT("json"),Path))return;}
+    FString E;Session->Status=StudioProjectIO::WriteAtomic(Path,StudioHome4Config::Serialize(Model->Project.Draft.Home4.GetValue()),E)?TEXT("Run specification saved to ")+Path:E;
 }
 void SStudioHome4Panel::ImportSpec()
 {
     if(Session->IsDirty()){Session->Status=TEXT("Apply or revert edits before importing a run specification.");return;}
-    FString Path;if(!StudioFileDialog::DataFile(false,TEXT("Import HOME4 run specification"),TEXT(""),TEXT("json"),Path))return;
+    FString Path=ImportPath;if(Path.IsEmpty()){if(FParse::Param(FCommandLine::Get(),TEXT("StudioHeadlessTests"))){Session->Status=TEXT("Headless import requires an explicit source path.");return;}if(!StudioFileDialog::DataFile(false,TEXT("Import HOME4 run specification"),TEXT(""),TEXT("json"),Path))return;}
     FStudioFileAccess Access(Path);const int64 Size=IFileManager::Get().FileSize(*Path);
     if(Size<0||Size>1024*1024){Session->Status=TEXT("Run specification must be a readable JSON file under 1 MiB.");return;}
     FString E;FStudioHome4Spec S;
     if(!StudioHome4Config::Load(Path,S,E)){Session->Status=E.IsEmpty()?TEXT("Could not read the run specification."):E;return;}
+    for(FString* Input:{&S.Geometry.SourcePath,&S.Geometry.CptPath,&S.Run.InitState})if(!Input->IsEmpty()&&FPaths::IsRelative(*Input))*Input=FPaths::ConvertRelativePathToFull(FPaths::GetPath(Path),*Input);
     if(Model->EditCase(TEXT("Import HOME4 run specification"),[&](auto& C){C.Home4=S;})){Session->Revert();Sync();Session->Status=TEXT("Run specification imported; original recording and camera retained.");}
 }
 void SStudioHome4Panel::ExportReport()
@@ -311,4 +342,19 @@ void SStudioHome4Panel::ExportReport()
     const auto SpatialEvidence=Spatial?Spatial->Evidence():TSharedPtr<const FStudioHome4SpatialEvidence,ESPMode::ThreadSafe>();
     const auto ScienceProvenance=TelemetryProvenance.Get(TOptional<FStudioHome4TelemetryProvenance>());
     FString Destination,Error;Session->Status=StudioHome4Reports::Export(Parent,ReportName,Model->SnapshotProject(),Telemetry.Get(nullptr),Destination,Error,Evidence,SpatialEvidence.Get(),ScienceProvenance?&ScienceProvenance.GetValue():nullptr)?TEXT("Report saved to ")+Destination:Error;
+}
+
+bool SStudioHome4Panel::HasField(const FString& Key)const
+{const auto* Found=FieldTargets.Find(Key);return Found&&Found->IsValid();}
+bool SStudioHome4Panel::FocusField(const FString& Key)
+{
+    const auto* Found=FieldTargets.Find(Key);const auto Target=Found?Found->Pin():TSharedPtr<SWidget>();if(!Target||!Target->IsEnabled())return false;
+    if(Target->GetCachedGeometry().GetLocalSize().GetMin()<=0)return false;
+    if(EditorScroll)
+    {
+        const auto& G=EditorScroll->GetCachedGeometry();if(G.GetLocalSize().Y<=0)return false;const auto At=G.AbsoluteToLocal(Target->GetCachedGeometry().GetAbsolutePosition());const double Height=Target->GetCachedGeometry().GetLocalSize().Y;
+        if(At.Y<0||At.Y+Height>G.GetLocalSize().Y){EditorScroll->ScrollDescendantIntoView(Target,false,EDescendantScrollDestination::Center,12);EditorScroll->Tick(G,FPlatformTime::Seconds(),0);return false;}
+    }
+    TFunction<TSharedPtr<SWidget>(const TSharedRef<SWidget>&)> Keyboard=[&](const TSharedRef<SWidget>& W)->TSharedPtr<SWidget>{if(W->SupportsKeyboardFocus())return W;auto* C=W->GetChildren();for(int32 I=0;I<C->Num();++I)if(auto T=Keyboard(C->GetChildAt(I)))return T;return {};};
+    const auto Focus=Keyboard(Target.ToSharedRef());if(!Focus)return false;FSlateApplication::Get().SetKeyboardFocus(Focus,EFocusCause::Navigation);return Focus->HasKeyboardFocus()||Focus->HasFocusedDescendants();
 }

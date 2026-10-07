@@ -78,7 +78,8 @@ TArray<FString> StudioHome4Recipes::Departures(const FStudioHome4Spec& Spec)
 {
     TArray<FString> Out;const auto* R=Find(Spec.RecipeId);
     if(!R){Out.Add(TEXT("No supplied recipe is associated with this case."));return Out;}
-    Changed(StudioHome4Config::ToJSON(R->Template),StudioHome4Config::ToJSON(Spec),TEXT(""),Out);return Out;
+    auto Base=R->Template;if(Spec.RecipeId==TEXT("vugts-barge")&&Spec.Geometry.BodyMotion==TEXT("forced-roll"))Base.Geometry.BodyMotion=Spec.Geometry.BodyMotion;
+    Changed(StudioHome4Config::ToJSON(Base),StudioHome4Config::ToJSON(Spec),TEXT(""),Out);return Out;
 }
 bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>& Refinements,TArray<FStudioHome4LadderRung>& Out,FString& Error)
 {
@@ -122,6 +123,7 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         Multiply(R.Spec.Geometry.HeaveAmplitudeCells,Base.Geometry.HeaveAmplitudeCells,Scale);
         Multiply(R.Spec.Geometry.MotionFrequencyCyclesPerStep,Base.Geometry.MotionFrequencyCyclesPerStep,1./Scale);
         Multiply(R.Spec.Geometry.SpinRadiansPerStep,Base.Geometry.SpinRadiansPerStep,1./Scale);
+        Multiply(R.Spec.Geometry.SpinRampSteps,Base.Geometry.SpinRampSteps,Scale);
         if(Base.Geometry.CenterOfGravity)R.Spec.Geometry.CenterOfGravity=*Base.Geometry.CenterOfGravity*Scale;
         if(Base.Geometry.InitialPositionCells)R.Spec.Geometry.InitialPositionCells=*Base.Geometry.InitialPositionCells*Scale;
         if(Base.Geometry.InitialAngularVelocityRadiansPerStep)R.Spec.Geometry.InitialAngularVelocityRadiansPerStep=*Base.Geometry.InitialAngularVelocityRadiansPerStep/Scale;
@@ -134,6 +136,7 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         for(auto* V:{&R.Spec.Geometry.InertiaDiagonal,&R.Spec.Geometry.InertiaProducts})if(*V)**V=**V*FMath::Pow(double(Scale),5.);
         if(R.Spec.Authoring.PrimitiveSizeCells)R.Spec.Authoring.PrimitiveSizeCells=*R.Spec.Authoring.PrimitiveSizeCells*Scale;
         Multiply(R.Spec.Authoring.WaterlineCells,Base.Authoring.WaterlineCells,Scale);
+        Multiply(R.Spec.Authoring.BenchmarkDraftCells,Base.Authoring.BenchmarkDraftCells,Scale);
         Multiply(R.Spec.Authoring.WaveLengthCells,Base.Authoring.WaveLengthCells,Scale);
         Multiply(R.Spec.Authoring.WaveDepthCells,Base.Authoring.WaveDepthCells,Scale);
         Multiply(R.Spec.Authoring.WaveAmplitudeCells,Base.Authoring.WaveAmplitudeCells,Scale);
@@ -144,6 +147,7 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
             Multiply(R.Spec.Zones.BeachY,Base.Zones.BeachY,Scale);Multiply(R.Spec.Zones.BeachGap,Base.Zones.BeachGap,Scale);
             for(auto& Z:R.Spec.Authoring.Zones){Z.Minimum*=Scale;Z.Maximum*=Scale;}
         }
+        for(auto& B:R.Spec.Authoring.EnergyBudgetRegions)if(B.Units==TEXT("root-cells")){B.Minimum*=Scale;B.Maximum*=Scale;}
         for(auto& P:R.Spec.Authoring.Patches){P.Origin*=Scale;P.Extents*=Scale;}
 
         Multiply(R.Spec.Multidomain.Z1,Base.Multidomain.Z1,Scale);Multiply(R.Spec.Multidomain.Z2,Base.Multidomain.Z2,Scale);

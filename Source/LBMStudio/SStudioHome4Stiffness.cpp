@@ -42,6 +42,13 @@ void SStudioHome4Stiffness::Refresh()
         }
         Rows->AddSlot().AutoHeight()[Row];
     }
+    if(S.Geometry.Stiffness.Num()==36)
+    {
+        bool bSymmetric=true,bPositive=true;double Scale=1;for(double V:S.Geometry.Stiffness)Scale=FMath::Max(Scale,FMath::Abs(V));const double Eps=1e-10*Scale;
+        for(int32 I=0;I<6;++I)for(int32 J=0;J<I;++J)if(FMath::Abs(S.Geometry.Stiffness[I*6+J]-S.Geometry.Stiffness[J*6+I])>Eps)bSymmetric=false;
+        double L[6][6]={},D[6]={};for(int32 I=0;I<6&&bSymmetric;++I){L[I][I]=1;double Diagonal=S.Geometry.Stiffness[I*6+I];for(int32 K=0;K<I;++K)Diagonal-=L[I][K]*L[I][K]*D[K];D[I]=Diagonal;if(Diagonal<-Eps)bPositive=false;for(int32 J=I+1;J<6;++J){double V=S.Geometry.Stiffness[J*6+I];for(int32 K=0;K<I;++K)V-=L[J][K]*L[I][K]*D[K];if(FMath::Abs(Diagonal)<=Eps){if(FMath::Abs(V)>Eps)bPositive=false;}else L[J][I]=V/Diagonal;}}
+        Rows->AddSlot().AutoHeight().Padding(0,8)[SNew(STextBlock).Tag(TEXT("Home4StiffnessChecks")).AutoWrapText(true).Font(StudioUI::Font(9)).ColorAndOpacity(bSymmetric&&bPositive?StudioUI::Muted:StudioUI::Amber).Text(FText::FromString(!bSymmetric?TEXT("K is not symmetric in its declared generalized coordinates; review nonconservative or asymmetric inputs."):!bPositive?TEXT("Symmetric K has a negative-energy direction; review restoring stability and axis/sign conventions."):TEXT("Symmetric nonnegative geometric K check. Zero modes remain unconstrained; this is not measured hydrodynamic stability.")))];
+    }
 }
 bool SStudioHome4Stiffness::Commit()
 {

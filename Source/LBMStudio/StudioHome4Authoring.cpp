@@ -59,6 +59,7 @@ TSharedPtr<FStudioImportedMesh,ESPMode::ThreadSafe> Primitive(const FString& Kin
 bool ReadCAD(const FStudioHome4AuthoringRequest& R,const FStudioAssetCancellation& Cancel,FStudioMeshImportResult& Source,FString& Method)
 {
     const auto& A=R.Spec.Authoring;FString Hash,Error;
+    if(IFileManager::Get().FileSize(*R.Spec.Geometry.SourcePath)>64LL*1024*1024){Source.Error=TEXT("CAD source exceeds the bounded 64 MiB import contract.");return false;}
     if(!StudioAssets::HashFile(R.Spec.Geometry.SourcePath,Cancel,Hash,Error)){Source.Error=Error;return false;}
     if(!A.SourceSHA256.IsEmpty()&&A.SourceSHA256!=Hash){Source.Error=TEXT("Geometry source differs from the pinned SHA256; choose/re-pin the actual source explicitly.");return false;}
     FString Root=FPaths::ProjectContentDir()/TEXT("ThirdParty/Home4CAD");
@@ -169,8 +170,12 @@ FTransform StudioHome4Authoring::Motion(const FStudioHome4Spec& S,double Step)
     if(G.BodyMotion==TEXT("forced-heave"))Translation.Z=G.HeaveAmplitudeCells.Get(0)*FMath::Sin(Phase);
     if(G.BodyMotion==TEXT("forced-roll"))Angles.X=G.RollAmplitudeDegrees.Get(0)*FMath::Sin(Phase);
     if(G.BodyMotion==TEXT("forced-pitch"))Angles.Y=G.PitchAmplitudeDegrees.Get(0)*FMath::Sin(Phase);
-    if(G.BodyMotion==TEXT("forced-spin"))Angles.Z=FMath::RadiansToDegrees(G.SpinRadiansPerStep.Get(0)*Step);
-    const FVector Pivot=G.CenterOfGravity.Get(G.InitialPositionCells.Get(FVector::ZeroVector));const FQuat Q=Rotation(Angles);
+    if(G.BodyMotion==TEXT("forced-spin"))
+    {double Integrated=Step;if(G.SpinRampSteps&&*G.SpinRampSteps>0){const double T=*G.SpinRampSteps,N=FMath::Max(0.,Step);Integrated=N<T?N*N*N/(T*T)-.5*N*N*N*N/(T*T*T):N-.5*T;}Angles.Z=FMath::RadiansToDegrees(G.SpinRadiansPerStep.Get(0)*Integrated);}
+    const FVector Pivot=G.CenterOfGravity.Get(G.InitialPositionCells.Get(FVector::ZeroVector));FQuat Q=Rotation(Angles);
+    if(G.BodyMotion==TEXT("free"))
+    {Translation=G.InitialVelocityCellsPerStep.Get(FVector::ZeroVector)*Step;const FVector W=G.InitialAngularVelocityRadiansPerStep.Get(FVector::ZeroVector);if(!W.IsNearlyZero())Q=FQuat(W.GetSafeNormal(),W.Size()*Step);}
+
     return FTransform(Q,Pivot-Q.RotateVector(Pivot)+Translation);
 }
 bool StudioHome4Authoring::AcceptEquilibrium(const FStudioHome4AuthoringPreview& Preview,FStudioHome4Spec& Out,FString& Error)
@@ -201,7 +206,8 @@ double StudioHome4Authoring::ZoneWeight(const FStudioHome4PreviewRegion& R,const
     const int32 Axis=R.Axis==TEXT("y")?1:R.Axis==TEXT("z")?2:0;
     const double Width=R.Bounds.Max[Axis]-R.Bounds.Min[Axis];if(Width<=0)return 0;
     const double T=FMath::Clamp((Position[Axis]-R.Bounds.Min[Axis])/Width,0.,1.);
-    const double Profile=R.Profile==TEXT("constant")?1:R.Profile==TEXT("linear")?T:T*T*T;
+    const double X=R.Profile.EndsWith(TEXT("-reverse"))?1-T:T;
+    const double Profile=R.Profile==TEXT("constant")?1:(R.Profile==TEXT("linear")||R.Profile==TEXT("linear-reverse"))?X:X*X*X;
     return FMath::Clamp(R.Strength*Profile*FMath::Pow(2.,-R.LevelExponent*Level),0.,1.);
 }
 bool StudioHome4Authoring::Hydrostatics(const FStudioImportedMesh& M,double Waterline,double RH,double RL,double Mass,const FVector& CoG,double Gravity,bool Equilibrate,FStudioHome4Hydrostatics& Out,FString& Error,const FStudioAssetCancellation& Cancel)
@@ -253,6 +259,30 @@ FStudioHome4AuthoringPreview StudioHome4Authoring::Build(const FStudioHome4Autho
     if(R.SampleBudget<1||R.SampleBudget>32768){Out.Error=TEXT("Preview sample budget must be 1–32768 original nodes.");return Out;}
     if(!S.Lattice.Extents){Out.Error=TEXT("Declare the actual tank lattice extents before preparing a grid preview.");return Out;}
     Out.Tank=FBox(FVector::ZeroVector,FVector(*S.Lattice.Extents));
+    auto BuildRegions=[&]()
+    {
+    double ZoneScale=1;
+    if(!A.Zones.IsEmpty())
+    {
+        if(A.ZoneUnits==TEXT("body-lengths")&&S.Reference.LengthCells)ZoneScale=*S.Reference.LengthCells;
+        else if(A.ZoneUnits==TEXT("physical-metres")&&S.Units.DxMeters)ZoneScale=1/ *S.Units.DxMeters;
+        else if(A.ZoneUnits!=TEXT("root-cells")){Out.Error=TEXT("Declared zones need their coordinate unit map before preview.");return false;}
+    }
+    for(const auto& Z:A.Zones){FStudioHome4PreviewRegion V;V.Id=Z.Id;V.Kind=Z.Kind;V.Profile=Z.Profile;V.Axis=Z.Axis;V.Bounds=FBox(Z.Minimum*ZoneScale,Z.Maximum*ZoneScale);V.Strength=Z.Strength;V.LevelExponent=Z.LevelExponent;Out.Regions.Add(V);}
+    for(const auto& P:A.Patches)
+    {
+        FStudioHome4PreviewRegion V;V.Id=P.Id;V.Kind=TEXT("multidomain");V.Level=P.Level;V.bFollowBody=P.bFollowBody;
+        const double Spacing=FMath::Pow(2.,-P.Level);V.Bounds=FBox(P.Origin,P.Origin+FVector(P.Extents)*Spacing);Out.Regions.Add(V);
+    }
+        return true;
+    };
+    if(A.Primitive.IsEmpty()&&S.Geometry.SourcePath.IsEmpty())
+    {
+        Out.Method=TEXT("Declared tank, boundary, wave and region requests; no body geometry supplied");
+        if(S.Geometry.Float.Get(false)){Out.Error=TEXT("Flotation requires an actual closed body geometry.");return Out;}
+        if(!BuildRegions())return Out;
+        return Out;
+    }
     TSharedPtr<FStudioImportedMesh,ESPMode::ThreadSafe> Mesh;
     if(!A.Primitive.IsEmpty())
     {
@@ -309,6 +339,7 @@ FStudioHome4AuthoringPreview StudioHome4Authoring::Build(const FStudioHome4Autho
         }
     }
     else if(S.Geometry.Float.Get(false))Out.HydrostaticError=TEXT("Float requires the waterline, mass, CoG, phase densities and gravity; the fixed geometric preview remains available.");
+    const double GeometricStart=FPlatformTime::Seconds();
     Out.Mesh=Mesh;Out.Body=Mesh->Bounds;FDynamicMeshAABBTree3 Tree(&Dynamic,true);TFastWindingTree<FDynamicMesh3> Winding(&Tree,true);
     const double Band=S.Geometry.BandCells.Get(4);const FBox Region=Out.Body.ExpandBy(Band).Overlap(Out.Tank);
     if(!Region.IsValid){Out.Error=TEXT("The posed body/SDF band does not intersect the declared tank.");Out.Mesh.Reset();return Out;}
@@ -338,19 +369,8 @@ FStudioHome4AuthoringPreview StudioHome4Authoring::Build(const FStudioHome4Autho
     }
     ZeroSurface(Out,Cancel);
     if(Cancel->load()){Out.bCancelled=true;Out.Cells.Reset();Out.Links.Reset();Out.SdfSurfacePositions.Reset();Out.SdfSurfaceIndices.Reset();return Out;}
-    double ZoneScale=1;
-    if(!A.Zones.IsEmpty())
-    {
-        if(A.ZoneUnits==TEXT("body-lengths")&&S.Reference.LengthCells)ZoneScale=*S.Reference.LengthCells;
-        else if(A.ZoneUnits==TEXT("physical-metres")&&S.Units.DxMeters)ZoneScale=1/ *S.Units.DxMeters;
-        else if(A.ZoneUnits!=TEXT("root-cells")){Out.Error=TEXT("Declared zones need their coordinate unit map before preview.");return Out;}
-    }
-    for(const auto& Z:A.Zones){FStudioHome4PreviewRegion V;V.Id=Z.Id;V.Kind=Z.Kind;V.Profile=Z.Profile;V.Axis=Z.Axis;V.Bounds=FBox(Z.Minimum*ZoneScale,Z.Maximum*ZoneScale);V.Strength=Z.Strength;V.LevelExponent=Z.LevelExponent;Out.Regions.Add(V);}
-    for(const auto& P:A.Patches)
-    {
-        FStudioHome4PreviewRegion V;V.Id=P.Id;V.Kind=TEXT("multidomain");V.Level=P.Level;V.bFollowBody=P.bFollowBody;
-        const double Spacing=FMath::Pow(2.,-P.Level);V.Bounds=FBox(P.Origin,P.Origin+FVector(P.Extents)*Spacing);Out.Regions.Add(V);
-    }
+    if(!BuildRegions())return Out;
+    Out.GeometricPreparationSeconds=FPlatformTime::Seconds()-GeometricStart;
     return Out;
 }
 FStudioHome4AuthoringSession::~FStudioHome4AuthoringSession(){Cancel();}
@@ -360,12 +380,20 @@ bool FStudioHome4AuthoringSession::Request()
     if(Pending.IsValid()){Status=TEXT("A geometric preparation is already running; cancel it before starting another request.");return false;}
     const auto M=Session?Session->Owner():nullptr;FStudioHome4Spec Spec;FString Error;
     if(!M||!Session->Build(Spec,Error)){Status=Error;return false;}
+    if(!Spec.Authoring.GeometryAssetId.IsEmpty())
+    {FGuid Id;if(!FGuid::Parse(Spec.Authoring.GeometryAssetId,Id)){Status=TEXT("Body geometry asset ID is not a project asset UUID.");return false;}const auto* Asset=M->Project.Draft.Geometry.FindByPredicate([&](const auto& G){return G.Id==Id;});if(!Asset||Asset->SourceSHA256!=Spec.Authoring.SourceSHA256||!FPaths::IsSamePath(Asset->SourcePath,Spec.Geometry.SourcePath)||!Spec.Authoring.MetersPerSourceUnit||Asset->MetersPerSourceUnit!=*Spec.Authoring.MetersPerSourceUnit){Status=TEXT("Bound body geometry differs from the verified project asset identity or source-unit scale. Rebind it explicitly.");return false;}}
     ProjectId=M->Project.Id;CaseId=M->Project.Draft.Id;RequestedSHA=StudioHome4Authoring::Fingerprint(Spec);
     if(Response&&Response->ProjectId==ProjectId&&Response->CaseId==CaseId&&Response->IsValid()&&Response->RequestSHA256==RequestedSHA&&!Spec.Authoring.Primitive.IsEmpty())
     {auto Copy=MakeShared<FStudioHome4AuthoringPreview,ESPMode::ThreadSafe>(*Response);Copy->bCacheHit=true;Response=Copy;Status=TEXT("Reused the exact immutable primitive/SDF request.");return true;}
     Cancellation=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);const auto Token=Cancellation;
     FStudioHome4AuthoringRequest R;R.ProjectId=ProjectId;R.CaseId=CaseId;R.Spec=Spec;
-    Pending=Async(EAsyncExecution::ThreadPool,[R,Token]{return StudioHome4Authoring::Build(R,Token);});Status=TEXT("Preparing source-pinned geometry, signed distance and original-index cut links…");return true;
+    const auto Cached=Response;
+    Pending=Async(EAsyncExecution::ThreadPool,[R,Token,Cached]
+    {
+        if(Cached&&Cached->IsValid()&&Cached->ProjectId==R.ProjectId&&Cached->CaseId==R.CaseId&&Cached->RequestSHA256==StudioHome4Authoring::Fingerprint(R.Spec)&&!R.Spec.Geometry.SourcePath.IsEmpty())
+        {FString Hash,Error;const int64 Size=IFileManager::Get().FileSize(*R.Spec.Geometry.SourcePath);if(Size>=0&&Size<=64LL*1024*1024&&StudioAssets::HashFile(R.Spec.Geometry.SourcePath,Token,Hash,Error)&&Hash==Cached->SourceSHA256){auto Copy=*Cached;Copy.bCacheHit=true;return Copy;}}
+        return StudioHome4Authoring::Build(R,Token);
+    });Status=TEXT("Preparing source-pinned geometry, signed distance and original-index cut links…");return true;
 }
 void FStudioHome4AuthoringSession::Poll()
 {
