@@ -46,6 +46,7 @@ private:
     TSharedRef<SWidget> Feasibility();
     TSharedRef<SWidget> Action(const FString& Label,FName Tag,TFunction<void()> Callback);
     FString Summary() const;
+    FString SummaryTooltip() const;
     FString Command() const;
     void ExportSpec();
     void ImportSpec();

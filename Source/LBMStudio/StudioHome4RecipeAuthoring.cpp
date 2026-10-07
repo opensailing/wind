@@ -23,7 +23,7 @@ FString StudioHome4RecipeAuthoring::Parameters(const FString& Id)
         const TSharedPtr<FJsonObject>* Section=nullptr;if(!Object->TryGetObjectField(F.Section,Section))continue;
         const FString Value=StudioHome4RecipeAuthoringLocal::Scalar((*Section)->TryGetField(F.Key));if(!Value.IsEmpty())Text+=F.Label+TEXT(": ")+Value+(F.Unit.IsEmpty()?TEXT(""):TEXT(" ")+F.Unit)+TEXT("\n");
     }
-    Text+=R->Notes+TEXT("\nOriginal scientific validation requires identified source results and references.");return Text;
+    Text+=TEXT("Reference asset/anchor: ")+R->Reference+TEXT("\n")+R->Notes+TEXT("\nOriginal scientific validation requires identified source results and references.");return Text;
 }
 FString StudioHome4RecipeAuthoring::Relationship(const FStudioHome4Spec& S)
 {

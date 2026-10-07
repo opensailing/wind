@@ -37,9 +37,48 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Layout/WidgetPath.h"
 
 namespace Home4PanelLocal
 {
+class SEditorScroll final : public SScrollBox
+{
+public:
+    using FArguments=SScrollBox::FArguments;
+    void Construct(const FArguments& Args){SScrollBox::Construct(Args);}
+    void ScrollFieldIntoView(const TSharedPtr<SWidget>& Target)
+    {PendingFocus=Target;ScrollDescendantIntoView(Target,false,EDescendantScrollDestination::Center,12);}
+    void OnFocusChanging(const FWeakWidgetPath& Previous,const FWidgetPath& Next,const FFocusEvent& Event)override
+    {
+        SScrollBox::OnFocusChanging(Previous,Next,Event);
+        if(Next.IsValid()&&Next.ContainsWidget(this))PendingFocus=Next.GetLastWidget();
+        else {PendingFocus.Reset();ScrollIntoViewRequest=nullptr;}
+    }
+    void Tick(const FGeometry& Geometry,double Time,float Delta)override
+    {
+        // Combo menus live outside this retained form. A closed popup target
+        // must not leave a deferred scroll request against detached menu rows.
+        if(ScrollIntoViewRequest)if(const auto Target=PendingFocus.Pin())
+        {
+            TSet<TSharedRef<SWidget>> Targets;Targets.Add(Target.ToSharedRef());
+            TMap<TSharedRef<SWidget>,FArrangedWidget> Arranged;FindChildGeometries(Geometry,Targets,Arranged);
+            if(!Arranged.Contains(Target.ToSharedRef()))ScrollIntoViewRequest=nullptr;
+        }
+        SScrollBox::Tick(Geometry,Time,Delta);
+    }
+private:
+    TWeakPtr<SWidget> PendingFocus;
+};
+FStudioHome4Spec LevelMap(const FStudioHome4Spec& Root,double Scale)
+{
+    auto Local=Root;
+    if(Local.Units.DxMeters)Local.Units.DxMeters=*Local.Units.DxMeters/Scale;
+    if(Local.Units.DtSeconds)Local.Units.DtSeconds=*Local.Units.DtSeconds/Scale;
+    if(Local.Reference.LengthCells)Local.Reference.LengthCells=*Local.Reference.LengthCells*Scale;
+    if(Local.Reference.TimeSteps)Local.Reference.TimeSteps=*Local.Reference.TimeSteps*Scale;
+    return Local;
+}
+
 FString Human(const FString& Key)
 {
     FString Out;for(int32 I=0;I<Key.Len();++I)
@@ -136,7 +175,7 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
                 Page==TEXT("Validation")?TEXT("Start from a documented recipe. Gates require identified reference data and measured results."):
                 TEXT("HOME4 D3Q27 · retained case settings. Blank values remain unspecified; Apply commits one undoable edit."),StudioUI::Muted)]
             +SVerticalBox::Slot().FillHeight(1)[SNew(SHorizontalBox)
-                +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,22,0)[SAssignNew(EditorScroll,SScrollBox).NavigationScrollPadding(12).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
+                +SHorizontalBox::Slot().FillWidth(1).Padding(0,0,22,0)[SAssignNew(EditorScroll,Home4PanelLocal::SEditorScroll).NavigationScrollPadding(12).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll)
                     +SScrollBox::Slot()[Body]]
                 +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(280)[Feasibility()]]]
             +SVerticalBox::Slot().AutoHeight().Padding(0,12,0,8)[SNew(SSeparator)]
@@ -220,7 +259,7 @@ TSharedRef<SWidget> SStudioHome4Panel::Feasibility()
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,12)[StudioUI::Label(TEXT("Feasibility"),15,StudioUI::Text,true)]
         +SVerticalBox::Slot().AutoHeight()[Values]
         +SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Tag(TEXT("Home4FeasibilitySummary")).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Text).AutoWrapText(true)
-            .ToolTipText_Lambda([this]{return FText::FromString(TEXT("Derived Kn ≈ Ma/Re: ")+Home4PanelLocal::N(Derived.Knudsen));})
+            .ToolTipText_Lambda([this]{return FText::FromString(SummaryTooltip());})
             .Text_Lambda([this]{return FText::FromString(Summary());})]
         +SVerticalBox::Slot().AutoHeight().Padding(0,8)[SAssignNew(IssueRows,SVerticalBox)]];
 }
@@ -231,19 +270,35 @@ FString SStudioHome4Panel::Summary() const
         TEXT("\nBond / Weber  ")+Home4PanelLocal::N(Derived.Bond)+TEXT(" / ")+Home4PanelLocal::N(Derived.Weber)+TEXT("\nCapillary  ")+Home4PanelLocal::N(Derived.Capillary)+
         TEXT("\nPeclet / Cahn  ")+Home4PanelLocal::N(Derived.Peclet)+TEXT(" / ")+Home4PanelLocal::N(Derived.Cahn)+TEXT("\nAtwood  ")+Home4PanelLocal::N(Derived.Atwood)+
         TEXT("\n\nHeavy τ  ")+Home4PanelLocal::N(Derived.TauHeavy)+TEXT("\nLight τ  ")+Home4PanelLocal::N(Derived.TauLight)+TEXT("\nLight τ − ½  ")+Home4PanelLocal::N(Derived.TauLightMargin)+
-        TEXT("\nWake wavelength  ")+Home4PanelLocal::N(Derived.WakeWavelength)+TEXT(" cells\n");
+        TEXT("\nWake wavelength  ")+(Derived.WakeWavelength?StudioHome4Readouts::Value(*Derived.WakeWavelength,EStudioHome4Quantity::Length,EStudioHome4UnitDisplay::Lattice,Model->UnitDisplay,&Preview):FString(TEXT("Not supplied")))+TEXT("\n");
     if(Derived.AllocationBytes.IsSet())Out+=FString::Printf(TEXT("\nAllocation estimate  %.2f GiB"),double(Derived.AllocationBytes.GetValue())/1073741824.);
     else Out+=TEXT("\nMemory: allocation list not supplied");
     Out+=Derived.EstimatedSeconds.IsSet()&&!Preview.Performance.MeasurementSource.IsEmpty()?FString::Printf(TEXT("\nEstimated duration  %.2f h"),Derived.EstimatedSeconds.GetValue()/3600):TEXT("\nDuration: measured throughput required");
     if(Derived.Levels.Num()>1)
     {
         Out+=TEXT("\n\nMultidomain levels");for(const auto& L:Derived.Levels)
-            Out+=FString::Printf(TEXT("\nL%d ×%.0f · ν %s · σ %s\nM %s · g %s · τL %s"),L.Depth,L.Scale,*Home4PanelLocal::N(L.NuHeavy),*Home4PanelLocal::N(L.Sigma),*Home4PanelLocal::N(L.Mobility),*Home4PanelLocal::N(L.Gravity),*Home4PanelLocal::N(L.TauLight));
+        {
+            const auto Local=Home4PanelLocal::LevelMap(Preview,L.Scale);
+            auto Read=[&](const TOptional<double>& V,EStudioHome4Quantity Q){return V?StudioHome4Readouts::Value(*V,Q,EStudioHome4UnitDisplay::Lattice,Model->UnitDisplay,&Local):FString(TEXT("Not supplied"));};
+            Out+=FString::Printf(TEXT("\nL%d ×%.0f · ν %s · σ %s\nM %s · g %s · τL %s"),L.Depth,L.Scale,*Read(L.NuHeavy,EStudioHome4Quantity::KinematicViscosity),*Read(L.Sigma,EStudioHome4Quantity::SurfaceTension),*Read(L.Mobility,EStudioHome4Quantity::Mobility),*Read(L.Gravity,EStudioHome4Quantity::Acceleration),*Home4PanelLocal::N(L.TauLight));
+        }
     }
     Out+=TEXT("\n\nChecks");if(Derived.Issues.IsEmpty())Out+=TEXT("\nNo reported issues in supplied values. Missing solver capabilities still prevent numerical execution.");
     for(const auto& I:Derived.Issues)Out+=TEXT("\n\n")+(I.Severity==EStudioHome4IssueSeverity::Blocking?FString(TEXT("BLOCK · ")):I.Severity==EStudioHome4IssueSeverity::Warning?FString(TEXT("WARN · ")):FString())+I.Field+TEXT(": ")+I.Message;
     if(!Preview.RecipeId.IsEmpty())for(const auto& D:StudioHome4Recipes::Departures(Preview))Out+=TEXT("\n\n")+D;
     return Out;
+}
+FString SStudioHome4Panel::SummaryTooltip() const
+{
+    FString TextValue=TEXT("Derived Kn ≈ Ma/Re: ")+Home4PanelLocal::N(Derived.Knudsen);
+    if(Derived.WakeWavelength)TextValue+=TEXT("\nWake wavelength:\n")+StudioHome4Readouts::Tooltip(*Derived.WakeWavelength,EStudioHome4Quantity::Length,EStudioHome4UnitDisplay::Lattice,&Preview);
+    for(const auto& L:Derived.Levels)
+    {
+        const auto Local=Home4PanelLocal::LevelMap(Preview,L.Scale);TextValue+=FString::Printf(TEXT("\nLevel %d · dx and dt divided by %.0f"),L.Depth,L.Scale);
+        auto Add=[&](const TCHAR* Label,const TOptional<double>& V,EStudioHome4Quantity Q){if(V)TextValue+=TEXT("\n")+FString(Label)+TEXT(":\n")+StudioHome4Readouts::Tooltip(*V,Q,EStudioHome4UnitDisplay::Lattice,&Local);};
+        Add(TEXT("νH"),L.NuHeavy,EStudioHome4Quantity::KinematicViscosity);Add(TEXT("σ"),L.Sigma,EStudioHome4Quantity::SurfaceTension);Add(TEXT("M"),L.Mobility,EStudioHome4Quantity::Mobility);Add(TEXT("g"),L.Gravity,EStudioHome4Quantity::Acceleration);
+    }
+    return TextValue;
 }
 FString SStudioHome4Panel::Command() const
 {
@@ -349,12 +404,14 @@ bool SStudioHome4Panel::HasField(const FString& Key)const
 bool SStudioHome4Panel::FocusField(const FString& Key)
 {
     const auto* Found=FieldTargets.Find(Key);const auto Target=Found?Found->Pin():TSharedPtr<SWidget>();if(!Target||!Target->IsEnabled())return false;
-    if(Target->GetCachedGeometry().GetLocalSize().GetMin()<=0)return false;
+    // Offscreen controls may not have been painted yet. Arrange/scroll them
+    // before requiring cached target geometry, then retry after layout.
     if(EditorScroll)
     {
         const auto& G=EditorScroll->GetCachedGeometry();if(G.GetLocalSize().Y<=0)return false;const auto At=G.AbsoluteToLocal(Target->GetCachedGeometry().GetAbsolutePosition());const double Height=Target->GetCachedGeometry().GetLocalSize().Y;
-        if(At.Y<0||At.Y+Height>G.GetLocalSize().Y){EditorScroll->ScrollDescendantIntoView(Target,false,EDescendantScrollDestination::Center,12);EditorScroll->Tick(G,FPlatformTime::Seconds(),0);return false;}
+        if(Target->GetCachedGeometry().GetLocalSize().GetMin()<=0||At.Y<0||At.Y+Height>G.GetLocalSize().Y){StaticCastSharedPtr<Home4PanelLocal::SEditorScroll>(EditorScroll)->ScrollFieldIntoView(Target);EditorScroll->Tick(G,FPlatformTime::Seconds(),0);return false;}
     }
+    if(Target->GetCachedGeometry().GetLocalSize().GetMin()<=0)return false;
     TFunction<TSharedPtr<SWidget>(const TSharedRef<SWidget>&)> Keyboard=[&](const TSharedRef<SWidget>& W)->TSharedPtr<SWidget>{if(W->SupportsKeyboardFocus())return W;auto* C=W->GetChildren();for(int32 I=0;I<C->Num();++I)if(auto T=Keyboard(C->GetChildAt(I)))return T;return {};};
     const auto Focus=Keyboard(Target.ToSharedRef());if(!Focus)return false;FSlateApplication::Get().SetKeyboardFocus(Focus,EFocusCause::Navigation);return Focus->HasKeyboardFocus()||Focus->HasFocusedDescendants();
 }

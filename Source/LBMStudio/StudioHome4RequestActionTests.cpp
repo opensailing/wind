@@ -29,4 +29,92 @@ bool FStudioHome4EveryRequestProtocol::RunTest(const FString&)
     auto M=MakeShared<FStudioModel>(FPaths::ProjectDir()/TEXT("tmp/debug/home4-device-inputs")/FGuid::NewGuid().ToString());auto Draft=MakeShared<FStudioHome4Session>(M);Draft->ApplyRecipe(TEXT("th01-hull"));auto Panel=SNew(SStudioHome4Panel).Model(M).Session(Draft).Page(TEXT("Run"));FStudioHeadlessSlate UI(*this,Panel,FVector2D(1040,800));UI.Type(TEXT("run.blockShape"),TEXT("16,8,4"));UI.Press(TEXT("authoring.deviceProfile"));UI.Press(TEXT("authoring.deviceProfile.M4-Pro-MPS-79.5M"));UI.Press(TEXT("Home4Apply"));TestTrue(TEXT("Native device/block controls persist actual request"),M->Project.Draft.Home4->Run.BlockShape==FIntVector(16,8,4)&&M->Project.Draft.Home4->Authoring.DeviceProfile==TEXT("M4-Pro-MPS-79.5M"));return !HasAnyErrors();
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4EveryAppendixNative,"Studio.HeadlessUI.Home4.Authoring.EveryAppendixControlAndCompleteRequest",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4EveryAppendixNative::RunTest(const FString&)
+{
+    struct FInput{const TCHAR* Key;const TCHAR* Value;EJson Type;const TCHAR* Flag;};
+    const FInput Inputs[]={
+        {TEXT("reference.lengthCells"),TEXT("384"),EJson::Number,TEXT("--L")},
+        {TEXT("geometry.patchClassification"),TEXT("HKr"),EJson::String,TEXT("--config")},
+        {TEXT("reference.froude"),TEXT("0.63"),EJson::Number,TEXT("--Fn")},
+        {TEXT("reference.reynolds"),TEXT("321"),EJson::Number,TEXT("--Re_ref")},
+        {TEXT("fluids.gravity"),TEXT("0.00013"),EJson::Number,TEXT("--g")},
+        {TEXT("fluids.xi"),TEXT("6"),EJson::Number,TEXT("--xi")},
+        {TEXT("reference.bond"),TEXT("250"),EJson::Number,TEXT("--Bo")},
+        {TEXT("fluids.mobility"),TEXT("0.025"),EJson::Number,TEXT("--mobility")},
+        {TEXT("fluids.rhoLight"),TEXT("0.02"),EJson::Number,TEXT("--rho_L")},
+        {TEXT("geometry.sinkCells"),TEXT("-0.35"),EJson::Number,TEXT("--sink_cells")},
+        {TEXT("geometry.trimDegrees"),TEXT("4.25"),EJson::Number,TEXT("--trim")},
+        {TEXT("geometry.noEquilibrate"),TEXT("true"),EJson::Boolean,TEXT("--no_equilibrate")},
+        {TEXT("lattice.padUp"),TEXT("2.1"),EJson::Number,TEXT("--pad_up")},
+        {TEXT("lattice.padDown"),TEXT("4.2"),EJson::Number,TEXT("--pad_down")},
+        {TEXT("lattice.padSide"),TEXT("1.3"),EJson::Number,TEXT("--pad_side")},
+        {TEXT("lattice.depth"),TEXT("2.4"),EJson::Number,TEXT("--depth")},
+        {TEXT("lattice.air"),TEXT("0.8"),EJson::Number,TEXT("--air")},
+        {TEXT("zones.sponge"),TEXT("80"),EJson::Number,TEXT("--sponge")},
+        {TEXT("zones.xBeach"),TEXT("180"),EJson::Number,TEXT("--xbeach")},
+        {TEXT("zones.xBeachStrength"),TEXT("0.12"),EJson::Number,TEXT("--xbeach_strength")},
+        {TEXT("zones.beachY"),TEXT("16"),EJson::Number,TEXT("--beach_y")},
+        {TEXT("zones.beachGap"),TEXT("24"),EJson::Number,TEXT("--beach_gap")},
+        {TEXT("zones.zoneStrength"),TEXT("0.15"),EJson::Number,TEXT("--zone_strength")},
+        {TEXT("zones.floorFriction"),TEXT("0.008"),EJson::Number,TEXT("--floor_fric")},
+        {TEXT("zones.massCorrection"),TEXT("global"),EJson::String,TEXT("--mass_correct")},
+        {TEXT("zones.pierceBoundary"),TEXT("declared-driver-mode"),EJson::String,nullptr},
+        {TEXT("run.travel"),TEXT("12"),EJson::Number,TEXT("--travel")},
+        {TEXT("run.rampLength"),TEXT("3"),EJson::Number,TEXT("--ramp_L")},
+        {TEXT("run.noFrameAcceleration"),TEXT("true"),EJson::Boolean,TEXT("--no_frame_accel")},
+        {TEXT("run.steps"),TEXT("9876"),EJson::Number,TEXT("--steps")},
+        {TEXT("run.averageLength"),TEXT("6"),EJson::Number,TEXT("--avg_L")},
+        {TEXT("run.measureEvery"),TEXT("17"),EJson::Number,TEXT("--measure_every")},
+        {TEXT("run.printEvery"),TEXT("23"),EJson::Number,TEXT("--print_every")},
+        {TEXT("geometry.bandCells"),TEXT("9"),EJson::Number,TEXT("--band_cells")},
+        {TEXT("geometry.refine"),TEXT("2"),EJson::Number,TEXT("--refine")},
+        {TEXT("geometry.sdfBackend"),TEXT("CPT"),EJson::String,TEXT("--sdf_backend")},
+        {TEXT("geometry.cptPath"),TEXT("/configuration-only/CPT path"),EJson::String,TEXT("--cpt_path")},
+        {TEXT("run.bodyOnCpu"),TEXT("true"),EJson::Boolean,TEXT("--body_on_cpu")},
+        {TEXT("run.noGpuKernels"),TEXT("true"),EJson::Boolean,TEXT("--no_gpu_kernels")},
+        {TEXT("run.device"),TEXT("declared-device-0"),EJson::String,TEXT("--device")},
+        {TEXT("run.initState"),TEXT("/configuration-only/original-state.npz"),EJson::String,TEXT("--init_state")},
+        {TEXT("run.saveState"),TEXT("/configuration-only/requested-state.npz"),EJson::String,nullptr},
+        {TEXT("run.tag"),TEXT("all-controls_viz"),EJson::String,TEXT("--tag")},
+        {TEXT("run.outDirectory"),TEXT("/configuration-only/output with spaces"),EJson::String,TEXT("--outdir")},
+        {TEXT("run.smoke"),TEXT("true"),EJson::Boolean,TEXT("--smoke")}
+    };
+    auto M=MakeShared<FStudioModel>(FPaths::ProjectDir()/TEXT("tmp/debug/home4-appendix-native")/FGuid::NewGuid().ToString());M->BeginHome4Authoring();
+    auto Session=MakeShared<FStudioHome4Session>(M);Session->ApplyRecipe(TEXT("th01-hull"));int32 Edited=0;
+    for(const TCHAR* Page:{TEXT("Geometry"),TEXT("Fluids & Interface"),TEXT("Bodies"),TEXT("Lattice"),TEXT("Boundaries & Zones"),TEXT("Run")})
+    {
+        auto Panel=SNew(SStudioHome4Panel).Model(M).Session(Session).Page(Page);FStudioHeadlessSlate UI(*this,Panel,FVector2D(1040,800));
+        for(const auto& Input:Inputs)
+        {
+            const FString Key(Input.Key);const auto* Field=StudioHome4Config::Fields().FindByPredicate([&](const auto& F){return FStudioHome4Session::Key(F)==Key;});
+            if(!TestNotNull(*Key,Field))return false;
+            const FString Owner=Field->Page;
+            if(Owner!=Page)continue;
+            bool Focused=false;for(int32 Attempt=0;Attempt<8&&!Focused;++Attempt){UI.Layout();Focused=Panel->FocusField(Key);}
+            if(!TestTrue(TEXT("Appendix field scrolls into the actual native editor: ")+Key,Focused))return false;
+            if(Input.Type==EJson::Boolean||!Field->Choices.IsEmpty())
+            {if(!UI.Press(FName(*Key))||!UI.Press(FName(*(Key+TEXT(".")+Input.Value))))return false;}
+            else if(!UI.Type(FName(*Key),Input.Value))return false;
+            ++Edited;
+        }
+    }
+    TestEqual(TEXT("Every 45 Appendix request controls were edited through real Slate events"),Edited,45);
+    if(!TestTrue(*Session->Status,Session->Apply()))return false;
+    const auto Spec=StudioHome4Config::ToJSON(*M->Project.Draft.Home4);
+    FStudioHome4DriverCommand Command;FString Error;TestTrue(*Error,StudioHome4Config::BuildHullDriverArgv(*M->Project.Draft.Home4,TEXT("python3"),TEXT("run_hull_speed.py"),Command,Error));
+    for(const auto& Input:Inputs)
+    {
+        FString Section,Key;FString(Input.Key).Split(TEXT("."),&Section,&Key);const auto Value=Spec->GetObjectField(Section)->TryGetField(Key);
+        if(!TestTrue(FString(TEXT("Native input retains its typed request: "))+Input.Key,Value&&Value->Type==Input.Type))continue;
+        if(Input.Type==EJson::Number)TestEqual(FString(TEXT("Exact Appendix numeric request: "))+Input.Key,Value->AsNumber(),FCString::Atod(Input.Value));
+        else if(Input.Type==EJson::Boolean)TestTrue(FString(TEXT("Explicit Appendix switch retained: "))+Input.Key,Value->AsBool());
+        else TestEqual(FString(TEXT("Exact Appendix literal request: "))+Input.Key,Value->AsString(),FString(Input.Value));
+        if(Input.Flag)TestTrue(TEXT("Known Appendix flag is one independent argument: ")+FString(Input.Flag),Command.Argv.Contains(Input.Flag));
+    }
+    TestFalse(TEXT("Unknown pierce argument arity is never invented"),Command.Argv.Contains(TEXT("--pierce_bc")));TestFalse(TEXT("Unknown checkpoint argument arity is never invented"),Command.Argv.Contains(TEXT("--save_state")));
+    TestTrue(TEXT("Both unknown driver contracts remain explicit"),Command.MissingContracts.ContainsByPredicate([](const auto& V){return V.Contains(TEXT("zones.pierceBoundary"));})&&Command.MissingContracts.ContainsByPredicate([](const auto& V){return V.Contains(TEXT("run.saveState"));}));
+    FStudioHome4Spec Reopened;TestTrue(*Error,StudioHome4Config::Parse(StudioHome4Config::Serialize(*M->Project.Draft.Home4),Reopened,Error));TestEqual(TEXT("Native all-option request round trips exactly"),StudioHome4Config::Serialize(Reopened),StudioHome4Config::Serialize(*M->Project.Draft.Home4));return !HasAnyErrors();
+}
+
 #endif

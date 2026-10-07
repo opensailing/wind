@@ -67,6 +67,18 @@ bool FStudioHome4UnitsUI::RunTest(const FString&)
     {auto Panel=SNew(SStudioHome4Panel).Model(M).Session(Draft).Page(TEXT("Fluids & Interface"));FStudioHeadlessSlate UI(*this,Panel,FVector2D(1040,740));TestEqual(TEXT("Invalid converted input survives page navigation"),UI.Text(TEXT("reference.speedCellsPerStep")),FString(TEXT("bad")));UI.Type(TEXT("reference.speedCellsPerStep"),TEXT("0.4"));UI.Press(TEXT("Home4Apply"));TestTrue(TEXT("SI editing inverse-converts exactly once"),FMath::IsNearlyEqual(M->Project.Draft.Home4->Reference.SpeedCellsPerStep.Get(0),.04,1e-12));}
     return !HasAnyErrors();
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4SummaryUnitsUI,"Studio.HeadlessUI.Home4.Authoring.FeasibilityLevelMapAndWakeDisplayUnits",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4SummaryUnitsUI::RunTest(const FString&)
+{
+    auto M=MakeShared<FStudioModel>(FPaths::ProjectDir()/TEXT("tmp/debug/home4-summary-units")/FGuid::NewGuid().ToString());auto Draft=StudioHome4AuthoringUITestsLocal::Setup(M);
+    for(const auto& Value:{TPair<const TCHAR*,const TCHAR*>(TEXT("units.dxMeters"),TEXT("0.01")),{TEXT("units.dtSeconds"),TEXT("0.001")},{TEXT("units.densityReferenceKgM3"),TEXT("1000")},{TEXT("reference.speedCellsPerStep"),TEXT("0.02")},{TEXT("fluids.nuHeavy"),TEXT("0.01")},{TEXT("fluids.nuLight"),TEXT("0.005")},{TEXT("fluids.sigma"),TEXT("0.02")},{TEXT("fluids.mobility"),TEXT("0.03")},{TEXT("fluids.gravity"),TEXT("0.001")},{TEXT("multidomain.levels"),TEXT("2")}})Draft->Set(Value.Key,Value.Value);
+    M->UnitDisplay=EStudioHome4UnitDisplay::Physical;
+    auto Panel=SNew(SStudioHome4Panel).Model(M).Session(Draft).Page(TEXT("Lattice"));FStudioHeadlessSlate UI(*this,Panel,FVector2D(1040,800));
+    const auto Physical=UI.Text(TEXT("Home4FeasibilitySummary"));TestTrue(TEXT("Wake and duplicate MD summary use the active physical form"),Physical.Contains(TEXT("Wake wavelength"))&&Physical.Contains(TEXT(" m\n"))&&Physical.Contains(TEXT("0.001 m²/s"))&&Physical.Contains(TEXT("10 m/s²")));
+    M->UnitDisplay=EStudioHome4UnitDisplay::Nondimensional;Panel->Tick(FGeometry(),0,0);UI.Layout();const auto ND=UI.Text(TEXT("Home4FeasibilitySummary"));TestFalse(TEXT("Nondimensional view never leaves a raw dimensional MD label"),ND.Contains(TEXT("m²/s"))||ND.Contains(TEXT(" cells\n")));TestTrue(TEXT("Per-level display changes while request remains retained"),ND!=Physical&&Draft->Get(TEXT("fluids.nuHeavy"))==TEXT("0.01"));return !HasAnyErrors();
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4SettingsUI,"Studio.HeadlessUI.Home4.Authoring.ViewerDefaultsAndMixedStiffness",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FStudioHome4SettingsUI::RunTest(const FString&)
 {
