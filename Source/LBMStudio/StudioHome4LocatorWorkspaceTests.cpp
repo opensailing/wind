@@ -3,6 +3,8 @@
 #include "StudioScene.h"
 #include "StudioHome4Archive.h"
 #include "StudioHome4Telemetry.h"
+#include "StudioHome4SpatialDiagnostics.h"
+#include "HAL/PlatformProcess.h"
 #include "StudioHome4Recipes.h"
 #include "StudioHeadlessSlate.h"
 #include "StudioPointRecording.h"
@@ -80,6 +82,26 @@ bool FHome4LocatorWorkspaceTest::RunTest(const FString&)
         W->LocateHome4Cell(F,&A);TestEqual(TEXT("Repeated same cell reuses marker"),M->InspectionObjects.Probes.Num(),1);
         Wrong=A;Wrong.Facts.Cell=FIntVector(G.OriginalDimensions.X,0,0);const auto LocatedCamera=M->Project.Camera;W->LocateHome4Cell(Wrong.Facts,&Wrong);
         TestTrue(TEXT("Outside original grid cannot move camera"),StudioView::CameraEquals(M->Project.Camera,LocatedCamera));
+        if(Level==0)
+        {
+            auto Spatial=MakeShared<FJsonObject>();Spatial->SetStringField(TEXT("schema"),TEXT("LBMStudio.Home4SpatialDiagnostics"));Spatial->SetNumberField(TEXT("version"),1);
+            Spatial->SetStringField(TEXT("run_id"),G.SourceRunId);Spatial->SetStringField(TEXT("source_id"),TEXT("artificial-locator-spatial"));Spatial->SetStringField(TEXT("axis_order"),TEXT("XYZ"));Spatial->SetStringField(TEXT("coordinate_unit"),G.CoordinateUnits);
+            auto Patch=MakeShared<FJsonObject>();Patch->SetStringField(TEXT("id"),TEXT("root"));Patch->SetNumberField(TEXT("level"),0);
+            auto XYZ=[](const FVector& V){return TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(V.X),MakeShared<FJsonValueNumber>(V.Y),MakeShared<FJsonValueNumber>(V.Z)};};
+            Patch->SetArrayField(TEXT("origin"),XYZ(G.OriginalOrigin));Patch->SetArrayField(TEXT("spacing"),XYZ(G.OriginalSpacing));Patch->SetArrayField(TEXT("extents"),XYZ(FVector(G.OriginalDimensions)));
+            Spatial->SetArrayField(TEXT("patches"),{MakeShared<FJsonValueObject>(Patch)});FString JSON;FJsonSerializer::Serialize(Spatial,TJsonWriterFactory<>::Create(&JSON));
+            const FString SpatialPath=Root/TEXT("spatial.json");FFileHelper::SaveStringToFile(JSON,*SpatialPath,FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+            if(!TestTrue(TEXT("Load actual spatial source into workspace"),W->Home4Spatial->BeginImport(SpatialPath,A.Source.RunId)))return false;
+            const double Deadline=FPlatformTime::Seconds()+5;
+            while(W->Home4Spatial->IsImporting()&&FPlatformTime::Seconds()<Deadline){W->Home4Spatial->Poll();FPlatformProcess::Sleep(.002f);}
+            const auto Evidence=W->Home4Spatial->Evidence();if(!TestTrue(W->Home4Spatial->Status(),Evidence.IsValid()))return false;
+            FStudioHome4SpatialLocation Location;FString Error;if(!TestTrue(Error,StudioHome4SpatialDiagnostics::Locate(*Evidence,TEXT("root"),FIntVector(1,1,0),Location,Error)))return false;
+            W->LocateHome4Spatial(Location);TestEqual(TEXT("Spatial location uses current recording even before a render frame is presented"),M->InspectionObjects.Probes.Num(),2);
+            const FVector Point=G.OriginMeters+G.SpacingMeters*FVector(1,1,0);TestTrue(TEXT("Spatial camera uses original affine"),M->Project.Camera.Focus.Equals(FVector(Point.X,Point.Z,Point.Y),1.e-12));
+            W->LocateHome4Spatial(Location);TestEqual(TEXT("Repeated spatial location creates a valid uniquely named marker"),M->InspectionObjects.Probes.Num(),3);
+            TestEqual(TEXT("Spatial location keeps exact original field frame"),M->SelectedFrame,Frame);
+            TestTrue(TEXT("Spatial cell does not retain another reported cell's facts"),W->Home4CellDetailsText().IsEmpty());
+        }
         M->InspectionObjects.Probes[0].bVisible=false;TestTrue(TEXT("Hidden marker hides its facts"),W->Home4CellDetailsText().IsEmpty());M->InspectionObjects.Probes[0].bVisible=true;
         M->InspectionObjects.Probes[0].PointId=0;TestTrue(TEXT("Retargeted marker cannot display old cell facts"),W->Home4CellDetailsText().IsEmpty());
         M->Project.Draft.Id=FGuid::NewGuid();TestTrue(TEXT("Changed case hides old cell facts immediately"),W->Home4CellDetailsText().IsEmpty());

@@ -1199,7 +1199,7 @@ void SStudioWorkspace::Construct(const FArguments& A)
                     +SWidgetSwitcher::Slot()[LatticeWorkspace()]+SWidgetSwitcher::Slot()[Home4Page(TEXT("Lattice"))]]
                 +SWidgetSwitcher::Slot()[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()&&!bHome4RecordingMonitors?1:0;})
                     +SWidgetSwitcher::Slot()[MonitorWorkspace()]
-                    +SWidgetSwitcher::Slot()[SAssignNew(Home4Monitors,SStudioHome4Monitors).Model(M).Runtime(Home4Runtime)
+                    +SWidgetSwitcher::Slot()[SAssignNew(Home4Monitors,SStudioHome4Monitors).Model(M).Runtime(Home4Runtime).Editor(Home4)
                         .UnitDisplay_Lambda([this]{return M->UnitDisplay;})
                         .OnLocateCell_Lambda([this](const FStudioHome4CellFacts& Facts){LocateHome4Cell(Facts);})]]
                 +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
@@ -1304,8 +1304,8 @@ void SStudioWorkspace::ChooseHome4Recipe(const FString& Id)
 void SStudioWorkspace::LocateHome4Spatial(const FStudioHome4SpatialLocation& Location)
 {
     Home4Spatial->Poll();const auto Evidence=Home4Spatial->Evidence();
-    const auto Field=Scene->PresentedField();const auto Volume=Field?Field->VolumeReconstruction():nullptr;
-    if(!Evidence||!Volume||!Volume->OriginalGrid||Evidence->RunId!=Location.RunId||Evidence->SourceSHA256!=Location.SourceSHA256)
+    const auto Volume=M->Solver->VolumeReconstruction();
+    if(M->IsRecordingLoadPending()||!Evidence||!Volume||!Volume->OriginalGrid||Evidence->RunId!=Location.RunId||Evidence->SourceSHA256!=Location.SourceSHA256)
     {M->Notice=TEXT("Load the matching original source grid before locating this diagnostic cell.");return;}
     const auto& Grid=*Volume->OriginalGrid;
     FString BindingError;
@@ -1316,11 +1316,12 @@ void SStudioWorkspace::LocateHome4Spatial(const FStudioHome4SpatialLocation& Loc
     {const int32 Delta=Cell[Axis]-Grid.CropMinimum[Axis];if(Delta<0||Cell[Axis]>=Grid.CropMaximum[Axis]||Delta%Grid.PreviewStride!=0)
         {M->Notice=TEXT("This original cell is outside the loaded crop or preview stride.");return;}Selected[Axis]=Delta/Grid.PreviewStride;}
     const FVector Source=Grid.OriginMeters+Grid.SpacingMeters*FVector(Selected),Position(Source.X,Source.Z,Source.Y);
+    FStudioProbeObject Probe;Probe.Name=TEXT("Diagnostic cell ")+Location.PatchId+TEXT(" · ")+Probe.Id.ToString(EGuidFormats::Digits).Left(8);Probe.A=Position;Probe.Method=EStudioProbeMethod::OriginalPoint;
+    Probe.PointId=int64(Cell.X)+int64(Grid.OriginalDimensions.X)*(int64(Cell.Y)+int64(Grid.OriginalDimensions.Y)*Cell.Z);Probe.Field=Grid.PhaseField;
+    const auto Id=Probe.Id;if(!M->AddProbe(Probe)){M->Notice=TEXT("The original diagnostic cell could not be marked. ")+M->InspectionNotice;return;}
+    M->SelectInspectionObject(Id);Home4CellProject.Invalidate();
     auto Camera=M->Project.Camera;Camera.Position+=Position-Camera.Focus;Camera.Focus=Position;
     M->EditView(TEXT("Locate original spatial diagnostic"),[&](auto& View){View.Camera=Camera;});Scene->ApplyCamera(Camera);Navigate(EStudioWorkspace::Solve);
-    FStudioProbeObject Probe;Probe.Name=TEXT("Diagnostic cell ")+Location.PatchId;Probe.A=Position;Probe.Method=EStudioProbeMethod::OriginalPoint;
-    Probe.PointId=int64(Cell.X)+int64(Grid.OriginalDimensions.X)*(int64(Cell.Y)+int64(Grid.OriginalDimensions.Y)*Cell.Z);Probe.Field=Grid.PhaseField;
-    const auto Id=Probe.Id;if(M->AddProbe(Probe))M->SelectInspectionObject(Id);
     M->Notice=TEXT("Focused the original diagnostic cell. The recorded time is unchanged.");
 }
 FString SStudioWorkspace::Home4CellDetailsText() const
