@@ -4,6 +4,9 @@
 #include "StudioHome4Telemetry.h"
 #include "SStudioHome4SpatialDiagnostics.h"
 class FStudioModel;
+class FStudioHome4RuntimeSession;
+class FStudioHome4AuthoringSession;
+class SStudioHome4Monitors;
 class SEditableTextBox;
 class SVerticalBox;
 struct FStudioHome4ValidationState;
@@ -16,6 +19,9 @@ public:
     SLATE_BEGIN_ARGS(SStudioHome4Panel){}
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4Session>,Session)
+        SLATE_ARGUMENT(TSharedPtr<FStudioHome4RuntimeSession>,Runtime)
+        SLATE_ARGUMENT(TSharedPtr<FStudioHome4AuthoringSession>,Authoring)
+        SLATE_ARGUMENT(TSharedPtr<SStudioHome4Monitors>,Monitors)
         SLATE_ARGUMENT(FString,Page)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4SpatialSession>,Spatial)
         SLATE_EVENT(FStudioHome4SpatialLocate,OnLocateSpatial)
@@ -38,8 +44,15 @@ private:
     void ImportSpec();
     void ExportReport();
     void Sync();
+    bool CommitPending();
+    EStudioHome4UnitDisplay FieldDisplay(const FStudioHome4Field&)const;
+    FString FieldUnit(const FStudioHome4Field&)const;
     TSharedPtr<FStudioModel> Model;
     TSharedPtr<FStudioHome4Session> Session;
+    TSharedPtr<FStudioHome4RuntimeSession> Runtime;
+    TSharedPtr<FStudioHome4AuthoringSession> Authoring;
+    TSharedPtr<SStudioHome4Monitors> Monitors;
+    bool bSyncing=false;
     TSharedPtr<FStudioHome4ValidationState> Validation;
     TSharedPtr<FStudioHome4SpatialSession> Spatial;
     FStudioHome4RecipeAction OnRecipe;

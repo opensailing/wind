@@ -1,7 +1,15 @@
 #include "SStudioHome4Panel.h"
 #include "SStudioHome4Allocations.h"
 #include "SStudioHome4RunControls.h"
+#include "SStudioHome4Runtime.h"
+#include "SStudioHome4Checkpoint.h"
+#include "SStudioHome4Reports.h"
+#include "StudioHome4Runtime.h"
 #include "SStudioHome4Sizing.h"
+#include "SStudioHome4Authoring.h"
+#include "SStudioHome4Regions.h"
+#include "SStudioHome4Settings.h"
+#include "SStudioHome4Stiffness.h"
 #include "SStudioHome4Validation.h"
 #include "StudioHome4Recipes.h"
 #include "StudioHome4Readouts.h"
@@ -42,12 +50,12 @@ TSharedRef<SWidget> SStudioHome4Panel::Action(const FString& TextValue,FName Tag
 }
 void SStudioHome4Panel::Construct(const FArguments& Args)
 {
-    Model=Args._Model;Session=Args._Session;Spatial=Args._Spatial;Page=Args._Page;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;Telemetry=Args._Telemetry;TelemetryProvenance=Args._TelemetryProvenance;Sync();SetCanTick(true);
+    Model=Args._Model;Session=Args._Session;Runtime=Args._Runtime;Monitors=Args._Monitors;Authoring=Args._Authoring?Args._Authoring:MakeShared<FStudioHome4AuthoringSession>(Session);Spatial=Args._Spatial;Page=Args._Page;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;Telemetry=Args._Telemetry;TelemetryProvenance=Args._TelemetryProvenance;Sync();SetCanTick(true);
     auto Body=SNew(SVerticalBox);
     if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Sizing).Session(Session)];
     if(Page==TEXT("Validation")||Page==TEXT("Projects"))
     {
-        Body->AddSlot().AutoHeight()[SNew(SStudioHome4Validation).Model(Model).State(Validation)];
+        Body->AddSlot().AutoHeight()[SNew(SStudioHome4Validation).Model(Model).State(Validation).Runtime(Runtime)];
         Body->AddSlot().AutoHeight().Padding(0,20,0,0)[Recipes()];
     }
     else
@@ -55,13 +63,16 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
         FString Previous;
         for(const auto& F:StudioHome4Config::Fields())
         {
-            if(F.Page!=Page||F.Section.IsEmpty()||F.Key==TEXT("display"))continue;
+            if(F.Page!=Page||F.Section.IsEmpty()||F.Key==TEXT("display")||F.Key==TEXT("stiffness"))continue;
             if(F.Section!=Previous)
             {Previous=F.Section;Body->AddSlot().AutoHeight().Padding(0,18,0,10)[StudioUI::Label(Home4PanelLocal::Human(Previous),13,StudioUI::Text,true)];}
             Body->AddSlot().AutoHeight().Padding(0,0,0,9)[Editor(F)];
         }
     }
     if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Allocations).Session(Session)];
+    if(Page==TEXT("Lattice")||Page==TEXT("Boundaries & Zones"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Regions).Session(Session).Patches(Page==TEXT("Lattice"))];
+    if(Page==TEXT("Geometry")||Page==TEXT("Lattice")||Page==TEXT("Bodies")||Page==TEXT("Boundaries & Zones"))Body->AddSlot().AutoHeight().Padding(0,18)[SNew(SStudioHome4Authoring).Session(Authoring).Page(Page)];
+    if(Page==TEXT("Bodies"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Stiffness).Session(Session)];
     if(Spatial&&(Page==TEXT("Lattice")||Page==TEXT("Boundaries & Zones")||Page==TEXT("Geometry")))
         Body->AddSlot().AutoHeight().Padding(0,20)[SNew(SBox).HeightOverride(580)[SNew(SStudioHome4SpatialDiagnostics).Model(Model).Session(Spatial)
             .View(Page==TEXT("Lattice")?EStudioHome4SpatialView::Multidomain:Page==TEXT("Geometry")?EStudioHome4SpatialView::Geometry:EStudioHome4SpatialView::Zones)
@@ -71,9 +82,9 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
         auto Formats=SNew(SHorizontalBox);
         for(const TCHAR* Extension:{TEXT("step"),TEXT("iges"),TEXT("stl"),TEXT("obj")})
             Formats->AddSlot().AutoWidth().Padding(0,0,7,0)[Action(FString(TEXT("Choose "))+FString(Extension).ToUpper()+TEXT("…"),FName(*(FString(TEXT("Home4CAD."))+Extension)),[this,Ext=FString(Extension)]
-            {FString Path;if(StudioFileDialog::DataFile(false,TEXT("Select body geometry"),TEXT(""),Ext,Path)){Session->Set(TEXT("geometry.sourcePath"),Path);Sync();}})];
+            {FString Path;if(StudioFileDialog::DataFile(false,TEXT("Select body geometry"),TEXT(""),Ext,Path)){Session->Set(TEXT("geometry.sourcePath"),Path);Session->Set(TEXT("authoring.primitive"),TEXT(""));Session->Set(TEXT("authoring.sourceSHA256"),TEXT(""));Sync();}})];
         Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Formats];
-        Body->InsertSlot(1).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("SDF build · awaiting geometry adapter\nTessellation cache, signed-distance band and cut-link fractions are not supplied. STEP/IGES are retained as source requests. Imported STL/OBJ surfaces can be inspected under Import & surfaces."),StudioUI::Amber)];
+
     }
     if(Page==TEXT("Bodies"))
     {
@@ -84,6 +95,7 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
         Body->InsertSlot(0).AutoHeight().Padding(0,0,0,12)[Home4PanelLocal::Paragraph(TEXT("Zone extents and strength profiles belong to the run configuration. Driver-specific widths remain labeled as driver values until the solver supplies their coordinate convention. Original field masks are inspected in Fields."),StudioUI::Muted)];
     if(Page==TEXT("Settings"))
     {
+        Body->AddSlot().AutoHeight()[SNew(SStudioHome4Settings).Model(Model)];
         Body->AddSlot().AutoHeight().Padding(0,0,0,10)[StudioUI::Label(TEXT("Readout units"),14,StudioUI::Text,true)];
         Body->AddSlot().AutoHeight().Padding(0,0,0,18)[Home4PanelLocal::Paragraph(TEXT("Use LU / SI / ND in the header to set the global readout mode. Converted values offer all three forms in their tooltip. A recording must supply its original unit map; editing the next-run map cannot change old results."))];
         Body->AddSlot().AutoHeight()[StudioUI::Label(TEXT("Viewer preferences"),14,StudioUI::Text,true)];
@@ -91,23 +103,15 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
     }
     if(Page==TEXT("Run"))
     {
-        Body->InsertSlot(0).AutoHeight().Padding(0,0,0,18)[SNew(SStudioHome4RunControls).Model(Model).OnSubmit(Args._OnSubmit)];
+        if(Runtime){Body->AddSlot().AutoHeight().Padding(0,18)[SNew(SStudioHome4Runtime).Model(Model).Runtime(Runtime)];Body->AddSlot().AutoHeight().Padding(0,18)[SNew(SStudioHome4Checkpoint).Model(Model).Editor(Session).Session(Runtime->Checkpoint())];}
+        else Body->InsertSlot(0).AutoHeight().Padding(0,0,0,18)[SNew(SStudioHome4RunControls).Model(Model).OnSubmit(Args._OnSubmit)];
         Body->AddSlot().AutoHeight().Padding(0,18,0,8)[StudioUI::Label(TEXT("Equivalent command line"),13,StudioUI::Text,true)];
         Body->AddSlot().AutoHeight()[SNew(SMultiLineEditableTextBox).IsReadOnly(true).AutoWrapText(true).Font(StudioUI::Font(10))
             .Text_Lambda([this]{return FText::FromString(Command());})];
         Body->AddSlot().AutoHeight().Padding(0,8)[Action(TEXT("Copy command"),TEXT("Home4CopyCLI"),[this]{FPlatformApplicationMisc::ClipboardCopy(*Command());Session->Status=TEXT("Command copied. No solver process was started.");})];
         Body->AddSlot().AutoHeight().Padding(0,10)[Home4PanelLocal::Paragraph(TEXT("Development adapter: use the header controls to exercise Run, Pause, Stop and Step. It computes no CFD, writes no restart state and supplies no scientific measurements. Metal, CUDA and rack execution await the solver adapter."),StudioUI::Amber)];
     }
-    if(Page==TEXT("Reports"))
-    {
-        Body->AddSlot().AutoHeight().Padding(0,0,0,10)[StudioUI::Label(TEXT("Reproducible report bundle"),15,StudioUI::Text,true)];
-        Body->AddSlot().AutoHeight().Padding(0,0,0,14)[Home4PanelLocal::Paragraph(TEXT("Export run_spec.json, the command preview, a JSON provenance sidecar and report.tex together. Each export creates a new folder; existing published results are preserved."))];
-        Body->AddSlot().AutoHeight()[StudioUI::Label(TEXT("Report folder"),10,StudioUI::Muted)];
-        Body->AddSlot().AutoHeight().Padding(0,6,0,12)[SNew(SEditableTextBox).Tag(TEXT("Home4ReportName")).Style(&StudioUI::InputStyle()).Font(StudioUI::Font(11)).Text(FText::FromString(ReportName))
-            .OnTextChanged_Lambda([this](const FText& T){ReportName=T.ToString();})];
-        Body->AddSlot().AutoHeight()[Action(TEXT("Export report bundle…"),TEXT("Home4ReportExport"),[this]{ExportReport();})];
-        Body->AddSlot().AutoHeight().Padding(0,18)[Home4PanelLocal::Paragraph(TEXT("Validation: not evaluated. A report records available evidence and cannot certify an unrun solver or an unsupplied reference."),StudioUI::Amber)];
-    }
+    if(Page==TEXT("Reports"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Reports).Model(Model).Runtime(Runtime).Validation(Validation).Spatial(Spatial).Monitors(Monitors)];
     ChildSlot[SNew(SBorder).BorderImage(&StudioUI::PanelBrush).Padding(22)
         [SNew(SVerticalBox)
             +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,6)[StudioUI::Label(Page,23,StudioUI::Text,true)]
@@ -122,12 +126,13 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
             +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
                 +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("Home4Apply")).ButtonStyle(&StudioUI::ButtonStyle()).ContentPadding(FMargin(12,8))
                     .IsEnabled_Lambda([this]{return Session->IsDirty()&&!Session->HasConflict();})
-                    .OnClicked_Lambda([this]{Session->Apply();Sync();return FReply::Handled();})[StudioUI::Label(TEXT("Apply configuration"),10,StudioUI::Cyan)]]
+                    .OnClicked_Lambda([this]{if(CommitPending())Session->Apply();Sync();return FReply::Handled();})[StudioUI::Label(TEXT("Apply configuration"),10,StudioUI::Cyan)]]
                 +SHorizontalBox::Slot().AutoWidth().Padding(8,0)[Action(TEXT("Revert edits"),TEXT("Home4Revert"),[this]{Session->Revert();Sync();})]
                 +SHorizontalBox::Slot().AutoWidth().Padding(0,0,8,0)[Action(TEXT("Import run spec…"),TEXT("Home4Import"),[this]{ImportSpec();})]
                 +SHorizontalBox::Slot().AutoWidth()[Action(TEXT("Export run spec…"),TEXT("Home4Export"),[this]{ExportSpec();})]]
             +SVerticalBox::Slot().AutoHeight().Padding(0,9,0,0)[SNew(STextBlock).Tag(TEXT("Home4Status")).Font(StudioUI::Font(10)).ColorAndOpacity(StudioUI::Amber).AutoWrapText(true)
                 .Text_Lambda([this]{return FText::FromString(!Session->Status.IsEmpty()?Session->Status:PreviewError);})]]];
+    Sync();
 }
 TSharedRef<SWidget> SStudioHome4Panel::Editor(const FStudioHome4Field& F)
 {
@@ -149,16 +154,18 @@ TSharedRef<SWidget> SStudioHome4Panel::Editor(const FStudioHome4Field& F)
     {
         TSharedPtr<SEditableTextBox> Edit;
         Input=SAssignNew(Edit,SEditableTextBox).Tag(FName(*K)).Style(&StudioUI::InputStyle()).Font(StudioUI::Font(10))
-            .Text(FText::FromString(Session->Get(K))).HintText(FText::FromString(F.bOptional?TEXT("Not specified"):TEXT("")))
-            .OnTextChanged_Lambda([this,K](const FText& T){Session->Set(K,T.ToString());})
-            .OnTextCommitted_Lambda([this](const FText&,ETextCommit::Type Type){if(Type==ETextCommit::OnEnter){Session->Apply();Sync();}});
+            .Text(FText::FromString(Session->DisplayText(F,FieldDisplay(F)))).HintText(FText::FromString(F.bOptional?TEXT("Not specified"):TEXT("")))
+            .OnTextChanged_Lambda([this,F,K](const FText& T)
+            {if(bSyncing)return;const auto D=FieldDisplay(F);if(D==EStudioHome4UnitDisplay::Lattice){Session->Set(K,T.ToString());return;}auto Pending=Session->Pending(TEXT("panel.units"));Pending.Add(K+TEXT(".text"),T.ToString());Pending.Add(K+TEXT(".display"),LexToString(int32(D)));Session->RetainPending(TEXT("panel.units"),Pending);})
+            .OnTextCommitted_Lambda([this](const FText&,ETextCommit::Type Type){if(CommitPending()&&Type==ETextCommit::OnEnter)Session->Apply();Sync();});
         Inputs.Add(K,Edit);
     }
+    Input->SetToolTipText(TAttribute<FText>::CreateLambda([this,F]{return FText::FromString(Session->FieldTooltip(F));}));
     return SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SBox).WidthOverride(185)[Home4PanelLocal::Paragraph(F.Label==F.Key?Home4PanelLocal::Human(F.Key):F.Label)]]
             +SHorizontalBox::Slot().FillWidth(1).Padding(8,0)[Input.ToSharedRef()]
-            +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SBox).WidthOverride(83)[Home4PanelLocal::Paragraph(F.Unit,StudioUI::Muted)]]]
+            +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(SBox).WidthOverride(83)[SNew(STextBlock).Font(StudioUI::Font(9)).ColorAndOpacity(StudioUI::Muted).AutoWrapText(true).Text_Lambda([this,F]{return FText::FromString(FieldUnit(F));})]]]
         +SVerticalBox::Slot().AutoHeight().Padding(193,3,83,0)[Home4PanelLocal::Paragraph(F.Help,StudioUI::Muted)];
 }
 TSharedRef<SWidget> SStudioHome4Panel::Recipes()
@@ -228,19 +235,53 @@ FString SStudioHome4Panel::Command() const
     if(!StudioHome4Config::BuildHullDriverArgv(Preview,TEXT("python3"),TEXT("run_hull_speed.py"),C,E))return E;
     FString TextValue=C.Display;for(const auto& M:C.MissingContracts)TextValue+=TEXT("\n# ")+M;return TextValue;
 }
+EStudioHome4UnitDisplay SStudioHome4Panel::FieldDisplay(const FStudioHome4Field& F)const
+{
+    const auto Pending=Session->Pending(TEXT("panel.units"));const FString Key=FStudioHome4Session::Key(F);
+    if(const auto* D=Pending.Find(Key+TEXT(".display")))return EStudioHome4UnitDisplay(FCString::Atoi(**D));
+    const auto Wanted=Model?Model->UnitDisplay:EStudioHome4UnitDisplay::Lattice;
+    if(!F.bQuantity||Wanted==EStudioHome4UnitDisplay::Lattice)return EStudioHome4UnitDisplay::Lattice;
+    FStudioHome4Spec Map;FString E;if(!Session->Build(Map,E,true)||!StudioHome4Config::FieldConversion(1,F,EStudioHome4UnitDisplay::Lattice,Wanted,Map))return EStudioHome4UnitDisplay::Lattice;
+    return Wanted;
+}
+FString SStudioHome4Panel::FieldUnit(const FStudioHome4Field& F)const
+{
+    const auto D=FieldDisplay(F);const auto Wanted=Model?Model->UnitDisplay:EStudioHome4UnitDisplay::Lattice;
+    if(!F.bQuantity)return F.Unit;
+    if(D==EStudioHome4UnitDisplay::Lattice)return F.Unit+(Wanted!=D?TEXT(" (map required)"):TEXT(""));
+    return StudioHome4Readouts::Unit(F.Quantity,D);
+}
+bool SStudioHome4Panel::CommitPending()
+{
+    auto Pending=Session->Pending(TEXT("panel.units"));
+    for(const auto& F:StudioHome4Config::Fields())
+    {
+        const FString K=FStudioHome4Session::Key(F);const auto* T=Pending.Find(K+TEXT(".text"));if(!T)continue;
+        const auto* D=Pending.Find(K+TEXT(".display"));FString E;
+        if(!D||!Session->SetDisplayText(F,*T,EStudioHome4UnitDisplay(FCString::Atoi(**D)),E)){Session->Status=E;return false;}
+        Pending.Remove(K+TEXT(".text"));Pending.Remove(K+TEXT(".display"));Session->RetainPending(TEXT("panel.units"),Pending);
+    }
+    return true;
+}
 void SStudioHome4Panel::Sync()
 {
-    Session->Refresh();for(const auto& P:Inputs)if(const auto W=P.Value.Pin())
-        if(W->GetText().ToString()!=Session->Get(P.Key))W->SetText(FText::FromString(Session->Get(P.Key)));
+    Session->Refresh();bSyncing=true;const auto Pending=Session->Pending(TEXT("panel.units"));
+    for(const auto& F:StudioHome4Config::Fields())if(const auto* Input=Inputs.Find(FStudioHome4Session::Key(F)))if(const auto W=Input->Pin())
+    {
+        const FString K=FStudioHome4Session::Key(F);const auto* P=Pending.Find(K+TEXT(".text"));
+        const FString TextValue=P?*P:Session->DisplayText(F,FieldDisplay(F));
+        if(W->GetText().ToString()!=TextValue)W->SetText(FText::FromString(TextValue));
+    }
+    bSyncing=false;
     if(Session->Build(Preview,PreviewError))Derived=StudioHome4Config::Derive(Preview);
     else { Preview=FStudioHome4Spec();Derived=FStudioHome4Derived(); }
 }
 void SStudioHome4Panel::Tick(const FGeometry& G,double T,float D)
 {
     SCompoundWidget::Tick(G,T,D);Session->Refresh();
-    FString Values;for(const auto& F:StudioHome4Config::Fields())Values+=Session->Get(FStudioHome4Session::Key(F))+TEXT("\x1e");
+    FString Values=LexToString(Model?int32(Model->UnitDisplay):0)+TEXT("/")+LexToString(Session->HasPending());for(const auto& F:StudioHome4Config::Fields())Values+=Session->Get(FStudioHome4Session::Key(F))+TEXT("\x1e");
     for(int32 Row=0;Row<Session->AllocationCount();++Row)
-        for(int32 Column=0;Column<5;++Column)Values+=Session->AllocationValue(Row,Column)+TEXT("\x1e");
+        for(int32 Column=0;Column<6;++Column)Values+=Session->AllocationValue(Row,Column)+TEXT("\x1e");
     if(Values!=LastValues){LastValues=Values;Sync();}
 }
 void SStudioHome4Panel::ExportSpec()
