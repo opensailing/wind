@@ -1,4 +1,5 @@
 #include "StudioHome4Validation.h"
+#include "StudioHome4JSON.h"
 #include "StudioFileDialog.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
@@ -26,52 +27,6 @@ namespace StudioHome4ValidationPrivate
         EVP_MD_CTX_free(Context);
         if (Valid) Hash = BytesToHex(Digest, Count).ToLower();
         return Valid;
-    }
-    bool Preflight(const FString& JSON)
-    {
-        const auto Reader = TJsonReaderFactory<>::Create(JSON);
-        EJsonNotation Token;
-        TArray<bool> Containers;
-        TArray<TSet<FString>> Keys;
-        while (Reader->ReadNext(Token))
-        {
-            if (Token == EJsonNotation::Error) return false;
-            if (Token == EJsonNotation::Number && !FMath::IsFinite(Reader->GetValueAsNumber())) return false;
-            if (Token != EJsonNotation::ObjectEnd && Token != EJsonNotation::ArrayEnd && !Containers.IsEmpty() && Containers.Last())
-            {
-                const FString Key = Reader->GetIdentifier();
-                if (Keys.Last().Contains(Key)) return false;
-                Keys.Last().Add(Key);
-            }
-            if (Token == EJsonNotation::ObjectStart || Token == EJsonNotation::ArrayStart)
-            {
-                if (Containers.Num() >= 32) return false;
-                const bool Object = Token == EJsonNotation::ObjectStart;
-                Containers.Add(Object); if (Object) Keys.Add(TSet<FString>());
-            }
-            else if (Token == EJsonNotation::ObjectEnd || Token == EJsonNotation::ArrayEnd)
-            {
-                if (Containers.IsEmpty()) return false;
-                if (Containers.Last()) Keys.Pop(EAllowShrinking::No);
-                Containers.Pop(EAllowShrinking::No);
-            }
-        }
-        return Containers.IsEmpty();
-    }
-    bool UTF8(const uint8* Bytes, int32 Size)
-    {
-        for(int32 I=0;I<Size;)
-        {
-            const uint8 C=Bytes[I++];if(C<0x80){if(!C)return false;continue;}
-            int32 N=0;uint32 Code=0,Minimum=0;
-            if(C>=0xc2&&C<=0xdf){N=1;Code=C&31;Minimum=0x80;}
-            else if(C>=0xe0&&C<=0xef){N=2;Code=C&15;Minimum=0x800;}
-            else if(C>=0xf0&&C<=0xf4){N=3;Code=C&7;Minimum=0x10000;}else return false;
-            if(Size-I<N)return false;
-            for(int32 J=0;J<N;++J){const uint8 Next=Bytes[I++];if((Next&0xc0)!=0x80)return false;Code=(Code<<6)|(Next&63);}
-            if(Code<Minimum||Code>0x10ffff||(Code>=0xd800&&Code<=0xdfff))return false;
-        }
-        return true;
     }
     TSharedPtr<FJsonValue> Field(const TSharedPtr<FJsonObject>& O, const TCHAR* Key)
     { return O ? O->TryGetField(Key) : nullptr; }
@@ -132,7 +87,7 @@ namespace StudioHome4ValidationPrivate
     }
 }
 
-FString FStudioHome4ReferenceEvidence::GateStatus() const
+FString FStudioHome4ReferenceEvidence::ComparisonStatus() const
 {
     if (Series.IsEmpty()) return TEXT("not_evaluated");
     for (const auto& S : Series) if (!S.Gate.bEvaluated) return TEXT("not_evaluated");
@@ -145,7 +100,7 @@ bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4Referen
     using namespace StudioHome4ValidationPrivate;
     const FTCHARToUTF8 Bytes(*JSON);
     auto Fail = [&](const TCHAR* Reason) { Error = Reason; return false; };
-    if (Bytes.Length() <= 0 || Bytes.Length() > MaxBytes || !Preflight(JSON))
+    if (Bytes.Length() <= 0 || Bytes.Length() > MaxBytes || !StudioHome4JSON::Preflight(JSON))
         return Fail(TEXT("Reference JSON is malformed, duplicated, non-finite, too deep or exceeds 8 MiB."));
     TSharedPtr<FJsonObject> O;
     if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(JSON), O) || !O) return Fail(TEXT("Reference evidence must be a JSON object."));
@@ -226,7 +181,7 @@ bool StudioHome4Validation::Load(const FString& Path, const FStudioHome4Referenc
     TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Path,FILEREAD_Silent));
     if(!File||File->TotalSize()!=Size){Error=TEXT("Original reference evidence is missing or changed.");return false;}
     TArray<uint8> Bytes;Bytes.SetNumUninitialized(int32(Size));File->Serialize(Bytes.GetData(),Size);
-    if(File->IsError()||!UTF8(Bytes.GetData(),Bytes.Num())){Error=TEXT("Original reference must be valid UTF-8 JSON.");return false;}
+    if(File->IsError()||!StudioHome4JSON::UTF8(Bytes.GetData(),Bytes.Num())){Error=TEXT("Original reference must be valid UTF-8 JSON.");return false;}
     const int32 Offset=Bytes.Num()>=3&&Bytes[0]==0xef&&Bytes[1]==0xbb&&Bytes[2]==0xbf?3:0;
     const FUTF8ToTCHAR Converted(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()+Offset),Bytes.Num()-Offset);
     const FString JSON(Converted.Length(),Converted.Get());
@@ -242,14 +197,17 @@ TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHom
     auto O = MakeShared<FJsonObject>(); O->SetStringField(TEXT("recipe_id"), E.RecipeId); O->SetStringField(TEXT("run_id"), E.RunId.ToString());
     O->SetStringField(TEXT("actual_source"), E.ActualSource); O->SetStringField(TEXT("reference_source"), E.ReferenceSource);
     O->SetStringField(TEXT("original_path"), E.SourcePath); O->SetStringField(TEXT("original_sha256"), E.SourceSHA256);
-    O->SetStringField(TEXT("gate_status"), E.GateStatus());
+    O->SetStringField(TEXT("comparison_status"), E.ComparisonStatus());
+    O->SetStringField(TEXT("gate_status"), TEXT("not_evaluated"));
+    O->SetStringField(TEXT("recipe_coverage"), TEXT("unknown"));
+    O->SetStringField(TEXT("coverage_reason"), TEXT("Only the supplied aligned series are compared. Required recipe metrics and reference provenance have not been verified."));
     TArray<TSharedPtr<FJsonValue>> Series;
     for (const auto& S : E.Series)
     {
         auto Item = MakeShared<FJsonObject>(); Item->SetStringField(TEXT("id"), S.Id); Item->SetStringField(TEXT("name"), S.Name);
         Item->SetStringField(TEXT("unit"), S.Unit); Item->SetStringField(TEXT("x_name"), S.AbscissaName); Item->SetStringField(TEXT("x_unit"), S.AbscissaUnit);
         Item->SetNumberField(TEXT("points"), S.Actual.Num()); Item->SetNumberField(TEXT("absolute_tolerance"), S.AbsoluteTolerance); Item->SetNumberField(TEXT("relative_tolerance"), S.RelativeTolerance);
-        Item->SetStringField(TEXT("gate_status"), !S.Gate.bEvaluated ? TEXT("not_evaluated") : S.Gate.bPassed ? TEXT("passed") : TEXT("failed"));
+        Item->SetStringField(TEXT("comparison_status"), !S.Gate.bEvaluated ? TEXT("not_evaluated") : S.Gate.bPassed ? TEXT("passed") : TEXT("failed"));
         Item->SetStringField(TEXT("reason"), S.Gate.Reason);
         if (S.Gate.MaximumAbsoluteError) Item->SetNumberField(TEXT("max_absolute_error"), *S.Gate.MaximumAbsoluteError);
         if (S.Gate.RelativeL2Error) Item->SetNumberField(TEXT("relative_l2_error"), *S.Gate.RelativeL2Error);
@@ -289,7 +247,7 @@ bool StudioHome4Validation::ExportEvidence(const FString& Parent, const FString&
     FString& OutPath, FString& Error)
 {
     using namespace StudioHome4ValidationPrivate;
-    if (E.SourceSHA256.Len() != 64 || E.GateStatus() == TEXT("not_evaluated")) { Error = TEXT("Identified imported reference evidence is required."); return false; }
+    if (E.SourceSHA256.Len() != 64 || E.ComparisonStatus() == TEXT("not_evaluated")) { Error = TEXT("Identified imported reference evidence is required."); return false; }
     return Publish(Parent, Folder, [&E](const FString& Stage, FString& Failure)
     {
         if (!WriteJSON(Stage / TEXT("evidence.json"), EvidenceMetadata(E), Failure)) return false;

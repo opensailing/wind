@@ -8,7 +8,8 @@ enum class EStudioHome4Backend : uint8 { Unknown, Metal, CUDA, PyTorch };
 enum class EStudioHome4Quantity : uint8
 {
     Dimensionless, Length, Time, Density, Velocity, KinematicViscosity, Pressure,
-    Acceleration, SurfaceTension, Mobility, Force, Moment, Energy, StrainRate
+    Acceleration, SurfaceTension, Mobility, Force, Moment, Energy, StrainRate,
+    SquaredRate, SpecificDissipation
 };
 enum class EStudioHome4IssueSeverity : uint8 { Information, Warning, Blocking };
 
@@ -22,6 +23,9 @@ struct FStudioHome4Reference
     TOptional<double> LengthCells, SpeedCellsPerStep, TimeSteps;
     // Dimensionless requests derive missing lattice values; conflicting requests are reported.
     TOptional<double> Mach, Reynolds, Froude, Bond, Weber, Capillary, Peclet, Cahn, Atwood;
+    // Benchmark anchors are independent of steady inlet/reference speed.
+    TOptional<double> KeuleganCarpenter, Galileo, RotationalReynolds;
+    TOptional<double> OscillationPeakSpeed, SpinSurfaceSpeed, WavePhaseSpeed, WaveSlope;
 };
 struct FStudioHome4Fluids
 {
@@ -38,13 +42,23 @@ struct FStudioHome4Geometry
     TOptional<bool> Float, NoEquilibrate;
     FString BodyMotion, RetabulationPolicy;
     TOptional<double> BodyMass, RetabulateEvery;
+    TOptional<double> BodyFluidDensityRatio, BeamDraftRatio, SubmergenceChordRatio;
+    // Explicit frontend sinusoidal motion request: amplitude*sin(2*pi*f*n+phase).
+    // Translation uses source XYZ root cells; rotations use roll/pitch/yaw degrees.
+    // These requests have no asserted solver/driver encoding.
+    TOptional<double> HeaveAmplitudeCells, RollAmplitudeDegrees, PitchAmplitudeDegrees;
+    TOptional<double> MotionFrequencyCyclesPerStep, MotionPhaseDegrees, SpinRadiansPerStep;
     TOptional<FVector> CenterOfGravity;
+    TOptional<FVector> InitialPositionCells, InitialAttitudeDegrees;
+    TOptional<FVector> InitialVelocityCellsPerStep, InitialAngularVelocityRadiansPerStep;
     TArray<double> Stiffness; // Empty or 36 row-major entries for a 6-DOF stiffness matrix.
 };
 struct FStudioHome4Lattice
 {
     TOptional<FIntVector> Extents;
     TOptional<double> PadUp, PadDown, PadSide, Depth, Air;
+    TOptional<int64> StreamwiseCells;
+    TOptional<double> WidthLengthRatio, HeightLengthRatio;
 };
 struct FStudioHome4Zones
 {
@@ -154,6 +168,12 @@ namespace StudioHome4Config
     bool FromJSON(const TSharedPtr<FJsonObject>& Object, FStudioHome4Spec& Out, FString& Error);
     FString Serialize(const FStudioHome4Spec& Spec);
     bool Parse(const FString& Text, FStudioHome4Spec& Out, FString& Error);
+    /** Fixed bounded UTF-8 original file read. Failed/changed imports retain Out. */
+    bool Load(const FString& Path, FStudioHome4Spec& Out, FString& Error);
+#if WITH_DEV_AUTOMATION_TESTS
+    /** Exercise replacement/growth at the actual read/verification boundary without a timing race. */
+    bool LoadWithReadBoundaryForAutomation(const FString& Path, FStudioHome4Spec& Out, FString& Error, TFunction<void()> BeforeVerify);
+#endif
     FStudioHome4Derived Derive(const FStudioHome4Spec& Spec);
     /** Converts an actual quantity, never normalised p_star/p_d into physical pressure.
      * Nondimensional bases use heavy density, L and explicit reference time (or L/U).

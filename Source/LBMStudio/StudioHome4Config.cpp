@@ -1,4 +1,7 @@
 #include "StudioHome4Config.h"
+#include "StudioHome4JSON.h"
+#include "StudioFileDialog.h"
+#include "HAL/FileManager.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -9,6 +12,7 @@ namespace
     constexpr int64 Home4MaxCount = 1000000000000LL;
     constexpr int32 Home4MaxLevels = 20;
     constexpr int32 Home4MaxText = 4096;
+    constexpr int32 Home4MaxJSONBytes = 1024 * 1024;
     using Home4FObject = TSharedPtr<FJsonObject>;
     using Home4FValues = TArray<TSharedPtr<FJsonValue>>;
     struct Home4FNumberField { FStudioHome4Field Field; TOptional<double>& (*Access)(FStudioHome4Spec&); };
@@ -42,6 +46,13 @@ namespace
             N("reference","peclet",Reference.Peclet,"Fluids & Interface","",0,1.e12),
             N("reference","cahn",Reference.Cahn,"Fluids & Interface","",0,1.e12),
             N("reference","atwood",Reference.Atwood,"Fluids & Interface","",-1,1),
+            N("reference","keuleganCarpenter",Reference.KeuleganCarpenter,"Bodies","1",0,1.e12),
+            N("reference","galileo",Reference.Galileo,"Bodies","1",0,1.e12),
+            N("reference","rotationalReynolds",Reference.RotationalReynolds,"Bodies","1",0,1.e12),
+            N("reference","oscillationPeakSpeed",Reference.OscillationPeakSpeed,"Bodies","cells/step",0,1.e12),
+            N("reference","spinSurfaceSpeed",Reference.SpinSurfaceSpeed,"Bodies","cells/step",0,1.e12),
+            N("reference","wavePhaseSpeed",Reference.WavePhaseSpeed,"Fluids & Interface","cells/step",0,1.e12),
+            N("reference","waveSlope",Reference.WaveSlope,"Fluids & Interface","1",0,1.e12),
             N("fluids","rhoHeavy",Fluids.RhoHeavy,"Fluids & Interface","lu",0,1.e12),
             N("fluids","rhoLight",Fluids.RhoLight,"Fluids & Interface","lu",0,1.e12),
             N("fluids","nuHeavy",Fluids.NuHeavy,"Fluids & Interface","cells2/step",0,1.e12),
@@ -66,11 +77,22 @@ namespace
             N("geometry","refine",Geometry.Refine,"Geometry","",0,1.e12),
             N("geometry","bodyMass",Geometry.BodyMass,"Bodies","lu",0,1.e12),
             N("geometry","retabulateEvery",Geometry.RetabulateEvery,"Bodies","steps",0,1.e12),
+            N("geometry","bodyFluidDensityRatio",Geometry.BodyFluidDensityRatio,"Bodies","1",0,1.e12),
+            N("geometry","beamDraftRatio",Geometry.BeamDraftRatio,"Bodies","1",0,1.e12),
+            N("geometry","submergenceChordRatio",Geometry.SubmergenceChordRatio,"Geometry","1",0,1.e12),
+            N("geometry","heaveAmplitudeCells",Geometry.HeaveAmplitudeCells,"Bodies","cells",0,1.e12),
+            N("geometry","rollAmplitudeDegrees",Geometry.RollAmplitudeDegrees,"Bodies","degrees",0,360),
+            N("geometry","pitchAmplitudeDegrees",Geometry.PitchAmplitudeDegrees,"Bodies","degrees",0,360),
+            N("geometry","motionFrequencyCyclesPerStep",Geometry.MotionFrequencyCyclesPerStep,"Bodies","cycles/step",0,1.e12),
+            N("geometry","motionPhaseDegrees",Geometry.MotionPhaseDegrees,"Bodies","degrees",-360,360),
+            N("geometry","spinRadiansPerStep",Geometry.SpinRadiansPerStep,"Bodies","radians/step",-1.e12,1.e12),
             N("lattice","padUp",Lattice.PadUp,"Lattice","L",0,1.e12),
             N("lattice","padDown",Lattice.PadDown,"Lattice","L",0,1.e12),
             N("lattice","padSide",Lattice.PadSide,"Lattice","L",0,1.e12),
             N("lattice","depth",Lattice.Depth,"Lattice","L",0,1.e12),
             N("lattice","air",Lattice.Air,"Lattice","L",0,1.e12),
+            N("lattice","widthLengthRatio",Lattice.WidthLengthRatio,"Lattice","W/L",0,1.e12),
+            N("lattice","heightLengthRatio",Lattice.HeightLengthRatio,"Lattice","Lz/L",0,1.e12),
             N("zones","sponge",Zones.Sponge,"Boundaries & Zones","driver value",0,1.e12),
             N("zones","xBeach",Zones.XBeach,"Boundaries & Zones","driver value",0,1.e12),
             N("zones","xBeachStrength",Zones.XBeachStrength,"Boundaries & Zones","",0,1.e12),
@@ -101,6 +123,7 @@ namespace
     const TArray<Home4FIntegerField>& Home4Integers()
     {
         static const TArray<Home4FIntegerField> V = {
+            I("lattice","streamwiseCells",Lattice.StreamwiseCells,"Lattice",1,1048576),
             I("multidomain","levels",Multidomain.Levels,"Lattice",1,Home4MaxLevels),
             I("multidomain","massFixEvery",Multidomain.MassFixEvery,"Lattice",1,Home4MaxCount),
             I("run","steps",Run.Steps,"Run",1,Home4MaxCount),
@@ -235,6 +258,10 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
         A.Add(Home4Field(TEXT("lattice"),TEXT("extents"),TEXT("Lattice"),EStudioHome4FieldType::IntegerVector,TEXT("cells"),1,1048576));
         A.Add(Home4Field(TEXT("run"),TEXT("blockShape"),TEXT("Run"),EStudioHome4FieldType::IntegerVector,TEXT("threads"),1,1024));
         A.Add(Home4Field(TEXT("geometry"),TEXT("centerOfGravity"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("cells")));
+        A.Add(Home4Field(TEXT("geometry"),TEXT("initialPositionCells"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("cells")));
+        A.Add(Home4Field(TEXT("geometry"),TEXT("initialAttitudeDegrees"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("degrees"),-360,360));
+        A.Add(Home4Field(TEXT("geometry"),TEXT("initialVelocityCellsPerStep"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("cells/step")));
+        A.Add(Home4Field(TEXT("geometry"),TEXT("initialAngularVelocityRadiansPerStep"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("radians/step")));
         A.Add(Home4Field(TEXT("geometry"),TEXT("stiffness"),TEXT("Bodies"),EStudioHome4FieldType::NumberArray,TEXT("lu"),-1.e12,1.e12,false));
         A.Add(Home4Field(TEXT("multidomain"),TEXT("levelCells"),TEXT("Lattice"),EStudioHome4FieldType::IntegerArray,TEXT("cells"),1,Home4MaxCount,false));
         for(auto& F:A)
@@ -266,6 +293,25 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("peclet")){F.Label=TEXT("Phase Peclet number (Peφ)");F.Help=TEXT("Peφ=UL/M. MD mobility is checked at the finest level.");}
             if(F.Key==TEXT("cahn")||F.Key==TEXT("recipeCahn")){F.Label=F.Key==TEXT("cahn")?TEXT("Cahn number (Cn)"):TEXT("Recipe Cahn number");F.Help=TEXT("Cn=ξ/L. A refinement ladder holding Cn fixed must scale root-cell interface width with reference resolution.");}
             if(F.Key==TEXT("atwood")){F.Label=TEXT("Atwood number (At)");F.Help=TEXT("At=(ρH−ρL)/(ρH+ρL); can derive a missing phase density from the other phase density.");}
+            if(F.Key==TEXT("keuleganCarpenter")){F.Label=TEXT("Keulegan–Carpenter number (KC)");F.Help=TEXT("Oscillatory benchmark KC request; distinct from steady reference speed. No period or driver flag is inferred.");}
+            if(F.Key==TEXT("galileo")){F.Label=TEXT("Galileo number (Ga)");F.Help=TEXT("Sedimentation benchmark Ga request. Its characteristic length and viscosity convention need the actual driver before deriving gravity.");}
+            if(F.Key==TEXT("rotationalReynolds")){F.Label=TEXT("Rotational Reynolds number (ReΩ)");F.Help=TEXT("Spin benchmark Reynolds request, distinct from translational Re=UL/ν. No angular-speed or radius convention is inferred.");}
+            if(F.Key==TEXT("oscillationPeakSpeed"))F.Help=TEXT("Oscillation peak speed Umax in cells/step. Independent of the steady inlet/reference speed; no CLI mapping is asserted.");
+            if(F.Key==TEXT("spinSurfaceSpeed"))F.Help=TEXT("Spin surface speed Us in cells/step. Radius and angular-speed relation need an explicit body contract; no steady reference speed is substituted.");
+            if(F.Key==TEXT("wavePhaseSpeed"))F.Help=TEXT("Breaking-wave c_lat in cells/step, independent of inlet speed. The supplied Banari card uses 0.015; 0.02 is a documented failure.");
+            if(F.Key==TEXT("waveSlope"))F.Help=TEXT("Dimensionless breaking-wave slope request. No wave generator or driver encoding is inferred.");
+            if(F.Key==TEXT("bodyFluidDensityRatio"))F.Help=TEXT("Body/fluid density ratio for sedimentation; distinct from the heavy/light phase density ratio. The actual fluid-reference convention requires the body driver.");
+            if(F.Key==TEXT("beamDraftRatio")){F.Label=TEXT("Beam/draft ratio (B/T)");F.Help=TEXT("Barge beam divided by draft; dimensionless geometry request, independent of lattice extents.");}
+            if(F.Key==TEXT("submergenceChordRatio")){F.Label=TEXT("Submergence/chord ratio (h/c)");F.Help=TEXT("Hydrofoil submergence divided by chord; dimensionless geometry request. No sink offset is inferred.");}
+            if(F.Key==TEXT("streamwiseCells")){F.Label=TEXT("Streamwise cells (Nx)");F.Help=TEXT("Explicit recipe streamwise count. Other extents remain unspecified; conflicts with supplied extents.x are reported.");}
+            if(F.Key==TEXT("widthLengthRatio")||F.Key==TEXT("heightLengthRatio"))F.Help=TEXT("Recipe domain aspect ratio W/L or Lz/L. No missing Cartesian extent is guessed.");
+            if(F.Key==TEXT("heaveAmplitudeCells")||F.Key==TEXT("rollAmplitudeDegrees")||F.Key==TEXT("pitchAmplitudeDegrees"))F.Help=TEXT("Explicit frontend sinusoidal motion amplitude: A sin(2π f n + phase), n in root steps. Heave is source Z; roll/pitch are about source X/Y. Solver encoding is unverified.");
+            if(F.Key==TEXT("motionFrequencyCyclesPerStep"))F.Help=TEXT("Explicit frontend sinusoidal frequency in cycles per root step; no benchmark period or CLI mapping is inferred.");
+            if(F.Key==TEXT("motionPhaseDegrees"))F.Help=TEXT("Sinusoidal phase at root step zero in degrees; frontend request only.");
+            if(F.Key==TEXT("spinRadiansPerStep"))F.Help=TEXT("Signed requested angular spin speed about source Z, radians per root step; no driver mapping is asserted.");
+            if(F.Key==TEXT("initialPositionCells")||F.Key==TEXT("initialVelocityCellsPerStep"))F.Help=TEXT("Initial 6-DOF body request in source XYZ axes and root lattice units. The solver must verify the body-origin and velocity contract.");
+            if(F.Key==TEXT("initialAttitudeDegrees"))F.Help=TEXT("Initial roll/pitch/yaw request, intrinsic XYZ rotations in degrees. The solver must explicitly agree to this frontend convention.");
+            if(F.Key==TEXT("initialAngularVelocityRadiansPerStep"))F.Help=TEXT("Initial angular-velocity vector about source XYZ axes in radians/root step. Solver/body-frame encoding is unverified.");
             if(F.Key==TEXT("rhoHeavy")){F.Label=TEXT("Heavy-fluid density (ρH)");F.Help=TEXT("Heavy density in lattice units. The appendix supplies no --rho_H flag; explicit requests need a verified driver contract.");}
             if(F.Key==TEXT("rhoLight")){F.Label=TEXT("Light-fluid density (ρL)");F.Help=TEXT("Light density in lattice units; --rho_L. At 1000:1 both gradient limiter and force thresholding are required.");}
             if(F.Key==TEXT("nuHeavy")||F.Key==TEXT("nuLight")){F.Label=F.Key==TEXT("nuHeavy")?TEXT("Heavy-fluid viscosity (νH)"):TEXT("Light-fluid viscosity (νL)");F.Help=TEXT("Kinematic viscosity in cells²/step. τ=0.5+3ν; the light-phase margin below 0.01 warns.");}
@@ -335,12 +381,17 @@ bool StudioHome4Config::Validate(const FStudioHome4Spec& Spec,FString& Error)
     }
     if(int32(Spec.Units.Display)>int32(EStudioHome4UnitDisplay::Nondimensional)||int32(Spec.Run.Backend)>int32(EStudioHome4Backend::PyTorch))
         return Fail(TEXT("Invalid HOME4 units or backend choice."));
-    for(const auto& N:{Spec.Units.DxMeters,Spec.Units.DtSeconds,Spec.Units.DensityReferenceKgM3,Spec.Reference.LengthCells,Spec.Reference.TimeSteps,Spec.Fluids.RhoHeavy,Spec.Fluids.RhoLight})
+    for(const auto& N:{Spec.Units.DxMeters,Spec.Units.DtSeconds,Spec.Units.DensityReferenceKgM3,Spec.Reference.LengthCells,Spec.Reference.TimeSteps,Spec.Fluids.RhoHeavy,Spec.Fluids.RhoLight,
+        Spec.Geometry.BodyFluidDensityRatio,Spec.Geometry.BeamDraftRatio,Spec.Lattice.WidthLengthRatio,Spec.Lattice.HeightLengthRatio})
         if(N.IsSet()&&*N<=0)return Fail(TEXT("Unit-map scales, reference length/time and densities must be positive when supplied."));
     if(Spec.Lattice.Extents.IsSet()&&(Spec.Lattice.Extents->GetMin()<1||Spec.Lattice.Extents->GetMax()>1048576))return Fail(TEXT("Lattice extents must be integer counts from 1 to 1048576."));
     if(Spec.Run.BlockShape.IsSet()&&(Spec.Run.BlockShape->GetMin()<1||Spec.Run.BlockShape->GetMax()>1024))return Fail(TEXT("Block shape components must be integer counts from 1 to 1024."));
     if(Spec.Geometry.CenterOfGravity.IsSet())
     {const auto& C=*Spec.Geometry.CenterOfGravity;if(!FMath::IsFinite(C.X)||!FMath::IsFinite(C.Y)||!FMath::IsFinite(C.Z)||C.GetAbsMax()>1.e12)return Fail(TEXT("Center of gravity must have bounded finite components."));}
+    for(const auto& Vector:{Spec.Geometry.InitialPositionCells,Spec.Geometry.InitialVelocityCellsPerStep,Spec.Geometry.InitialAngularVelocityRadiansPerStep})
+        if(Vector&&(Vector->ContainsNaN()||Vector->GetAbsMax()>1.e12))return Fail(TEXT("Initial body requests must be finite bounded source-axis vectors."));
+    if(Spec.Geometry.InitialAttitudeDegrees&&(Spec.Geometry.InitialAttitudeDegrees->ContainsNaN()||Spec.Geometry.InitialAttitudeDegrees->GetAbsMax()>360))
+        return Fail(TEXT("Initial roll/pitch/yaw must be finite and between -360 and 360 degrees."));
     if(!Spec.Geometry.Stiffness.IsEmpty()&&Spec.Geometry.Stiffness.Num()!=36)return Fail(TEXT("Stiffness must be empty or contain 36 row-major matrix entries."));
     if(Spec.Geometry.RetabulateEvery.IsSet()&&!Home4Integer(*Spec.Geometry.RetabulateEvery,1,Home4MaxCount))return Fail(TEXT("Retabulation cadence must be a positive whole step count."));
     for(double N:Spec.Geometry.Stiffness)if(!FMath::IsFinite(N)||FMath::Abs(N)>1.e12)return Fail(TEXT("Stiffness contains a non-finite or unbounded value."));
@@ -369,6 +420,10 @@ TSharedRef<FJsonObject> StudioHome4Config::ToJSON(const FStudioHome4Spec& Spec)
     Home4Vector(Home4Section(O,TEXT("lattice")),TEXT("extents"),V.Lattice.Extents);
     Home4Vector(Home4Section(O,TEXT("run")),TEXT("blockShape"),V.Run.BlockShape);
     Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("centerOfGravity"),V.Geometry.CenterOfGravity);
+    Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("initialPositionCells"),V.Geometry.InitialPositionCells);
+    Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("initialAttitudeDegrees"),V.Geometry.InitialAttitudeDegrees);
+    Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("initialVelocityCellsPerStep"),V.Geometry.InitialVelocityCellsPerStep);
+    Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("initialAngularVelocityRadiansPerStep"),V.Geometry.InitialAngularVelocityRadiansPerStep);
     Home4Array(Home4Section(O,TEXT("geometry")),TEXT("stiffness"),V.Geometry.Stiffness);
     Home4Array(Home4Section(O,TEXT("multidomain")),TEXT("levelCells"),V.Multidomain.LevelCells);
     Home4FValues Allocations;
@@ -439,6 +494,10 @@ bool StudioHome4Config::FromJSON(const Home4FObject& O,FStudioHome4Spec& Out,FSt
     if(bSet){for(double N:C)if(!Home4Integer(N,1,1024))return false;V.Run.BlockShape=FIntVector(int32(C[0]),int32(C[1]),int32(C[2]));}
     if(!Home4ReadVector(Home4Section(O,TEXT("geometry")),TEXT("centerOfGravity"),C,bSet))return false;
     if(bSet)V.Geometry.CenterOfGravity=FVector(C[0],C[1],C[2]);
+    for(const auto& Pair:{TPair<const TCHAR*,TOptional<FVector>*>(TEXT("initialPositionCells"),&V.Geometry.InitialPositionCells),
+        {TEXT("initialAttitudeDegrees"),&V.Geometry.InitialAttitudeDegrees},{TEXT("initialVelocityCellsPerStep"),&V.Geometry.InitialVelocityCellsPerStep},
+        {TEXT("initialAngularVelocityRadiansPerStep"),&V.Geometry.InitialAngularVelocityRadiansPerStep}})
+    {if(!Home4ReadVector(Home4Section(O,TEXT("geometry")),Pair.Key,C,bSet))return false;if(bSet)*Pair.Value=FVector(C[0],C[1],C[2]);}
     if(!Home4ReadArray(Home4Section(O,TEXT("geometry")),TEXT("stiffness"),V.Geometry.Stiffness,36,false)||
        !Home4ReadArray(Home4Section(O,TEXT("multidomain")),TEXT("levelCells"),V.Multidomain.LevelCells,Home4MaxLevels,true))return false;
     const Home4FValues* Allocations=nullptr;
@@ -471,10 +530,45 @@ FString StudioHome4Config::Serialize(const FStudioHome4Spec& Spec)
 bool StudioHome4Config::Parse(const FString& Text,FStudioHome4Spec& Out,FString& Error)
 {
     Error=TEXT("Invalid HOME4 JSON. The existing request was kept.");
-    if(Text.Len()>2*1024*1024)return false;
+    if(Text.Len()>Home4MaxJSONBytes)return false;
+    const FTCHARToUTF8 Bytes(*Text);
+    if(Bytes.Length()<=0||Bytes.Length()>Home4MaxJSONBytes||!StudioHome4JSON::UTF8(reinterpret_cast<const uint8*>(Bytes.Get()),Bytes.Length())||!StudioHome4JSON::Preflight(Text))
+    {Error=TEXT("HOME4 JSON must be finite, UTF-8, under 1 MiB, at most 32 levels deep and contain no duplicate keys.");return false;}
     Home4FObject O;if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),O))return false;
     return FromJSON(O,Out,Error);
 }
+namespace
+{
+bool Home4LoadFixed(const FString& Path,FStudioHome4Spec& Out,FString& Error,const TFunction<void()>& BeforeVerify)
+{
+    FStudioFileAccess Access(Path);
+    const auto Before=IFileManager::Get().GetTimeStamp(*Path);const int64 Size=IFileManager::Get().FileSize(*Path);
+    if(Size<=0||Size>Home4MaxJSONBytes){Error=TEXT("HOME4 run spec must contain between 1 byte and 1 MiB. Previous request retained.");return false;}
+    TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Path,FILEREAD_Silent));
+    if(!File||File->TotalSize()!=Size){Error=TEXT("HOME4 run spec is missing or changed before reading. Previous request retained.");return false;}
+    TArray<uint8> Bytes;Bytes.SetNumUninitialized(int32(Size));File->Serialize(Bytes.GetData(),Size);
+    if(File->IsError()||!StudioHome4JSON::UTF8(Bytes.GetData(),Bytes.Num()))
+    {Error=TEXT("HOME4 run spec must be complete valid UTF-8 JSON. Previous request retained.");return false;}
+    const int32 Offset=Bytes.Num()>=3&&Bytes[0]==0xef&&Bytes[1]==0xbb&&Bytes[2]==0xbf?3:0;
+    const FUTF8ToTCHAR Decoded(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()+Offset),Bytes.Num()-Offset);
+    FStudioHome4Spec Candidate;
+    if(!StudioHome4Config::Parse(FString(Decoded.Length(),Decoded.Get()),Candidate,Error))return false;
+    File.Reset(); // Release the original snapshot before checking the current file.
+    if(BeforeVerify)BeforeVerify();
+    TUniquePtr<FArchive> Verify(IFileManager::Get().CreateFileReader(*Path,FILEREAD_Silent));
+    if(!Verify||Verify->TotalSize()!=Size){Error=TEXT("HOME4 run spec was replaced or changed while reading. Previous request retained.");return false;}
+    TArray<uint8> Verified;Verified.SetNumUninitialized(int32(Size));Verify->Serialize(Verified.GetData(),Size);
+    if(Verify->IsError()||Verify->TotalSize()!=Size||Bytes!=Verified||IFileManager::Get().FileSize(*Path)!=Size||IFileManager::Get().GetTimeStamp(*Path)!=Before)
+    {Error=TEXT("HOME4 run spec changed while reading. Previous request retained.");return false;}
+    Out=MoveTemp(Candidate);Error.Empty();return true;
+}
+}
+bool StudioHome4Config::Load(const FString& Path,FStudioHome4Spec& Out,FString& Error)
+{return Home4LoadFixed(Path,Out,Error,{});}
+#if WITH_DEV_AUTOMATION_TESTS
+bool StudioHome4Config::LoadWithReadBoundaryForAutomation(const FString& Path,FStudioHome4Spec& Out,FString& Error,TFunction<void()> BeforeVerify)
+{return Home4LoadFixed(Path,Out,Error,BeforeVerify);}
+#endif
 
 bool FStudioHome4Derived::HasBlockingIssues() const
 {return Issues.ContainsByPredicate([](const FStudioHome4Issue& I){return I.Severity==EStudioHome4IssueSeverity::Blocking;});}
@@ -577,6 +671,8 @@ FStudioHome4Derived StudioHome4Config::Derive(const FStudioHome4Spec& S)
         if(Home4IsTrue(MD.EvenWrap)&&((Home4IsTrue(S.Zones.PeriodicX)&&(E.X%2))||(Home4IsTrue(S.Zones.PeriodicY)&&(E.Y%2))||(Home4IsTrue(S.Zones.PeriodicZ)&&(E.Z%2))))
             Home4Issue(D,EStudioHome4IssueSeverity::Blocking,TEXT("multidomain.evenWrap"),TEXT("Periodic axes require even lattice extents for even-wrap MD."));
     }
+    if(S.Lattice.StreamwiseCells&&S.Lattice.Extents&&*S.Lattice.StreamwiseCells!=S.Lattice.Extents->X)
+        Home4Issue(D,EStudioHome4IssueSeverity::Blocking,TEXT("lattice.streamwiseCells"),TEXT("Recipe Nx differs from the supplied Cartesian extent.x; reconcile the explicit counts before numerical launch."));
     if(MD.LevelCells.Num()>0)
     {
         uint64 Total=0;for(int64 N:MD.LevelCells)Total+=uint64(N);D.TotalCells=Total;
@@ -674,6 +770,8 @@ TOptional<double> StudioHome4Config::ConvertUnits(double Value,EStudioHome4Quant
         case EStudioHome4Quantity::Moment:
         case EStudioHome4Quantity::Energy:Mass=1;Length=2;Time=-2;break;
         case EStudioHome4Quantity::StrainRate:Time=-1;break;
+        case EStudioHome4Quantity::SquaredRate:Time=-2;break;
+        case EStudioHome4Quantity::SpecificDissipation:Length=2;Time=-3;break;
         default:return {};
     }
     if(From==To)return Value;

@@ -1,7 +1,11 @@
 #include "StudioHome4Config.h"
 #include "StudioCase.h"
+#include "StudioHome4JSON.h"
 #include "Dom/JsonObject.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -61,7 +65,8 @@ bool FStudioHome4UnitsTest::RunTest(const FString&)
         {EStudioHome4Quantity::Velocity,10.},{EStudioHome4Quantity::KinematicViscosity,.1},{EStudioHome4Quantity::Mobility,.1},
         {EStudioHome4Quantity::Pressure,100000.},{EStudioHome4Quantity::Acceleration,10000.},
         {EStudioHome4Quantity::SurfaceTension,1000.},{EStudioHome4Quantity::Force,10.},
-        {EStudioHome4Quantity::Moment,.1},{EStudioHome4Quantity::Energy,.1},{EStudioHome4Quantity::StrainRate,1000.}};
+        {EStudioHome4Quantity::Moment,.1},{EStudioHome4Quantity::Energy,.1},{EStudioHome4Quantity::StrainRate,1000.},
+        {EStudioHome4Quantity::SquaredRate,1000000.},{EStudioHome4Quantity::SpecificDissipation,100000.}};
     for(const auto& C:Cases)
     {
         const auto P=StudioHome4Config::ConvertUnits(2.,C.Q,EStudioHome4UnitDisplay::Lattice,EStudioHome4UnitDisplay::Physical,S);
@@ -218,5 +223,73 @@ bool FStudioHome4ArgvTest::RunTest(const FString&)
     TestFalse(TEXT("Invalid command is transactional"),StudioHome4Config::BuildHullDriverArgv(S,TEXT("python"),TEXT("driver"),C,Error));
     TestTrue(TEXT("Previous argument vector kept"),C.Argv==Kept);
     return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4TypedRecipeInputsTest,"Studio.Home4.Config.TypedRecipeAndMotionRequests",Home4Flags)
+bool FStudioHome4TypedRecipeInputsTest::RunTest(const FString&)
+{
+    auto S=Home4Complete();S.Reference.KeuleganCarpenter=5;S.Reference.Galileo=19.6;S.Reference.RotationalReynolds=100;
+    S.Reference.OscillationPeakSpeed=.04;S.Reference.SpinSurfaceSpeed=.04;S.Reference.WavePhaseSpeed=.015;S.Reference.WaveSlope=.08;
+    S.Geometry.BodyFluidDensityRatio=1.25;S.Geometry.BeamDraftRatio=2;S.Geometry.SubmergenceChordRatio=1.8;
+    S.Geometry.HeaveAmplitudeCells=3;S.Geometry.RollAmplitudeDegrees=5;S.Geometry.PitchAmplitudeDegrees=2;
+    S.Geometry.MotionFrequencyCyclesPerStep=.001;S.Geometry.MotionPhaseDegrees=-30;S.Geometry.SpinRadiansPerStep=-.002;
+    S.Geometry.InitialPositionCells=FVector(1,2,3);S.Geometry.InitialAttitudeDegrees=FVector(4,5,6);
+    S.Geometry.InitialVelocityCellsPerStep=FVector(.01,.02,.03);S.Geometry.InitialAngularVelocityRadiansPerStep=FVector(.001,.002,.003);
+    S.Lattice.StreamwiseCells=100;S.Lattice.WidthLengthRatio=.25;S.Lattice.HeightLengthRatio=.30;
+    FStudioHome4Spec Loaded;FString E;
+    TestTrue(TEXT("Typed benchmark and body requests parse"),StudioHome4Config::Parse(StudioHome4Config::Serialize(S),Loaded,E));
+    TestEqual(TEXT("All optional values and vector conventions persist"),StudioHome4Config::Serialize(Loaded),StudioHome4Config::Serialize(S));
+    TestTrue(TEXT("Steady speed is independent of benchmark-specific speeds"),Home4Near(StudioHome4Config::Derive(S).Speed.Get(-1),.02));
+    FStudioHome4DriverCommand C;
+    TestTrue(TEXT("Command preview accepts typed frontend requests"),StudioHome4Config::BuildHullDriverArgv(S,TEXT("python"),TEXT("run_hull_speed.py"),C,E));
+    TestTrue(TEXT("Motion request remains an explicit missing driver contract"),C.MissingContracts.ContainsByPredicate([](const FString& M){return M.StartsWith(TEXT("geometry.motionFrequencyCyclesPerStep:"));}));
+    TestFalse(TEXT("No motion flag invented"),C.Argv.Contains(TEXT("--motion_frequency")));
+    Loaded.Reference.SpeedCellsPerStep.Reset();Loaded.Reference.Mach.Reset();
+    TestFalse(TEXT("Peak, surface and wave speeds cannot supply missing inlet speed"),StudioHome4Config::Derive(Loaded).Speed.IsSet());
+    TestTrue(TEXT("Initial attitude has explicit degree metadata"),StudioHome4Config::Fields().ContainsByPredicate([](const FStudioHome4Field& F){return F.Section==TEXT("geometry")&&F.Key==TEXT("initialAttitudeDegrees")&&F.Unit==TEXT("degrees");}));
+    S.Lattice.StreamwiseCells=101;
+    TestTrue(TEXT("Conflicting explicit Nx blocks numerical launch"),Home4Has(StudioHome4Config::Derive(S),TEXT("lattice.streamwiseCells"),EStudioHome4IssueSeverity::Blocking));
+    S.Lattice.StreamwiseCells=100;S.Geometry.InitialAttitudeDegrees=FVector(0,0,361);
+    TestFalse(TEXT("Unbounded initial attitude rejected"),StudioHome4Config::Validate(S,E));
+    S.Geometry.InitialAttitudeDegrees.Reset();S.Geometry.BodyFluidDensityRatio=0;
+    TestFalse(TEXT("Body/fluid ratio must be positive"),StudioHome4Config::Validate(S,E));
+    auto Legacy=StudioHome4Config::ToJSON(Home4Complete());Legacy->GetObjectField(TEXT("reference"))->RemoveField(TEXT("keuleganCarpenter"));
+    Legacy->GetObjectField(TEXT("geometry"))->RemoveField(TEXT("initialPositionCells"));
+    TestTrue(TEXT("Absent new fields remain unset in existing specs"),StudioHome4Config::FromJSON(Legacy,Loaded,E)&&!Loaded.Reference.KeuleganCarpenter&&!Loaded.Geometry.InitialPositionCells);
+    return !HasAnyErrors();
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4StrictImportTest,"Studio.Home4.Config.StrictBoundedTransactionalFileImport",Home4Flags)
+bool FStudioHome4StrictImportTest::RunTest(const FString&)
+{
+    auto S=Home4Complete();S.Run.Tag=TEXT("read-a");FStudioHome4Spec Loaded=Home4Complete();Loaded.Run.Tag=TEXT("prior");FString E;
+    const FString Original=StudioHome4Config::Serialize(Loaded),JSON=StudioHome4Config::Serialize(S);
+    TestFalse(TEXT("Decoded duplicate root key rejected"),StudioHome4Config::Parse(TEXT("{\"vers\\u0069on\":1,")+JSON.Mid(1),Loaded,E));
+    TestEqual(TEXT("Duplicate key leaves previous spec"),StudioHome4Config::Serialize(Loaded),Original);
+    TestFalse(TEXT("Nested decoded duplicate rejected before object construction"),StudioHome4JSON::Preflight(TEXT("{\"x\":{\"name\":1,\"n\\u0061me\":2}}")));
+    FString Deep;for(int32 I=0;I<33;++I)Deep+=TEXT("[");Deep+=TEXT("0");for(int32 I=0;I<33;++I)Deep+=TEXT("]");
+    TestFalse(TEXT("Depth beyond 32 rejected"),StudioHome4JSON::Preflight(Deep));
+    TestFalse(TEXT("Multiple roots rejected"),StudioHome4JSON::Preflight(TEXT("{} {}")));
+    TestFalse(TEXT("Lone escaped surrogate rejected"),StudioHome4JSON::Preflight(TEXT("{\"x\":\"\\ud800\"}")));
+    TestTrue(TEXT("Valid escaped Unicode pair accepted"),StudioHome4JSON::Preflight(TEXT("{\"x\":\"\\ud83d\\ude00\"}")));
+    const FString Dir=FPaths::ProjectDir()/TEXT("tmp/debug/home4-import-tests")/FGuid::NewGuid().ToString();
+    IFileManager::Get().MakeDirectory(*Dir,true);const FString Path=Dir/TEXT("spec.json");
+    TestTrue(TEXT("Write valid bounded fixture"),FFileHelper::SaveStringToFile(JSON,*Path,FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
+    TestTrue(TEXT("Valid UTF-8 spec imports"),StudioHome4Config::Load(Path,Loaded,E));
+    const FString Kept=StudioHome4Config::Serialize(Loaded);const auto Timestamp=IFileManager::Get().GetTimeStamp(*Path);
+    auto Replacement=S;Replacement.Run.Tag=TEXT("read-b");
+    TestFalse(TEXT("Same-size rewrite with preserved timestamp detected by bytes"),StudioHome4Config::LoadWithReadBoundaryForAutomation(Path,Loaded,E,[&]{
+        TestTrue(TEXT("Rewrite fixture"),FFileHelper::SaveStringToFile(StudioHome4Config::Serialize(Replacement),*Path,FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM));
+        IFileManager::Get().SetTimeStamp(*Path,Timestamp);
+    }));
+    TestEqual(TEXT("Rewrite rejection preserves previous spec"),StudioHome4Config::Serialize(Loaded),Kept);
+    TArray<uint8> Bad={0xc0,0xaf};TestTrue(TEXT("Write malformed UTF-8 fixture"),FFileHelper::SaveArrayToFile(Bad,*Path));
+    TestFalse(TEXT("Overlong UTF-8 rejected before decoding"),StudioHome4Config::Load(Path,Loaded,E));
+    TestEqual(TEXT("Malformed import preserves prior data"),StudioHome4Config::Serialize(Loaded),Kept);
+    Bad.Init(uint8(' '),1024*1024+1);TestTrue(TEXT("Write oversized fixture"),FFileHelper::SaveArrayToFile(Bad,*Path));
+    TestFalse(TEXT("Import reads no unbounded file"),StudioHome4Config::Load(Path,Loaded,E));
+    TestFalse(TEXT("Missing source rejected"),StudioHome4Config::Load(Dir/TEXT("missing.json"),Loaded,E));
+    TestEqual(TEXT("All rejected imports retain prior request"),StudioHome4Config::Serialize(Loaded),Kept);
+    IFileManager::Get().DeleteDirectory(*Dir,false,true);return !HasAnyErrors();
 }
 #endif

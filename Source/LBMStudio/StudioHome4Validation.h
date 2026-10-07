@@ -28,7 +28,11 @@ struct FStudioHome4ReferenceEvidence
     FString OrderMetric, OrderUnit;
     TArray<FStudioHome4ScalarRun> OrderRuns;
     TOptional<double> ObservedOrder;
-    FString GateStatus() const;
+    /** Applies only to supplied aligned series; it never establishes recipe coverage. */
+    FString ComparisonStatus() const;
+    FString RecipeCoverage() const { return TEXT("unknown"); }
+    /** Display wording includes both facts, preserving useful comparison pass/fail. */
+    FString GateStatus() const { return TEXT("Supplied-series comparisons: ") + ComparisonStatus() + TEXT(" · recipe gate not_evaluated (coverage unknown)"); }
 };
 /** Shared session evidence for Validation and Reports. Imports replace evidence
  * only after complete validation. It never modifies the case, camera or playback. */

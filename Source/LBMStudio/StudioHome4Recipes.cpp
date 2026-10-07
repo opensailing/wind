@@ -45,25 +45,30 @@ const TArray<FStudioHome4Recipe>& StudioHome4Recipes::All()
         RTI.Template.Reference.Atwood=.5;RTI.Template.Reference.Reynolds=3000;RTI.Template.Reference.Capillary=.26;RTI.Template.Reference.Peclet=1000;RTI.Template.Reference.TimeSteps=16000;
         RTI.Template.Fluids.Xi=5;RTI.Template.Fluids.RhoHeavy=3;RTI.Template.Fluids.RhoLight=1;RTI.Template.Fluids.PhaseST=1;RTI.Template.Fluids.PhaseSD1=1.5;RTI.Template.Fluids.PhaseSD2=1.5;RTI.Template.Fluids.PhaseSXY=1.5;R.Add(RTI);
         auto Wave=Recipe(TEXT("breaking-wave-banari"),TEXT("Breaking wave · Banari grid 3"),TEXT("Banari breaking-wave grid 3"),TEXT("run_breaking_wave3d_md.py"),TEXT("Banari jet geometry and energy"),TEXT("Jet geometry and energy agreement"));
-        Wave.Template.Fluids.Xi=5;Wave.Template.Fluids.Mobility=.02;
+        Wave.Template.Fluids.Xi=5;Wave.Template.Fluids.Mobility=.02;Wave.Template.Reference.WavePhaseSpeed=.015;Wave.Template.Reference.WaveSlope=.08;
+        Wave.Template.Lattice.StreamwiseCells=400;Wave.Template.Lattice.WidthLengthRatio=.25;Wave.Template.Lattice.HeightLengthRatio=.30;
         Wave.Notes+=TEXT(" Nx=400, W/L=0.25, Lz/L=0.30, wave c_lat=0.015, slope=0.08. c_lat=0.02 is a documented failure; wave speed is not an inlet-speed substitute.");R.Add(Wave);
         auto Cylinder=Recipe(TEXT("colagrossi-wb"),TEXT("Colagrossi WB cylinder"),TEXT("Colagrossi 2018"),TEXT("run_cylinder3d_colagrossi.py"),TEXT("Colagrossi Cd, Cl and free-surface profiles"),TEXT("Drag, lift and surface profile agreement"));
         Cylinder.Template.Reference.Bond=200;Cylinder.Template.Fluids.PhaseSXY=1.8;Cylinder.Template.Fluids.GradientLimiter=true;
         Cylinder.Notes+=TEXT(" Use Fr-aware U and g=(U/Fr)^2/D; M=0.05 applies only when Fr<0.8. Sponge width is 8D.");R.Add(Cylinder);
         auto Osc=Recipe(TEXT("oscillating-cylinder"),TEXT("Oscillating cylinder · Dütsch"),TEXT("Dütsch oscillating cylinder"),TEXT("run_cylinder3d_oscillating.py"),TEXT("Dütsch force history"),TEXT("Force history agreement"));
-        Osc.Template.Reference.Reynolds=100;Osc.Template.Geometry.BodyMotion=TEXT("forced-heave");Osc.Notes+=TEXT(" KC=5, U_max=0.04, domain=20D. Oscillation peak speed is not a steady inlet speed.");R.Add(Osc);
+        Osc.Template.Reference.Reynolds=100;Osc.Template.Reference.KeuleganCarpenter=5;Osc.Template.Reference.OscillationPeakSpeed=.04;
+        Osc.Template.Geometry.BodyMotion=TEXT("forced-heave");Osc.Notes+=TEXT(" KC=5, U_max=0.04, domain=20D. Oscillation peak speed is not a steady inlet speed.");R.Add(Osc);
         auto Spin=Recipe(TEXT("couette-spin"),TEXT("Couette spin gate"),TEXT("Analytic Couette torque"),TEXT("run_cylinder3d_spinning.py"),TEXT("Analytic torque"),TEXT("Torque agreement with analytic reference"));
-        Spin.Template.Geometry.BodyMotion=TEXT("forced-spin");Spin.Notes+=TEXT(" U_s=0.04, rotational Re=100, box=12D. Rotational and translational Reynolds numbers remain distinct.");R.Add(Spin);
+        Spin.Template.Geometry.BodyMotion=TEXT("forced-spin");Spin.Template.Reference.SpinSurfaceSpeed=.04;Spin.Template.Reference.RotationalReynolds=100;
+        Spin.Notes+=TEXT(" U_s=0.04, rotational Re=100, box=12D. Rotational and translational Reynolds numbers remain distinct.");R.Add(Spin);
         auto Magnus=Recipe(TEXT("magnus"),TEXT("Magnus"),TEXT("Literature anchor requires verification"),TEXT("run_md_magnus_patch.py"),TEXT("Lift reference not yet verified"),TEXT("Lift agreement; reference anchor unresolved"));
         Magnus.Template.Reference.Reynolds=100;Magnus.Template.Reference.SpeedCellsPerStep=.05;Magnus.Template.Geometry.BodyMotion=TEXT("forced-spin");Magnus.Notes+=TEXT(" 30D × 16D, ramped spin.");R.Add(Magnus);
         auto Sed=Recipe(TEXT("sedimentation"),TEXT("Sedimentation"),TEXT("Sedimenting cylinder"),TEXT("run_cylinder3d_sedimenting.py"),TEXT("Terminal velocity reference"),TEXT("Terminal velocity agreement"));
-        Sed.Template.Geometry.BodyMotion=TEXT("free");Sed.Notes+=TEXT(" Body/fluid density ratio=1.25, Ga=19.6. This is not the heavy/light fluid density ratio.");R.Add(Sed);
+        Sed.Template.Geometry.BodyMotion=TEXT("free");Sed.Template.Geometry.BodyFluidDensityRatio=1.25;Sed.Template.Reference.Galileo=19.6;
+        Sed.Notes+=TEXT(" Body/fluid density ratio=1.25, Ga=19.6. This is not the heavy/light fluid density ratio.");R.Add(Sed);
         auto Barge=Recipe(TEXT("vugts-barge"),TEXT("Vugts barge · H2-c"),TEXT("Vugts added mass and damping"),TEXT("run_barge_roll.py"),TEXT("Vugts/BEM coefficient curves"),TEXT("Added mass and damping agreement"));
-        Barge.Template.Geometry.BodyMotion=TEXT("forced-heave");Barge.Notes+=TEXT(" B/T=2, forced heave/roll.");R.Add(Barge);
+        Barge.Template.Geometry.BodyMotion=TEXT("forced-heave");Barge.Template.Geometry.BeamDraftRatio=2;Barge.Notes+=TEXT(" B/T=2, forced heave/roll.");R.Add(Barge);
         auto Hull=Recipe(TEXT("th01-hull"),TEXT("TH01 hull"),TEXT("SYRF TH01 tank and BEM"),TEXT("run_hull_speed.py"),TEXT("th01_tank_data.py; th01_bem_capytaine.py"),TEXT("Heave, trim and drag vs tank; BEM intercepts"));
         Hull.Template.Reference.LengthCells=256;Hull.Template.Geometry.BodyMotion=TEXT("fixed");Hull.Notes+=TEXT(" Choose Fr, Re_ref and measured G/Q/P zone preset. Static flotation uses run_hull_static.py.");R.Add(Hull);
         auto Foil=Recipe(TEXT("hydrofoil-parkin"),TEXT("Hydrofoil · Parkin"),TEXT("Parkin–Wu"),TEXT("run_hydrofoil_parkin.py"),TEXT("Parkin–Wu free-surface profile"),TEXT("Surface profile agreement"));
-        Foil.Template.Reference.Froude=.95;Foil.Template.Reference.LengthCells=128;Foil.Template.Reference.Reynolds=4000;Foil.Notes+=TEXT(" Submergence h/c=1.8.");R.Add(Foil);
+        Foil.Template.Reference.Froude=.95;Foil.Template.Reference.LengthCells=128;Foil.Template.Reference.Reynolds=4000;
+        Foil.Template.Geometry.SubmergenceChordRatio=1.8;Foil.Notes+=TEXT(" Submergence h/c=1.8.");R.Add(Foil);
         return R;
     }();return Recipes;
 }
@@ -112,7 +117,12 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         Multiply(R.Spec.Units.DxMeters,Base.Units.DxMeters,1./Scale);Multiply(R.Spec.Units.DtSeconds,Base.Units.DtSeconds,1./Scale);
         Multiply(R.Spec.Geometry.SinkCells,Base.Geometry.SinkCells,Scale);Multiply(R.Spec.Geometry.BandCells,Base.Geometry.BandCells,Scale);
         Multiply(R.Spec.Geometry.RetabulateEvery,Base.Geometry.RetabulateEvery,Scale);
+        Multiply(R.Spec.Geometry.HeaveAmplitudeCells,Base.Geometry.HeaveAmplitudeCells,Scale);
+        Multiply(R.Spec.Geometry.MotionFrequencyCyclesPerStep,Base.Geometry.MotionFrequencyCyclesPerStep,1./Scale);
+        Multiply(R.Spec.Geometry.SpinRadiansPerStep,Base.Geometry.SpinRadiansPerStep,1./Scale);
         if(Base.Geometry.CenterOfGravity)R.Spec.Geometry.CenterOfGravity=*Base.Geometry.CenterOfGravity*Scale;
+        if(Base.Geometry.InitialPositionCells)R.Spec.Geometry.InitialPositionCells=*Base.Geometry.InitialPositionCells*Scale;
+        if(Base.Geometry.InitialAngularVelocityRadiansPerStep)R.Spec.Geometry.InitialAngularVelocityRadiansPerStep=*Base.Geometry.InitialAngularVelocityRadiansPerStep/Scale;
         Multiply(R.Spec.Geometry.BodyMass,Base.Geometry.BodyMass,double(Volume));
         if(Scale>1&&!Base.Geometry.Stiffness.IsEmpty())
         {Error=TEXT("A stiffness matrix needs its explicit translational/rotational unit contract before refinement.");return false;}
@@ -133,6 +143,8 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
             {if(N[Axis]>1048576/Scale){Error=TEXT("Refined lattice exceeds the supported axis count.");return false;}N[Axis]*=Scale;}
             R.Spec.Lattice.Extents=N;
         }
+        if(Base.Lattice.StreamwiseCells)
+        {if(*Base.Lattice.StreamwiseCells>1048576/Scale){Error=TEXT("Refined recipe Nx exceeds the supported axis count.");return false;}R.Spec.Lattice.StreamwiseCells=*Base.Lattice.StreamwiseCells*Scale;}
         for(auto& Cells:R.Spec.Multidomain.LevelCells)
         {if(Cells>1000000000000LL/Volume){Error=TEXT("Refined level cell count exceeds the allocation budget.");return false;}Cells*=Volume;}
         for(auto& Allocation:R.Spec.Performance.Allocations)if(Allocation.Nodes)

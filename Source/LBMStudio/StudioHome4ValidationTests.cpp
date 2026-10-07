@@ -96,7 +96,9 @@ bool FStudioHome4ReferenceParser::RunTest(const FString&)
     using namespace StudioHome4ValidationTestFixtures;
     FStudioHome4ReferenceEvidence E;FString Error;
     TestTrue(TEXT("Explicit aligned evidence accepted"),StudioHome4Validation::Parse(FixtureJSON(),Expect(),E,Error));
-    TestEqual(TEXT("Evidence pass refers only to actual supplied data"),E.GateStatus(),FString(TEXT("passed")));
+    TestEqual(TEXT("Comparison pass refers only to actual supplied data"),E.ComparisonStatus(),FString(TEXT("passed")));
+    TestEqual(TEXT("Arbitrary named series do not establish recipe coverage"),E.RecipeCoverage(),FString(TEXT("unknown")));
+    TestTrue(TEXT("Display distinguishes compared series from complete recipe gate"),E.GateStatus().Contains(TEXT("recipe gate not_evaluated")));
     TestEqual(TEXT("Original import hash retained"),E.SourceSHA256.Len(),64);
     const FString Hash=E.SourceSHA256;FStudioHome4ReferenceEvidence Same;
     StudioHome4Validation::Parse(FixtureJSON(),Expect(),Same,Error);TestEqual(TEXT("Identity hashes exact source bytes"),Same.SourceSHA256,Hash);
@@ -126,9 +128,11 @@ bool FStudioHome4ReferenceParser::RunTest(const FString&)
     auto Failing=Object();Failing->GetArrayField(TEXT("series"))[0]->AsObject()->SetArrayField(TEXT("actual"),
         {MakeShared<FJsonValueNumber>(1),MakeShared<FJsonValueNumber>(2),MakeShared<FJsonValueNumber>(4)});
     TestTrue(TEXT("Valid measured mismatch is imported"),StudioHome4Validation::Parse(JSON(Failing.ToSharedRef()),Expect(),E,Error));
-    TestEqual(TEXT("Actual mismatch produces failed gate"),E.GateStatus(),FString(TEXT("failed")));
+    TestEqual(TEXT("Actual mismatch produces failed comparison"),E.ComparisonStatus(),FString(TEXT("failed")));
     TestEqual(TEXT("Maximum absolute error exact"),E.Series[0].Gate.MaximumAbsoluteError.Get(-1),1.);
     const auto Metadata=StudioHome4Validation::EvidenceMetadata(E);
+    TestEqual(TEXT("Report metadata never infers a recipe gate"),Metadata->GetStringField(TEXT("gate_status")),FString(TEXT("not_evaluated")));
+    TestEqual(TEXT("Report preserves useful measured comparison status"),Metadata->GetStringField(TEXT("comparison_status")),FString(TEXT("failed")));
     TestEqual(TEXT("Report metadata retains original source hash"),Metadata->GetStringField(TEXT("original_sha256")),E.SourceSHA256);
     return !HasAnyErrors();
 }
