@@ -30,12 +30,9 @@ namespace StudioHome4ValidationUIPrivate
             using namespace StudioUI;
             auto TextAt = [&](const FString& Value, FVector2D At, FLinearColor Color)
             { FSlateDrawElement::MakeText(Out, Layer + 2, G.ToPaintGeometry(FVector2D(1, 1), FSlateLayoutTransform(At)), Value, Font(8), ESlateDrawEffect::None, Color); };
-            if (!State->Evidence || !State->Evidence->Series.IsValidIndex(State->SelectedSeries))
-            { TextAt(TEXT("not_evaluated · import actual and reference measurements"), FVector2D(0, 30), Muted); return Layer + 3; }
-            FStudioHome4ReportPlot Plot; FString Error;
-            const bool Ready = bConvergence ? StudioHome4ReportPlots::Convergence(*State->Evidence, Plot, Error)
-                : StudioHome4ReportPlots::Reference(State->Evidence->Series[State->SelectedSeries], Plot, Error);
-            if (!Ready) { TextAt(Error, FVector2D(0,30), Muted); return Layer + 3; }
+            const auto* Prepared=Cache.Get(State->Evidence,State->SelectedSeries,bConvergence);
+            if(!Prepared){TextAt(Cache.Error(),FVector2D(0,30),Muted);return Layer+3;}
+            const auto& Plot=*Prepared;
             const auto Size=G.GetLocalSize();const double Left=65, Right=FMath::Max(Left+1,Size.X-15),Top=50,Bottom=FMath::Max(Top+1,Size.Y-45);
             TextAt(Plot.YLabel,FVector2D(Left,3),Text);
             TextAt(Plot.XLabel,FVector2D(Left,Bottom+23),Muted);
@@ -59,6 +56,7 @@ namespace StudioHome4ValidationUIPrivate
     private:
         TSharedPtr<FStudioHome4ValidationState> State;
         bool bConvergence = false;
+        FStudioHome4ReferencePlotCache Cache;
     };
 }
 void SStudioHome4Validation::Construct(const FArguments& A)
@@ -101,8 +99,8 @@ void SStudioHome4Validation::Construct(const FArguments& A)
         .Text_Lambda([this]
         {
             if(!State->Evidence || State->Evidence->OrderRuns.IsEmpty())return FText::FromString(TEXT("No three-run scalar evidence supplied. The development queue is not measured convergence."));
-            const auto& E=*State->Evidence;FString V=E.OrderMetric+TEXT(" [")+E.OrderUnit+TEXT("] · scalar averaging window not supplied; no window equivalence inferred.");
-            for(const auto& R:E.OrderRuns)V+=FString::Printf(TEXT("\nRefinement %.6g · value %.17g · run %s"),R.Refinement,R.Value,*R.RunId.ToString());
+            const auto& E=*State->Evidence;FString V=E.OrderMetric+TEXT(" [")+E.OrderUnit+TEXT("] · optional original extraction metadata; no cross-run window equivalence inferred.");
+            for(const auto& R:E.OrderRuns)V+=TEXT("\n")+StudioHome4Validation::ScalarRunDescription(R);
             return FText::FromString(V);
         })];
     Rows->AddSlot().AutoHeight().Padding(0, 10, 0, 3)[Label(TEXT("Development refinement queue"), 11, Text, true)];

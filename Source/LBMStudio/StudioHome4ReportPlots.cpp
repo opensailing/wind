@@ -50,6 +50,17 @@ bool StudioHome4ReportPlots::Convergence(const FStudioHome4ReferenceEvidence& E,
     { if(!R.RunId.IsValid() || Ids.Contains(R.RunId) || R.Refinement<=0) {Error=TEXT("Convergence requires unique original run IDs and positive refinement factors.");return false;}Ids.Add(R.RunId);P.X.Add(R.Refinement);P.Channels[0].Add(R.Value); }
     if(!StudioHome4ReportPlotsPrivate::Prepare(P,Error))return false;Out=MoveTemp(P);return true;
 }
+const FStudioHome4ReportPlot* FStudioHome4ReferencePlotCache::Get(const TSharedPtr<const FStudioHome4ReferenceEvidence>& E,int32 Series,bool Convergence)const
+{
+    if(!bInitialized||Source!=E||SelectedSeries!=Series||bOrder!=Convergence)
+    {
+        bInitialized=true;Source=E;SelectedSeries=Series;bOrder=Convergence;Plot={};bReady=false;++Preparations;
+        Failure=TEXT("not_evaluated · import actual and reference measurements");
+        if(E)bReady=Convergence?StudioHome4ReportPlots::Convergence(*E,Plot,Failure):
+            E->Series.IsValidIndex(Series)&&StudioHome4ReportPlots::Reference(E->Series[Series],Plot,Failure);
+    }
+    return bReady?&Plot:nullptr;
+}
 FString StudioHome4ReportPlots::SelectionDescription()
 { return TEXT("Display preview only: M=min(N,2000), source sample index floor(k*(N-1)/(M-1)), k=0..M-1; single sample uses index 0. Both endpoints retained. Straight segments join selected originals; no measurements are interpolated. Complete original arrays remain in CSV/JSON."); }
 FString StudioHome4ReportPlots::SVG(const FStudioHome4ReportPlot& P,const FString& Identity)
@@ -84,10 +95,23 @@ FString StudioHome4ReportPlots::TikZ(const FStudioHome4ReportPlot& P)
 FString StudioHome4ReportPlots::TeXPreamble()
 { return TEXT("% Compile with XeLaTeX, LuaLaTeX or Tectonic (UTF-8/fontspec).\n\\documentclass{article}\n\\usepackage[margin=2cm]{geometry}\n\\usepackage{fontspec}\n\\usepackage{longtable}\n\\usepackage{tikz}\n\\begin{document}\n"); }
 FString StudioHome4ReportPlots::TeXEnd() {return TEXT("\\end{document}\n");}
-FString StudioHome4ReportPlots::CSV(const FStudioHome4ReportPlot& P,const TArray<FGuid>& RunIds)
+FString StudioHome4ReportPlots::CSV(const FStudioHome4ReportPlot& P,const TArray<FGuid>& RunIds,const TArray<FStudioHome4ScalarRun>* ScalarRuns)
 {
     using namespace StudioHome4ReportPlotsPrivate;
-    FString Out=RunIds.IsEmpty()?TEXT("source_sample,x,actual,reference\n"):TEXT("source_sample,run_id,refinement,value\n");
+    const bool Metadata=ScalarRuns&&ScalarRuns->Num()==P.X.Num()&&!RunIds.IsEmpty();
+    FString Out=RunIds.IsEmpty()?TEXT("source_sample,x,actual,reference"):TEXT("source_sample,run_id,refinement,value");
+    if(Metadata)Out+=TEXT(",window_start,window_end,abscissa_unit,epoch,extraction_method,original_source,original_source_sha256");Out+=TEXT("\n");
+    auto Quoted=[](const FString& V){return TEXT("\"")+V.Replace(TEXT("\""),TEXT("\"\""))+TEXT("\"");};
     for(int32 I=0;I<P.X.Num();++I)
-    {Out+=LexToString(I)+TEXT(",");if(!RunIds.IsEmpty())Out+=RunIds[I].ToString()+TEXT(",");Out+=Number(P.X[I]);for(const auto& C:P.Channels)Out+=TEXT(",")+Number(C[I]);Out+=TEXT("\n");}return Out;
+    {
+        Out+=LexToString(I)+TEXT(",");if(!RunIds.IsEmpty())Out+=RunIds[I].ToString()+TEXT(",");Out+=Number(P.X[I]);for(const auto& C:P.Channels)Out+=TEXT(",")+Number(C[I]);
+        if(Metadata)
+        {
+            const auto& E=(*ScalarRuns)[I].Extraction;
+            Out+=TEXT(",")+(E.WindowStart?Number(*E.WindowStart):FString())+TEXT(",")+(E.WindowEnd?Number(*E.WindowEnd):FString())+
+                TEXT(",")+Quoted(E.AbscissaUnit)+TEXT(",")+Quoted(E.Epoch)+TEXT(",")+Quoted(E.Method)+TEXT(",")+Quoted(E.Source)+TEXT(",")+Quoted(E.SourceSHA256);
+        }
+        Out+=TEXT("\n");
+    }
+    return Out;
 }

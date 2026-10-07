@@ -15,10 +15,16 @@ struct FStudioHome4ReferenceSeries
     double AbsoluteTolerance = 0, RelativeTolerance = 0;
     FStudioHome4GateResult Gate;
 };
+struct FStudioHome4ScalarExtraction
+{
+    TOptional<double> WindowStart, WindowEnd;
+    FString AbscissaUnit, Epoch, Method, Source, SourceSHA256;
+};
 struct FStudioHome4ScalarRun
 {
     FGuid RunId;
     double Refinement = 1, Value = 0;
+    FStudioHome4ScalarExtraction Extraction={};
 };
 struct FStudioHome4ReferenceEvidence
 {
@@ -55,13 +61,18 @@ namespace StudioHome4Validation
      * actual_source, reference_source, series[] {id,name,x_name,x_unit,unit,x,
      * actual,reference,absolute_tolerance,relative_tolerance}.
      * Optional order {metric,unit,runs:[{run_id,refinement,value} x3]} needs a
-     * constant increasing refinement ratio and monotone scalar convergence. */
+     * constant increasing refinement ratio and monotone scalar convergence.
+     * Each run optionally retains extraction {window_start,window_end,abscissa_unit,
+     * epoch,method,source,source_sha256}. Supplied window bounds are paired, finite
+     * and increasing with explicit units; absent metadata stays unknown. */
     bool Parse(const FString& JSON, const FStudioHome4ReferenceExpectation& Expected,
         FStudioHome4ReferenceEvidence& Out, FString& Error);
     bool Load(const FString& Path, const FStudioHome4ReferenceExpectation& Expected,
         FStudioHome4ReferenceEvidence& Out, FString& Error);
     TSharedRef<FJsonObject> EvidenceMetadata(const FStudioHome4ReferenceEvidence& Evidence);
     FString SerializeEvidence(const FStudioHome4ReferenceEvidence& Evidence);
+    TSharedRef<FJsonObject> ScalarRunMetadata(const FStudioHome4ScalarRun& Run);
+    FString ScalarRunDescription(const FStudioHome4ScalarRun& Run);
     /** Export original aligned measurements and provenance atomically without overwrite. */
     bool ExportEvidence(const FString& Parent, const FString& Folder, const FStudioHome4ReferenceEvidence& Evidence,
         FString& OutPath, FString& Error);

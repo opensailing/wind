@@ -36,7 +36,7 @@ namespace StudioHome4ValidationPrivate
         if (!V || V->Type != EJson::String) return false;
         Out = V->AsString();
         if (Out.TrimStartAndEnd().IsEmpty() || Out.Len() > Max) return false;
-        for (TCHAR C : Out) if (C < 32) return false;
+        for (TCHAR C : Out) if (C < 32||C==127) return false;
         return true;
     }
     bool Number(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, double& Out, bool bNonnegative = false)
@@ -46,6 +46,28 @@ namespace StudioHome4ValidationPrivate
     }
     bool Guid(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, FGuid& Out)
     { FString S; return Text(O, Key, S, 64) && FGuid::Parse(S, Out) && Out.IsValid(); }
+    bool Extraction(const TSharedPtr<FJsonObject>& Run,FStudioHome4ScalarExtraction& Out)
+    {
+        const auto V=Field(Run,TEXT("extraction"));if(!V||V->Type==EJson::Null)return true;
+        if(V->Type!=EJson::Object)return false;const auto O=V->AsObject();
+        const TSet<FString> Known={TEXT("window_start"),TEXT("window_end"),TEXT("abscissa_unit"),TEXT("epoch"),TEXT("method"),TEXT("source"),TEXT("source_sha256")};
+        for(const auto& E:O->Values)if(!Known.Contains(FString(*E.Key)))return false;
+        auto OptionalNumber=[&](const TCHAR* K,TOptional<double>& N)
+        {const auto F=Field(O,K);if(!F||F->Type==EJson::Null)return true;double D=0;if(!Number(O,K,D))return false;N=D;return true;};
+        auto OptionalText=[&](const TCHAR* K,FString& S,int32 Max)
+        {const auto F=Field(O,K);return !F||F->Type==EJson::Null||Text(O,K,S,Max);};
+        if(!OptionalNumber(TEXT("window_start"),Out.WindowStart)||!OptionalNumber(TEXT("window_end"),Out.WindowEnd)||
+            !OptionalText(TEXT("abscissa_unit"),Out.AbscissaUnit,96)||!OptionalText(TEXT("epoch"),Out.Epoch,256)||
+            !OptionalText(TEXT("method"),Out.Method,256)||!OptionalText(TEXT("source"),Out.Source,2048)||
+            !OptionalText(TEXT("source_sha256"),Out.SourceSHA256,64))return false;
+        if(Out.WindowStart.IsSet()!=Out.WindowEnd.IsSet()||(Out.WindowStart&&(*Out.WindowEnd<=*Out.WindowStart||Out.AbscissaUnit.IsEmpty())))return false;
+        if(!Out.SourceSHA256.IsEmpty())
+        {
+            if(Out.SourceSHA256.Len()!=64||Out.Source.IsEmpty())return false;
+            for(TCHAR C:Out.SourceSHA256)if(!((C>='0'&&C<='9')||(C>='a'&&C<='f')||(C>='A'&&C<='F')))return false;
+        }
+        return true;
+    }
     bool Array(const TSharedPtr<FJsonObject>& O, const TCHAR* Key, TArray<double>& Out)
     {
         const auto V = Field(O, Key);
@@ -159,8 +181,8 @@ bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4Referen
             if (Value->Type != EJson::Object) return Fail(TEXT("Observed-order runs must be objects."));
             FStudioHome4ScalarRun R;
             if (!Guid(Value->AsObject(), TEXT("run_id"), R.RunId) || !Number(Value->AsObject(), TEXT("refinement"), R.Refinement) ||
-                R.Refinement <= 0 || !Number(Value->AsObject(), TEXT("value"), R.Value) || RunIds.Contains(R.RunId))
-                return Fail(TEXT("Observed-order runs require unique identities and finite scalar values/refinements."));
+                R.Refinement <= 0 || !Number(Value->AsObject(), TEXT("value"), R.Value) || RunIds.Contains(R.RunId)||!Extraction(Value->AsObject(),R.Extraction))
+                return Fail(TEXT("Observed-order runs require unique identities, finite scalars and valid explicit extraction metadata."));
             RunIds.Add(R.RunId); E.OrderRuns.Add(R);
         }
         const double A = E.OrderRuns[1].Refinement / E.OrderRuns[0].Refinement, B = E.OrderRuns[2].Refinement / E.OrderRuns[1].Refinement;
@@ -214,6 +236,9 @@ TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHom
         Series.Add(MakeShared<FJsonValueObject>(Item));
     }
     O->SetArrayField(TEXT("series"), Series);
+    TArray<TSharedPtr<FJsonValue>> Runs;
+    for(const auto& R:E.OrderRuns)Runs.Add(MakeShared<FJsonValueObject>(ScalarRunMetadata(R)));
+    O->SetArrayField(TEXT("order_runs"),Runs);O->SetStringField(TEXT("scalar_window_equivalence"),TEXT("not_inferred"));
     if (E.ObservedOrder) { O->SetNumberField(TEXT("observed_order"), *E.ObservedOrder); O->SetStringField(TEXT("order_metric"), E.OrderMetric); }
     return O;
 }
@@ -238,10 +263,27 @@ FString StudioHome4Validation::SerializeEvidence(const FStudioHome4ReferenceEvid
         auto Order = MakeShared<FJsonObject>(); Order->SetStringField(TEXT("metric"), E.OrderMetric); Order->SetStringField(TEXT("unit"), E.OrderUnit);
         TArray<TSharedPtr<FJsonValue>> Runs;
         for (const auto& R : E.OrderRuns)
-        { auto Item = MakeShared<FJsonObject>(); Item->SetStringField(TEXT("run_id"), R.RunId.ToString()); Item->SetNumberField(TEXT("refinement"), R.Refinement); Item->SetNumberField(TEXT("value"), R.Value); Runs.Add(MakeShared<FJsonValueObject>(Item)); }
+        { Runs.Add(MakeShared<FJsonValueObject>(ScalarRunMetadata(R))); }
         Order->SetArrayField(TEXT("runs"), Runs); O->SetObjectField(TEXT("order"), Order);
     }
     FString JSON; FJsonSerializer::Serialize(O, TJsonWriterFactory<>::Create(&JSON)); return JSON;
+}
+TSharedRef<FJsonObject> StudioHome4Validation::ScalarRunMetadata(const FStudioHome4ScalarRun& R)
+{
+    auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("run_id"),R.RunId.ToString());O->SetNumberField(TEXT("refinement"),R.Refinement);O->SetNumberField(TEXT("value"),R.Value);
+    auto X=MakeShared<FJsonObject>();const auto& E=R.Extraction;
+    if(E.WindowStart)X->SetNumberField(TEXT("window_start"),*E.WindowStart);else X->SetField(TEXT("window_start"),MakeShared<FJsonValueNull>());
+    if(E.WindowEnd)X->SetNumberField(TEXT("window_end"),*E.WindowEnd);else X->SetField(TEXT("window_end"),MakeShared<FJsonValueNull>());
+    auto String=[&](const TCHAR* K,const FString& V){if(V.IsEmpty())X->SetField(K,MakeShared<FJsonValueNull>());else X->SetStringField(K,V);};
+    String(TEXT("abscissa_unit"),E.AbscissaUnit);String(TEXT("epoch"),E.Epoch);String(TEXT("method"),E.Method);String(TEXT("source"),E.Source);String(TEXT("source_sha256"),E.SourceSHA256);
+    O->SetObjectField(TEXT("extraction"),X);return O;
+}
+FString StudioHome4Validation::ScalarRunDescription(const FStudioHome4ScalarRun& R)
+{
+    const auto& E=R.Extraction;auto Known=[](const FString& V){return V.IsEmpty()?FString(TEXT("unknown")):V;};
+    const FString Window=E.WindowStart&&E.WindowEnd?FString::Printf(TEXT("%.17g to %.17g %s"),*E.WindowStart,*E.WindowEnd,*E.AbscissaUnit):FString(TEXT("unknown"));
+    return FString::Printf(TEXT("Refinement %.17g · value %.17g · run %s\nExtraction window %s · epoch %s · method %s\nOriginal scalar source %s · SHA256 %s"),
+        R.Refinement,R.Value,*R.RunId.ToString(),*Window,*Known(E.Epoch),*Known(E.Method),*Known(E.Source),*Known(E.SourceSHA256));
 }
 bool StudioHome4Validation::ExportEvidence(const FString& Parent, const FString& Folder, const FStudioHome4ReferenceEvidence& E,
     FString& OutPath, FString& Error)

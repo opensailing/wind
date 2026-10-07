@@ -10,6 +10,16 @@ struct FStudioHome4Source
     FGuid RunId;
     FString SourceId;
 };
+/** Owner attachment for reports, separate from science records. An independently
+ * assigned replay GUID is never an original solver-run identity. */
+struct FStudioHome4TelemetryProvenance
+{
+    FGuid StreamRunId;
+    TOptional<FGuid> OriginalRunId;
+    bool bImportedReplay=false;
+    FString SourceId, SourcePath, SourceSHA256;
+    TOptional<FGuid> AttachedProjectId, AttachedCaseId;
+};
 
 struct FStudioHome4CellFacts
 {
@@ -244,6 +254,7 @@ public:
     const TOptional<FStudioHome4Sample>& Latest() const { return LatestSample; }
     const TOptional<FStudioHome4Sample>& LastGoodSample() const { return GoodSample; }
     const TOptional<FStudioHome4OutputEvent>& LastRestart() const { return Restart; }
+    const TSharedPtr<const FStudioHome4SourceMetadata>& OriginalMetadata() const { return SourceMetadata; }
     int32 BufferedBytes() const { return Pending.Num(); }
     void SetDiagnosticPolicy(const FStudioHome4DiagnosticPolicy& InPolicy) { Policy = InPolicy; }
 private:

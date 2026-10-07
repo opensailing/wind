@@ -32,13 +32,18 @@ public:
     void PollImport();
     bool IsImporting() const { return Pending.IsValid(); }
     bool IsImportedReplay() const { return ImportedStream.IsValid() && bShowImported; }
-    const TSharedPtr<FStudioHome4TelemetryStream>& ImportedReplay() const { return ImportedStream; }
+    const TSharedPtr<FStudioHome4TelemetryStream>& ImportedReplay() { ScopeProject(); return ImportedStream; }
     /** The displayed source remains science/replay data, never a job acknowledgement. */
-    FStudioHome4TelemetryStream* DisplayedTelemetry() const { return DisplayStream(); }
-    const FStudioHome4Sample* LatestDisplayedMeasurement() const { return Sample(); }
+    FStudioHome4TelemetryStream* DisplayedTelemetry() { ScopeProject(); return DisplayStream(); }
+    const FStudioHome4Sample* LatestDisplayedMeasurement() { ScopeProject(); return Sample(); }
+    TOptional<FStudioHome4TelemetryProvenance> ReportProvenance();
     /** Imported logs bind spatially only when the owner supplied their original run GUID. */
     TOptional<FGuid> OriginalRunIdentity() const;
     FString StatusText() const { return Status; }
+    const FString& ImportedSourceSHA256() const { return ImportSHA256; }
+#if WITH_DEV_AUTOMATION_TESTS
+    void SetImportVerificationForAutomation(TFunction<void()> Callback) { BeforeImportVerify = MoveTemp(Callback); }
+#endif
     const FStudioHome4DiagnosticPolicy& DiagnosticPolicy() const { return Policy; }
     StudioHome4SciencePresentation::FHistory PresentedHistory() const;
     StudioHome4SciencePresentation::FHistory PresentedForces() const;
@@ -48,12 +53,12 @@ private:
     struct FImportResult
     {
         TUniquePtr<FStudioHome4TelemetryStream> Stream;
-        FString Path, Error;
+        FString Path, Error, SHA256;
         bool bOriginalRunIdentity = false;
         int64 Bytes = 0, Lines = 0, Malformed = 0, Unknown = 0, Oversized = 0, Regressing = 0;
     };
     static FImportResult ReadImport(const FString& Path, const FStudioHome4Source& Source, bool bOriginalRunIdentity,
-        const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel);
+        const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel, const TFunction<void()>& BeforeVerify);
     FStudioHome4TelemetryStream* DisplayStream() const;
     const FStudioHome4Sample* Sample() const;
     FStudioHome4HealthSignal Health(int32 Index) const;
@@ -84,10 +89,13 @@ private:
     bool bNormalizeForces = false;
     TMap<FName, bool> Sections;
 
-    FString Status, ImportPath, OriginalRunIdDraft;
+    FString Status, ImportPath, OriginalRunIdDraft, ImportSHA256;
+#if WITH_DEV_AUTOMATION_TESTS
+    TFunction<void()> BeforeImportVerify;
+#endif
     bool bShowImported = true;
     bool bImportedOriginalRunIdentity = false;
-    FGuid ScopedProjectId, ImportProjectId;
+    FGuid ScopedProjectId, ScopedCaseId, ImportProjectId, ImportCaseId;
     uint64 DisplayedOutputIndex = MAX_uint64;
     const FStudioHome4TelemetryStream* DisplayedStream = nullptr;
     TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe> Cancellation;

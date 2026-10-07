@@ -3,12 +3,66 @@
 #include "StudioProject.h"
 #include "StudioHome4Recipes.h"
 #include "StudioHome4Validation.h"
+#include "StudioHome4SpatialDiagnostics.h"
 #include "StudioFileDialog.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
+
+namespace StudioHome4ReportTelemetryPrivate
+{
+    void Optional(const TSharedRef<FJsonObject>& O,const TCHAR* Key,const TOptional<double>& V)
+    {if(V)O->SetNumberField(Key,*V);else O->SetField(Key,MakeShared<FJsonValueNull>());}
+    void Unit(const TSharedRef<FJsonObject>& O,const TCHAR* Key,const TOptional<EStudioHome4UnitDisplay>& V)
+    {
+        if(!V){O->SetField(Key,MakeShared<FJsonValueNull>());return;}
+        O->SetStringField(Key,*V==EStudioHome4UnitDisplay::Physical?TEXT("physical"):*V==EStudioHome4UnitDisplay::Nondimensional?TEXT("nondimensional"):TEXT("lattice"));
+    }
+    TSharedRef<FJsonObject> Normalization(const FStudioHome4Normalization& N)
+    {
+        auto O=MakeShared<FJsonObject>();Optional(O,TEXT("force_divisor"),N.ForceDivisor);Optional(O,TEXT("moment_divisor"),N.MomentDivisor);
+        O->SetStringField(TEXT("force_label"),N.ForceLabel);O->SetStringField(TEXT("moment_label"),N.MomentLabel);return O;
+    }
+    TSharedRef<FJsonObject> Metadata(const FStudioHome4SourceMetadata& M)
+    {
+        auto O=MakeShared<FJsonObject>();Unit(O,TEXT("force_units"),M.ForceUnits);Unit(O,TEXT("energy_units"),M.EnergyUnits);
+        Unit(O,TEXT("velocity_units"),M.VelocityUnits);Unit(O,TEXT("length_units"),M.LengthUnits);
+        auto U=MakeShared<FJsonObject>();Optional(U,TEXT("dx_m"),M.UnitMap.Units.DxMeters);Optional(U,TEXT("dt_s"),M.UnitMap.Units.DtSeconds);
+        Optional(U,TEXT("rho_kg_m3"),M.UnitMap.Units.DensityReferenceKgM3);Optional(U,TEXT("rho_lattice"),M.UnitMap.Fluids.RhoHeavy);
+        Optional(U,TEXT("length_cells"),M.UnitMap.Reference.LengthCells);Optional(U,TEXT("time_steps"),M.UnitMap.Reference.TimeSteps);
+        Optional(U,TEXT("speed_cells_step"),M.UnitMap.Reference.SpeedCellsPerStep);O->SetObjectField(TEXT("unit_map"),U);
+        O->SetObjectField(TEXT("normalization"),Normalization(M.Normalization));auto Bodies=MakeShared<FJsonObject>();
+        for(const auto& B:M.BodyNormalizations)Bodies->SetObjectField(B.Key,Normalization(B.Value));
+        O->SetObjectField(TEXT("body_normalizations"),Bodies);return O;
+    }
+    bool Verify(const FStudioHome4TelemetryStream& Stream,const FStudioHome4TelemetryProvenance* P,const FStudioProject& Project,FString& Error)
+    {
+        if(!P||!P->StreamRunId.IsValid()||!P->AttachedProjectId||!P->AttachedCaseId||
+            !P->AttachedProjectId->IsValid()||!P->AttachedCaseId->IsValid()||
+            *P->AttachedProjectId!=Project.Id||*P->AttachedCaseId!=Project.Draft.Id||P->SourceId.IsEmpty()||
+            (P->OriginalRunId&&(!P->OriginalRunId->IsValid()||*P->OriginalRunId!=P->StreamRunId))||(!P->bImportedReplay&&!P->OriginalRunId))
+        {Error=TEXT("Telemetry provenance must identify this project, case and original run or independent replay.");return false;}
+        auto Clean=[](const FString& S,int32 Maximum)
+        {if(S.Len()>Maximum)return false;for(TCHAR C:S)if(C<32||C==127)return false;return true;};
+        if(!Clean(P->SourceId,256)||!Clean(P->SourcePath,4096))
+        {Error=TEXT("Telemetry source identity or path is invalid.");return false;}
+        if(!P->SourceSHA256.IsEmpty())
+        {
+            if(P->SourceSHA256.Len()!=64){Error=TEXT("Telemetry SHA256 must contain 64 hexadecimal digits.");return false;}
+            for(TCHAR C:P->SourceSHA256)if(!((C>='0'&&C<='9')||(C>='a'&&C<='f')||(C>='A'&&C<='F')))
+            {Error=TEXT("Telemetry SHA256 must contain 64 hexadecimal digits.");return false;}
+        }
+        if(P->bImportedReplay&&(P->SourcePath.IsEmpty()||P->SourceSHA256.IsEmpty()))
+        {Error=TEXT("Imported telemetry requires its verified original file path and SHA256.");return false;}
+        for(const auto& S:Stream.History())if(S.Source.RunId!=P->StreamRunId||S.Source.SourceId!=P->SourceId)
+        {Error=TEXT("Telemetry provenance does not match the retained original measurements.");return false;}
+        for(const auto& O:Stream.OutputEvents())if(O.Source.RunId!=P->StreamRunId||O.Source.SourceId!=P->SourceId)
+        {Error=TEXT("Telemetry provenance does not match retained original output events.");return false;}
+        Error.Empty();return true;
+    }
+}
 
 FString StudioHome4Reports::EscapeLaTeX(const FString& V)
 {
@@ -41,12 +95,24 @@ FString StudioHome4Reports::EscapeLaTeX(const FString& V)
     }
     return Out;
 }
-bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,const FStudioProject& P,const FStudioHome4TelemetryStream* Telemetry,FString& OutPath,FString& Error,const FStudioHome4ReferenceEvidence* Evidence)
+bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,const FStudioProject& P,const FStudioHome4TelemetryStream* Telemetry,FString& OutPath,FString& Error,const FStudioHome4ReferenceEvidence* Evidence,const FStudioHome4SpatialEvidence* Spatial,const FStudioHome4TelemetryProvenance* TelemetryProvenance)
 {
     if(!P.Draft.Home4.IsSet()){Error=TEXT("Apply a HOME4 recipe or configuration before exporting its report.");return false;}
     if(Folder.IsEmpty()||Folder.Len()>100||Folder==TEXT(".")||Folder==TEXT("..")||Folder.Contains(TEXT("/"))||Folder.Contains(TEXT("\\"))||Folder.Contains(TEXT(":")))
     {Error=TEXT("Use a report folder name of 1–100 characters without path separators.");return false;}
     const auto& S=P.Draft.Home4.GetValue();if(!StudioHome4Config::Validate(S,Error))return false;
+    const bool HasTelemetry=Telemetry&&(!Telemetry->History().IsEmpty()||!Telemetry->OutputEvents().IsEmpty());
+    if(HasTelemetry&&!StudioHome4ReportTelemetryPrivate::Verify(*Telemetry,TelemetryProvenance,P,Error))return false;
+    FStudioHome4SpatialEvidence CheckedSpatial;
+    if(Spatial)
+    {
+        if(!Spatial->AttachedProjectId.IsSet()||!Spatial->AttachedCaseId.IsSet()||
+            !Spatial->AttachedProjectId->IsValid()||!Spatial->AttachedCaseId->IsValid()||
+            *Spatial->AttachedProjectId!=P.Id||*Spatial->AttachedCaseId!=P.Draft.Id)
+        {Error=TEXT("Spatial evidence is not attached to this project and case. Import it for the selected scope before reporting.");return false;}
+        if(!StudioHome4SpatialDiagnostics::VerifyOriginal(*Spatial,CheckedSpatial,Error))return false;
+        Spatial=&CheckedSpatial;
+    }
     FStudioHome4ReferenceEvidence CheckedEvidence;
     if(Evidence)
     {
@@ -78,11 +144,29 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
     Metadata->SetStringField(TEXT("created_utc"),FDateTime::UtcNow().ToIso8601());Metadata->SetStringField(TEXT("project_id"),P.Id.ToString());Metadata->SetStringField(TEXT("case_id"),P.Draft.Id.ToString());
     Metadata->SetStringField(TEXT("recipe_id"),S.RecipeId);Metadata->SetStringField(TEXT("lineage_id"),S.LineageId);Metadata->SetStringField(TEXT("gate_status"),TEXT("not_evaluated"));
     Metadata->SetStringField(TEXT("field_source"),P.Dataset);Metadata->SetBoolField(TEXT("contains_computed_cfd"),false);
+    Metadata->SetBoolField(TEXT("contains_imported_spatial_diagnostics"),Spatial!=nullptr);
     Metadata->SetObjectField(TEXT("run_spec"),StudioHome4Config::ToJSON(S));
-    const bool HasTelemetry=Telemetry&&!Telemetry->History().IsEmpty();Metadata->SetBoolField(TEXT("contains_imported_telemetry"),HasTelemetry);
+    Metadata->SetBoolField(TEXT("contains_telemetry"),HasTelemetry);
+    Metadata->SetBoolField(TEXT("contains_imported_telemetry"),HasTelemetry&&TelemetryProvenance->bImportedReplay);
     FString TeX=StudioHome4ReportPlots::TeXPreamble()+TEXT("\\section*{")+EscapeLaTeX(P.Name)+TEXT("}\n");
     TeX+=TEXT("Recipe: ")+EscapeLaTeX(R?R->Name:TEXT("Unspecified"))+TEXT("\\\\\nLineage: ")+EscapeLaTeX(S.LineageId)+(Evidence?TEXT("\\\\\nValidation gate: not evaluated. Imported comparisons apply only to the identified evidence run; recipe coverage is unknown.\\\\\n"):TEXT("\\\\\nValidation gate: not evaluated. Reference evidence is not supplied.\\\\\n"));
     TeX+=TEXT("Configuration is stored in run\\_spec.json. The command is a reproducibility preview; the development adapter computes no CFD.\\\\\n");
+    if(Spatial)
+    {
+        auto Provenance=MakeShared<FJsonObject>();
+        Provenance->SetStringField(TEXT("original_file"),TEXT("spatial-diagnostics.json"));
+        Provenance->SetStringField(TEXT("source_path"),Spatial->SourcePath);Provenance->SetStringField(TEXT("source_sha256"),Spatial->SourceSHA256);
+        Provenance->SetStringField(TEXT("source_id"),Spatial->SourceId);Provenance->SetStringField(TEXT("run_id"),Spatial->RunId.ToString());
+        Provenance->SetStringField(TEXT("attached_project_id"),P.Id.ToString());Provenance->SetStringField(TEXT("attached_case_id"),P.Draft.Id.ToString());
+        Provenance->SetStringField(TEXT("coordinate_unit"),Spatial->CoordinateUnit);Provenance->SetStringField(TEXT("gate_status"),TEXT("not_evaluated"));
+        Provenance->SetNumberField(TEXT("original_bytes"),Spatial->OriginalBytes.Num());
+        Metadata->SetObjectField(TEXT("imported_spatial_diagnostics"),Provenance);
+        if(!FFileHelper::SaveArrayToFile(Spatial->OriginalBytes,*(Stage/TEXT("spatial-diagnostics.json"))))
+        {Error=TEXT("Could not write original spatial diagnostics.");return Abort();}
+        TeX+=TEXT("\\subsection*{Imported spatial diagnostics}\nOriginal run: ")+EscapeLaTeX(Spatial->RunId.ToString())+
+            TEXT("\\\\\nSource: ")+EscapeLaTeX(Spatial->SourceId)+TEXT("\\\\\nSHA256: ")+EscapeLaTeX(Spatial->SourceSHA256)+
+            TEXT("\\\\\nExact original bytes are retained in spatial-diagnostics.json. The imported source does not validate the current draft or establish recipe coverage.\\\\\n");
+    }
     if(R)TeX+=TEXT("Reference: ")+EscapeLaTeX(R->Reference)+TEXT("\\\\\nGate: ")+EscapeLaTeX(R->Gate)+TEXT("\\\\\n");
     const auto Derived=StudioHome4Config::Derive(S);
     TeX+=TEXT("\\subsection*{Configuration checks}\n");for(const auto& I:Derived.Issues)TeX+=EscapeLaTeX(I.Message)+TEXT("\\\\\n");
@@ -96,10 +180,42 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
                 N(V.Forces.Fx),N(V.Forces.Fy),N(V.Forces.Fz),N(V.Forces.My),N(V.Forces.MomentumFx),N(V.Window.Fx),N(V.Window.PreviousFx),N(V.ReportedMLUPSInstant),N(V.ReportedMLUPSCumulative),V.bNonfinite?TEXT("true"):TEXT("false")};
             CSV+=FString::Join(Cells,TEXT(","))+TEXT("\n");
         }
-        Metadata->SetStringField(TEXT("telemetry_source"),Telemetry->History().Last().Source.SourceId);
-        Metadata->SetStringField(TEXT("telemetry_run_id"),Telemetry->History().Last().Source.RunId.ToString());
+        auto Provenance=MakeShared<FJsonObject>();
+        Provenance->SetStringField(TEXT("stream_run_id"),TelemetryProvenance->StreamRunId.ToString());
+        Provenance->SetStringField(TEXT("identity_kind"),TelemetryProvenance->OriginalRunId?TEXT("owner_supplied_original_run"):TEXT("independent_replay"));
+        if(TelemetryProvenance->OriginalRunId)Provenance->SetStringField(TEXT("original_run_id"),TelemetryProvenance->OriginalRunId->ToString());
+        else Provenance->SetField(TEXT("original_run_id"),MakeShared<FJsonValueNull>());
+        if(TelemetryProvenance->bImportedReplay)Provenance->SetStringField(TEXT("replay_id"),TelemetryProvenance->StreamRunId.ToString());
+        else Provenance->SetField(TEXT("replay_id"),MakeShared<FJsonValueNull>());
+        Provenance->SetBoolField(TEXT("imported_replay"),TelemetryProvenance->bImportedReplay);
+        Provenance->SetStringField(TEXT("source_id"),TelemetryProvenance->SourceId);
+        if(!TelemetryProvenance->SourcePath.IsEmpty())Provenance->SetStringField(TEXT("source_path"),TelemetryProvenance->SourcePath);
+        else Provenance->SetField(TEXT("source_path"),MakeShared<FJsonValueNull>());
+        if(!TelemetryProvenance->SourceSHA256.IsEmpty())Provenance->SetStringField(TEXT("source_sha256"),TelemetryProvenance->SourceSHA256);
+        else Provenance->SetField(TEXT("source_sha256"),MakeShared<FJsonValueNull>());
+        Provenance->SetStringField(TEXT("attached_project_id"),P.Id.ToString());Provenance->SetStringField(TEXT("attached_case_id"),P.Draft.Id.ToString());
+        Provenance->SetStringField(TEXT("numeric_values"),TEXT("Original source values without conversion; missing values are blank."));
+        if(const auto M=Telemetry->OriginalMetadata())Provenance->SetObjectField(TEXT("source_metadata"),StudioHome4ReportTelemetryPrivate::Metadata(*M));
+        else Provenance->SetField(TEXT("source_metadata"),MakeShared<FJsonValueNull>());
+        Metadata->SetObjectField(TEXT("telemetry_provenance"),Provenance);
         Metadata->SetNumberField(TEXT("retained_samples"),Telemetry->History().Num());
-        TeX+=TEXT("\\subsection*{Imported telemetry}\nRetained original samples: ")+LexToString(Telemetry->History().Num())+TEXT(". Missing measurements are blank in telemetry.csv.\n");
+        TArray<TSharedPtr<FJsonValue>> Outputs;
+        for(const auto& Event:Telemetry->OutputEvents())
+        {
+            auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("record_index"),LexToString(Event.RecordIndex));
+            if(Event.Step)O->SetNumberField(TEXT("step"),double(*Event.Step));else O->SetField(TEXT("step"),MakeShared<FJsonValueNull>());
+            const TCHAR* Kind=Event.Kind==EStudioHome4OutputKind::Trace?TEXT("trace"):Event.Kind==EStudioHome4OutputKind::Slice?TEXT("slice"):
+                Event.Kind==EStudioHome4OutputKind::Visualization?TEXT("visualization"):TEXT("restart");
+            O->SetStringField(TEXT("kind"),Kind);O->SetStringField(TEXT("reported_path"),Event.Path);
+            O->SetStringField(TEXT("file_status"),TEXT("not_verified; historical source event, not a command acknowledgement"));
+            Outputs.Add(MakeShared<FJsonValueObject>(O));
+        }
+        Metadata->SetArrayField(TEXT("telemetry_output_events"),Outputs);
+        TeX+=TEXT("\\subsection*{Original science telemetry}\nRetained original samples: ")+LexToString(Telemetry->History().Num())+
+            TEXT(". Values retain their original source units; missing measurements are blank in telemetry.csv.\\\\\n")+
+            (TelemetryProvenance->OriginalRunId?TEXT("Owner-supplied original run: ")+EscapeLaTeX(TelemetryProvenance->OriginalRunId->ToString()):
+                TEXT("Independent replay identity: ")+EscapeLaTeX(TelemetryProvenance->StreamRunId.ToString())+TEXT(". Original solver run unavailable."))+
+            TEXT("\\\\\nImported replay is historical evidence. It supplies no control acknowledgement and does not validate the current draft.\\\\\n");
         if(!Write(TEXT("telemetry.csv"),CSV))return Abort();
     }
     TeX+=TEXT("\\subsection*{Applied parameters}\n\\begin{longtable}{p{0.42\\textwidth}p{0.5\\textwidth}}\nParameter & Value \\\\\\hline\n");
@@ -130,7 +246,7 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
             if(!Write(*(Stem+TEXT(".svg")),StudioHome4ReportPlots::SVG(Plot,Evidence->RunId.ToString()+TEXT("; ")+Caption)) ||
                 !Write(*(Stem+TEXT(".tikz")),Fragment) ||
                 !Write(*(Stem+TEXT(".tex")),StudioHome4ReportPlots::TeXPreamble()+Fragment+StudioHome4ReportPlots::TeXEnd()) ||
-                !Write(*(Stem+TEXT(".csv")),StudioHome4ReportPlots::CSV(Plot,Runs)))return false;
+                !Write(*(Stem+TEXT(".csv")),StudioHome4ReportPlots::CSV(Plot,Runs,Runs.IsEmpty()?nullptr:&Evidence->OrderRuns)))return false;
             Provenance->SetStringField(TEXT("svg"),Stem+TEXT(".svg"));Provenance->SetStringField(TEXT("tex"),Stem+TEXT(".tex"));Provenance->SetStringField(TEXT("tikz"),Stem+TEXT(".tikz"));Provenance->SetStringField(TEXT("numeric_table"),Stem+TEXT(".csv"));
             Provenance->SetNumberField(TEXT("original_samples"),Plot.X.Num());Provenance->SetNumberField(TEXT("preview_samples"),Plot.PreviewIndices.Num());
             Provenance->SetStringField(TEXT("preview_selection"),StudioHome4ReportPlots::SelectionDescription());
@@ -155,10 +271,11 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
         {
             FStudioHome4ReportPlot Plot;if(!StudioHome4ReportPlots::Convergence(*Evidence,Plot,Error))return Abort();
             auto Provenance=MakeShared<FJsonObject>();Provenance->SetStringField(TEXT("kind"),TEXT("three_run_convergence"));Provenance->SetStringField(TEXT("metric_id"),Evidence->OrderMetric);Provenance->SetStringField(TEXT("unit"),Evidence->OrderUnit);
-            Provenance->SetStringField(TEXT("scalar_window_status"),TEXT("not_supplied; no window equivalence inferred"));
+            bool HasScalarWindow=false;for(const auto& V:Evidence->OrderRuns)HasScalarWindow|=V.Extraction.WindowStart.IsSet();
+            Provenance->SetStringField(TEXT("scalar_window_status"),HasScalarWindow?TEXT("per_run_optional_metadata; no window equivalence inferred"):TEXT("not_supplied; no window equivalence inferred"));
             TArray<FGuid> Runs;TArray<TSharedPtr<FJsonValue>> RunRecords;
-            FString Caption=Evidence->OrderMetric+TEXT(" [")+Evidence->OrderUnit+TEXT("] · three original scalar runs. Averaging window not supplied; no window equivalence inferred.");
-            for(const auto& V:Evidence->OrderRuns){Runs.Add(V.RunId);auto O=MakeShared<FJsonObject>();O->SetStringField(TEXT("run_id"),V.RunId.ToString());O->SetNumberField(TEXT("refinement"),V.Refinement);O->SetNumberField(TEXT("value"),V.Value);RunRecords.Add(MakeShared<FJsonValueObject>(O));Caption+=FString::Printf(TEXT(" Refinement %.17g: run %s."),V.Refinement,*V.RunId.ToString());}
+            FString Caption=Evidence->OrderMetric+TEXT(" [")+Evidence->OrderUnit+TEXT("] · three original scalar runs. Absent extraction metadata is unknown; no window equivalence inferred.");
+            for(const auto& V:Evidence->OrderRuns){Runs.Add(V.RunId);RunRecords.Add(MakeShared<FJsonValueObject>(StudioHome4Validation::ScalarRunMetadata(V)));Caption+=TEXT(" ")+StudioHome4Validation::ScalarRunDescription(V);}
             Provenance->SetArrayField(TEXT("runs"),RunRecords);if(Evidence->ObservedOrder){Provenance->SetNumberField(TEXT("observed_order"),*Evidence->ObservedOrder);Caption+=FString::Printf(TEXT(" Observed order %.6g."),*Evidence->ObservedOrder);}else Caption+=TEXT(" Observed order unavailable for this sequence.");
             if(!Figure(TEXT("convergence"),Plot,Caption,Provenance,Runs))return Abort();
         }
@@ -168,7 +285,7 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
     Metadata->SetStringField(TEXT("recipe_coverage"),TEXT("unknown"));
     TeX+=StudioHome4ReportPlots::TeXEnd();FString JSON;FJsonSerializer::Serialize(Metadata,TJsonWriterFactory<>::Create(&JSON));
     if(!Write(TEXT("run_spec.json"),StudioHome4Config::Serialize(S))||!Write(TEXT("command.txt"),CLI)||!Write(TEXT("report.tex"),TeX)||!Write(TEXT("report.json"),JSON))return Abort();
-    const FString Instructions=TEXT("Compile report.tex from this directory with xelatex report.tex, lualatex report.tex or tectonic report.tex. pdfLaTeX is unsupported (UTF-8/fontspec). Each figure .tex is independently compilable; its .tikz fragment is included by the report. SVG and TikZ are documented display previews. CSV and reference-evidence.json retain every original measurement at round-trip double precision. report.json contains figure/run/source/window/tolerance provenance. Scalar averaging windows absent from the evidence are explicitly unknown. Imported comparisons do not validate the current draft or establish recipe coverage.\n");
+    const FString Instructions=TEXT("Compile report.tex from this directory with xelatex report.tex, lualatex report.tex or tectonic report.tex. pdfLaTeX is unsupported (UTF-8/fontspec). Each figure .tex is independently compilable; its .tikz fragment is included by the report. SVG and TikZ are documented display previews. CSV and reference-evidence.json retain every original measurement at round-trip double precision. report.json contains figure/run/source/window/tolerance provenance. Convergence CSV retains optional per-run original extraction window/unit/epoch/method/source/hash; absent values are blank or null and explicitly unknown. No cross-run window equivalence is inferred. Imported comparisons do not validate the current draft or establish recipe coverage.\n");
     if(!Write(TEXT("COMPILE.txt"),Instructions))return Abort();
     if(!StudioFileDialog::PublishExportDirectory(Stage,Destination,Error))return Abort();
     OutPath=Destination;Error.Empty();return true;

@@ -16,6 +16,12 @@
 #include "InputCoreTypes.h"
 #include <cerrno>
 #include <cstdlib>
+#include <memory>
+#define UI UI_HOME4_SCIENCE_IMPORT
+THIRD_PARTY_INCLUDES_START
+#include <openssl/evp.h>
+THIRD_PARTY_INCLUDES_END
+#undef UI
 
 namespace StudioHome4MonitorPrivate
 {
@@ -181,7 +187,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
     using namespace StudioUI;
     using namespace StudioHome4MonitorPrivate;
     Model = A._Model; SessionStream = A._Stream; OnLocate = A._OnLocateCell; UnitDisplay = A._UnitDisplay;
-    if (const auto M = Model.Pin()) ScopedProjectId = M->Project.Id;
+    if (const auto M = Model.Pin()) { ScopedProjectId = M->Project.Id; ScopedCaseId = M->Project.Draft.Id; }
     PolicyDraft.SetNum(9);
     Status = TEXT("Choose an original HOME4 JSONL log, or connect a session science stream.");
     auto Rows = SNew(SVerticalBox);
@@ -254,7 +260,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
         .IsEnabled_Lambda([this]{return CanLocate();}).OnClicked_Lambda([this]{Locate();return FReply::Handled();})[Label(TEXT("Locate reported cell"),9)]];
     auto Outputs=Section(TEXT("Four output kinds"),TEXT("Outputs"),false);Outputs->AddSlot().AutoHeight()[SAssignNew(OutputRows,SVerticalBox).Tag(TEXT("Home4OutputTimeline"))];
     auto Thresholds=Section(TEXT("Health thresholds"),TEXT("Thresholds"),false);
-    Thresholds->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Mass: |drift| < 1e-4. Other gates need explicit limits."),8,Muted)];
+    Thresholds->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Mass: |drift| < 1e-4. All health values and thresholds use original source units, independent of the chart unit view. Other gates need explicit limits."),8,Muted)];
     const TCHAR* Captions[]={TEXT("Budget absolute tolerance"),TEXT("Force relative tolerance"),TEXT("Force absolute tolerance"),TEXT("Force reference magnitude"),
         TEXT("Window relative tolerance"),TEXT("Window absolute tolerance"),TEXT("Window reference magnitude"),TEXT("WB rest pressure tolerance"),TEXT("Maximum speed trouble trigger")};
     for(int32 I=0;I<UE_ARRAY_COUNT(Captions);++I)Thresholds->AddSlot().AutoHeight().Padding(0,3)[SNew(SHorizontalBox)
@@ -311,11 +317,26 @@ FStudioHome4TelemetryStream* SStudioHome4Monitors::DisplayStream() const
 { return IsImportedReplay() ? ImportedStream.Get() : SessionStream.Get(); }
 TOptional<FGuid> SStudioHome4Monitors::OriginalRunIdentity() const
 {
+    const auto M=Model.Pin();
+    if(M ? M->Project.Id!=ScopedProjectId||M->Project.Draft.Id!=ScopedCaseId : ScopedProjectId.IsValid()||ScopedCaseId.IsValid())return {};
     if (IsImportedReplay() && !bImportedOriginalRunIdentity) return {};
     const auto* Stream = DisplayStream();
     if (Stream && Stream->Latest()) return Stream->Latest()->Source.RunId;
     if (Stream && !Stream->OutputEvents().IsEmpty()) return Stream->OutputEvents().Last().Source.RunId;
     return {};
+}
+TOptional<FStudioHome4TelemetryProvenance> SStudioHome4Monitors::ReportProvenance()
+{
+    ScopeProject();const auto* Stream=DisplayStream();const auto M=Model.Pin();
+    if(!Stream||!M)return {};
+    const FStudioHome4Source* Source=nullptr;
+    if(Stream->Latest())Source=&Stream->Latest()->Source;
+    else if(!Stream->OutputEvents().IsEmpty())Source=&Stream->OutputEvents().Last().Source;
+    if(!Source)return {};
+    FStudioHome4TelemetryProvenance P;P.StreamRunId=Source->RunId;P.SourceId=Source->SourceId;
+    P.bImportedReplay=IsImportedReplay();P.OriginalRunId=OriginalRunIdentity();
+    if(P.bImportedReplay){P.SourcePath=ImportPath;P.SourceSHA256=ImportSHA256;}
+    P.AttachedProjectId=ScopedProjectId;P.AttachedCaseId=ScopedCaseId;return P;
 }
 const FStudioHome4Sample* SStudioHome4Monitors::Sample() const
 { const auto* Stream = DisplayStream(); return Stream && Stream->Latest() ? &*Stream->Latest() : nullptr; }
@@ -333,7 +354,7 @@ FString SStudioHome4Monitors::SourceText() const
     return FString::Printf(TEXT("%s · %s\nRun %s · source %s\nStep %s · t lattice %s · t physical %s · t* %s%s"),
         IsImportedReplay() ? TEXT("Imported replay") : TEXT("Session measurements"), S->Backend.IsEmpty() ? TEXT("Backend unavailable") : *S->Backend,
         *S->Source.RunId.ToString(), *S->Source.SourceId, *Count(S->Step), *Number(S->LatticeTime), *Number(S->PhysicalTime, TEXT("s")),
-        *Number(S->DimensionlessTime), IsImportedReplay() ? *FString(TEXT("\nOriginal log: ") + ImportPath +
+        *Number(S->DimensionlessTime), IsImportedReplay() ? *FString(TEXT("\nOriginal log: ") + ImportPath + TEXT("\nOriginal SHA256: ") + ImportSHA256 +
             (bImportedOriginalRunIdentity ? TEXT("\nOriginal run ID supplied by owner; spatial binding requires an exact original-grid match.") : TEXT("\nIndependent replay identity; original run ID unavailable, spatial binding disabled.")) +
             TEXT("\nRecovery records are historical; importing never stops or checkpoints a job.")) : TEXT(""));
 }
@@ -558,11 +579,15 @@ bool SStudioHome4Monitors::BeginImportPath(const FString& Path, const FString& O
     { Status = TEXT("Original run ID must be a valid GUID or empty. Previous science source retained."); return false; }
     const FStudioHome4Source Source{Run, FPaths::ConvertRelativePathToFull(Path)};
     const bool bOriginalIdentity = !Identity.IsEmpty();
-    const auto M = Model.Pin(); ImportProjectId = M ? M->Project.Id : FGuid();
+    const auto M = Model.Pin(); ImportProjectId = M ? M->Project.Id : FGuid(); ImportCaseId = M ? M->Project.Draft.Id : FGuid();
     Cancellation = MakeShared<std::atomic<bool>, ESPMode::ThreadSafe>(false);
     Status = TEXT("Reading original JSONL in the background. Previous science source remains visible.");
-    Pending = Async(EAsyncExecution::ThreadPool, [Path, Source, bOriginalIdentity, Cancel = Cancellation]
-        { return ReadImport(Path, Source, bOriginalIdentity, Cancel); });
+    TFunction<void()> BeforeVerify;
+#if WITH_DEV_AUTOMATION_TESTS
+    BeforeVerify = BeforeImportVerify;
+#endif
+    Pending = Async(EAsyncExecution::ThreadPool, [Path, Source, bOriginalIdentity, Cancel = Cancellation, BeforeVerify]
+        { return ReadImport(Path, Source, bOriginalIdentity, Cancel, BeforeVerify); });
     return true;
 }
 void SStudioHome4Monitors::CancelImport()
@@ -573,29 +598,34 @@ void SStudioHome4Monitors::PollImport()
     if (!Pending.IsValid() || !Pending.IsReady()) return;
     const bool bCancelled = Cancellation && Cancellation->load(std::memory_order_relaxed);
     auto Result = MoveTemp(Pending.GetMutable()); Pending = {}; Cancellation.Reset();
-    const auto M = Model.Pin();
-    if (M && M->Project.Id != ImportProjectId)
-    { Status = TEXT("Project changed while importing; the previous replay was cleared and the new replay was not attached."); return; }
+    if (ScopedProjectId != ImportProjectId || ScopedCaseId != ImportCaseId)
+    { Status = TEXT("Project or case changed while importing; the previous replay was cleared and the new replay was not attached."); return; }
     if (bCancelled) { Status = TEXT("Science import cancelled. Previous science source retained."); return; }
     if (!Result.Error.IsEmpty()) { Status = Result.Error + TEXT(" Previous science source retained."); return; }
     ImportedStream = MakeShared<FStudioHome4TelemetryStream>(MoveTemp(*Result.Stream)); ImportedStream->SetDiagnosticPolicy(Policy);
     bImportedOriginalRunIdentity = Result.bOriginalRunIdentity;
-    ImportPath = Result.Path; bShowImported = true;
+    ImportPath = Result.Path; ImportSHA256 = Result.SHA256; bShowImported = true;
     Status = FString::Printf(TEXT("Imported replay · %lld original bytes, %lld lines; %lld unknown records skipped. Last %d measurements retained."), Result.Bytes, Result.Lines, Result.Unknown, ImportedStream->History().Num());
     RefreshOutputs();
 }
 void SStudioHome4Monitors::ScopeProject()
 {
-    const auto M = Model.Pin(); if (!M || M->Project.Id == ScopedProjectId) return;
-    ScopedProjectId = M->Project.Id; SessionStream.Reset(); ImportedStream.Reset(); ImportPath.Empty(); bImportedOriginalRunIdentity = false;
+    const auto M = Model.Pin();
+    if(M ? M->Project.Id == ScopedProjectId && M->Project.Draft.Id == ScopedCaseId : !ScopedProjectId.IsValid() && !ScopedCaseId.IsValid())return;
+    ScopedProjectId=M?M->Project.Id:FGuid();ScopedCaseId=M?M->Project.Draft.Id:FGuid();
+    SessionStream.Reset(); ImportedStream.Reset(); ImportPath.Empty(); ImportSHA256.Empty(); bImportedOriginalRunIdentity = false;
     OriginalRunIdDraft.Empty(); bShowImported = false; SelectedBody.Empty(); SelectedPhase.Empty(); SelectedLevel=0; bNormalizeForces=false; CancelImport();
-    Status = TEXT("Project changed; imported replay cleared. Supply this project's explicitly identified original log.");
+    Status = TEXT("Project or case changed; imported replay cleared. Supply explicitly identified original science for this scope.");
     RefreshOutputs();
 }
 SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FString& Path,
-    const FStudioHome4Source& Source, bool bOriginalRunIdentity, const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel)
+    const FStudioHome4Source& Source, bool bOriginalRunIdentity, const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel, const TFunction<void()>& BeforeVerify)
 {
     FImportResult R;
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> FirstHash(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> VerifyHash(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    if (!FirstHash || !VerifyHash || EVP_DigestInit_ex(FirstHash.get(), EVP_sha256(), nullptr) != 1 || EVP_DigestInit_ex(VerifyHash.get(), EVP_sha256(), nullptr) != 1)
+    { R.Error = TEXT("Science source identity could not be initialized."); return R; }
     auto Cancelled = [&] { return Cancel->load(std::memory_order_relaxed); };
     auto Fail = [&](const TCHAR* Error) { R.Error = Error; R.Stream.Reset(); return MoveTemp(R); };
     if (Cancelled()) return Fail(TEXT("Science import cancelled."));
@@ -630,6 +660,7 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
         const int32 N = int32(FMath::Min<int64>(Chunk.Num(), Size - R.Bytes));
         File->Serialize(Chunk.GetData(), N);
         if (File->IsError()) return Fail(TEXT("Original science log could not be read completely."));
+        if (EVP_DigestUpdate(FirstHash.get(), Chunk.GetData(), N) != 1) return Fail(TEXT("Science source identity could not be measured."));
         R.Bytes += N; LastByte = Chunk[N - 1];
         if (!Consume(Chunk.GetData(), N))
         { if (Cancelled()) return Fail(TEXT("Science import cancelled.")); R.Stream.Reset(); return R; }
@@ -642,8 +673,33 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
         if (!Consume(&LF, 1)) { R.Stream.Reset(); return R; }
     }
     if (Cancelled()) return Fail(TEXT("Science import cancelled."));
-    if (IFileManager::Get().GetTimeStamp(*Path) != Before || IFileManager::Get().FileSize(*Path) != Size)
+    uint8 OriginalDigest[32], VerifiedDigest[32]; unsigned int OriginalLength=0, VerifiedLength=0;
+    if (EVP_DigestFinal_ex(FirstHash.get(), OriginalDigest, &OriginalLength) != 1 || OriginalLength != 32)
+        return Fail(TEXT("Science source identity could not be completed."));
+    // Finish and release the first named-file reader before the independent
+    // verification pass. Editor readers hold a shared file lock on macOS; keeping
+    // it open prevents ordinary writers from exercising the rewrite check.
+    if (File->TotalSize() != Size || !File->Close() || File->IsError())
+        return Fail(TEXT("Original science log changed or could not finish its first read."));
+    File.Reset();
+    if (BeforeVerify) BeforeVerify();
+    TUniquePtr<FArchive> Verify(IFileManager::Get().CreateFileReader(*Path, FILEREAD_Silent));
+    if (!Verify || Verify->TotalSize() != Size) return Fail(TEXT("Original science log changed during import. Select a completed log."));
+    int64 VerifiedBytes=0;
+    while (VerifiedBytes < Size)
+    {
+        if (Cancelled()) return Fail(TEXT("Science import cancelled."));
+        const int32 N=int32(FMath::Min<int64>(Chunk.Num(), Size-VerifiedBytes));
+        Verify->Serialize(Chunk.GetData(), N);
+        if (Verify->IsError() || EVP_DigestUpdate(VerifyHash.get(), Chunk.GetData(), N) != 1)
+            return Fail(TEXT("Original science log could not be verified completely."));
+        VerifiedBytes+=N;
+    }
+    if (EVP_DigestFinal_ex(VerifyHash.get(), VerifiedDigest, &VerifiedLength) != 1 || VerifiedLength != 32)
+        return Fail(TEXT("Science source verification could not be completed."));
+    if (FMemory::Memcmp(OriginalDigest, VerifiedDigest, 32) != 0 || Verify->TotalSize() != Size || IFileManager::Get().GetTimeStamp(*Path) != Before || IFileManager::Get().FileSize(*Path) != Size)
         return Fail(TEXT("Original science log changed during import. Select a completed log."));
+    R.SHA256=BytesToHex(OriginalDigest, 32).ToLower();
     if (R.Stream->History().IsEmpty() && R.Stream->OutputEvents().IsEmpty()) return Fail(TEXT("No recognized HOME4 science measurements or outputs were found."));
     R.Path = FPaths::ConvertRelativePathToFull(Path); return R;
 }
