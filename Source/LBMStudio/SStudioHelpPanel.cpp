@@ -96,7 +96,7 @@ TSharedRef<SWidget> SStudioHelpPanel::Body()
             [SNew(STextBlock).Tag(TEXT("HelpWorkspaceTitle")).Font(Font(13,true)).ColorAndOpacity(Text)
                 .Text_Lambda([this]{return FText::FromString(StudioHelp::WorkspaceName(M->Workspace));})];
         Rows->AddSlot().AutoHeight().Padding(0,0,0,20)
-            [Paragraph(TEXT("HelpGuidance"),TAttribute<FString>::CreateLambda([this]{return StudioHelp::Guidance(M->Workspace,M->Project.bControlHarness);}))];
+            [Paragraph(TEXT("HelpGuidance"),TAttribute<FString>::CreateLambda([this]{return StudioHelp::Guidance(M->Workspace,M->Project.bControlHarness,M->Project.Draft.Home4.IsSet());}))];
         Rows->AddSlot().AutoHeight().Padding(0,0,0,8)[Label(TEXT("Source provenance"),12,Text,true)];
         Rows->AddSlot().AutoHeight().Padding(0,0,0,12)[Paragraph(TEXT("HelpProvenanceHint"),
             FString(TEXT("Results → Recording → Source and identity shows the published source, units, topology and hashes. Changing case requests does not recompute a recording.")))];

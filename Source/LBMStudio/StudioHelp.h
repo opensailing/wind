@@ -8,7 +8,7 @@ namespace StudioHelp
 {
     FString WorkspaceName(EStudioWorkspace Workspace);
     /** Guidance describes implemented controls, never invented solver output. */
-    FString Guidance(EStudioWorkspace Workspace,bool bControlHarness);
+    FString Guidance(EStudioWorkspace Workspace,bool bControlHarness,bool bHome4=false);
     FString ApplicationVersion();
     /** Value-only JSON snapshot. No source reads, solver commands, project writes
      * or render submission. A missing/pending renderer is explicit. */

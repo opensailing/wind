@@ -15,8 +15,19 @@ FString StudioHelp::WorkspaceName(EStudioWorkspace Workspace)
         TEXT("Bodies"),TEXT("Run"),TEXT("Validation"),TEXT("Reports")};
     const int32 Index=int32(Workspace);return Index>=0&&Index<UE_ARRAY_COUNT(Names)?Names[Index]:TEXT("Workspace");
 }
-FString StudioHelp::Guidance(EStudioWorkspace Workspace,bool Harness)
+FString StudioHelp::Guidance(EStudioWorkspace Workspace,bool Harness,bool Home4)
 {
+    if(Home4)switch(Workspace)
+    {
+    case EStudioWorkspace::Materials:return TEXT("Enter dimensionless targets and both-fluid/interface parameters. The feasibility controls couple resolution, Mach and relaxation while retaining Reynolds. Changes remain pending until Apply. Blank anchors and original solver capabilities remain unspecified.");
+    case EStudioWorkspace::Geometry:return TEXT("Import & surfaces handles STL/OBJ preview. Attitude & SDF retains CAD source, attitude and SDF requests, and imports original geometry-adapter diagnostics. STEP/IGES conversion, flotation and SDF generation await the solver adapter.");
+    case EStudioWorkspace::Meshing:return TEXT("Set lattice dimensions and the next-run unit map. Add the actual array/buffer allocation inventory for a live memory estimate. Import spatial diagnostics for separate original patch maps, per-level physics and measured work; patches are never auto-stitched.");
+    case EStudioWorkspace::BoundaryConditions:return TEXT("Retain sponge, beach, ramp, phase-wall and mass-correction requests in Zones & damping. Imported original diagnostics supply bounds and strength profiles; compatible regions appear in Fields. Face assignments retain their separate geometric owner.");
+    case EStudioWorkspace::Monitors:return TEXT("Import an original JSONL science log with its original run ID when available. Ledgers, budget closure, force-channel agreement, steady-window agreement and WB rest evidence stay distinct. Missing measurements are unavailable. Locators require the matching original grid; imported replay never triggers solver recovery.");
+    case EStudioWorkspace::Results:return TEXT("Browse original recordings and source provenance. HOME4 NPZ import inspects original arrays and requires explicit axis and unit conventions before conversion. Import or export source VTI asynchronously with cancellation and no overwrite. Opening a completed conversion is an explicit recording change.");
+    case EStudioWorkspace::Solve:return TEXT("Fields displays original recorded CFD while the camera remains independent. LU/SI/ND readouts use the recording's immutable map. Interface, obstacle and SDF surfaces are independent; Q colour and omega-squared opacity use separate original fields. Four timeline lanes distinguish trace, slice, visualization and restart events. Right-click a restart marker to draft a warm start; compatibility still requires the solver adapter.");
+    default:break;
+    }
     switch(Workspace)
     {
     case EStudioWorkspace::Dashboard:return TEXT("Open a recent project or create one from the header. The dashboard summarizes the active project and its saved runs. Missing files can be located from Projects.");
