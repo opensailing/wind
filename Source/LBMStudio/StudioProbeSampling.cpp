@@ -25,6 +25,8 @@ FString InterpolationMethod(EStudioFieldInterpolation Method)
 {
     switch(Method)
     {
+    case EStudioFieldInterpolation::SourceGrid:return TEXT("Trilinear interpolation on original affine source nodes");
+    case EStudioFieldInterpolation::SourceSlice:return TEXT("Bilinear interpolation on the original source plane; no out-of-plane support");
     case EStudioFieldInterpolation::SourceTriangles:return TEXT("Barycentric interpolation on original source triangles");
     case EStudioFieldInterpolation::ReconstructedTriangles:return TEXT("Barycentric interpolation on reconstructed triangles");
     case EStudioFieldInterpolation::ReconstructedGrid:return TEXT("Trilinear interpolation of a reconstructed grid from original source values");

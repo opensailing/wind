@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "StudioRecording.h"
 #include "StudioHome4Config.h"
+#include "StudioCase.h"
 
 /** Version 3 keeps optional source fields separate. structuredGrid optionally declares original affine node topology and source masks. */
 struct FStudioPointArrayDescriptor
@@ -30,9 +31,13 @@ struct FStudioPointStructuredGrid
 {
     FIntVector Dimensions, OriginalDimensions, CropMinimum, CropMaximum;
     int32 PreviewStride = 1;
+    bool bPlanar=false;
+    int32 PlaneAxis()const {return Dimensions.X==1?0:Dimensions.Y==1?1:Dimensions.Z==1?2:INDEX_NONE;}
     FVector OriginMeters, SpacingMeters, OriginalOrigin, OriginalSpacing;
     FString AxisOrder, MetadataOrder, CoordinateUnits, VelocityUnits;
     FString SourceRunId, RecipeId, LineageId;
+    TOptional<FStudioRecordedRunProvenance> OriginalProvenance;
+    FString PatchId,SpatialSourceId,SpatialSourceSHA256;int32 PatchLevel=0;
     FString PhaseField, SolidField, DerivativeValidityField, SourceManifestPath, SourceManifestSHA256;
     FString SolidSupportField,LiquidSupportField;
     double LiquidMinimum = .5;

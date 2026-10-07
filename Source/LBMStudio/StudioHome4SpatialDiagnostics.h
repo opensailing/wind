@@ -96,12 +96,20 @@ public:
     ~FStudioHome4SpatialSession();
     bool BeginImport(const FString& Path,const TOptional<FGuid>& ExpectedRun={});
     void Cancel();
+    bool BeginPatchRecording(const FString& PatchId,const FString& Path);
+    bool OpenBoundPatch(const FString& PatchId);
+    bool IsPatchImporting()const{return PendingPatch.IsValid();}
     void Poll();
     bool IsImporting() const { return Pending.IsValid(); }
     const TSharedPtr<const FStudioHome4SpatialEvidence,ESPMode::ThreadSafe>& Evidence() { Scope(); return Current; }
     FString Status() const { return Message; }
 private:
     void Scope();
+    void PollPatch();
+    struct FPatchResult{FString PatchId,Path,SHA,Error;FGuid Project,Case;TSharedPtr<const FStudioHome4SpatialEvidence,ESPMode::ThreadSafe> Evidence;};
+    TFuture<FPatchResult> PendingPatch;
+    TMap<FString,TPair<FString,FString>> PatchRecordings;
+    TSharedPtr<std::atomic<bool>,ESPMode::ThreadSafe> PatchCancel;
     struct FResult { TSharedPtr<FStudioHome4SpatialEvidence,ESPMode::ThreadSafe> Evidence; FString Error; };
     TWeakPtr<FStudioModel> Owner;
     FGuid ProjectId,CaseId,ImportProjectId,ImportCaseId;

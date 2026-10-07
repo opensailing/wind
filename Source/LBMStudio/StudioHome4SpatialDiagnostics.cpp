@@ -1,4 +1,6 @@
 #include "StudioHome4SpatialDiagnostics.h"
+#include "StudioHome4PatchBinding.h"
+#include "StudioPointRecording.h"
 #include "StudioHome4JSON.h"
 #include "StudioModel.h"
 #include "StudioFileDialog.h"
@@ -237,18 +239,18 @@ bool StudioHome4SpatialDiagnostics::Locate(const FStudioHome4SpatialEvidence& E,
 FStudioHome4SpatialSession::FStudioHome4SpatialSession(TSharedPtr<FStudioModel> M):Owner(M)
 {if(M){ProjectId=M->Project.Id;CaseId=M->Project.Draft.Id;}}
 FStudioHome4SpatialSession::~FStudioHome4SpatialSession(){Cancel();}
-void FStudioHome4SpatialSession::Cancel(){if(Cancellation)Cancellation->store(true,std::memory_order_relaxed);}
+void FStudioHome4SpatialSession::Cancel(){if(PatchCancel)PatchCancel->store(true);if(Cancellation)Cancellation->store(true,std::memory_order_relaxed);}
 void FStudioHome4SpatialSession::Scope()
 {
     const auto M=Owner.Pin();
     if(!M)
     {
         if(ProjectId.IsValid()||CaseId.IsValid())
-        {ProjectId.Invalidate();CaseId.Invalidate();Current.Reset();Cancel();Message=TEXT("Owning project closed; original spatial evidence cleared.");}
+        {ProjectId.Invalidate();CaseId.Invalidate();Current.Reset();PatchRecordings.Reset();Cancel();Message=TEXT("Owning project closed; original spatial evidence cleared.");}
         return;
     }
     if(M->Project.Id==ProjectId&&M->Project.Draft.Id==CaseId)return;
-    ProjectId=M->Project.Id;CaseId=M->Project.Draft.Id;Current.Reset();Cancel();Message=TEXT("Project or case changed; original spatial evidence cleared.");
+    ProjectId=M->Project.Id;CaseId=M->Project.Draft.Id;Current.Reset();PatchRecordings.Reset();Cancel();Message=TEXT("Project or case changed; original spatial evidence cleared.");
 }
 bool FStudioHome4SpatialSession::BeginImport(const FString& Path,const TOptional<FGuid>& Expected)
 {
@@ -262,11 +264,38 @@ bool FStudioHome4SpatialSession::BeginImport(const FString& Path,const TOptional
 }
 void FStudioHome4SpatialSession::Poll()
 {
-    Scope();if(!Pending.IsValid()||!Pending.IsReady())return;auto R=Pending.Get();Pending={};const bool Cancelled=Cancellation&&Cancellation->load(std::memory_order_relaxed);Cancellation.Reset();
+    Scope();PollPatch();if(!Pending.IsValid()||!Pending.IsReady())return;auto R=Pending.Get();Pending={};const bool Cancelled=Cancellation&&Cancellation->load(std::memory_order_relaxed);Cancellation.Reset();
     if(ProjectId!=ImportProjectId||CaseId!=ImportCaseId){Message=TEXT("Project or case changed during import; evidence was not attached.");return;}
     if(Cancelled){Message=TEXT("Spatial import cancelled; previous source retained.");return;}
     if(!R.Evidence){Message=R.Error+TEXT(" Previous spatial source retained.");return;}
     if(ProjectId.IsValid())R.Evidence->AttachedProjectId=ProjectId;
     if(CaseId.IsValid())R.Evidence->AttachedCaseId=CaseId;
-    Current=R.Evidence;Message=TEXT("Original spatial diagnostics imported. Recipe validation not evaluated.");
+    Current=R.Evidence;PatchRecordings.Reset();if(PatchCancel)PatchCancel->store(true);Message=TEXT("Original spatial diagnostics imported. Recipe validation not evaluated.");
+}
+
+bool FStudioHome4SpatialSession::BeginPatchRecording(const FString& Id,const FString& Path)
+{
+    Scope();if(PendingPatch.IsValid()||!Current){Message=TEXT("Import original spatial diagnostics and wait for the current patch read first.");return false;}
+    PatchCancel=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);Message=TEXT("Verifying selected patch recording and its original affine…");
+    PendingPatch=Async(EAsyncExecution::ThreadPool,[Id,Path,E=Current,Project=ProjectId,Case=CaseId,C=PatchCancel]
+    {
+        FPatchResult R;R.PatchId=Id;R.Path=Path;R.Project=Project;R.Case=Case;R.Evidence=E;
+        const auto Open=StudioPointRecordings::Open(Path,{},C);R.Error=Open.Error;if(!Open.Recording)return R;
+        const auto Grid=Open.Recording->Descriptor().StructuredGrid;
+        if(!Grid){R.Error=TEXT("Patch requires an original structured-grid recording.");return R;}
+        if(StudioHome4PatchBinding::Matches(*E,Id,*Grid,R.Error))R.SHA=Open.Recording->Descriptor().MetadataSHA256;
+        return R;
+    });return true;
+}
+bool FStudioHome4SpatialSession::OpenBoundPatch(const FString& Id)
+{
+    Scope();const auto* Ref=PatchRecordings.Find(Id);const auto M=Owner.Pin();if(!Ref||!M)return false;
+    const bool Good=M->RequestExternalRecording(Ref->Key,Ref->Value);Message=M->Notice;return Good;
+}
+void FStudioHome4SpatialSession::PollPatch()
+{
+    if(!PendingPatch.IsValid()||!PendingPatch.IsReady())return;const auto R=PendingPatch.Get();PendingPatch={};
+    if(!PatchCancel||PatchCancel->load()||R.Project!=ProjectId||R.Case!=CaseId||R.Evidence!=Current){Message=TEXT("Patch read cancelled or source changed; viewer retained.");return;}
+    if(!R.Error.IsEmpty()||R.SHA.IsEmpty()){Message=R.Error;return;}
+    PatchRecordings.Add(R.PatchId,{R.Path,R.SHA});OpenBoundPatch(R.PatchId);
 }

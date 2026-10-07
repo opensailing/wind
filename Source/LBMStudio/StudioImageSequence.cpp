@@ -73,7 +73,7 @@ bool StudioImageSequence::Validate(const FStudioImageSequenceRequest& R,FString&
     const auto* Scalar=D.Scalars.FindByPredicate([&](const auto& S){return S.Id==V.Scalar.Id;});
     FString Reconstruction;auto Interpolation=D.bSourcePoints?EStudioFieldInterpolation::None:EStudioFieldInterpolation::SourceTriangles;
     if(const auto Surface=R.Source->Reconstruction()){Reconstruction=Surface->MetadataSHA256;Interpolation=EStudioFieldInterpolation::ReconstructedTriangles;}
-    if(const auto Volume=R.Source->VolumeReconstruction()){Reconstruction=Volume->MetadataSHA256;Interpolation=EStudioFieldInterpolation::ReconstructedGrid;}
+    if(const auto Volume=R.Source->VolumeReconstruction()){Reconstruction=Volume->ReconstructionIdentity();Interpolation=Volume->Interpolation();}
     Error=TEXT("Freeze a valid presented camera, scalar, image size and original source before exporting images.");
     if(!V.Pixels.IsEmpty()||!V.Project.IsValid()||!StudioSnapshot::ValidSize(V.Options.Size)||
         V.SourceSize.X<=0||V.SourceSize.Y<=0||V.SourceSize.X>16384||V.SourceSize.Y>16384||

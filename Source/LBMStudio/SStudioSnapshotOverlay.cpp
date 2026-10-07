@@ -57,7 +57,9 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
         if(HasStreamAnnotation)
         {
             FString Meaning=TEXT("Instantaneous velocity streamlines");
-            if(S.Identity.Interpolation==EStudioFieldInterpolation::ReconstructedGrid)
+            if(S.Identity.Interpolation==EStudioFieldInterpolation::SourceSlice)Meaning+=TEXT(" · original planar grid; no out-of-plane support");
+            else if(S.Identity.Interpolation==EStudioFieldInterpolation::SourceGrid)Meaning+=TEXT(" · original 3D grid interpolation");
+            else if(S.Identity.Interpolation==EStudioFieldInterpolation::ReconstructedGrid)
                 Meaning+=S.SourceUnitMap.IsSet()?TEXT(" · original 3D grid interpolation"):TEXT(" · derived 3D grid interpolation");
             else if(S.Identity.Interpolation==EStudioFieldInterpolation::ReconstructedTriangles)
                 Meaning+=TEXT(" · derived 2D triangle interpolation");
@@ -73,7 +75,7 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
         const bool HasVectors=S.Vectors.GlyphCount>0;
         const FString VectorLength=FString::Printf(TEXT("Arrow length: %.4g m"),S.Vectors.ReferenceLengthMeters);
         const FString VectorMeaning=S.Vectors.bUniformLength?TEXT("Equal length · direction only"):
-            FString::Printf(TEXT("= %.4g m/s (sample max)"),S.Vectors.MaximumSpeed);
+            S.Vectors.Field+TEXT(" = ")+StudioHome4Readouts::Scalar(S.Vectors.MaximumSpeed,S.Vectors.Unit,S.UnitDisplay,S.SourceUnitMap.IsSet()?&S.SourceUnitMap.GetValue():nullptr)+TEXT(" (sample max)");
         double TextWidth=Measure->Measure(Title,Font).X;
         if(HasVectors)TextWidth=FMath::Max3(TextWidth,double(Measure->Measure(VectorLength,Font).X),double(Measure->Measure(VectorMeaning,Font).X));
         const double W=FMath::Min(Size.X-2*Margin,FMath::Max(170*Scale,TextWidth+20*Scale)),H=(HasVectors?232:190)*Scale;

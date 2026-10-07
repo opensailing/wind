@@ -64,9 +64,12 @@ double F64(const uint8* P)
 bool Coordinates(const FStudioVolumeReconstruction& V,const FVector& P,FIntVector& Cell,FVector& Fraction)
 {
     if(!V.SourceBounds.IsValid||P.ContainsNaN()||!V.SourceBounds.IsInsideOrOn(P))return false;
-    const FVector Q=(P-V.SourceBounds.Min)/V.SourceBounds.GetSize()*FVector(V.Dimensions-FIntVector(1));
     for(int32 A=0;A<3;++A)
-    { Cell[A]=FMath::Clamp(FMath::FloorToInt(Q[A]),0,V.Dimensions[A]-2);Fraction[A]=Q[A]-Cell[A]; }
+    {
+        if(V.Dimensions[A]==1){if(P[A]!=V.SourceBounds.Min[A])return false;Cell[A]=0;Fraction[A]=0;continue;}
+        const double Q=(P[A]-V.SourceBounds.Min[A])/V.SourceBounds.GetSize()[A]*(V.Dimensions[A]-1);
+        Cell[A]=FMath::Clamp(FMath::FloorToInt(Q),0,V.Dimensions[A]-2);Fraction[A]=Q-Cell[A];
+    }
     return true;
 }
 double Value(const FStudioVolumeStencil& S,const TArray<double>& Values)
@@ -98,6 +101,7 @@ double CylinderClearance(const FVector P[4],const FVector2D& Center)
 FVector FStudioVolumeReconstruction::Position(int32 I) const
 {
     const FVector Q(I%Dimensions.X,(I/Dimensions.X)%Dimensions.Y,I/(Dimensions.X*Dimensions.Y));
+    if(OriginalGrid)return OriginalGrid->OriginMeters+Q*OriginalGrid->SpacingMeters;
     return SourceBounds.Min+Q/FVector(Dimensions-FIntVector(1))*SourceBounds.GetSize();
 }
 bool FStudioVolumeReconstruction::Sample(const FVector& P,const TArray<double>& Values,double& Out) const
@@ -112,6 +116,7 @@ bool FStudioVolumeReconstruction::Sample(const FVector& P,const TArray<double>& 
     for(int32 Corner=0;Corner<8;++Corner)
     {
         const int32 X=Corner&1,Y=(Corner>>1)&1,Z=(Corner>>2)&1;
+        if((Dimensions.X==1&&X)||(Dimensions.Y==1&&Y)||(Dimensions.Z==1&&Z))continue;
         const int32 I=Cell.X+X+Dimensions.X*(Cell.Y+Y+Dimensions.Y*(Cell.Z+Z));
         if(!Classification.IsValidIndex(I)||Classification[I]!=1)return false;
         const double Weight=(X?F.X:1-F.X)*(Y?F.Y:1-F.Y)*(Z?F.Z:1-F.Z);
@@ -143,10 +148,10 @@ bool FStudioVolumeReconstruction::SupportsRegion(const FBox& Region,const FStudi
     // quad. Scalar sampling also excludes cells touching the analytic solid.
     if(ContainsSolid(FBox(SourceBounds.Min+FVector(First)*Spacing,
         SourceBounds.Min+FVector(Last+FIntVector(1))*Spacing)))return false;
-    for(int32 Z=First.Z;Z<=Last.Z+1;++Z)for(int32 Y=First.Y;Y<=Last.Y+1;++Y)
+    for(int32 Z=First.Z;Z<=Last.Z+(Dimensions.Z>1);++Z)for(int32 Y=First.Y;Y<=Last.Y+(Dimensions.Y>1);++Y)
     {
         if(Cancelled(Cancellation))return false;
-        for(int32 X=First.X;X<=Last.X+1;++X)
+        for(int32 X=First.X;X<=Last.X+(Dimensions.X>1);++X)
         {
             const int32 I=X+Dimensions.X*(Y+Dimensions.Y*Z);
             if(!Classification.IsValidIndex(I)||Classification[I]!=1)return false;
@@ -238,13 +243,13 @@ FStudioVolumeLoadResult StudioVolumes::OriginalSource(const FStudioPointRecordin
     using namespace StudioVolumePrivate;
     auto Fail=[&](const TCHAR* S){return FStudioVolumeLoadResult{{},Cancelled(C)?TEXT("Original grid attachment cancelled."):S};};
     const auto S=Source.StructuredGrid;
-    if(!S||Source.SpatialDimensions!=3||S->Dimensions.GetMin()<2||Source.PointCount!=Geometry->Positions.Num()||
+    if(!S||Source.SpatialDimensions!=3||S->Dimensions.GetMin()<(S->bPlanar?1:2)||Source.PointCount!=Geometry->Positions.Num()||
         Geometry->PointIds.Num()!=Source.PointCount||int64(S->Dimensions.X)*S->Dimensions.Y*S->Dimensions.Z!=Source.PointCount||
         Source.PointCount>MaximumVoxels||S->SpacingMeters.GetMin()<=0)return Fail(TEXT("A verified original structured grid is required."));
     auto V=MakeShared<FStudioVolumeReconstruction,ESPMode::ThreadSafe>();
     V->OriginalGrid=S;V->Dimensions=S->Dimensions;V->Geometry=Geometry;V->SourceBounds=Source.SourceBounds;
     V->MetadataSHA256=Source.MetadataSHA256;V->SourceMetadataSHA256=Source.MetadataSHA256;
-    V->Title=TEXT("Original structured grid");V->Method=TEXT("Original affine XYZ node grid; identity source rows; trilinear sampling. Frame-specific source masks.");
+    V->Title=S->bPlanar?TEXT("Original structured slice"):TEXT("Original structured grid");V->Method=S->bPlanar?TEXT("Original affine planar node grid; bilinear sampling strictly on the source plane; no spanwise data."):TEXT("Original affine XYZ node grid; identity source rows; trilinear sampling. Frame-specific source masks.");
     V->Limitations=Source.Limitations;V->Classification.Init(1,Source.PointCount);V->Stencils.SetNum(Source.PointCount);
     for(int32 I=0;I<Source.PointCount;++I)
     {
@@ -281,7 +286,7 @@ TArray<uint8> StudioVolumes::SourceMask(const FStudioPointFrame& Frame,const FSt
             (Valid&&(*Valid)[I]!=0&&(*Valid)[I]!=1))return Fail(TEXT("Original masks contain invalid values."));
     }
     const bool bSolidDisplay=!bVelocity&&(Field==S->SolidField||Field==TEXT("sdf"));
-    const bool bScientific=bVelocity||(F&&(F->bAirMaskDefault||!F->ValidityMask.IsEmpty()));
+    const bool bDerivative=F&&!S->DerivativeValidityField.IsEmpty()&&F->ValidityMask==S->DerivativeValidityField;
     const bool bAir=bVelocity||(F&&F->bAirMaskDefault&&AirMaskOverride.Get(true));
     TArray<uint8> Out;Out.SetNumZeroed(Count);
     for(int32 Z=0;Z<V.Dimensions.Z;++Z)for(int32 Y=0;Y<V.Dimensions.Y;++Y)
@@ -295,9 +300,11 @@ TArray<uint8> StudioVolumes::SourceMask(const FStudioPointFrame& Frame,const FSt
             if((*SolidSupport)[I]!=1||(bAir&&(*LiquidSupport)[I]!=1))continue;
             if(Valid&&(*Valid)[I]==0)continue;
             bool Supported=true;
-            // phi keeps both phases. Liquid diagnostics/streamlines omit the complete one-node interface/solid halo.
-            if(bScientific)for(int32 DZ=-1;DZ<=1&&Supported;++DZ)for(int32 DY=-1;DY<=1&&Supported;++DY)for(int32 DX=-1;DX<=1;++DX)
+            // A stencil halo belongs to derivative quantities. Stored values and velocity
+            // use their point/support masks; interpolation checks every corner.
+            if(bDerivative)for(int32 DZ=-1;DZ<=1&&Supported;++DZ)for(int32 DY=-1;DY<=1&&Supported;++DY)for(int32 DX=-1;DX<=1;++DX)
             {
+                if((V.Dimensions.X==1&&DX!=0)||(V.Dimensions.Y==1&&DY!=0)||(V.Dimensions.Z==1&&DZ!=0))continue;
                 const int32 NX=X+DX,NY=Y+DY,NZ=Z+DZ;
                 if(NX<0||NY<0||NZ<0||NX>=V.Dimensions.X||NY>=V.Dimensions.Y||NZ>=V.Dimensions.Z){Supported=false;break;}
                 const int32 N=NX+V.Dimensions.X*(NY+V.Dimensions.Y*NZ);
@@ -320,6 +327,7 @@ bool StudioVolumes::SampleSource(const FStudioPointFrame& Frame,const FStudioVol
     for(int32 Corner=0;Corner<8;++Corner)
     {
         const int32 X=Corner&1,Y=(Corner>>1)&1,Z=(Corner>>2)&1;
+        if((V.Dimensions.X==1&&X)||(V.Dimensions.Y==1&&Y)||(V.Dimensions.Z==1&&Z))continue;
         const int32 I=Cell.X+X+V.Dimensions.X*(Cell.Y+Y+V.Dimensions.Y*(Cell.Z+Z));
         if(Mask[I]!=1)return false;
         Sum+=(X?F.X:1-F.X)*(Y?F.Y:1-F.Y)*(Z?F.Z:1-F.Z)*(*Values)[I];
@@ -340,10 +348,11 @@ bool StudioVolumes::SourceNodeSupported(const FStudioPointFrame& Frame,const FSt
     if(!bVelocity&&(Field==S->SolidField||Field==TEXT("sdf")))return (*Solid)[I]==0||(*Solid)[I]==1;
     if((*Solid)[I]!=0||!SolidSupport||!LiquidSupport||SolidSupport->Num()!=Phi->Num()||LiquidSupport->Num()!=Phi->Num()||
         (*SolidSupport)[I]!=1||((F->bAirMaskDefault||bVelocity)&&(*LiquidSupport)[I]!=1))return false;
-    if(!F->bAirMaskDefault&&F->ValidityMask.IsEmpty()&&!bVelocity)return true;
+    if(S->DerivativeValidityField.IsEmpty()||F->ValidityMask!=S->DerivativeValidityField)return true;
     const int32 X=I%V.Dimensions.X,Y=(I/V.Dimensions.X)%V.Dimensions.Y,Z=I/(V.Dimensions.X*V.Dimensions.Y);
     for(int32 DZ=-1;DZ<=1;++DZ)for(int32 DY=-1;DY<=1;++DY)for(int32 DX=-1;DX<=1;++DX)
     {
+        if((V.Dimensions.X==1&&DX!=0)||(V.Dimensions.Y==1&&DY!=0)||(V.Dimensions.Z==1&&DZ!=0))continue;
         const int32 NX=X+DX,NY=Y+DY,NZ=Z+DZ;
         if(NX<0||NY<0||NZ<0||NX>=V.Dimensions.X||NY>=V.Dimensions.Y||NZ>=V.Dimensions.Z)return false;
         const int32 N=NX+V.Dimensions.X*(NY+V.Dimensions.Y*NZ);
@@ -359,10 +368,10 @@ bool StudioVolumes::SupportsSourceRegion(const FStudioVolumeReconstruction& V,co
     FIntVector First,Last;FVector F;
     if(!V.OriginalGrid||Cancelled(C)||Mask.Num()!=V.Classification.Num()||!Region.IsValid||
         !Coordinates(V,Region.Min,First,F)||!Coordinates(V,Region.Max,Last,F))return false;
-    for(int32 Z=First.Z;Z<=Last.Z+1;++Z)for(int32 Y=First.Y;Y<=Last.Y+1;++Y)
+    for(int32 Z=First.Z;Z<=Last.Z+(V.Dimensions.Z>1);++Z)for(int32 Y=First.Y;Y<=Last.Y+(V.Dimensions.Y>1);++Y)
     {
         if(Cancelled(C))return false;
-        for(int32 X=First.X;X<=Last.X+1;++X)if(Mask[X+V.Dimensions.X*(Y+V.Dimensions.Y*Z)]!=1)return false;
+        for(int32 X=First.X;X<=Last.X+(V.Dimensions.X>1);++X)if(Mask[X+V.Dimensions.X*(Y+V.Dimensions.Y*Z)]!=1)return false;
     }
     return true;
 }
@@ -373,7 +382,7 @@ bool StudioVolumes::IsSourceSolid(const FStudioPointFrame& Frame,const FStudioVo
     FIntVector Cell;FVector F;const auto* Solid=V.OriginalGrid?Frame.FindValues(V.OriginalGrid->SolidField):nullptr;
     if(!Solid||Solid->Num()!=V.Classification.Num()||!Coordinates(V,P,Cell,F))return false;
     for(int32 Corner=0;Corner<8;++Corner)
-    {const int32 I=Cell.X+(Corner&1)+V.Dimensions.X*(Cell.Y+((Corner>>1)&1)+V.Dimensions.Y*(Cell.Z+((Corner>>2)&1)));if((*Solid)[I]!=0)return true;}
+    {if((V.Dimensions.X==1&&(Corner&1))||(V.Dimensions.Y==1&&(Corner&2))||(V.Dimensions.Z==1&&(Corner&4)))continue;const int32 I=Cell.X+(Corner&1)+V.Dimensions.X*(Cell.Y+((Corner>>1)&1)+V.Dimensions.Y*(Cell.Z+((Corner>>2)&1)));if((*Solid)[I]!=0)return true;}
     return false;
 }
 

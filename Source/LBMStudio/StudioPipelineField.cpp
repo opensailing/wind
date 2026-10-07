@@ -149,7 +149,7 @@ struct FStudioPipelineFieldBuilder
             return Fail(TEXT("Pipeline source timeline or display bounds are invalid."));
         FString Reconstruction;auto Method=D.bSourcePoints?EStudioFieldInterpolation::None:EStudioFieldInterpolation::SourceTriangles;
         if(const auto S=Result.Source->Reconstruction()){Reconstruction=S->MetadataSHA256;Method=EStudioFieldInterpolation::ReconstructedTriangles;}
-        if(const auto V=Result.Source->VolumeReconstruction()){Reconstruction=V->MetadataSHA256;Method=EStudioFieldInterpolation::ReconstructedGrid;}
+        if(const auto V=Result.Source->VolumeReconstruction()){Reconstruction=V->ReconstructionIdentity();Method=V->Interpolation();}
         if(Reconstruction!=Field->PinnedIdentity.ReconstructionSHA256||Method!=Field->PinnedIdentity.Interpolation)
             return Fail(TEXT("The pinned pipeline reconstruction or interpolation method is unavailable."));
         for(const auto& Op:Result.Recipe.Operations)

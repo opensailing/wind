@@ -48,7 +48,7 @@ TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> FStudioSnapshotSource::Cre
     if(const auto Surface=Source.Reconstruction())
     {Reconstruction=Surface->MetadataSHA256;Interpolation=EStudioFieldInterpolation::ReconstructedTriangles;}
     if(const auto Volume=Source.VolumeReconstruction())
-    {Reconstruction=Volume->MetadataSHA256;Interpolation=EStudioFieldInterpolation::ReconstructedGrid;}
+    {Reconstruction=Volume->ReconstructionIdentity();Interpolation=Volume->Interpolation();}
     if(Source.Reconstruction()!=Field->Reconstruction()||Source.VolumeReconstruction()!=Field->VolumeReconstruction())return Fail();
     if(const auto Points=Field->OriginalPoints();Points&&!Points->FindValues(Scalar.Id))return Fail();
     if(Identity->Dataset!=D.Id||Identity->MetadataSHA256!=D.MetadataSHA256||Identity->PayloadSHA256!=D.PayloadSHA256||

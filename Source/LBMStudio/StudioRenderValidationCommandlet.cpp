@@ -5,6 +5,10 @@
 #include "StudioRecording.h"
 #include "StudioVolume.h"
 #include "StudioVolumeComponent.h"
+#include "StudioPointRecording.h"
+#include "StudioHome4Archive.h"
+#include "Misc/Base64.h"
+#include "ProceduralMeshComponent.h"
 #include "Async/Async.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -33,6 +37,8 @@
 #include "Interfaces/ISlateRHIRendererModule.h"
 #include "Slate/WidgetRenderer.h"
 #include "ImageUtils.h"
+#include "StudioHome4SliceFixtures.inl"
+#include "StudioHome4GPUFixtures.inl"
 #endif
 
 UStudioRenderValidationCommandlet::UStudioRenderValidationCommandlet()
@@ -151,16 +157,16 @@ public:
         }while(FPlatformTime::Seconds()<Deadline&&!IsEngineExitRequested());
         return Check(TEXT("scene.ready"),false,TEXT("Original field or camera did not finish rendering within 120 seconds."));
     }
-    TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> Freeze(const TSharedPtr<IStudioSolver,ESPMode::ThreadSafe>& Source,int32 Ordinal)
+    TSharedPtr<FStudioSnapshotSource,ESPMode::ThreadSafe> Freeze(const TSharedPtr<IStudioSolver,ESPMode::ThreadSafe>& Source,int32 Ordinal,const FString& Scalar=FString(),bool bVelocity=false)
     {
         FString Error;
         auto Frozen=Async(EAsyncExecution::ThreadPool,[&]
-        {return FStudioSnapshotSource::CreateView(*Source,Ordinal,Source->Descriptor().DefaultScalar,false,{},Error);}).Get();
+        {return FStudioSnapshotSource::CreateView(*Source,Ordinal,Scalar.IsEmpty()?Source->Descriptor().DefaultScalar:Scalar,bVelocity,{},Error);}).Get();
         Check(TEXT("source.freeze"),Frozen.IsValid(),Error);return Frozen;
     }
-    bool StartScene(const TSharedPtr<IStudioSolver,ESPMode::ThreadSafe>& Source,int32 Ordinal)
+    bool StartScene(const TSharedPtr<IStudioSolver,ESPMode::ThreadSafe>& Source,int32 Ordinal,const FString& Scalar=FString(),bool bVelocity=false)
     {
-        auto Frozen=Freeze(Source,Ordinal);if(!Frozen)return false;
+        auto Frozen=Freeze(Source,Ordinal,Scalar,bVelocity);if(!Frozen)return false;
         Model=MakeShared<FStudioModel>(Frozen.ToSharedRef());
         Model->bVectors=false;Model->bStreamlines=false;Model->bCutPlane=false;
         Model->bMesh=false;Model->bSourcePoints=false;
@@ -177,6 +183,109 @@ public:
     {
         auto Frozen=Freeze(Source,Ordinal);if(!Frozen)return false;
         Model->Solver=Frozen;Model->SelectedFrame=Model->PlaybackFrame=Ordinal;Model->DisplayChanged();return Ready();
+    }
+    // Retain the explicit artificial originals and generated headers for independent
+    // Python checks. These archives are render controls, never CFD sample evidence.
+    void Home4Slices(const FString& Directory)
+    {
+        const FString Folder=Directory/TEXT("home4-fixtures");
+        IFileManager::Get().MakeDirectory(*Folder,true);
+        for(const auto& Pair:TArray<TPair<const TCHAR*,const TCHAR*>>{
+            {TEXT("xy"),StudioHome4SliceFixtures::xy},{TEXT("xz"),StudioHome4SliceFixtures::xz},
+            {TEXT("yz"),StudioHome4SliceFixtures::yz},{TEXT("mask"),StudioHome4GPUFixtures::MaskXY}})
+        {
+            const FString Key=Pair.Key,Original=Folder/(Key+TEXT(".npz"));TArray<uint8> Bytes;
+            if(!Check(TEXT("home4.")+Key+TEXT(".original"),FBase64::Decode(Pair.Value,Bytes)&&FFileHelper::SaveArrayToFile(Bytes,*Original)))continue;
+            const auto Converted=Async(EAsyncExecution::ThreadPool,[&]
+            {
+                FStudioHome4ArchiveRequest Request;Request.Sources={StudioHome4Archives::Inspect(Original).Source};
+                Request.OutputParent=Folder;Request.FolderName=Key;Request.SourceURI=TEXT("urn:artificial-home4-gpu-slice");
+                Request.Attribution=TEXT("Artificial affine GPU regression fixture; not CFD output or an installed sample.");
+                Request.Mapping.AxisOrder=Key==TEXT("mask")?TEXT("xy"):Key;Request.Mapping.MetadataOrder=TEXT("xyz");
+                Request.Mapping.CoordinateUnits=TEXT("lattice");Request.Mapping.VelocityUnits=TEXT("lattice");
+                Request.Mapping.DxMeters=.1;Request.Mapping.DtSeconds=.02;
+                return StudioHome4Archives::Convert(Request);
+            }).Get();
+            if(!Check(TEXT("home4.")+Key+TEXT(".convert"),Converted.bSuccess,Converted.Error))continue;
+            const auto Open=Async(EAsyncExecution::ThreadPool,[&]{return StudioRecordings::Import(Converted.RecordingJSON,0,{});}).Get();
+            if(!Check(TEXT("home4.")+Key+TEXT(".source"),Open.Source.IsValid(),Open.Error))continue;
+            const bool Mask=Key==TEXT("mask");
+            for(int32 Pass=0;Pass<(Mask?4:1);++Pass)
+            {
+                const bool Rejected=Mask&&(Pass%2==1),Glyph=Mask&&Pass>=2;
+                const FString Scalar=Mask?(Rejected?TEXT("log10_tau_margin"):TEXT("mask_control")):TEXT("ux");
+                const FString Name=Mask?FString(TEXT("home4.mask."))+(Glyph?TEXT("glyph."):TEXT("surface."))+(Rejected?TEXT("masked"):TEXT("control")):TEXT("home4.slice.")+Key;
+                if(!StartScene(Open.Source,0,Scalar,Glyph))continue;
+                Check(Name+TEXT(".controls_applied"),Model->EditView(TEXT("Artificial source slice controls"),[&](auto& S)
+                {
+                    S.Display.bVolume=true;S.Display.bCutPlane=true;S.Display.bSourcePoints=false;
+                    S.Display.bVectors=false;S.Display.VectorCount=Mask?81:30;S.Display.bUniformVectors=true;
+                    S.Display.VectorScale=.25;S.Display.bHome4AirMask=false;
+                }),TEXT("Valid source-slice view settings must be accepted."));
+                // The isolated model is a frozen comparison snapshot, whose
+                // interactive EditView intentionally forbids enabling vectors.
+                // Its source was explicitly prepared with velocity for this
+                // renderer contract; configure that layer directly here.
+                Model->SetScalarStyle(3,true,-1.,1.,{FLinearColor(1,0,1),FLinearColor(1,0,1),FLinearColor(1,0,1)});
+                const auto V=Open.Source->VolumeReconstruction();
+                if(!Check(Name+TEXT(".topology"),V&&V->OriginalGrid&&V->OriginalGrid->bPlanar)){Retire();continue;}
+                const int32 SourceAxis=V->OriginalGrid->PlaneAxis(),Axis=SourceAxis==1?2:SourceAxis==2?1:0;
+                const auto B=V->SourceBounds;const FVector Center(B.GetCenter().X,B.GetCenter().Z,B.GetCenter().Y);
+                FVector Normal=FVector::ZeroVector;Normal[Axis]=1;
+                auto Camera=Scene->CameraState();Camera.Focus=Center;Camera.OrbitDistance=2;
+                Camera.Position=Center+Normal*2;Camera.Orientation=(-Normal).Rotation().Quaternion();Camera.bOrthographic=true;
+                const FBox SceneBounds(FVector(B.Min.X,B.Min.Z,B.Min.Y),FVector(B.Max.X,B.Max.Z,B.Max.Y));
+                const FVector Right=Camera.Orientation.GetRightVector(),Up=Camera.Orientation.GetUpVector();
+                const FVector Extent=SceneBounds.GetSize();
+                const double Horizontal=FMath::Abs(Right.X)*Extent.X+FMath::Abs(Right.Y)*Extent.Y+FMath::Abs(Right.Z)*Extent.Z;
+                const double Vertical=FMath::Abs(Up.X)*Extent.X+FMath::Abs(Up.Y)*Extent.Y+FMath::Abs(Up.Z)*Extent.Z;
+                Camera.OrthoWidth=FMath::Max(Horizontal,Vertical*Size.X/Size.Y)*1.25;
+                Scene->RestoreCamera(Camera,TEXT("Original source plane GPU camera"));
+                // Finish validated camera/style edits before the snapshot-only
+                // vector override; those edits reject interactive vector layers.
+                Model->bVectors=Glyph;Model->DisplayChanged();
+                if(!Ready()){Retire();continue;}
+                Record(Name,0,false);
+                auto Row=Cases.Last()->AsObject();
+                const auto Field=Scene->PresentedField();const auto Identity=Field->Identity();
+                const auto Points=Field->OriginalPoints();auto* Component=Scene->FindComponentByClass<UStudioVolumeComponent>();
+                auto* Mesh=Cast<UProceduralMeshComponent>(Scene->GetRootComponent());
+                const auto* Surface=Mesh?Mesh->GetProcMeshSection(2):nullptr;
+                const auto* Glyphs=Mesh?Mesh->GetProcMeshSection(4):nullptr;
+                const int32 Triangles=Surface?Surface->ProcIndexBuffer.Num()/3:0;
+                const int32 ExpectedTriangles=Mask?(Rejected?64:128):40,ExpectedGlyphs=Glyph?(Rejected?45:81):0;
+                bool Plane=Points&&Points->Geometry&&Points->Geometry->Positions.Num()==(Mask?81:30);
+                if(Plane)for(const auto& P:Points->Geometry->Positions)Plane&=FMath::IsNearlyEqual(P[SourceAxis],B.Min[SourceAxis],1.e-12);
+                if(Surface)for(const auto& P:Surface->ProcVertexBuffer)Plane&=FMath::IsNearlyEqual(double(P.Position[Axis])/100.,B.Min[SourceAxis],1.e-7);
+                const bool Native=Identity&&Identity->Interpolation==EStudioFieldInterpolation::SourceSlice&&Plane;
+                const bool NoVolume=Component&&Component->TextureBytes()==0&&!Component->IsVisible();
+                const bool Geometry=Triangles==ExpectedTriangles&&Scene->PresentedVectors().GlyphCount==ExpectedGlyphs&&
+                    (!Glyph||(Glyphs&&Glyphs->ProcIndexBuffer.Num()>0));
+                double Sample=0;const FVector Invalid=Mask?FVector(.3,.5,.8):FVector(.225,.4,.55),Valid=Mask?FVector(.8,.5,.8):FVector(.375,.4,.55);
+                const bool InvalidSample=Field->SampleScalar(Invalid,Scalar,Sample),ValidSample=Field->SampleScalar(Valid,Scalar,Sample);
+                const bool Sampling=!Mask||(InvalidSample==!Rejected&&ValidSample);
+                TArray<FColor> Pixels;const bool Read=Scene->GetRenderTarget()->GameThread_GetRenderTargetResource()->ReadPixels(Pixels);
+                for(auto& P:Pixels)P.A=255;
+                const FString PixelPath=Directory/(Name+TEXT(".bgra"));
+                const bool Saved=Read&&Pixels.Num()==Size.X*Size.Y&&FFileHelper::SaveArrayToFile(
+                    TArrayView64<const uint8>(reinterpret_cast<const uint8*>(Pixels.GetData()),Pixels.Num()*sizeof(FColor)),*PixelPath);
+                Row->SetStringField(TEXT("interpolation"),Native?TEXT("SourceSlice"):TEXT("unexpected"));
+                Row->SetNumberField(TEXT("original_nodes"),Points&&Points->Geometry?Points->Geometry->Positions.Num():0);
+                Row->SetBoolField(TEXT("original_plane_only"),Plane);Row->SetNumberField(TEXT("volume_texture_bytes"),Component?Component->TextureBytes():-1);
+                Row->SetNumberField(TEXT("surface_triangles"),Triangles);Row->SetNumberField(TEXT("glyphs"),Scene->PresentedVectors().GlyphCount);
+                Row->SetStringField(TEXT("scalar"),Scalar);Row->SetBoolField(TEXT("invalid_sample_available"),InvalidSample);Row->SetBoolField(TEXT("valid_sample_available"),ValidSample);
+                Row->SetNumberField(TEXT("ortho_width"),Camera.OrthoWidth);
+                auto Vector=[](const FVector& P){return TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueNumber>(P.X),MakeShared<FJsonValueNumber>(P.Y),MakeShared<FJsonValueNumber>(P.Z)};};
+                Row->SetArrayField(TEXT("camera_focus"),Vector(Center));Row->SetArrayField(TEXT("camera_right"),Vector(Right));Row->SetArrayField(TEXT("camera_up"),Vector(Up));
+                Row->SetBoolField(TEXT("passed"),Row->GetBoolField(TEXT("passed"))&&Native&&NoVolume&&Geometry&&Sampling&&Saved);
+                Check(Name+TEXT(".source_slice"),Native,TEXT("Unchanged nodes on the original fixed source plane, including rendered vertices."));
+                Check(Name+TEXT(".no_volume"),NoVolume,TEXT("SourceSlice must allocate no 3D volume texture."));
+                Check(Name+TEXT(".mask_geometry"),Geometry,TEXT("Exact nonempty source-cell and original vector glyph counts."));
+                Check(Name+TEXT(".sampling"),Sampling,TEXT("Invalid diagnostic samples unavailable; valid region retained."));
+                Check(Name+TEXT(".readback"),Saved,TEXT("Raw GPU target bytes retained for independent numerical checks."));
+                Retire();
+            }
+        }
     }
     void CheckIndependentOpacity()
     {
@@ -375,6 +484,7 @@ int32 UStudioRenderValidationCommandlet::Main(const FString& Params)
             }
         }
         Run.Retire();
+        Run.Home4Slices(FPaths::GetPath(Output));
     }
     Run.Check(TEXT("runtime.still_windowless"),GEngine->GameViewport==nullptr&&
         (!FSlateApplication::IsInitialized()||FSlateApplication::Get().GetTopLevelWindows().IsEmpty()));

@@ -1,5 +1,6 @@
 #include "StudioHome4Archive.h"
 #include "StudioHome4ArchivePrivate.h"
+#include "StudioHome4FieldInventory.h"
 #include "StudioFileDialog.h"
 #include "StudioPointRecording.h"
 #include "Async/Async.h"
@@ -54,7 +55,8 @@ struct FSnapshot
     FVector Origin,Spacing;
     int32 Iteration=0;double Time=0;
     TMap<FString,TArray<double>> Core,Fields;
-    TMap<FString,FString> Units,Expressions;
+    TMap<FString,FString> Units,Expressions,Validity;
+    TMap<FString,TArray<FString>> PackedSources;
     TSet<FString> Derived;
     TSharedPtr<FJsonObject> RunSpec;
     FString RunIdentity;
@@ -68,9 +70,9 @@ TArray<double> Canonical(const FNumericArray& A,const FString& Order,const FIntV
     const int32 AX=Order.Find(TEXT("x")),AY=Order.Find(TEXT("y")),AZ=Order.Find(TEXT("z"));
     for(int32 Z=0;Z<N.Z;++Z)for(int32 Y=0;Y<N.Y;++Y)for(int32 X=0;X<N.X;++X)
     {
-        int64 I[3];I[AX]=X;I[AY]=Y;I[AZ]=Z;
-        const int64 Raw=A.Member.bFortran?I[0]+A.Member.Shape[0]*(I[1]+A.Member.Shape[1]*I[2]):
-            I[2]+A.Member.Shape[2]*(I[1]+A.Member.Shape[1]*I[0]);
+        int64 I[3]={0,0,0};if(AX>=0)I[AX]=X;if(AY>=0)I[AY]=Y;if(AZ>=0)I[AZ]=Z;
+        int64 Raw=0,Stride=1;
+        for(int32 J=0;J<A.Member.Shape.Num();++J){const int32 K=A.Member.bFortran?J:A.Member.Shape.Num()-1-J;Raw+=I[K]*Stride;Stride*=A.Member.Shape[K];}
         Values[X+N.X*(Y+N.Y*Z)]=A.Values[int32(Raw)];
     }
     return Values;
@@ -91,7 +93,7 @@ bool TripleArray(const FNumericArray& A,FVector& V,bool Positive)
 }
 bool DerivedField(const FString& K){return K==TEXT("q")||K==TEXT("helicity")||K==TEXT("divergence")||K.StartsWith(TEXT("vorticity"));}
 bool AirMasked(const FString& K)
-{return DerivedField(K)||K.StartsWith(TEXT("a3_"))||K.StartsWith(TEXT("a4_"))||K.StartsWith(TEXT("S"))||K.StartsWith(TEXT("F_"))||K==TEXT("pressure")||K==TEXT("p_star")||K==TEXT("Pi_h")||K==TEXT("Pi_h0")||K==TEXT("dissipation");}
+{return K==TEXT("enstrophy")||K==TEXT("q_stored_strain")||K.StartsWith(TEXT("phase_"))||DerivedField(K)||K.StartsWith(TEXT("a3_"))||K.StartsWith(TEXT("a4_"))||K.StartsWith(TEXT("S"))||K.StartsWith(TEXT("F_"))||K==TEXT("pressure")||K==TEXT("p_star")||K==TEXT("Pi_h")||K==TEXT("Pi_h0")||K==TEXT("dissipation");}
 bool SourceUnitContract(const FString& K,const FStudioHome4ArchiveMapping& M,const FJsonObject* Declared,FString& Error)
 {
     if(!Declared||!Declared->HasField(K))return true;
@@ -101,7 +103,8 @@ bool SourceUnitContract(const FString& K,const FStudioHome4ArchiveMapping& M,con
     else if(K==TEXT("rho"))Expected=TEXT("lu_density");
     else if(K==TEXT("nu"))Expected=TEXT("cells2/step");
     else if(K==TEXT("Pi_h")||K==TEXT("Pi_h0"))Expected=TEXT("lu_pressure");
-    else if(TArray<FString>{TEXT("Sxx"),TEXT("Syy"),TEXT("Szz"),TEXT("Sxy"),TEXT("Sxz"),TEXT("Syz")}.Contains(K))Expected=TEXT("1/step");
+    else if(TArray<FString>{TEXT("Sxx"),TEXT("Syy"),TEXT("Szz"),TEXT("Sxy"),TEXT("Sxz"),TEXT("Syz")}.Contains(K))
+    {FString U;if(Declared->TryGetStringField(K,U)&&U==TEXT("1/s"))return true;Expected=TEXT("1/step");}
     if(Expected.IsEmpty())return true;
     FString Supplied;
     if(!Declared->TryGetStringField(K,Supplied)||Supplied!=Expected)
@@ -116,7 +119,7 @@ bool Unit(const FString& K,const FStudioHome4ArchiveMapping& M,bool Physical,con
     const FString V=Physical||M.VelocityUnits==TEXT("physical")?TEXT("m/s"):TEXT("lu_velocity");
     const bool SI=C==TEXT("m")&&V==TEXT("m/s");
     if(K==TEXT("ux")||K==TEXT("uy")||K==TEXT("uz")||K==TEXT("speed")){Label=V;Scale=Velocity;}
-    else if(K==TEXT("phi")||K==TEXT("solid")||K.EndsWith(TEXT("_support"))||K==TEXT("derivative_valid")){Label=TEXT("1");}
+    else if(K==TEXT("phi")||K==TEXT("solid")||K.EndsWith(TEXT("_support"))||K==TEXT("derivative_valid")||K==TEXT("viscosity_valid")){Label=TEXT("1");}
     else if(K.StartsWith(TEXT("vorticity"))||K==TEXT("divergence")){Label=SI?TEXT("1/s"):TEXT("(")+V+TEXT(")/(")+C+TEXT(")");Scale=Velocity/Length;}
     else if(K==TEXT("q")){Label=SI?TEXT("1/s2"):TEXT("((")+V+TEXT(")/(")+C+TEXT("))^2");Scale=FMath::Square(Velocity/Length);}
     else if(K==TEXT("helicity")){Label=SI?TEXT("m/s2"):TEXT("(")+V+TEXT(")^2/(")+C+TEXT(")");Scale=Velocity*Velocity/Length;}
@@ -131,7 +134,7 @@ bool Unit(const FString& K,const FStudioHome4ArchiveMapping& M,bool Physical,con
     else if(K==TEXT("nu")||K==TEXT("dissipation"))
     {const bool Available=Physical&&M.DxMeters&&M.DtSeconds;const bool Diss=K==TEXT("dissipation");Label=Available?(Diss?TEXT("m2/s3"):TEXT("m2/s")):(Diss?TEXT("cells2/step3"):TEXT("cells2/step"));if(Available)Scale=FMath::Square(M.DxMeters.GetValue())/std::pow(M.DtSeconds.GetValue(),Diss?3:1);}
     else if(TArray<FString>{TEXT("Sxx"),TEXT("Syy"),TEXT("Szz"),TEXT("Sxy"),TEXT("Sxz"),TEXT("Syz")}.Contains(K))
-    {Label=Physical&&M.DtSeconds?TEXT("1/s"):TEXT("1/step");if(Physical&&M.DtSeconds)Scale=1/M.DtSeconds.GetValue();}
+    {FString DeclaredUnit;if(Declared&&Declared->TryGetStringField(K,DeclaredUnit)&&DeclaredUnit==TEXT("1/s"))Label=TEXT("1/s");else{Label=Physical&&M.DtSeconds?TEXT("1/s"):TEXT("1/step");if(Physical&&M.DtSeconds)Scale=1/M.DtSeconds.GetValue();}}
     else if(!Declared||!Declared->TryGetStringField(K,Label)||!CleanText(Label,128))
     {Error=TEXT("Original field requires explicit archive.fieldUnits; normalization is unknown: ")+K;return false;}
     if(!FMath::IsFinite(Scale)){Error=TEXT("Original field unit conversion overflows: ")+K;return false;}return true;
@@ -139,11 +142,14 @@ bool Unit(const FString& K,const FStudioHome4ArchiveMapping& M,bool Physical,con
 bool Snapshot(FNpzReader& Reader,const FStudioHome4ArchiveRequest& R,FSnapshot& S,FString& E,const FStudioLoadCancellation& Cancel)
 {
     FNumericArray A;const auto& Members=Reader.Members();const auto* Phi=Members.FindByPredicate([](const auto& M){return M.Name==TEXT("phi");});
-    if(!Phi||Phi->Shape.Num()!=3||Phi->Count<1||Phi->Count>StudioHome4Archives::MaximumSourceNodes){E=TEXT("Original phi requires a 3-D grid of at most two million nodes.");return false;}
-    for(int32 K=0;K<3;++K){S.Original[K]=int32(Phi->Shape[R.Mapping.AxisOrder.Find(FString::Chr(TCHAR('x'+K)))]);if(S.Original[K]<2){E=TEXT("Original grid must have at least two nodes on every axis.");return false;}}
+    if(!Phi||(Phi->Shape.Num()!=2&&Phi->Shape.Num()!=3)||R.Mapping.AxisOrder.Len()!=Phi->Shape.Num()||Phi->Count<1||Phi->Count>StudioHome4Archives::MaximumSourceNodes){E=TEXT("Original phi requires a 2-D slice or 3-D grid with matching declared axes and at most two million nodes.");return false;}
+    int32 Singleton=0;
+    for(int32 K=0;K<3;++K){const int32 Axis=R.Mapping.AxisOrder.Find(FString::Chr(TCHAR('x'+K)));S.Original[K]=Axis<0?1:int32(Phi->Shape[Axis]);if(S.Original[K]<1){E=TEXT("Original axes must contain at least one node.");return false;}Singleton+=S.Original[K]==1;}
+    if(Singleton>1){E=TEXT("Original source must contain at least two nondegenerate axes.");return false;}
+    const bool bDerivatives=R.bDerivatives&&Singleton==0;
     S.Minimum=R.CropMinimum.Get(FIntVector::ZeroValue);S.Maximum=R.CropMaximum.Get(S.Original);
     for(int32 K=0;K<3;++K)
-    {if(S.Minimum[K]<0||S.Minimum[K]>=S.Maximum[K]||S.Maximum[K]>S.Original[K]){E=TEXT("Crop must use valid original XYZ half-open bounds.");return false;}S.Selected[K]=(S.Maximum[K]-S.Minimum[K]+R.PreviewStride-1)/R.PreviewStride;if(S.Selected[K]<2||S.Selected[K]>512){E=TEXT("Selected grid requires 2–512 nodes per axis. Adjust crop/stride.");return false;}}
+    {if(S.Minimum[K]<0||S.Minimum[K]>=S.Maximum[K]||S.Maximum[K]>S.Original[K]){E=TEXT("Crop must use valid original XYZ half-open bounds.");return false;}S.Selected[K]=(S.Maximum[K]-S.Minimum[K]+R.PreviewStride-1)/R.PreviewStride;if(S.Selected[K]<(S.Original[K]==1?1:2)||S.Selected[K]>512){E=TEXT("Selected active axes require 2–512 nodes; a source slice retains its singleton axis. Adjust crop/stride.");return false;}}
     if(Count(S.Selected)>StudioHome4Archives::MaximumSelectedNodes){E=TEXT("Selected grid exceeds one million nodes. Adjust crop/stride.");return false;}
     if(!Reader.Read(TEXT("iteration"),A,E)||!A.Member.Shape.IsEmpty()||(A.Member.DType[1]!='i'&&A.Member.DType[1]!='u')||A.Values[0]<0||A.Values[0]>MAX_int32)
     {E=TEXT("iteration must be an original nonnegative integer int32 solver step.");return false;}S.Iteration=int32(A.Values[0]);
@@ -151,7 +157,7 @@ bool Snapshot(FNpzReader& Reader,const FStudioHome4ArchiveRequest& R,FSnapshot& 
     if(!FMath::IsFinite(S.Time)){E=TEXT("Original physical timestamp overflows.");return false;}
     if(!Reader.Read(TEXT("origin"),A,E)||!TripleArray(A,S.Origin,false)||!Reader.Read(TEXT("spacing"),A,E)||!TripleArray(A,S.Spacing,true))
     {E=TEXT("Original origin/spacing must be finite numeric scalars or triples; spacing must be positive.");return false;}
-    if(R.Mapping.MetadataOrder==TEXT("array")){const FVector Origin=S.Origin,Spacing=S.Spacing;for(int32 K=0;K<3;++K){const int32 Axis=R.Mapping.AxisOrder.Find(FString::Chr(TCHAR('x'+K)));S.Origin[K]=Origin[Axis];S.Spacing[K]=Spacing[Axis];}}
+    if(R.Mapping.MetadataOrder==TEXT("array")){const FVector Origin=S.Origin,Spacing=S.Spacing;for(int32 K=0;K<3;++K){const int32 Axis=R.Mapping.AxisOrder.Find(FString::Chr(TCHAR('x'+K)));if(Axis<0){E=TEXT("Rank-2 slices require XYZ origin/spacing including the fixed plane coordinate.");return false;}S.Origin[K]=Origin[Axis];S.Spacing[K]=Spacing[Axis];}}
     if(Members.ContainsByPredicate([](const auto& M){return M.Name==TEXT("run_spec");}))
     {if(!Reader.Read(TEXT("run_spec"),A,E,false)||!JSON(A.StringValue,S.RunSpec,E))return false;}
     const FJsonObject* Archive=nullptr,*Declared=nullptr;
@@ -168,12 +174,33 @@ bool Snapshot(FNpzReader& Reader,const FStudioHome4ArchiveRequest& R,FSnapshot& 
         S.RunIdentity=Serialize(Identity);
     }
     if(Archive&&!Object(*Archive,TEXT("fieldUnits"),Declared,E))return false;
+    // Derived component labels inherit only an explicitly supplied vector unit.
+    auto ExpandedUnits=MakeShared<FJsonObject>();if(Declared)ExpandedUnits->Values=Declared->Values;Declared=&ExpandedUnits.Get();
+    TMap<FString,TPair<FString,int32>> Components;
     const TArray<FString> Core={TEXT("ux"),TEXT("uy"),TEXT("uz"),TEXT("phi"),TEXT("solid")};
     TArray<FString> IDs=Core;
     for(const auto& M:Members)
     {
         if(IDs.Contains(M.Name)||M.Name==TEXT("iteration")||M.Name==TEXT("origin")||M.Name==TEXT("spacing")||M.Name==TEXT("run_spec"))continue;
         const bool Known=TArray<FString>{TEXT("p_star"),TEXT("Pi_h"),TEXT("Pi_h0"),TEXT("rho"),TEXT("nu"),TEXT("Sxx"),TEXT("Syy"),TEXT("Szz"),TEXT("Sxy"),TEXT("Sxz"),TEXT("Syz")}.Contains(M.Name);
+        if(M.Name.StartsWith(TEXT("F_"))&&M.Shape.Num()==Phi->Shape.Num()+1&&M.Shape[0]==3&&IsNumeric(M))
+        {
+            FString Unit;auto Shape=M.Shape;Shape.RemoveAt(0);
+            if(Shape!=Phi->Shape||!Declared->TryGetStringField(M.Name,Unit)||!CleanText(Unit,128))
+            {E=TEXT("Packed original force requires [3, original grid] and an explicit field unit: ")+M.Name;return false;}
+            const FJsonObject* Orders=nullptr;FString Order;
+            if(!Archive||!Object(*Archive,TEXT("vectorComponents"),Orders,E)||!Orders||!Orders->TryGetStringField(M.Name,Order)||
+                Order.Len()!=3||Order.Find(TEXT("x"))<0||Order.Find(TEXT("y"))<0||Order.Find(TEXT("z"))<0)
+            {E=TEXT("Packed force needs original archive.vectorComponents order (an xyz permutation): ")+M.Name;return false;}
+            for(int32 Axis=0;Axis<3;++Axis)
+            {
+                const FString Key=M.Name+TEXT("_")+FString::Chr(TCHAR('x'+Axis));
+                if(IDs.Contains(Key)||Members.ContainsByPredicate([&](const auto& Other){return Other.Name==Key;}))
+                {E=TEXT("Packed force component collides with a source field: ")+Key;return false;}
+                IDs.Add(Key);Components.Add(Key,{M.Name,Order.Find(FString::Chr(TCHAR('x'+Axis)))});ExpandedUnits->SetStringField(Key,Unit);S.PackedSources.FindOrAdd(M.Name).Add(Key);
+            }
+            continue;
+        }
         if((Known||(Declared&&Declared->HasField(M.Name)))&&(M.Shape!=Phi->Shape||!IsNumeric(M)))
         {E=TEXT("Original optional/declared diagnostic field has incompatible shape or dtype: ")+M.Name;return false;}
         if((M.Name.StartsWith(TEXT("a3_"))||M.Name.StartsWith(TEXT("a4_"))||M.Name.StartsWith(TEXT("grad_phi_"))||M.Name.StartsWith(TEXT("F_"))||M.Name==TEXT("tau_fld")||M.Name==TEXT("sdf"))&&(!Declared||!Declared->HasField(M.Name)))
@@ -183,14 +210,22 @@ bool Snapshot(FNpzReader& Reader,const FStudioHome4ArchiveRequest& R,FSnapshot& 
         {E=TEXT("Source array collides with a reserved derived field; it cannot be replaced: ")+M.Name;return false;}
         IDs.Add(M.Name);
     }
-    const int32 DerivedCount=3+(R.bDerivatives?8:0)+(!R.PressureConvention.IsEmpty()?1:0)+(IDs.Contains(TEXT("nu"))&&IDs.Contains(TEXT("Sxx"))&&IDs.Contains(TEXT("Syy"))&&IDs.Contains(TEXT("Szz"))&&IDs.Contains(TEXT("Sxy"))&&IDs.Contains(TEXT("Sxz"))&&IDs.Contains(TEXT("Syz"))?1:0);
-    if(IDs.Num()+DerivedCount>32||Count(S.Original)*40+Count(S.Selected)*(IDs.Num()+DerivedCount)*8+48LL*1024*1024>WorkingBytes)
-    {E=TEXT("Selected field/grid combination exceeds the 32-field or 256 MiB import budget. Reduce the selected grid.");return false;}
+    const int32 DerivedCount=3+(bDerivatives?8:0)+(!R.PressureConvention.IsEmpty()?1:0)+(IDs.Contains(TEXT("nu"))&&IDs.Contains(TEXT("Sxx"))&&IDs.Contains(TEXT("Syy"))&&IDs.Contains(TEXT("Szz"))&&IDs.Contains(TEXT("Sxy"))&&IDs.Contains(TEXT("Sxz"))&&IDs.Contains(TEXT("Syz"))?1:0);
+    if(IDs.Num()+DerivedCount>StudioHome4FieldInventory::MaximumFields||Count(S.Original)*40+Count(S.Selected)*FMath::Min(128,IDs.Num()+DerivedCount+40)*8+96LL*1024*1024>WorkingBytes)
+    {E=TEXT("Selected field/grid combination exceeds the 128-field or 256 MiB import budget. Reduce the selected grid.");return false;}
     for(const FString& K:IDs)
     {
         if(Cancelled(Cancel))return false;
         if(!SourceUnitContract(K,R.Mapping,Declared,E))return false;
-        if(!Reader.Read(K,A,E)||A.Member.Shape!=Phi->Shape){E=TEXT("Source field is missing or has a different original grid: ")+K;return false;}
+        if(const auto* Component=Components.Find(K))
+        {
+            if(!Reader.Read(Component->Key,A,E))return false;
+            TArray<double> Values;Values.SetNumUninitialized(int32(Phi->Count));
+            for(int32 I=0;I<Values.Num();++I)Values[I]=A.Values[A.Member.bFortran?I*3+Component->Value:Component->Value*Values.Num()+I];
+            A.Values=MoveTemp(Values);A.Member.Shape=Phi->Shape;A.Member.Count=Phi->Count;
+            S.Expressions.Add(K,FString::Printf(TEXT("Original packed %s component %d; source storage order retained"),*Component->Key,Component->Value));
+        }
+        else if(!Reader.Read(K,A,E)||A.Member.Shape!=Phi->Shape){E=TEXT("Source field is missing or has a different original grid: ")+K;return false;}
         auto Full=Canonical(A,R.Mapping.AxisOrder,S.Original);A.Values.Empty();
         if(K==TEXT("solid"))for(double V:Full)if(V!=0&&V!=1){E=TEXT("Original solid must be explicitly binary.");return false;}
         S.Fields.Add(K,Select(Full,S,R.PreviewStride));if(Core.Contains(K))S.Core.Add(K,MoveTemp(Full));
@@ -219,7 +254,7 @@ bool Snapshot(FNpzReader& Reader,const FStudioHome4ArchiveRequest& R,FSnapshot& 
             S.Fields[K][Row++]=Invalid==0?1.:0.;
         }
     }
-    if(R.bDerivatives)
+    if(bDerivatives)
     {
         const TArray<FString> Keys={TEXT("derivative_valid"),TEXT("vorticity_x"),TEXT("vorticity_y"),TEXT("vorticity_z"),TEXT("vorticity_magnitude"),TEXT("q"),TEXT("divergence"),TEXT("helicity")};
         for(const auto& K:Keys)Add(K,K==TEXT("derivative_valid")?TEXT("1 only where complete original one-node halo is liquid/nonsolid; 0 is unavailable"):TEXT("Original-grid central differences of velocity; complete one-node halo liquid/nonsolid, derivative_valid required"));
@@ -248,22 +283,40 @@ bool Snapshot(FNpzReader& Reader,const FStudioHome4ArchiveRequest& R,FSnapshot& 
         Add(TEXT("pressure"),TEXT("rho*(1/3)*p_star + Pi_h - Pi_h0; explicitly declared WB lattice convention"));
         for(int32 I=0;I<SelectedCount;++I)S.Fields[TEXT("pressure")][I]=S.Fields[TEXT("rho")][I]/3*S.Fields[TEXT("p_star")][I]+S.Fields[TEXT("Pi_h")][I]-S.Fields[TEXT("Pi_h0")][I];
     }
+    if(!S.Fields.Contains(TEXT("nu"))&&S.Fields.Contains(TEXT("tau_fld"))&&R.Mapping.VelocityUnits==TEXT("lattice"))
+    {
+        FString TauUnit;if(Declared->TryGetStringField(TEXT("tau_fld"),TauUnit)&&TauUnit==TEXT("1"))
+        {
+            Add(TEXT("nu"),TEXT("(original tau_fld - 0.5) / 3; HOME4 lattice sound speed squared = 1/3"));
+            for(int32 I=0;I<SelectedCount;++I)S.Fields[TEXT("nu")][I]=(S.Fields[TEXT("tau_fld")][I]-.5)/3.;
+        }
+    }
     const TArray<FString> Strain={TEXT("Sxx"),TEXT("Syy"),TEXT("Szz"),TEXT("Sxy"),TEXT("Sxz"),TEXT("Syz")};bool Diss=S.Fields.Contains(TEXT("nu"));for(const auto& K:Strain)Diss&=S.Fields.Contains(K);
-    if(Diss){Add(TEXT("dissipation"),TEXT("2*nu*(Sxx^2+Syy^2+Szz^2+2*(Sxy^2+Sxz^2+Syz^2)) from stored state"));for(int32 I=0;I<SelectedCount;++I){if(S.Fields[TEXT("nu")][I]<0){E=TEXT("Stored viscosity must be nonnegative.");return false;}double Sum=0;for(int32 K=0;K<6;++K)Sum+=FMath::Square(S.Fields[Strain[K]][I])*(K<3?1:2);S.Fields[TEXT("dissipation")][I]=2*S.Fields[TEXT("nu")][I]*Sum;}}
+    if(Diss)
+    {
+        Add(TEXT("viscosity_valid"),TEXT("Original or tau-derived viscosity >= 0; negative viscosity preserved but dissipation unavailable"));
+        Add(TEXT("dissipation"),TEXT("2*nu*(Sxx^2+Syy^2+Szz^2+2*(Sxy^2+Sxz^2+Syz^2)) from stored state; viscosity_valid required"));
+        S.Validity.Add(TEXT("dissipation"),TEXT("viscosity_valid"));
+        for(int32 I=0;I<SelectedCount;++I)
+        {const double Nu=S.Fields[TEXT("nu")][I];S.Fields[TEXT("viscosity_valid")][I]=Nu>=0?1.:0.;if(Nu<0)continue;double Sum=0;for(int32 K=0;K<6;++K){FString DeclaredUnit;double Rate=S.Fields[Strain[K]][I];if(Declared->TryGetStringField(Strain[K],DeclaredUnit)&&DeclaredUnit==TEXT("1/s")){if(!R.Mapping.DtSeconds){E=TEXT("Dissipation from physical strain and lattice viscosity requires original dt.");return false;}Rate*=*R.Mapping.DtSeconds;}Sum+=FMath::Square(Rate)*(K<3?1:2);}S.Fields[TEXT("dissipation")][I]=2*Nu*Sum;}
+    }
     const bool Physical=R.Output==EStudioHome4ArchiveOutput::Recording||R.bPhysicalVTI;
     for(auto& Pair:S.Fields)
     {
         FString Label;double Scale;if(!Unit(Pair.Key,R.Mapping,Physical,Declared,Label,Scale,E))return false;S.Units.Add(Pair.Key,Label);
         for(double& V:Pair.Value){V*=Scale;if(!FMath::IsFinite(V)){E=TEXT("Original/derived field conversion overflows: ")+Pair.Key;return false;}}
     }
-    S.Core.Empty();return !Cancelled(Cancel);
+    S.Core.Empty();
+    if(bDerivatives)for(const auto& Pair:S.Fields)if(DerivedField(Pair.Key))S.Validity.Add(Pair.Key,TEXT("derivative_valid"));
+    if(!StudioHome4FieldInventory::Augment(S.Fields,S.Units,S.Expressions,S.Derived,S.Validity,S.RunSpec.Get(),R.Mapping.DxMeters,Cancel,E))return false;
+    return !Cancelled(Cancel);
 }
 }
 
 bool FStudioHome4ArchiveMapping::Validate(FString& E,bool Physical)const
 {
     E=TEXT("Confirm original array axes, origin/spacing order and coordinate/velocity units.");
-    if(!TArray<FString>{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx")}.Contains(AxisOrder)||(MetadataOrder!=TEXT("xyz")&&MetadataOrder!=TEXT("array"))||(CoordinateUnits!=TEXT("lattice")&&CoordinateUnits!=TEXT("physical"))||(VelocityUnits!=TEXT("lattice")&&VelocityUnits!=TEXT("physical")))return false;
+    if(!TArray<FString>{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx"),TEXT("xy"),TEXT("xz"),TEXT("yx"),TEXT("yz"),TEXT("zx"),TEXT("zy")}.Contains(AxisOrder)||(MetadataOrder!=TEXT("xyz")&&MetadataOrder!=TEXT("array"))||(CoordinateUnits!=TEXT("lattice")&&CoordinateUnits!=TEXT("physical"))||(VelocityUnits!=TEXT("lattice")&&VelocityUnits!=TEXT("physical")))return false;
     for(const auto& V:{DxMeters,DtSeconds,DensityReferenceKgM3})if(V&&(!FMath::IsFinite(V.GetValue())||V.GetValue()<=0)){E=TEXT("Original unit anchors must be finite positive.");return false;}
     if(!FMath::IsFinite(LiquidMinimum)||LiquidMinimum<0||LiquidMinimum>1||!FMath::IsFinite(TimeOriginSeconds)||TimeOriginSeconds<0){E=TEXT("Original liquid threshold must be 0–1; time origin must be finite nonnegative.");return false;}
     if(Physical&&(!DtSeconds||((CoordinateUnits==TEXT("lattice")||VelocityUnits==TEXT("lattice"))&&!DxMeters))){E=TEXT("Physical import requires original seconds/step, and metres/cell for lattice coordinates or velocity.");return false;}E.Empty();return true;
@@ -292,6 +345,8 @@ FStudioHome4ArchiveInspection StudioHome4Archives::Inspect(const FString& Path,c
     if(IFileManager::Get().FileSize(*R.Source.Path)>MaximumArchiveBytes||!Hash(R.Source.Path,R.Source.SHA256,C,R.Error))return R;
     FNpzReader Reader;if(!Reader.Open(R.Source.Path,C,R.Error)||!Reader.Scan(R.Error)){R.bCancelled=Cancelled(C);return R;}R.Members=Reader.Members();
     if(R.Members.ContainsByPredicate([](const auto& M){return M.Name==TEXT("run_spec");})){FNumericArray A;if(!Reader.Read(TEXT("run_spec"),A,R.Error,false)||!JSON(A.StringValue,R.OriginalRunSpec,R.Error))return R;}
+    if(R.Members.ContainsByPredicate([](const auto& M){return M.Name==TEXT("iteration");}))
+    {FNumericArray Step;if(Reader.Read(TEXT("iteration"),Step,R.Error)&&Step.Member.Shape.IsEmpty()&&Step.Values.Num()==1&&Step.Values[0]>=0&&Step.Values[0]<=MAX_int32&&Step.Values[0]==FMath::FloorToDouble(Step.Values[0]))R.OriginalStep=int32(Step.Values[0]);else{R.Error=TEXT("Original iteration is not a valid solver step.");return R;}}
     FString End;if(!Hash(R.Source.Path,End,C,R.Error)||End!=R.Source.SHA256){R.Error=TEXT("Source archive changed during inspection.");return R;}R.bCancelled=Cancelled(C);return R;
 }
 
@@ -321,7 +376,7 @@ bool FileCopy(const FStudioHome4ArchiveSource& S,const FString& Destination,cons
 }
 struct FFieldWrite
 {
-    FString ID,Unit,Expression;bool bDerived=false,bAir=false,bHasDisplay=false;
+    FString ID,Unit,Expression,Validity;bool bDerived=false,bAir=false,bHasDisplay=false;
     double Min=MAX_dbl,Max=-MAX_dbl,DisplayMin=0,DisplayMax=0;int64 Clips=0;
     TArray<uint32> CRC;TUniquePtr<FArchive> File;
 };
@@ -403,9 +458,32 @@ FStudioHome4ArchiveResult ConvertImpl(const FStudioHome4ArchiveRequest& R,const 
                 if(!IdFile->Close()||IdFile->IsError())return Fail(TEXT("Could not finish original point IDs."));IdFile.Reset();TUniquePtr<FArchive> CF(IFileManager::Get().CreateFileWriter(*(Stage.Path/TEXT("coordinates.f64")),FILEWRITE_NoReplaceExisting));if(!CF||!WriteValues(*CF,Coordinates,C,nullptr,E)||!CF->Close())return Fail(E);Coordinates.Empty();CF.Reset();
                 for(const auto& K:IDs)
                 {
-                    FFieldWrite W;W.ID=K;W.Unit=S.Units[K];W.bDerived=S.Derived.Contains(K);W.Expression=S.Expressions.FindRef(K);W.bAir=AirMasked(K);
-                    // Range policy uses raw original source masks, independent of viewer toggles.
-                    TArray<double> Available;for(int32 I=0;I<S.Fields[K].Num();++I)if(S.Fields[TEXT("solid")][I]==0&&(!W.bAir||S.Fields[TEXT("phi")][I]>=R.Mapping.LiquidMinimum)&&(!DerivedField(K)||S.Fields[TEXT("derivative_valid")][I]>0))Available.Add(S.Fields[K][I]);
+                    FFieldWrite W;W.ID=K;W.Unit=S.Units[K];W.bDerived=S.Derived.Contains(K);W.Expression=S.Expressions.FindRef(K);W.bAir=AirMasked(K);W.Validity=S.Validity.FindRef(K);
+                    // Hold the first-frame percentile over the default visible source
+                    // population, including conservative preview support and derivative
+                    // halo. Raw arrays and full extrema remain unchanged.
+                    TArray<double> Available;
+                    for(int32 I=0;I<S.Fields[K].Num();++I)
+                    {
+                        const bool SolidLayer=K==TEXT("solid")||K==TEXT("sdf");
+                        if(!SolidLayer&&(S.Fields[TEXT("solid")][I]!=0||S.Fields[TEXT("solid_support")][I]!=1||
+                            (W.bAir&&S.Fields[TEXT("liquid_support")][I]!=1)))continue;
+                        if(!W.Validity.IsEmpty()&&S.Fields.FindChecked(W.Validity)[I]!=1)continue;
+                        bool Eligible=true;
+                        if(W.Validity==TEXT("derivative_valid"))
+                        {
+                            const int32 X=I%S.Selected.X,Y=(I/S.Selected.X)%S.Selected.Y,Z=I/(S.Selected.X*S.Selected.Y);
+                            for(int32 DZ=-1;DZ<=1&&Eligible;++DZ)for(int32 DY=-1;DY<=1&&Eligible;++DY)for(int32 DX=-1;DX<=1;++DX)
+                            {
+                                if((S.Selected.X==1&&DX)||(S.Selected.Y==1&&DY)||(S.Selected.Z==1&&DZ))continue;
+                                const FIntVector P(X+DX,Y+DY,Z+DZ);
+                                if(P.X<0||P.Y<0||P.Z<0||P.X>=S.Selected.X||P.Y>=S.Selected.Y||P.Z>=S.Selected.Z){Eligible=false;break;}
+                                const int32 J=Node(P,S.Selected);
+                                if(S.Fields[TEXT("solid")][J]!=0||(W.bAir&&S.Fields[TEXT("phi")][J]<R.Mapping.LiquidMinimum)){Eligible=false;break;}
+                            }
+                        }
+                        if(Eligible)Available.Add(S.Fields[K][I]);
+                    }
                     if(!Available.IsEmpty()){Available.Sort();W.bHasDisplay=true;W.DisplayMin=Available[0];double At=.99*(Available.Num()-1);int32 Lo=FMath::FloorToInt(At),Hi=FMath::CeilToInt(At);W.DisplayMax=Available[Lo]+(Available[Hi]-Available[Lo])*(At-Lo);for(double V:Available)W.Clips+=V>W.DisplayMax;}
                     W.File.Reset(IFileManager::Get().CreateFileWriter(*(Stage.Path/(K+TEXT(".f64"))),FILEWRITE_NoReplaceExisting));if(!W.File)return Fail(TEXT("Could not create a native original field file."));Writers.Add(MoveTemp(W));
                 }
@@ -418,7 +496,7 @@ FStudioHome4ArchiveResult ConvertImpl(const FStudioHome4ArchiveRequest& R,const 
         {const FString Name=FString::Printf(TEXT("snapshot-%010d.vti"),S.Iteration);if(!WriteVTI(Stage.Path/Name,S,R,IDs,C,E))return Fail(E);OutputBytes+=IFileManager::Get().FileSize(*(Stage.Path/Name));PVD+=FString::Printf(TEXT("<DataSet timestep=\"%.17g\" group=\"\" part=\"0\" file=\"%s\"/>"),S.Time,*XMLText(Name));}
         auto Frame=MakeShared<FJsonObject>();Frame->SetNumberField(TEXT("index"),S.Iteration);Frame->SetNumberField(TEXT("time"),S.Time);Frame->SetStringField(TEXT("label"),FString::Printf(TEXT("step_%d"),S.Iteration));Frames.Add(MakeShared<FJsonValueObject>(Frame));
         auto Source=MakeShared<FJsonObject>();Source->SetStringField(TEXT("source"),R.Sources[Ordinal].Path);Source->SetStringField(TEXT("sourceSHA256"),R.Sources[Ordinal].SHA256);Source->SetNumberField(TEXT("iteration"),S.Iteration);Optional(*Source,TEXT("timePhysicalSeconds"),R.Mapping.DtSeconds?TOptional<double>(S.Time):TOptional<double>());Source->SetNumberField(TEXT("timeValue"),S.Time);Source->SetStringField(TEXT("timeUnit"),TimeUnit);Source->SetArrayField(TEXT("originalDimensionsXYZ"),Triple(S.Original));Source->SetArrayField(TEXT("originalOriginXYZ"),Triple(S.Origin));Source->SetArrayField(TEXT("originalSpacingXYZ"),Triple(S.Spacing));if(S.RunSpec)Source->SetObjectField(TEXT("runSpec"),S.RunSpec);
-        TArray<TSharedPtr<FJsonValue>> Headers;for(const auto& M:Members){auto H=MakeShared<FJsonObject>();H->SetStringField(TEXT("name"),M.Name);H->SetStringField(TEXT("dtype"),M.DType);H->SetBoolField(TEXT("fortranOrder"),M.bFortran);TArray<TSharedPtr<FJsonValue>> Shape;for(int64 N:M.Shape)Shape.Add(MakeShared<FJsonValueNumber>(double(N)));H->SetArrayField(TEXT("shape"),Shape);H->SetBoolField(TEXT("retained"),S.Fields.Contains(M.Name)||M.Name==TEXT("iteration")||M.Name==TEXT("origin")||M.Name==TEXT("spacing")||M.Name==TEXT("run_spec"));Headers.Add(MakeShared<FJsonValueObject>(H));}Source->SetArrayField(TEXT("members"),Headers);
+        TArray<TSharedPtr<FJsonValue>> Headers;for(const auto& M:Members){auto H=MakeShared<FJsonObject>();H->SetStringField(TEXT("name"),M.Name);H->SetStringField(TEXT("dtype"),M.DType);H->SetBoolField(TEXT("fortranOrder"),M.bFortran);TArray<TSharedPtr<FJsonValue>> Shape;for(int64 N:M.Shape)Shape.Add(MakeShared<FJsonValueNumber>(double(N)));H->SetArrayField(TEXT("shape"),Shape);H->SetBoolField(TEXT("retained"),S.Fields.Contains(M.Name)||S.PackedSources.Contains(M.Name)||M.Name==TEXT("iteration")||M.Name==TEXT("origin")||M.Name==TEXT("spacing")||M.Name==TEXT("run_spec"));if(const auto* Keys=S.PackedSources.Find(M.Name)){TArray<TSharedPtr<FJsonValue>> Parts;for(const auto& K:*Keys)Parts.Add(MakeShared<FJsonValueString>(K));H->SetArrayField(TEXT("retainedComponents"),Parts);}Headers.Add(MakeShared<FJsonValueObject>(H));}Source->SetArrayField(TEXT("members"),Headers);
         auto FieldInfo=MakeShared<FJsonObject>();for(const auto& K:IDs){auto Info=MakeShared<FJsonObject>();Info->SetStringField(TEXT("unit"),S.Units[K]);Info->SetStringField(TEXT("origin"),S.Derived.Contains(K)?TEXT("derived"):TEXT("source"));FieldInfo->SetObjectField(K,Info);}Source->SetObjectField(TEXT("fields"),FieldInfo);
         if(!ReserveManifestBytes(Serialize(Source),ManifestBytes))return Fail(TEXT("Original source manifest exceeds cumulative UTF-8 metadata bounds. Reduce the frame list."));
         Snapshots.Add(MakeShared<FJsonValueObject>(Source));
@@ -447,19 +525,27 @@ FStudioHome4ArchiveResult ConvertImpl(const FStudioHome4ArchiveRequest& R,const 
         auto Ranges=MakeShared<FJsonObject>();
         for(const auto& W:Writers)
         {
-            auto F=MakeShared<FJsonObject>();F->SetStringField(TEXT("id"),W.ID);FString Label=W.ID;Label.ReplaceInline(TEXT("_"),TEXT(" "));F->SetStringField(TEXT("label"),Label);F->SetStringField(TEXT("unit"),W.Unit);F->SetStringField(TEXT("association"),TEXT("point"));F->SetStringField(TEXT("origin"),W.bDerived?TEXT("derived"):TEXT("source"));F->SetBoolField(TEXT("static"),false);F->SetBoolField(TEXT("airMaskDefault"),W.bAir);F->SetArrayField(TEXT("range"),Numbers({W.Min,W.Max}));if(W.bDerived)F->SetStringField(TEXT("expression"),W.Expression);
-            if(DerivedField(W.ID))F->SetStringField(TEXT("validityMask"),TEXT("derivative_valid"));
+            auto F=MakeShared<FJsonObject>();F->SetStringField(TEXT("id"),W.ID);FString Label=W.ID;Label.ReplaceInline(TEXT("_"),TEXT(" "));F->SetStringField(TEXT("label"),Label);F->SetStringField(TEXT("unit"),W.Unit);F->SetStringField(TEXT("association"),TEXT("point"));F->SetStringField(TEXT("origin"),W.bDerived?TEXT("derived"):TEXT("source"));F->SetBoolField(TEXT("static"),false);F->SetBoolField(TEXT("airMaskDefault"),W.bAir);F->SetArrayField(TEXT("range"),Numbers({W.Min,W.Max}));if(!W.Expression.IsEmpty())F->SetStringField(TEXT("expression"),W.Expression);
+            if(!W.Validity.IsEmpty())F->SetStringField(TEXT("validityMask"),W.Validity);
             if(W.bHasDisplay){auto Range=MakeShared<FJsonObject>();Range->SetNumberField(TEXT("minimum"),W.DisplayMin);Range->SetNumberField(TEXT("maximum"),W.DisplayMax);Range->SetStringField(TEXT("policy"),TEXT("first_frame_percentile_99"));Range->SetNumberField(TEXT("clippedAbove"),double(W.Clips));F->SetObjectField(TEXT("displayRange"),Range);Ranges->SetObjectField(W.ID,Range);}
             if(W.ID==TEXT("ux")||W.ID==TEXT("uy")||W.ID==TEXT("uz")){F->SetStringField(TEXT("vector"),TEXT("velocity"));F->SetStringField(TEXT("component"),W.ID.Right(1));}
+            else if(W.ID.StartsWith(TEXT("F_"))&&(W.ID.EndsWith(TEXT("_x"))||W.ID.EndsWith(TEXT("_y"))||W.ID.EndsWith(TEXT("_z"))))
+            {F->SetStringField(TEXT("vector"),W.ID.LeftChop(2));F->SetStringField(TEXT("component"),W.ID.Right(1));}
             TSharedPtr<FJsonObject> A;if(!ArrayDescriptor(Stage.Path,W.ID+TEXT(".f64"),{R.Sources.Num(),Count(First.Selected)},C,A,E))return Fail(E);TArray<TSharedPtr<FJsonValue>> Checks;for(uint32 V:W.CRC)Checks.Add(MakeShared<FJsonValueNumber>(double(V)));A->SetArrayField(TEXT("frameCRC32"),Checks);F->SetObjectField(TEXT("array"),A);Fields.Add(MakeShared<FJsonValueObject>(F));
         }
         Meta->SetArrayField(TEXT("fields"),Fields);if(!WriteJSON(Stage.Path/TEXT("ranges.json"),Ranges,256*1024,E))return Fail(E);
-        auto G=MakeShared<FJsonObject>();G->SetNumberField(TEXT("version"),1);G->SetStringField(TEXT("kind"),TEXT("home4_structured_source"));G->SetStringField(TEXT("layout"),TEXT("x_fastest_node_grid"));G->SetArrayField(TEXT("dimensionsXYZ"),Triple(First.Selected));G->SetArrayField(TEXT("originalDimensionsXYZ"),Triple(First.Original));G->SetArrayField(TEXT("cropMinimumXYZ"),Triple(First.Minimum));G->SetArrayField(TEXT("cropMaximumXYZ"),Triple(First.Maximum));G->SetNumberField(TEXT("previewStride"),R.PreviewStride);G->SetArrayField(TEXT("originMeters"),Triple(Origin));G->SetArrayField(TEXT("spacingMeters"),Triple(Spacing));G->SetArrayField(TEXT("originalOriginXYZ"),Triple(First.Origin));G->SetArrayField(TEXT("originalSpacingXYZ"),Triple(First.Spacing));G->SetStringField(TEXT("axisOrder"),R.Mapping.AxisOrder);G->SetStringField(TEXT("metadataOrder"),R.Mapping.MetadataOrder);G->SetStringField(TEXT("coordinateUnits"),R.Mapping.CoordinateUnits);G->SetStringField(TEXT("velocityUnits"),R.Mapping.VelocityUnits);G->SetNumberField(TEXT("timeOriginSeconds"),R.Mapping.TimeOriginSeconds);G->SetNumberField(TEXT("phiLiquidMin"),R.Mapping.LiquidMinimum);G->SetStringField(TEXT("phaseField"),TEXT("phi"));G->SetStringField(TEXT("solidField"),TEXT("solid"));G->SetStringField(TEXT("solidSupportField"),TEXT("solid_support"));G->SetStringField(TEXT("liquidSupportField"),TEXT("liquid_support"));G->SetStringField(TEXT("derivativeValidityField"),R.bDerivatives?TEXT("derivative_valid"):TEXT(""));G->SetObjectField(TEXT("sourceManifest"),ManifestRef);
+        auto G=MakeShared<FJsonObject>();G->SetNumberField(TEXT("version"),1);G->SetStringField(TEXT("kind"),First.Selected.GetMin()==1?TEXT("home4_structured_slice"):TEXT("home4_structured_source"));G->SetStringField(TEXT("layout"),TEXT("x_fastest_node_grid"));G->SetArrayField(TEXT("dimensionsXYZ"),Triple(First.Selected));G->SetArrayField(TEXT("originalDimensionsXYZ"),Triple(First.Original));G->SetArrayField(TEXT("cropMinimumXYZ"),Triple(First.Minimum));G->SetArrayField(TEXT("cropMaximumXYZ"),Triple(First.Maximum));G->SetNumberField(TEXT("previewStride"),R.PreviewStride);G->SetArrayField(TEXT("originMeters"),Triple(Origin));G->SetArrayField(TEXT("spacingMeters"),Triple(Spacing));G->SetArrayField(TEXT("originalOriginXYZ"),Triple(First.Origin));G->SetArrayField(TEXT("originalSpacingXYZ"),Triple(First.Spacing));G->SetStringField(TEXT("axisOrder"),R.Mapping.AxisOrder);G->SetStringField(TEXT("metadataOrder"),R.Mapping.MetadataOrder);G->SetStringField(TEXT("coordinateUnits"),R.Mapping.CoordinateUnits);G->SetStringField(TEXT("velocityUnits"),R.Mapping.VelocityUnits);G->SetNumberField(TEXT("timeOriginSeconds"),R.Mapping.TimeOriginSeconds);G->SetNumberField(TEXT("phiLiquidMin"),R.Mapping.LiquidMinimum);G->SetStringField(TEXT("phaseField"),TEXT("phi"));G->SetStringField(TEXT("solidField"),TEXT("solid"));G->SetStringField(TEXT("solidSupportField"),TEXT("solid_support"));G->SetStringField(TEXT("liquidSupportField"),TEXT("liquid_support"));G->SetStringField(TEXT("derivativeValidityField"),R.bDerivatives&&First.Original.GetMin()>1?TEXT("derivative_valid"):TEXT(""));G->SetObjectField(TEXT("sourceManifest"),ManifestRef);
         auto U=MakeShared<FJsonObject>();Optional(*U,TEXT("dxMeters"),R.Mapping.DxMeters);Optional(*U,TEXT("dtSeconds"),R.Mapping.DtSeconds);Optional(*U,TEXT("densityReferenceKgM3"),R.Mapping.DensityReferenceKgM3);G->SetObjectField(TEXT("units"),U);
         auto Reference=MakeShared<FJsonObject>();const FJsonObject* OriginalRef=nullptr,*Fluids=nullptr;if(First.RunSpec&&(!Object(*First.RunSpec,TEXT("reference"),OriginalRef,E)||!Object(*First.RunSpec,TEXT("fluids"),Fluids,E)))return Fail(E);
         for(const TCHAR* K:{TEXT("lengthCells"),TEXT("speedCellsPerStep"),TEXT("timeSteps")}){TOptional<double> V;if(OriginalRef&&!MetadataNumber(*OriginalRef,K,V,E))return Fail(E);Optional(*Reference,K,V);}TOptional<double> Density;if(Fluids&&!MetadataNumber(*Fluids,TEXT("rhoHeavy"),Density,E))return Fail(E);Optional(*Reference,TEXT("densityLattice"),Density);G->SetObjectField(TEXT("reference"),Reference);
         if(First.RunSpec)for(auto P:{TPair<const TCHAR*,const TCHAR*>(TEXT("runId"),TEXT("sourceRunId")),TPair<const TCHAR*,const TCHAR*>(TEXT("recipeId"),TEXT("recipeId")),TPair<const TCHAR*,const TCHAR*>(TEXT("lineageId"),TEXT("lineageId"))})
         {FString V;if(First.RunSpec->HasField(P.Key)){if(!First.RunSpec->TryGetStringField(P.Key,V)||!CleanText(V,256))return Fail(TEXT("Invalid original run/recipe/lineage identity."));G->SetStringField(P.Value,V);}}
+        if(First.RunSpec)
+        {
+            const FJsonObject* Archive=nullptr,*Patch=nullptr;
+            if(!Object(*First.RunSpec,TEXT("archive"),Archive,E)||(Archive&&!Object(*Archive,TEXT("patch"),Patch,E)))return Fail(E);
+            if(Patch){auto Copy=MakeShared<FJsonObject>();Copy->Values=Patch->Values;G->SetObjectField(TEXT("patch"),Copy);}
+        }
         Meta->SetObjectField(TEXT("structuredGrid"),G);TArray<TSharedPtr<FJsonValue>> Notes;for(const TCHAR* T:{TEXT("Original source snapshots imported; no solver execution or numerical validation."),TEXT("Original affine samples retained; explicit crop/stride is a preview, not full numerical output."),TEXT("Derived invalid nodes are unavailable and accompanied by derivative_valid."),TEXT("Unretained source members are explicitly listed in source-manifest.json; unknown normalization is never inferred.")})Notes.Add(MakeShared<FJsonValueString>(T));Meta->SetArrayField(TEXT("limitations"),Notes);
         if(!WriteJSON(Stage.Path/TEXT("recording.json"),Meta,8LL*1024*1024,E))return Fail(E);
         {auto Verified=StudioRecordings::Import(Stage.Path/TEXT("recording.json"),0,C);if(!Verified.Source)return Fail(Verified.Error);} // Release all stage-path readers before rename.

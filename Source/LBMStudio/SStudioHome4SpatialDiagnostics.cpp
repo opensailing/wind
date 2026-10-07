@@ -84,8 +84,10 @@ void SStudioHome4SpatialDiagnostics::Construct(const FArguments& A)
     if(A._View==EStudioHome4SpatialView::All||A._View==EStudioHome4SpatialView::Multidomain)
     {
         Rows->AddSlot().AutoHeight()[Label(TEXT("Original patches and level parameters"),11,Text,true)];
-        Rows->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("Home4SpatialNextPatch")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{const auto E=Session->Evidence();if(E&&!E->Patches.IsEmpty())SelectedPatch=(SelectedPatch+1)%E->Patches.Num();return FReply::Handled();})[Label(TEXT("Choose next original patch"),9)]];
+        Rows->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("Home4SpatialNextPatch")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{const auto E=Session->Evidence();if(E&&!E->Patches.IsEmpty()){SelectedPatch=(SelectedPatch+1)%E->Patches.Num();Session->OpenBoundPatch(E->Patches[SelectedPatch].Id);}return FReply::Handled();})[Label(TEXT("Choose next original patch"),9)]];
         Detail(TEXT("Home4SpatialPatch"),[this]{return PatchText();});
+        Rows->AddSlot().AutoHeight().Padding(0,5)[SNew(SButton).Tag(TEXT("Home4SpatialOpenPatch")).ButtonStyle(&ButtonStyle()).IsEnabled_Lambda([this]{return Patch()&&!Session->IsPatchImporting();})
+            .OnClicked_Lambda([this]{FString Path;if(Patch()&&StudioFileDialog::DataFile(false,TEXT("Choose selected patch recording.json"),{},TEXT("json"),Path))Session->BeginPatchRecording(Patch()->Id,Path);return FReply::Handled();})[Label(TEXT("Open selected patch recording…"),9)]];
         Rows->AddSlot().AutoHeight().Padding(0,7)[SNew(SScrollBox).Orientation(Orient_Horizontal)
             +SScrollBox::Slot()[SNew(SBox).MinDesiredWidth(640)[SAssignNew(LevelRows,SVerticalBox)]]];
         Detail(TEXT("Home4SpatialLevels"),[this]{return LevelText();});

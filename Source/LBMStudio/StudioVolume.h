@@ -25,6 +25,8 @@ struct FStudioVolumeReconstruction
     TArray<uint8> Classification;
     // Present only for original structured samples. Static Classification is topology, never a frame mask.
     TSharedPtr<const FStudioPointStructuredGrid,ESPMode::ThreadSafe> OriginalGrid;
+    EStudioFieldInterpolation Interpolation()const{return OriginalGrid?(OriginalGrid->bPlanar?EStudioFieldInterpolation::SourceSlice:EStudioFieldInterpolation::SourceGrid):EStudioFieldInterpolation::ReconstructedGrid;}
+    FString ReconstructionIdentity()const{return OriginalGrid?FString():MetadataSHA256;}
     FVector Position(int32 Index) const;
     bool Sample(const FVector& SourcePosition, const TArray<double>& OriginalValues, double& Out) const;
     bool IsSolid(const FVector& SourcePosition) const;

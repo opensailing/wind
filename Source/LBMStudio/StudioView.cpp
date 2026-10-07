@@ -40,7 +40,7 @@ static bool FieldDisplayEquals(const FStudioViewSettings& A, const FStudioViewSe
         A.bHome4ObstacleSurface==B.bHome4ObstacleSurface && A.bHome4SdfSurface==B.bHome4SdfSurface && A.bHome4Vorticity==B.bHome4Vorticity &&
         A.Home4InterfaceIsovalue==B.Home4InterfaceIsovalue && A.bMesh==B.bMesh && A.MeshStyle==B.MeshStyle && A.SliceAxis==B.SliceAxis && A.SlicePosition==B.SlicePosition &&
         A.StreamlineDensity==B.StreamlineDensity && A.StreamlineSettings==B.StreamlineSettings && A.VectorScale==B.VectorScale &&
-        A.VectorCount==B.VectorCount && A.bUniformVectors==B.bUniformVectors && A.VolumeOpacity==B.VolumeOpacity &&
+        A.VectorCount==B.VectorCount && A.VectorField==B.VectorField && A.bUniformVectors==B.bUniformVectors && A.VolumeOpacity==B.VolumeOpacity &&
         A.ScalarField==B.ScalarField && A.bSourcePoints==B.bSourcePoints && A.bReconstructedSurface==B.bReconstructedSurface && A.bFocusWingRegion==B.bFocusWingRegion &&
         A.PointSize==B.PointSize && A.ScalarStyles==B.ScalarStyles &&
         A.VolumeClipMinimum==B.VolumeClipMinimum && A.VolumeClipMaximum==B.VolumeClipMaximum &&
@@ -87,6 +87,8 @@ bool StudioView::IsValid(const FStudioInspectionState& S)
     if(!StudioStreamlines::IsValid(V.StreamlineSettings))return false;
     if(V.ScalarField.Len()>128)return false;
     for(TCHAR Ch:V.ScalarField)if(!FChar::IsAlnum(Ch)&&Ch!='_'&&Ch!='-'&&Ch!='.')return false;
+    if(V.VectorField.IsEmpty()||V.VectorField.Len()>128)return false;
+    for(TCHAR Ch:V.VectorField)if(!FChar::IsAlnum(Ch)&&Ch!='_'&&Ch!='-'&&Ch!='.')return false;
     for(int32 A=0;A<3;++A)if(!Range(V.VolumeClipMinimum[A],0,1)||!Range(V.VolumeClipMaximum[A],0,1)||
         V.VolumeClipMinimum[A]>=V.VolumeClipMaximum[A]||!Range(V.VolumeOpacityCurve[A],0,1))return false;
     if(!Range(V.VolumeIsovalue,-1.e20,1.e20)||!Range(V.VolumeStepVoxels,.25,4)||!Range(V.VolumeThresholdMinimum,-1.e20,1.e20)||!Range(V.VolumeThresholdMaximum,-1.e20,1.e20)||

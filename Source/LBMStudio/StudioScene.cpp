@@ -1,4 +1,5 @@
 #include "StudioScene.h"
+#include "StudioSourceVectors.h"
 #include "StudioFlowPresentation.h"
 #include "StudioWorkspace.h"
 #include "StudioPointRecording.h"
@@ -182,6 +183,12 @@ static void PointGeometry(const FRenderRequest& R,const FStudioPointFrame& Frame
     auto Color=[&](int32 I){return StudioColor::Map((*Values)[I],R.ColorMapping);};
     auto Position=[&](int32 I){const auto P=Frame.Geometry->Positions[I];return FVector(P.X,P.Z,P.Y)*100.;};
     const auto Surface=R.Field->Reconstruction();
+    const auto OriginalVolume=R.Field->VolumeReconstruction();TArray<uint8> ScalarMask;
+    if(OriginalVolume&&OriginalVolume->OriginalGrid)
+    {
+        ScalarMask=StudioVolumes::SourceMask(Frame,*OriginalVolume,R.Scalar.Id,false,Out.Error,R.Cancellation,R.VolumeSettings.bHome4AirMask);
+        if(!Out.Error.IsEmpty())return;
+    }
     const bool bSurface=R.bReconstructedSurface&&Surface.IsValid();
     if(bSurface)
     {
@@ -206,6 +213,7 @@ static void PointGeometry(const FRenderRequest& R,const FStudioPointFrame& Frame
         for(int32 I=0;I<Values->Num();I+=PointStride)
         {
             if(R.IsCancelled())return;
+            if(!ScalarMask.IsEmpty()&&ScalarMask[I]!=1)continue;
             const FVector P=Position(I);const auto C=Color(I);
             for(int32 A=0;A<3;++A)
             {
@@ -215,24 +223,29 @@ static void PointGeometry(const FRenderRequest& R,const FStudioPointFrame& Frame
             }
         }
     }
-    const TArray<double>* Components[3]={nullptr,nullptr,nullptr};
-    for(const auto& F:Frame.Descriptor->Fields)
-        if(F.Vector==TEXT("velocity")&&F.Unit==TEXT("m/s"))
-            Components[F.Component==TEXT("x")?0:F.Component==TEXT("y")?1:2]=Frame.FindValues(F.Id);
-    if(R.Vectors&&Components[0]&&Components[1]&&(Frame.Descriptor->SpatialDimensions==2||Components[2]))
+    FStudioSourceVectorRows VectorRows;
+    const auto Rows=StudioFieldDisplay::VectorRows(Values->Num(),R.VolumeSettings.VectorCount);
+    if(R.Vectors)
+    {
+        Out.Vectors.Field=R.VolumeSettings.VectorField;Out.Vectors.Unit=TEXT("unavailable");
+        for(const auto& Group:StudioSourceVectors::Catalogue(*Frame.Descriptor))if(Group.Id==Out.Vectors.Field){Out.Vectors.Unit=Group.Unit;break;}
+    }
+    if(R.Vectors&&StudioSourceVectors::Read(*R.Field,R.VolumeSettings.VectorField,VectorRows,R.Cancellation,Out.Vectors.UnavailableReason,Rows))
     {
         // Deterministic decimation of original point rows. No resampled vector grid.
-        const auto Rows=StudioFieldDisplay::VectorRows(Values->Num(),R.VolumeSettings.VectorCount);
         TArray<FStudioVectorSample> Samples;Samples.Reserve(Rows.Num());
-        for(int32 I:Rows)
+        for(int32 Selected=0;Selected<Rows.Num();++Selected)
         {
             if(R.IsCancelled())return;
-            const FVector V((*Components[0])[I],Components[2]?(*Components[2])[I]:0,(*Components[1])[I]);
+            const int32 I=Rows[Selected];
+            if((!ScalarMask.IsEmpty()&&ScalarMask[I]!=1)||!VectorRows.Valid[Selected])continue;
+            const FVector V=VectorRows.Values[Selected];
             if(R.Bounds.IsInsideOrOn(Position(I)/100.))Samples.Add({Position(I)/100.,V,Color(I),true});
         }
         TArray<FStudioVectorGlyph> Glyphs;
         if(!StudioFieldDisplay::VectorGlyphs(Samples,Extent/100.*.035*R.VectorScale,
             R.VolumeSettings.bUniformVectors,Glyphs,Out.Vectors,R.Cancellation))return;
+        Out.Vectors.Field=R.VolumeSettings.VectorField;Out.Vectors.Unit=VectorRows.Unit;
         AppendVectorGlyphs(Glyphs,Extent/100.,Out,R.Cancellation);
     }
 }
@@ -265,7 +278,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
     {
         auto PointRequest=R;
         if(MeshOnly){PointRequest.bSourcePoints=false;PointRequest.bReconstructedSurface=false;}
-        if(Field.VolumeReconstruction()&&(R.Volume||R.VolumeSettings.bVolumeIsosurface))
+        if(Field.VolumeReconstruction()&&!(Field.VolumeReconstruction()->OriginalGrid&&Field.VolumeReconstruction()->OriginalGrid->bPlanar)&&(R.Volume||R.VolumeSettings.bVolumeIsosurface))
         {
             auto Grid=StudioVolumes::Build(*Points,*Field.VolumeReconstruction(),R.Scalar.Id,R.ColorMapping,R.Cancellation,R.VolumeSettings.bHome4AirMask);
             if(R.VolumeSettings.bHome4Vorticity&&R.Scalar.Id==TEXT("q")&&Field.VolumeReconstruction()->OriginalGrid&&Grid.Error.IsEmpty())
@@ -353,7 +366,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                 Out->Sections[0].Triangle(T,U,FVector(V->CylinderCenter.X,V->SourceBounds.Max.Z,V->CylinderCenter.Y)*100.,SolidColor);
             }
         }
-        if(const auto V=Field.VolumeReconstruction();V&&V->OriginalGrid)
+        if(const auto V=Field.VolumeReconstruction();V&&V->OriginalGrid&&!V->OriginalGrid->bPlanar)
         {
             struct FSourceLayer{bool Enabled;const TCHAR* Id;double Value;int32 Section;FLinearColor Color;};
             const FSourceLayer Layers[]={
@@ -410,7 +423,11 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
             SliceBounds=FBox(SceneGrid.Min+SceneGrid.GetSize()*R.VolumeSettings.VolumeClipMinimum,
                 SceneGrid.Min+SceneGrid.GetSize()*R.VolumeSettings.VolumeClipMaximum);
         }
-        if(VolumeGrid&&R.CutPlane&&R.SlicePosition>=SliceBounds.Min[R.SliceAxis]&&R.SlicePosition<=SliceBounds.Max[R.SliceAxis])
+        const bool NativeSlice=VolumeGrid&&VolumeGrid->OriginalGrid&&VolumeGrid->OriginalGrid->bPlanar;
+        const int32 SourcePlane=NativeSlice?VolumeGrid->OriginalGrid->PlaneAxis():INDEX_NONE;
+        const int32 SliceAxis=NativeSlice?(SourcePlane==1?2:SourcePlane==2?1:0):R.SliceAxis;
+        const double SlicePosition=NativeSlice?SliceBounds.Min[SliceAxis]:R.SlicePosition;
+        if(VolumeGrid&&(NativeSlice||R.CutPlane)&&SlicePosition>=SliceBounds.Min[SliceAxis]&&SlicePosition<=SliceBounds.Max[SliceAxis])
         {
             // A derived inspection slice samples the same immutable 3D field.
             // Unsupported cells are omitted, never bridged with zero-valued data.
@@ -421,7 +438,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                 if(Frame)OriginalMask=StudioVolumes::SourceMask(*Frame,*VolumeGrid,R.Scalar.Id,false,MaskError,R.Cancellation,R.VolumeSettings.bHome4AirMask);
                 if(!Frame||!MaskError.IsEmpty()||OriginalMask.IsEmpty()){Out->Error=MaskError.IsEmpty()?TEXT("Original source masks are unavailable."):MaskError;return Out;}
             }
-            const int32 Axis=R.SliceAxis,A=(Axis+1)%3,B=(Axis+2)%3;
+            const int32 Axis=SliceAxis,A=(Axis+1)%3,B=(Axis+2)%3;
             const FIntVector SceneDimensions(VolumeGrid->Dimensions.X,VolumeGrid->Dimensions.Z,VolumeGrid->Dimensions.Y);
             const int32 NX=SceneDimensions[A]-1,NY=SceneDimensions[B]-1,Width=512,Height=FMath::DivideAndRoundUp((NX+1)*(NY+1),Width);
             const FVector SliceSize=SliceBounds.GetSize();
@@ -432,7 +449,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
             {
                 if(R.IsCancelled())return {};
                 const int32 Index=J*(NX+1)+I;FVector P=SliceBounds.Min;
-                P[Axis]=R.SlicePosition;P[A]+=SliceSize[A]*I/NX;P[B]+=SliceSize[B]*J/NY;
+                P[Axis]=SlicePosition;P[A]+=SliceSize[A]*I/NX;P[B]+=SliceSize[B]*J/NY;
                 double Scalar;
                 if(VolumeGrid->OriginalGrid){const FVector Source(P.X,P.Z,P.Y);Valid[Index]=StudioVolumes::SampleSource(*Points,*VolumeGrid,OriginalMask,R.Scalar.Id,Source,Scalar);}
                 else Valid[Index]=Field.SampleScalar(P,R.Scalar.Id,Scalar);
@@ -805,6 +822,13 @@ void AStudioScene::ResizeViewport(int32 W,int32 H,bool bExact)
 void AStudioScene::RequestGeometry()
 {
     if(!Model||bBuilding||PendingPreview.IsValid()) return;
+    if(Model->Solver->FrameCount()==0)
+    {
+        Mesh->ClearAllMeshSections();VolumeComponent->ClearVolume();RenderedField.Reset();CapturedField.Reset();
+        RenderedDataset.Empty();PresentedDataset.Empty();RenderedTitle.Empty();
+        RenderedRevision=Model->Revision;RenderedIntentRevision=Model->RenderIntentRevision;
+        RenderedProjectId=Model->Project.Id;RenderedSolver=Model->Solver;bCaptureDirty=true;return;
+    }
     const auto& M=*Model; FRenderRequest R{M.DisplayFrame().Time,M.SlicePosition,M.StreamlineDensity,M.VectorScale,M.VolumeOpacity,M.SliceAxis,M.bStreamlines,M.bVectors,M.bCutPlane,M.bVolume,M.bMesh,nullptr};
     R.Bounds=M.Solver->Descriptor().DisplayBounds;
     R.Scalar=M.ActiveScalar();R.ColorMapping=M.ActiveColorMapping();R.bSourcePoints=M.bSourcePoints;R.PointSize=M.PointSize;
@@ -1304,7 +1328,7 @@ void AStudioGameMode::BeginPlay()
     Super::BeginPlay();
     const bool bAutomation=FParse::Param(FCommandLine::Get(),TEXT("StudioAutomation"));
     const auto M=MakeShared<FStudioModel>(bAutomation?FPaths::ProjectSavedDir()/TEXT("Automation/Session"):FString());
-    if(!bAutomation){M->OpenSession();if(M->ProjectPath.IsEmpty()&&!M->IsProjectOpenPending()&&M->PendingRecovery.IsEmpty())M->Workspace=EStudioWorkspace::Validation;}
+    if(!bAutomation){M->OpenSession();if(M->ProjectPath.IsEmpty()&&!M->IsProjectOpenPending()&&M->PendingRecovery.IsEmpty())M->BeginHome4Authoring();}
 #if WITH_DEV_AUTOMATION_TESTS
     // Native relaunch checks reuse only the isolated acceptance session.
     else if(FParse::Param(FCommandLine::Get(),TEXT("StudioRestoreAutomationSession")))M->OpenSession();

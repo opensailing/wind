@@ -22,7 +22,7 @@ namespace StudioPointPrivate
 std::atomic<int32> LiveReaders{0}, LiveSnapshots{0}, LiveArrays{0};
 std::atomic<int64> LiveAllocatedValueBytes{0};
 constexpr int64 MaxMetadataBytes = 8LL * 1024 * 1024;
-constexpr int32 MaxPoints = 1000000, MaxFrames = 100000, MaxFields = 32;
+constexpr int32 MaxPoints = 1000000, MaxFrames = 100000, MaxFields = 128;
 
 bool Cancelled(const FStudioLoadCancellation& C) { return C && C->load(std::memory_order_relaxed); }
 bool Clean(const FString& S, int32 Limit)
@@ -122,10 +122,10 @@ bool ParseGrid(const FJsonObject& O,FStudioPointRecordingDescriptor& D)
     auto S=MakeShared<FStudioPointStructuredGrid,ESPMode::ThreadSafe>();
     int64 Version,Stride,Frames;FString Kind,Layout;
     const TSharedPtr<FJsonObject>* Units=nullptr;const TSharedPtr<FJsonObject>* Reference=nullptr;const TSharedPtr<FJsonObject>* Manifest=nullptr;
-    if(!Integer(**G,TEXT("version"),1,1,Version)||!String(**G,TEXT("kind"),Kind)||Kind!=TEXT("home4_structured_source")||
+    if(!Integer(**G,TEXT("version"),1,1,Version)||!String(**G,TEXT("kind"),Kind)||(Kind!=TEXT("home4_structured_source")&&Kind!=TEXT("home4_structured_slice"))||
         !String(**G,TEXT("layout"),Layout)||Layout!=TEXT("x_fastest_node_grid")||
-        !GridIntegers(**G,TEXT("dimensionsXYZ"),2,512,S->Dimensions)||
-        !GridIntegers(**G,TEXT("originalDimensionsXYZ"),2,16000000,S->OriginalDimensions)||
+        !GridIntegers(**G,TEXT("dimensionsXYZ"),1,512,S->Dimensions)||
+        !GridIntegers(**G,TEXT("originalDimensionsXYZ"),1,16000000,S->OriginalDimensions)||
         !GridIntegers(**G,TEXT("cropMinimumXYZ"),0,16000000,S->CropMinimum)||
         !GridIntegers(**G,TEXT("cropMaximumXYZ"),1,16000000,S->CropMaximum)||
         !Integer(**G,TEXT("previewStride"),1,16000000,Stride)||
@@ -150,10 +150,21 @@ bool ParseGrid(const FJsonObject& O,FStudioPointRecordingDescriptor& D)
         !GridOptionalPositive(**Reference,TEXT("speedCellsPerStep"),S->Reference.SpeedCellsPerStep)||
         !GridOptionalPositive(**Reference,TEXT("timeSteps"),S->Reference.TimeSteps)||
         !GridOptionalPositive(**Reference,TEXT("densityLattice"),S->ReferenceDensityLattice))return false;
+    S->bPlanar=Kind==TEXT("home4_structured_slice");int32 Singleton=0;
+    for(int32 A=0;A<3;++A){Singleton+=S->Dimensions[A]==1;if((S->Dimensions[A]==1)!=(S->OriginalDimensions[A]==1))return false;}
+    if(Singleton!=(S->bPlanar?1:0))return false;
     for(const auto& Identity: {TPair<const TCHAR*,FString*>(TEXT("sourceRunId"),&S->SourceRunId),
         TPair<const TCHAR*,FString*>(TEXT("recipeId"),&S->RecipeId),TPair<const TCHAR*,FString*>(TEXT("lineageId"),&S->LineageId)})
         if((*G)->HasField(Identity.Key)&&(!String(**G,Identity.Key,*Identity.Value,256)))return false;
-    if(!TArray<FString>{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx")}.Contains(S->AxisOrder)||
+    if((*G)->HasField(TEXT("patch")))
+    {
+        const TSharedPtr<FJsonObject>* P=nullptr;int64 Level;
+        if(!(*G)->TryGetObjectField(TEXT("patch"),P)||!String(**P,TEXT("id"),S->PatchId,256)||!Integer(**P,TEXT("level"),0,32,Level)||
+            !String(**P,TEXT("spatialSourceId"),S->SpatialSourceId,256))return false;
+        S->PatchLevel=int32(Level);
+        if(!String(**P,TEXT("spatialSourceSHA256"),S->SpatialSourceSHA256,64)||!HashValid(S->SpatialSourceSHA256))return false;
+    }
+    if(!TArray<FString>{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx"),TEXT("xy"),TEXT("xz"),TEXT("yx"),TEXT("yz"),TEXT("zx"),TEXT("zy")}.Contains(S->AxisOrder)||
         (S->MetadataOrder!=TEXT("xyz")&&S->MetadataOrder!=TEXT("array"))||
         (S->CoordinateUnits!=TEXT("physical")&&S->CoordinateUnits!=TEXT("lattice"))||
         (S->VelocityUnits!=TEXT("physical")&&S->VelocityUnits!=TEXT("lattice"))||
@@ -182,7 +193,8 @@ bool ParseGrid(const FJsonObject& O,FStudioPointRecordingDescriptor& D)
     for(const FString& Id:{S->SolidSupportField,S->LiquidSupportField})
     {const auto* F=D.FindField(Id);if(!F||F->Origin!=TEXT("derived")||F->Unit!=TEXT("1")||F->Minimum<0||F->Maximum>1)return false;}
     for(const auto& F:D.Fields)
-        if(!F.ValidityMask.IsEmpty()&&F.ValidityMask!=S->DerivativeValidityField)return false;
+        if(!F.ValidityMask.IsEmpty())
+        {const auto* Mask=D.FindField(F.ValidityMask);if(!Mask||Mask->Id==F.Id||Mask->Unit!=TEXT("1")||Mask->Minimum<0||Mask->Maximum>1||!Mask->ValidityMask.IsEmpty())return false;}
     if(S->Units.DtSeconds.IsSet())for(const auto& Frame:D.Frames)
     {
         const double Time=Frame.Index*S->Units.DtSeconds.GetValue()+S->TimeOriginSeconds;
@@ -411,7 +423,7 @@ FStudioHome4Spec FStudioPointStructuredGrid::UnitContext() const
 {FStudioHome4Spec S;S.Units=Units;S.Reference=Reference;S.Fluids.RhoHeavy=ReferenceDensityLattice;S.RecipeId=RecipeId;S.LineageId=LineageId;return S;}
 bool FStudioPointStructuredGrid::OriginalIndex(int32 Row,FIntVector& Out) const
 {
-    if(Row<0||Dimensions.GetMin()<2||int64(Row)>=int64(Dimensions.X)*Dimensions.Y*Dimensions.Z)return false;
+    if(Row<0||Dimensions.GetMin()<(bPlanar?1:2)||int64(Row)>=int64(Dimensions.X)*Dimensions.Y*Dimensions.Z)return false;
     Out=CropMinimum+FIntVector(Row%Dimensions.X,(Row/Dimensions.X)%Dimensions.Y,Row/(Dimensions.X*Dimensions.Y))*PreviewStride;
     return true;
 }
@@ -460,6 +472,49 @@ FStudioPointOpenResult StudioPointRecordings::Open(const FString& Path, const FS
         FString Hash;
         if(!SmallFile(Data->Folder/S->SourceManifestPath,MaxMetadataBytes,Bytes,Cancellation)||!Digest(Bytes.GetData(),Bytes.Num(),Hash)||Hash!=S->SourceManifestSHA256)
             return Fail(TEXT("Original snapshot provenance manifest is missing, changed or too large."));
+        // Parse only the already hash-verified bounded manifest bytes. Original
+        // optional run metadata stays separate from editable case requests.
+        FStudioRecordedRunProvenance P{S->SourceRunId,S->RecipeId,S->LineageId,S->SourceManifestPath,S->SourceManifestSHA256};
+        FString ManifestText;FFileHelper::BufferToString(ManifestText,Bytes.GetData(),Bytes.Num());
+        TSharedPtr<FJsonObject> Manifest;
+        if(!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(ManifestText),Manifest)||!Manifest)
+            return Fail(TEXT("Original snapshot manifest is not valid JSON."));
+        const TArray<TSharedPtr<FJsonValue>>* Snapshots=nullptr;
+        if(Manifest->TryGetArrayField(TEXT("snapshots"),Snapshots)&&Snapshots)
+        {
+            int64 PathBytes=0;
+            for(const auto& Value:*Snapshots)
+            {
+                if(Cancelled(Cancellation))return Fail(TEXT("Original provenance read cancelled."));
+                const TSharedPtr<FJsonObject>* Snapshot=nullptr;if(!Value||!Value->TryGetObject(Snapshot)||!Snapshot||!Snapshot->IsValid())continue;
+                FString OriginalPath;if((*Snapshot)->TryGetStringField(TEXT("source"),OriginalPath)&&Clean(OriginalPath,4096)&&P.OriginalArchives.Num()<4096&&PathBytes+OriginalPath.Len()*sizeof(TCHAR)<=1024*1024)
+                {if(!P.OriginalArchives.Contains(OriginalPath)){P.OriginalArchives.Add(OriginalPath);PathBytes+=OriginalPath.Len()*sizeof(TCHAR);}}
+            }
+            if(!Snapshots->IsEmpty())
+            {
+                const TSharedPtr<FJsonObject>* Snapshot=nullptr,*Spec=nullptr;
+                if((*Snapshots)[0]&&(*Snapshots)[0]->TryGetObject(Snapshot)&&Snapshot&&Snapshot->IsValid()&&(*Snapshot)->TryGetObjectField(TEXT("runSpec"),Spec)&&Spec&&Spec->IsValid())
+                {
+                    auto Text=[&](const FJsonObject& O,const TCHAR* K,FString& Out,int32 Limit=4096)
+                    {FString V;if(O.TryGetStringField(K,V)&&Clean(V,Limit))Out=V;};
+                    Text(**Spec,TEXT("tag"),P.OriginalTag);Text(**Spec,TEXT("effectiveBackend"),P.OriginalBackend);
+                    const TSharedPtr<FJsonObject>* Run=nullptr;
+                    if((*Spec)->TryGetObjectField(TEXT("run"),Run)&&Run&&Run->IsValid())
+                    {if(P.OriginalTag.IsEmpty())Text(**Run,TEXT("tag"),P.OriginalTag);if(P.OriginalBackend.IsEmpty())Text(**Run,TEXT("effectiveBackend"),P.OriginalBackend);}
+                    Text(**Spec,TEXT("parentRunId"),P.ParentRunId,128);Text(**Spec,TEXT("parentSpecSHA256"),P.ParentSpecSHA256,64);
+                    if(!HashValid(P.ParentSpecSHA256))P.ParentSpecSHA256.Reset();
+                    double Rate=0;if((*Spec)->TryGetNumberField(TEXT("measuredMLUPS"),Rate)&&FMath::IsFinite(Rate)&&Rate>0&&Rate<=1.e12)
+                    {P.MeasuredMLUPS=Rate;P.MeasurementSource=S->SourceManifestPath;P.MeasurementSHA256=S->SourceManifestSHA256;}
+                    Text(**Spec,TEXT("gateStatus"),P.GateStatus);if(!P.GateStatus.IsEmpty())P.GateSourceSHA256=S->SourceManifestSHA256;
+                    FStudioHome4Spec Typed;FString SpecError;
+                    const TSharedPtr<FJsonObject>* TypedJSON=nullptr;
+                    const auto Candidate=(*Spec)->TryGetObjectField(TEXT("frontendSpec"),TypedJSON)&&TypedJSON?*TypedJSON:*Spec;
+                    if(StudioHome4Config::FromJSON(Candidate,Typed,SpecError)&&Typed.RecipeId==P.RecipeId)P.OriginalRunSpec=MoveTemp(Typed);
+                }
+            }
+        }
+        auto EnrichedGrid=MakeShared<FStudioPointStructuredGrid,ESPMode::ThreadSafe>(*S);
+        EnrichedGrid->OriginalProvenance=MoveTemp(P);Data->Meta->StructuredGrid=EnrichedGrid;
         Bytes.Empty();
     }
     // Includes 3 doubles + int64 per point and a sorted ID copy used only during validation.
@@ -567,7 +622,9 @@ FStudioPointReadResult FStudioPointRecording::ReadFrame(int32 Ordinal, const TAr
         FieldIds.AddUnique(S->PhaseField);FieldIds.AddUnique(S->SolidField);
         FieldIds.AddUnique(S->SolidSupportField);FieldIds.AddUnique(S->LiquidSupportField);
         if(!S->DerivativeValidityField.IsEmpty())FieldIds.AddUnique(S->DerivativeValidityField);
+        for(const auto& Id:RequestedIds)if(const auto* F=Data->Meta->FindField(Id);F&&!F->ValidityMask.IsEmpty())FieldIds.AddUnique(F->ValidityMask);
     }
+    TSet<FString> ValidityFields;for(const auto& Field:Data->Meta->Fields)if(!Field.ValidityMask.IsEmpty())ValidityFields.Add(Field.ValidityMask);
     if (int64(FieldIds.Num()) * Data->ArrayBytes() > Data->Options.LiveArrayBytes)
         return Fail(TEXT("Requested fields exceed the live scalar-array budget."));
     // A cancelled queued request never starts another allocation or disk read.
@@ -604,7 +661,7 @@ FStudioPointReadResult FStudioPointRecording::ReadFrame(int32 Ordinal, const TAr
             if (!FMath::IsFinite(V) || V < Field.Minimum || V > Field.Maximum)
                 return Fail(TEXT("Source field contains a nonfinite value or exceeds its declared range."));
             if(const auto S=Data->Meta->StructuredGrid)
-                if((Id==S->SolidField||Id==S->DerivativeValidityField||Id==S->SolidSupportField||Id==S->LiquidSupportField)&&V!=0&&V!=1)
+                if((Id==S->SolidField||Id==S->DerivativeValidityField||Id==S->SolidSupportField||Id==S->LiquidSupportField||ValidityFields.Contains(Id))&&V!=0&&V!=1)
                     return Fail(TEXT("Original solid and derivative-valid masks require binary values."));
         }
         Frame->Fields.Add(Id, Values);

@@ -125,7 +125,10 @@ FString StudioSnapshot::Metadata(const FStudioSnapshot& S)
     auto Vectors=MakeShared<FJsonObject>();
     Vectors->SetNumberField(TEXT("sample_count"),S.Vectors.SampleCount);
     Vectors->SetNumberField(TEXT("glyph_count"),S.Vectors.GlyphCount);
-    Vectors->SetNumberField(TEXT("sampled_maximum_speed_m_per_s"),S.Vectors.MaximumSpeed);
+    Vectors->SetStringField(TEXT("field"),S.Vectors.Field);Vectors->SetStringField(TEXT("unit"),S.Vectors.Unit);
+    if(!S.Vectors.UnavailableReason.IsEmpty())Vectors->SetStringField(TEXT("unavailable_reason"),S.Vectors.UnavailableReason);
+    Vectors->SetNumberField(TEXT("sampled_maximum_magnitude"),S.Vectors.MaximumSpeed);
+    if(S.Vectors.Field==TEXT("velocity")&&S.Vectors.Unit==TEXT("m/s"))Vectors->SetNumberField(TEXT("sampled_maximum_speed_m_per_s"),S.Vectors.MaximumSpeed);
     Vectors->SetNumberField(TEXT("reference_length_m"),S.Vectors.ReferenceLengthMeters);
     Vectors->SetBoolField(TEXT("uniform_length"),S.Vectors.bUniformLength);
     Root->SetObjectField(TEXT("vector_display"),Vectors);

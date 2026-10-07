@@ -21,6 +21,8 @@ struct FStudioVectorSummary
     double MaximumSpeed = 0;
     double ReferenceLengthMeters = 0;
     bool bUniformLength = false;
+    FString Field = TEXT("velocity"),Unit = TEXT("m/s");
+    FString UnavailableReason;
 };
 
 struct FStudioVectorSample

@@ -33,7 +33,7 @@ bool IsValid(const FStudioSavedFieldView& S)
         (!I.PayloadSHA256.IsEmpty()&&!HashValid(I.PayloadSHA256))||(!I.ReconstructionSHA256.IsEmpty()&&!HashValid(I.ReconstructionSHA256))||
         I.Ordinal<0||I.Ordinal>=StudioComparison::MaxTimelineFrames||I.Frame.Index<0||!FMath::IsFinite(I.Frame.Time)||I.Frame.Time<0||
         (I.SpatialDimensions!=2&&I.SpatialDimensions!=3)||I.SourceOffset.ContainsNaN()||I.SourceOffset.GetAbsMax()>1.e8||
-        uint8(I.Interpolation)>uint8(EStudioFieldInterpolation::ReconstructedGrid))return false;
+        uint8(I.Interpolation)>uint8(EStudioFieldInterpolation::SourceSlice))return false;
     const bool Reconstructed=I.Interpolation==EStudioFieldInterpolation::ReconstructedTriangles||I.Interpolation==EStudioFieldInterpolation::ReconstructedGrid;
     if(Reconstructed!=!I.ReconstructionSHA256.IsEmpty())return false;
     if(S.Reference.IsSet()&&!ReferenceMatches(*S.Reference,I))return false;
@@ -89,7 +89,7 @@ bool ReadInto(const TSharedPtr<FJsonObject>& O,FStudioSavedFieldView& S)
         !O->TryGetStringField(TEXT("metadataSHA256"),I.MetadataSHA256)||!O->TryGetStringField(TEXT("payloadSHA256"),I.PayloadSHA256)||
         !O->TryGetStringField(TEXT("reconstructionSHA256"),I.ReconstructionSHA256)||!Integer(O,TEXT("ordinal"),I.Ordinal,StudioComparison::MaxTimelineFrames-1)||
         !Integer(O,TEXT("step"),I.Frame.Index,MAX_int32)||!O->TryGetNumberField(TEXT("timeSeconds"),I.Frame.Time)||
-        !Integer(O,TEXT("dimensions"),I.SpatialDimensions,3)||!Integer(O,TEXT("interpolation"),Interpolation,3)||
+        !Integer(O,TEXT("dimensions"),I.SpatialDimensions,3)||!Integer(O,TEXT("interpolation"),Interpolation,5)||
         !O->TryGetArrayField(TEXT("sourceOffsetMeters"),Offset)||Offset->Num()!=3||!O->TryGetObjectField(TEXT("camera"),Camera)||
         !StudioProjectIO::CameraFromJSON(*Camera,S.Camera))return false;
     I.Interpolation=EStudioFieldInterpolation(Interpolation);

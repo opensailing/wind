@@ -56,7 +56,7 @@ public:
         FStudioFieldIdentity I;I.Dataset=Frame->Descriptor->Id;I.MetadataSHA256=Frame->Descriptor->MetadataSHA256;
         I.Ordinal=Frame->Ordinal;I.Frame=Frame->Descriptor->Frames[I.Ordinal];I.SpatialDimensions=Frame->Descriptor->SpatialDimensions;
         if(Surface){I.Interpolation=EStudioFieldInterpolation::ReconstructedTriangles;I.ReconstructionSHA256=Surface->MetadataSHA256;}
-        if(Volume){I.Interpolation=EStudioFieldInterpolation::ReconstructedGrid;I.ReconstructionSHA256=Volume->MetadataSHA256;}
+        if(Volume){I.Interpolation=Volume->Interpolation();I.ReconstructionSHA256=Volume->ReconstructionIdentity();}
         return I;
     }
     TOptional<FStudioScalarDescriptor> Scalar(const FString& Id) const override
@@ -183,6 +183,12 @@ FPointRecordedSolver::FPointRecordedSolver(TSharedRef<FStudioPointRecording,ESPM
         TEXT("Original structured grid. Source XYZ nodes, physical origin/spacing and source unit map; frame-specific solid/phase masks. Trilinear probes; raw points and values retained."):
         TEXT("Original 3D source values on an explicitly reconstructed display grid. Probes use derived grid interpolation; raw CSV retains the original points.");
     Meta.DisplayBounds=FBox(DisplayPoint(D.SourceBounds.Min),DisplayPoint(D.SourceBounds.Max));
+    if(Volume&&Volume->OriginalGrid&&Volume->OriginalGrid->bPlanar)
+    {
+        Meta.FieldNote=TEXT("Original source slice in its XYZ plane; bilinear interpolation only on that plane. No volume or out-of-plane derivatives are inferred.");
+        const int32 SourceAxis=Volume->OriginalGrid->PlaneAxis(),Axis=SourceAxis==1?2:SourceAxis==2?1:0;
+        const double Pad=FMath::Max(Meta.DisplayBounds.GetSize().GetMax()*.02,.00001);Meta.DisplayBounds.Min[Axis]-=Pad;Meta.DisplayBounds.Max[Axis]+=Pad;
+    }
     if(D.SpatialDimensions==2)
     {
         const double Depth=FMath::Max(Meta.DisplayBounds.GetSize().GetMax()*.2,.00001);

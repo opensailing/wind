@@ -260,7 +260,7 @@ public:
     /** Open an exact zero-based recording ordinal asynchronously. Invalid or
      * unreadable frames never replace the current source, camera or case. */
     bool RequestRecording(const FString& Id,int32 Ordinal=0);
-    bool RequestExternalRecording(const FString& Path);
+    bool RequestExternalRecording(const FString& Path,const FString& ExpectedMetadata=FString());
     bool RequestRecordingRelink(const FString& Id,const FString& Path);
     bool RequestReconstruction(const FString& Path, bool bRelocate = false);
     bool RemoveReconstruction();
@@ -333,6 +333,7 @@ public:
     bool HasUnsavedChanges() const;
     void AcceptLoadedView() { SavedSnapshot=StudioProjectIO::Serialize(SnapshotProject()); bDirty=false; }
     void NewProject(const FString& Name);
+    void BeginHome4Authoring();
     void OpenSession();
     void SaveSession();
     /** Installed histories are selected explicitly and remain independent of spatial recordings. */
@@ -559,7 +560,7 @@ private:
     bool bRelinkingRecording = false;
     enum class ERecordingChange { Select, Import, Relink, ImportSurface, RelinkSurface, RemoveSurface };
     ERecordingChange RecordingChange=ERecordingChange::Select;
-    bool StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal=0);
+    bool StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal=0,const FString& ExpectedMetadata=FString());
     void PollRecording();
     TFuture<FStudioProjectLoadResult> PendingProjectOpen;
     FStudioLoadCancellation ProjectLoadCancellation;

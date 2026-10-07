@@ -74,6 +74,10 @@ bool FStudioModel::RequestProjectOpen(const FString& Path,const FString& Replace
                 TEXT("Opened with a verified recording location. Save the project to keep the new path.");
         }
         Stage->store(EStudioProjectLoadStage::Recording);
+        if(Result.Project.Dataset.IsEmpty()&&Result.Project.Recordings.IsEmpty())
+        {
+            Result.Source=StudioRecordings::Empty();Stage->store(EStudioProjectLoadStage::Ready);return Result;
+        }
         auto Recording=StudioRecordings::Open(Result.Project.Dataset,Result.Project.Recordings,
             Result.Project.SelectedFrame,Cancel);
         if(Cancel->load()) return Result;

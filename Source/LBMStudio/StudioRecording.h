@@ -19,7 +19,7 @@ struct FStudioScalarDescriptor
     TOptional<double> DefaultDisplayMinimum, DefaultDisplayMaximum;
 };
 
-enum class EStudioFieldInterpolation : uint8 { None, SourceTriangles, ReconstructedTriangles, ReconstructedGrid };
+enum class EStudioFieldInterpolation : uint8 { None, SourceTriangles, ReconstructedTriangles, ReconstructedGrid, SourceGrid, SourceSlice };
 
 /** Identity is carried by the immutable field itself, not a mutable playback
  * cursor or a caller-supplied label. Used by samples and frozen exports. */
@@ -94,6 +94,8 @@ struct FStudioRecordingLoadResult
 };
 namespace StudioRecordings
 {
+    /** Authoring only: zero original frames, no samples and no source identity. */
+    TSharedRef<IStudioSolver,ESPMode::ThreadSafe> Empty();
     FStudioRecordingLiveStats LiveStats();
     TArray<FStudioRecordingEntry> Installed();
     FString PathForId(const FString& Id);

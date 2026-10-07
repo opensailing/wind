@@ -31,6 +31,7 @@ struct FStudioHome4ArchiveInspection
     TArray<FStudioHome4ArchiveMember> Members;
     TSharedPtr<FJsonObject> OriginalRunSpec;
     FString Error;
+    TOptional<int32> OriginalStep;
     bool bCancelled=false;
 };
 enum class EStudioHome4ArchiveOutput:uint8 { Recording, VTI };

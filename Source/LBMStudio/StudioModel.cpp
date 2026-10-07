@@ -177,6 +177,16 @@ void FStudioModel::NewProject(const FString& Name)
     static_cast<FStudioViewSettings&>(*this)=Project.View;
     ProjectPath.Empty(); Reset(); InitializeNewFlowView();SavedSnapshot.Empty(); bDirty=true; Notice=TEXT("New project using the published airfoil recording.");
 }
+void FStudioModel::BeginHome4Authoring()
+{
+    if(!CanReplaceProject())return;
+    RecordingRepair.Reset();CancelProjectOpen(false);CancelRecording();UseRecording(StudioRecordings::Empty());
+    Project=FStudioProject();Project.Name=TEXT("New HOME4 project");Project.Dataset.Empty();Project.Runs.Reset();Project.Recordings.Reset();
+    ResetJobSession();ClearCaseHistory();ClearViewHistory();static_cast<FStudioViewSettings&>(*this)=Project.View;
+    ProjectPath.Empty();Reset();Workspace=EStudioWorkspace::Validation;
+    SavedSnapshot=StudioProjectIO::Serialize(SnapshotProject());bDirty=false;
+    Notice=TEXT("Choose a recipe to create a HOME4 project. Original results can be attached later.");
+}
 void FStudioModel::InitializeNewFlowView()
 {
     NewFlowViewCamera.Reset();
@@ -552,7 +562,7 @@ bool FStudioModel::CreateProject(const FString& Path,const FString& Name,const F
 {
     if(!CanReplaceProject())return false;
     FStudioProject Candidate; Candidate.Name=Name.TrimStartAndEnd(); FString Error;
-    if(Home4Spec){Candidate.Draft.Home4=*Home4Spec;Candidate.Draft.Name=Candidate.Name;}
+    if(Home4Spec){Candidate.Draft.Home4=*Home4Spec;Candidate.Draft.Name=Candidate.Name;Candidate.Dataset.Empty();Candidate.Runs.Reset();Candidate.Recordings.Reset();}
     const auto Source=PrepareRecording(Candidate,0); if(!Source) return false;
     // Commit the file before replacing any live state, including unsaved work.
     if(!StudioProjectIO::Save(Path,Candidate,Error)) { Notice=Error; return false; }
@@ -634,6 +644,7 @@ bool FStudioModel::SetProjectFavorite(const FString& Path,bool bFavorite)
 
 TSharedPtr<IStudioSolver,ESPMode::ThreadSafe> FStudioModel::PrepareRecording(const FStudioProject& Candidate,int32 Frame)
 {
+    if(Candidate.Dataset.IsEmpty()&&Candidate.Recordings.IsEmpty())return StudioRecordings::Empty();
     // Interactive opens run the identical verifier on a worker. Reusing an ID
     // alone would bypass a changed file or a different saved content hash.
     auto Result=StudioRecordings::Open(Candidate.Dataset,Candidate.Recordings,Frame,{});
@@ -676,9 +687,9 @@ bool FStudioModel::RequestRecording(const FString& Id,int32 Ordinal)
 {
     return StartRecordingRequest(Id,FString(),ERecordingChange::Select,Ordinal);
 }
-bool FStudioModel::RequestExternalRecording(const FString& Path)
+bool FStudioModel::RequestExternalRecording(const FString& Path,const FString& ExpectedMetadata)
 {
-    return StartRecordingRequest(FString(),Path,ERecordingChange::Import);
+    return StartRecordingRequest(FString(),Path,ERecordingChange::Import,0,ExpectedMetadata);
 }
 bool FStudioModel::RequestRecordingRelink(const FString& Id,const FString& Path)
 {
@@ -692,7 +703,7 @@ bool FStudioModel::RequestReconstruction(const FString& Path,bool bRelocate)
 }
 bool FStudioModel::RemoveReconstruction()
 {return StartRecordingRequest(Project.Dataset,FString(),ERecordingChange::RemoveSurface);}
-bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal)
+bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,ERecordingChange Change,int32 Ordinal,const FString& ExpectedMetadata)
 {
     if(bSnapshotView){Notice=TEXT("Snapshot inspection views retain their original source.");return false;}
     const bool bImport=Change==ERecordingChange::Import;
@@ -720,7 +731,7 @@ bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,E
     RecordingCancellation=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(false);
     const int32 Frame=bRelink&&Id==Project.Dataset?SelectedFrame:Ordinal;
     RequestedRecordingFrame=Frame;
-    PendingRecording=Async(EAsyncExecution::ThreadPool,[Id,Path,bImport,bSurface,Change,Frame,Refs=Project.Recordings,Cancel=RecordingCancellation]
+    PendingRecording=Async(EAsyncExecution::ThreadPool,[Id,Path,bImport,bSurface,Change,Frame,ExpectedMetadata,Refs=Project.Recordings,Cancel=RecordingCancellation]
     {
         if(bSurface)
         {
@@ -731,6 +742,8 @@ bool FStudioModel::StartRecordingRequest(const FString& Id,const FString& Path,E
             return StudioRecordings::Open(Id,{Ref},Frame,Cancel);
         }
         auto Result=bImport?StudioRecordings::Import(Path,Frame,Cancel):StudioRecordings::Open(Id,Refs,Frame,Cancel,Path);
+        if(!ExpectedMetadata.IsEmpty()&&(!Result.Reference||Result.Reference->MetadataSHA256!=ExpectedMetadata))
+        {Result.Source.Reset();Result.Reference.Reset();Result.Error=TEXT("Recording changed after patch verification; current view retained.");return Result;}
         if(bImport&&Result.Reference.IsSet())
         {
             const auto* Existing=Refs.FindByPredicate([&](const auto& R){return R.Id==Result.Reference->Id;});
@@ -785,8 +798,9 @@ void FStudioModel::PollRecording()
     if(const auto Grid=Source->VolumeReconstruction();Grid&&Grid->OriginalGrid)
     {
         const auto& G=*Grid->OriginalGrid;
-        for(auto& Run:Candidate.Runs)if(Run.GetDatasetId()==Id)
-            Run=Run.WithProvenance({G.SourceRunId,G.RecipeId,G.LineageId,G.SourceManifestPath,G.SourceManifestSHA256});
+        FStudioRecordedRunProvenance Provenance{G.SourceRunId,G.RecipeId,G.LineageId,G.SourceManifestPath,G.SourceManifestSHA256};
+        if(G.OriginalProvenance)Provenance=*G.OriginalProvenance;
+        for(auto& Run:Candidate.Runs)if(Run.GetDatasetId()==Id)Run=Run.WithProvenance(Provenance);
     }
     FStudioProject Validated;FString Error;
     if(!StudioProjectIO::Parse(StudioProjectIO::Serialize(Candidate),Validated,Error))

@@ -75,7 +75,7 @@ FStudioFieldIdentity Identity(const IStudioSolver& Source,int32 Ordinal)
     I.Ordinal=Ordinal;I.Frame=Source.EvaluateFrame(Ordinal);I.SpatialDimensions=D.SpatialDimensions;I.SourceOffset=D.SourceOffset;
     I.Interpolation=D.bSourcePoints?EStudioFieldInterpolation::None:EStudioFieldInterpolation::SourceTriangles;
     if(const auto R=Source.Reconstruction()){I.ReconstructionSHA256=R->MetadataSHA256;I.Interpolation=EStudioFieldInterpolation::ReconstructedTriangles;}
-    if(const auto R=Source.VolumeReconstruction()){I.ReconstructionSHA256=R->MetadataSHA256;I.Interpolation=EStudioFieldInterpolation::ReconstructedGrid;}return I;
+    if(const auto R=Source.VolumeReconstruction()){I.ReconstructionSHA256=R->ReconstructionIdentity();I.Interpolation=R->Interpolation();}return I;
 }
 class SScale final : public SLeafWidget
 {
@@ -542,7 +542,7 @@ TSharedRef<SWidget> SStudioPipelineWorkspace::SourceMenu()
 {
     using namespace StudioPipelineUI;auto Rows=SNew(SVerticalBox);if(!Selected())return Choices(Rows);
     const auto P=*Selected();const auto& I=P.Source.Identity;const FString Method=I.Interpolation==EStudioFieldInterpolation::None?TEXT("Original point samples"):
-        I.Interpolation==EStudioFieldInterpolation::SourceTriangles?TEXT("Original source triangles"):I.Interpolation==EStudioFieldInterpolation::ReconstructedTriangles?TEXT("Verified display triangles"):TEXT("Verified reconstructed volume");
+        I.Interpolation==EStudioFieldInterpolation::SourceTriangles?TEXT("Original source triangles"):I.Interpolation==EStudioFieldInterpolation::ReconstructedTriangles?TEXT("Verified display triangles"):I.Interpolation==EStudioFieldInterpolation::SourceGrid?TEXT("Original structured grid"):I.Interpolation==EStudioFieldInterpolation::SourceSlice?TEXT("Original structured slice"):TEXT("Verified reconstructed volume");
     const FString Details=FString::Printf(TEXT("%s\n%s\nFrame %d · source step %d · %.17g s\n%dD · %s\nScene offset (m): %.9g, %.9g, %.9g\n\nSource SHA-256\n%s\nPayload SHA-256\n%s\nReconstruction SHA-256\n%s\n\nLocation\n%s"),
         *P.Source.Title,*I.Dataset,I.Ordinal+1,I.Frame.Index,I.Frame.Time,I.SpatialDimensions,*Method,I.SourceOffset.X,I.SourceOffset.Y,I.SourceOffset.Z,
         *I.MetadataSHA256,*I.PayloadSHA256,*I.ReconstructionSHA256,P.Source.Reference.IsSet()?*P.Source.Reference->Path:TEXT("Installed recording"));

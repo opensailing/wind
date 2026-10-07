@@ -99,6 +99,27 @@ bool FHome4ArchiveMasksTest::RunTest(const FString&)
     auto Hidden=F.Request(F.Save(TEXT("hidden"),HiddenMasks),TEXT("hidden-recording"));Hidden.CropMinimum=FIntVector(1,2,1);Hidden.CropMaximum=FIntVector(7,8,9);Hidden.PreviewStride=2;Result=StudioHome4Archives::Convert(Hidden);if(!TestTrue(Result.Error,Result.bSuccess))return false;Open=StudioPointRecordings::Open(Result.RecordingJSON);if(!Open.Recording)return false;
     auto Values=Open.Recording->ReadFrame(0,{TEXT("solid"),TEXT("phi"),TEXT("solid_support"),TEXT("liquid_support"),TEXT("q")});if(!Values.Frame)return false;const int32 Row=1+3*(1+3*1);
     TestEqual(TEXT("Hidden obstacle does not replace selected raw solid"),(*Values.Frame->FindValues(TEXT("solid")))[Row],0.);TestEqual(TEXT("Original support detects skipped obstacle"),(*Values.Frame->FindValues(TEXT("solid_support")))[Row],0.);TestEqual(TEXT("Original support detects air"),(*Values.Frame->FindValues(TEXT("liquid_support")))[Row],0.);TestEqual(TEXT("Derivative halo invalid remains unavailable"),(*Values.Frame->FindValues(TEXT("derivative_valid")))[Row],0.);
+    // Held first-frame range uses the same default supported population as display.
+    auto Source=StudioRecordings::Import(Result.RecordingJSON,0,{});
+    if(TestTrue(Source.Error,Source.Source.IsValid()))
+    {
+        const auto Frame=Source.Source->ReadScalarFrame(0,TEXT("phi"));
+        const auto Volume=Source.Source->VolumeReconstruction();
+        if(Frame.Field&&Volume)
+        {
+            const auto Points=Frame.Field->OriginalPoints();FString Error;
+            const auto Mask=StudioVolumes::SourceMask(*Points,*Volume,TEXT("phi"),false,Error);
+            TArray<double> Population;for(int32 I=0;I<Mask.Num();++I)if(Mask[I]==1)Population.Add((*Points->FindValues(TEXT("phi")))[I]);
+            const auto* Field=Points->Descriptor->FindField(TEXT("phi"));
+            if(!Population.IsEmpty())
+            {
+                Population.Sort();const double At=.99*(Population.Num()-1);const int32 Lo=FMath::FloorToInt(At),Hi=FMath::CeilToInt(At);
+                const double Expected=Population[Lo]+(Population[Hi]-Population[Lo])*(At-Lo);
+                TestEqual(TEXT("Held percentile excludes unavailable preview support"),Field->DisplayMaximum.GetValue(),Expected);
+            }
+            else TestFalse(TEXT("No eligible source data has no claimed held range"),Field->DisplayMaximum.IsSet());
+        }
+    }
     return true;
 }
 
@@ -119,12 +140,23 @@ bool FHome4ArchiveRejectTest::RunTest(const FString&)
     TestFalse(TEXT("Unpaired escaped low surrogate rejected"),StudioHome4ArchivePrivate::JSON(TEXT("{\"note\":\"\\udc00\"}"),J,E));
     TestTrue(TEXT("Rejected JSON preserves previous parsed object"),J==Before);
     TestTrue(TEXT("Paired escaped Unicode accepted"),StudioHome4ArchivePrivate::JSON(TEXT("{\"note\":\"\\ud83d\\ude00\"}"),J,E));
-    for(const auto& P:TArray<TPair<const TCHAR*,const TCHAR*>>{{TEXT("rho"),Conflicting_rho},{TEXT("nu"),Conflicting_nu},{TEXT("strain"),Conflicting_Sxx},{TEXT("head"),Conflicting_Pi_h},{TEXT("normalized-pressure"),Conflicting_p_star},{TEXT("velocity"),Conflicting_ux}})
+    for(const auto& P:TArray<TPair<const TCHAR*,const TCHAR*>>{{TEXT("rho"),Conflicting_rho},{TEXT("nu"),Conflicting_nu},{TEXT("head"),Conflicting_Pi_h},{TEXT("normalized-pressure"),Conflicting_p_star},{TEXT("velocity"),Conflicting_ux}})
     {
         auto Conflict=F.Request(F.Save(P.Key,P.Value),P.Key);const auto Rejected=StudioHome4Archives::Convert(Conflict);
         TestFalse(FString(P.Key)+TEXT(" conflicting source unit cannot publish"),Rejected.bSuccess);
         TestTrue(FString(P.Key)+TEXT(" original unit conflict is reported"),Rejected.Error.Contains(TEXT("fixed source contract")));
         TestFalse(TEXT("Rejected unit leaves output absent"),IFileManager::Get().DirectoryExists(*(F.Folder/Conflict.FolderName)));
+    }
+    auto PhysicalStrain=F.Request(F.Save(TEXT("physical-strain"),Conflicting_Sxx),TEXT("physical-strain-output"));
+    const auto PhysicalResult=StudioHome4Archives::Convert(PhysicalStrain);
+    if(TestTrue(TEXT("Explicit physical strain is supported: ")+PhysicalResult.Error,PhysicalResult.bSuccess))
+    {
+        const auto PhysicalOpen=StudioPointRecordings::Open(PhysicalResult.RecordingJSON);
+        if(TestTrue(PhysicalOpen.Error,PhysicalOpen.Recording.IsValid()))
+        {
+            const auto Values=PhysicalOpen.Recording->ReadFrame(0,{TEXT("Sxx")});
+            if(TestTrue(Values.Error,Values.Frame.IsValid()))TestEqual(TEXT("Explicit 1/s is not converted twice"),(*Values.Frame->FindValues(TEXT("Sxx")))[0],.02);
+        }
     }
     auto WrongShape=F.Request(F.Save(TEXT("wrong-shape"),WrongDiagnosticShape),TEXT("wrong-shape-output"));
     const auto ShapeResult=StudioHome4Archives::Convert(WrongShape);TestFalse(TEXT("Declared diagnostic shape cannot silently drop"),ShapeResult.bSuccess);TestTrue(TEXT("Shape rejection reports original field"),ShapeResult.Error.Contains(TEXT("incompatible shape")));
