@@ -48,6 +48,10 @@ struct FStudioVolumeRenderData
     // R = unclamped normalized scalar, G = validity. Interpolate scalar before
     // applying a palette. CPU source precision remains in the immutable frame.
     TArray<FVector2f> Texels;
+    // Optional independent extinction weight, |omega|² / held first-frame maximum².
+    TArray<float> OpacityTexels;
+    FString OpacitySource;
+    double OpacityReference=0;
     FVector2D CylinderCenter = FVector2D::ZeroVector;
     double CylinderRadius = 0;
     double MaximumTransportError = 0;

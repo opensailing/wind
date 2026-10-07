@@ -31,7 +31,7 @@ TSharedPtr<FJsonObject> ViewJSON(const FStudioSnapshot& S)
     const FString Text=StudioSnapshot::Metadata(S);
     if(Text.Len()>MaximumMetadataCharacters||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),Full))return {};
     auto View=MakeShared<FJsonObject>();
-    for(const TCHAR* Key:{TEXT("project"),TEXT("size"),TEXT("presented_size"),TEXT("crop_minimum"),TEXT("crop_span"),
+    for(const TCHAR* Key:{TEXT("project"),TEXT("unit_display"),TEXT("size"),TEXT("presented_size"),TEXT("crop_minimum"),TEXT("crop_span"),
         TEXT("camera"),TEXT("projection_matrix_row_major"),TEXT("scalar"),TEXT("inspection_objects"),TEXT("display_schema_version"),TEXT("display_settings"),
         TEXT("selected_object"),TEXT("annotations"),TEXT("legend"),TEXT("frame_label")})
         View->SetField(Key,Full->Values.FindChecked(Key));
@@ -205,6 +205,8 @@ bool FStudioImageSequenceTask::Start(FStudioImageSequenceRequest R,const FString
             if(!StudioImageSequence::Matches(R,int32(Ordinal),*Image,Out.Error))return Fail(Out.Error);
             if(Cancelled())return Fail({});
             W->Phase.store(EStudioImageSequencePhase::Encoding);
+            Image->MetadataFile=FString::Printf(TEXT("frame_%06d.json"),int32(Ordinal));
+            const FString Sidecar=StudioSnapshot::Metadata(*Image);
             TArray64<uint8> PNG;
             if(!StudioSnapshot::Encode(*Image,PNG,Out.Error))return Fail(Out.Error);
             if(Movie&&!Movie->Append(Image->Pixels,Cancelled,Out.Error))return Fail(Out.Error);
@@ -217,8 +219,12 @@ bool FStudioImageSequenceTask::Start(FStudioImageSequenceRequest R,const FString
             File->Serialize(PNG.GetData(),PNG.Num());
             if(!File->Close()||File->IsError())return Fail(TEXT("Could not write a complete image. Check free space."));
             File.Reset();const int64 ImageBytes=PNG.Num();PNG.Reset();
+            auto MetadataFile=CreateFile(Stage/FString::Printf(TEXT("frame_%06d.json"),int32(Ordinal)));
+            if(!MetadataFile||!Text(*MetadataFile,Sidecar,Out.Bytes)||!MetadataFile->Close()||MetadataFile->IsError())return Fail(TEXT("Could not write the image JSON sidecar."));
+            MetadataFile.Reset();
             Out.Bytes+=ImageBytes;
             auto Entry=MakeShared<FJsonObject>();const auto F=R.Source->Descriptor().Frames[int32(Ordinal)];
+            Entry->SetStringField(TEXT("metadata_file"),FString::Printf(TEXT("frame_%06d.json"),int32(Ordinal)));
             Entry->SetStringField(TEXT("file"),FileName);Entry->SetNumberField(TEXT("ordinal"),double(Ordinal));
             Entry->SetNumberField(TEXT("source_step"),F.Index);Entry->SetNumberField(TEXT("source_time_seconds"),F.Time);
             Entry->SetNumberField(TEXT("png_bytes"),double(ImageBytes));

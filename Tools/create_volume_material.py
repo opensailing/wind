@@ -32,6 +32,11 @@ texture.set_editor_property('parameter_name', 'VolumeScalars')
 texture.set_editor_property('texture', fallback)
 texture.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
 inputs['VolumeScalars'] = (texture, '')
+opacity_texture = edit.create_material_expression(material, unreal.MaterialExpressionTextureObjectParameter)
+opacity_texture.set_editor_property('parameter_name', 'OpacityScalars')
+opacity_texture.set_editor_property('texture', fallback)
+opacity_texture.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+inputs['OpacityScalars'] = (opacity_texture, '')
 for name, value in {
     'VolumeMinimum': (0,0,0), 'VolumeSize': (100,100,100), 'GridDimensions': (2,2,2),
     'SourceMinimum': (0,0,0), 'SourceSize': (1,1,1), 'Cylinder': (0,0,0),
@@ -45,7 +50,7 @@ for name, value in {
     inputs[name] = (node, 'RGB')
 for name, value in {'Opacity': .28, 'Palette': 0, 'StepVoxels': 1,
                     'ThresholdMinimum': 0, 'ThresholdMaximum': 1,
-                    'ThresholdEnabled': 0, 'Orthographic': 0, 'CameraNearDepth': 0, 'CameraFarDepth': 1e20}.items():
+                    'ThresholdEnabled': 0, 'IndependentOpacity': 0, 'Orthographic': 0, 'CameraNearDepth': 0, 'CameraFarDepth': 1e20}.items():
     node = edit.create_material_expression(material, unreal.MaterialExpressionScalarParameter)
     node.set_editor_property('parameter_name', name)
     node.set_editor_property('default_value', value)

@@ -174,6 +174,10 @@ bool FStudioSnapshotLifecycleTest::RunTest(const FString&)
 
     TestTrue(TEXT("Worker can retry after failures"),Task.Start(EncodingFixture(),Path));Result=Await(Task);
     TestTrue(TEXT("Atomic replacement completes"),Result.IsSet()&&Result->bSuccess&&!Result->bCancelled&&Result->Frame.Index==1700);
+    FString Sidecar;
+    TestTrue(TEXT("Adjacent original metadata sidecar exists"),Result.IsSet()&&FFileHelper::LoadFileToString(Sidecar,*Result->SidecarPath));
+    TestTrue(TEXT("Sidecar identifies exact file"),Result.IsSet()&&Sidecar.Contains(FPaths::GetCleanFilename(Result->SidecarPath)));
+    TestTrue(TEXT("Sidecar retains original frame"),Sidecar.Contains(TEXT("\"frame\":1700")));
     TestFalse(TEXT("Completed write cannot claim cancellation"),Task.Cancel());
     TArray64<uint8> Bytes;FFileHelper::LoadFileToArray(Bytes,*Path);
     auto& Module=FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));const auto Reader=Module.CreateImageWrapper(EImageFormat::PNG);

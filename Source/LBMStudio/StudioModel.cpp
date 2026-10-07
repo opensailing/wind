@@ -290,6 +290,7 @@ void FStudioModel::SaveSession()
     if(bSnapshotView)return;
     auto O=MakeShared<FJsonObject>(); O->SetStringField(TEXT("lastProject"),ProjectPath);
     O->SetBoolField(TEXT("sidebarCollapsed"),bSidebarCollapsed);
+    O->SetNumberField(TEXT("unitDisplay"),int32(UnitDisplay));
     O->SetBoolField(TEXT("viewportExpanded"),bViewportExpanded);
     O->SetNumberField(TEXT("inspectorTab"),InspectorTab);
     auto Panes=MakeShared<FJsonObject>();
@@ -313,6 +314,7 @@ void FStudioModel::OpenSession()
         FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),O) && O)
     {
         O->TryGetBoolField(TEXT("sidebarCollapsed"),bSidebarCollapsed);
+        double Unit=0;if(O->TryGetNumberField(TEXT("unitDisplay"),Unit)&&FMath::IsFinite(Unit)&&Unit>=0&&Unit<=2&&Unit==FMath::FloorToDouble(Unit))UnitDisplay=EStudioHome4UnitDisplay(int32(Unit));
         O->TryGetBoolField(TEXT("viewportExpanded"),bViewportExpanded);
         const TSharedPtr<FJsonObject>* Panes;
         if(O->TryGetObjectField(TEXT("viewportPanes"),Panes))for(const auto Name:StudioFloatingPanes::Names())

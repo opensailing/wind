@@ -144,7 +144,7 @@ public:
     TSharedPtr<const FStudioVolumeReconstruction,ESPMode::ThreadSafe> VolumeReconstruction() const override { return Volume; }
 private:
     FString MaskKey(const FStudioPointFieldDescriptor& F) const
-    {return Volume&&Volume->OriginalGrid&&F.Id==Volume->OriginalGrid->SolidField?TEXT("solid-display"):
+    {return Volume&&Volume->OriginalGrid&&(F.Id==Volume->OriginalGrid->SolidField||F.Id==TEXT("sdf"))?TEXT("solid-display"):
         (F.bAirMaskDefault?TEXT("1/"):TEXT("0/"))+F.ValidityMask;}
     bool OnSurfacePlane(const FVector& P) const
     {
@@ -211,6 +211,7 @@ TArray<FString> FPointRecordedSolver::RequestedFields(const FString& ScalarId,bo
     Fields.Add(D.FindField(ScalarId)?ScalarId:D.DefaultScalar);
     if(bVectors&&Meta.bPointVelocity)for(const auto& F:D.Fields)
         if(F.Vector==TEXT("velocity"))Fields.AddUnique(F.Id);
+    if(bVectors&&D.StructuredGrid&&D.FindField(TEXT("speed")))Fields.AddUnique(TEXT("speed"));
     return Fields;
 }
 bool FPointRecordedSolver::PrepareFrame(int32 Ordinal,const FStudioLoadCancellation& Cancellation)

@@ -61,7 +61,7 @@ struct FStudioSection
 };
 struct FStudioGeometry
 {
-    FStudioSection Sections[10];
+    FStudioSection Sections[13];
     bool bOriginalSlice=false;
     bool bFocusedSurface=false;
     bool bAirfoilSolid=false;
@@ -268,6 +268,31 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         if(Field.VolumeReconstruction()&&(R.Volume||R.VolumeSettings.bVolumeIsosurface))
         {
             auto Grid=StudioVolumes::Build(*Points,*Field.VolumeReconstruction(),R.Scalar.Id,R.ColorMapping,R.Cancellation,R.VolumeSettings.bHome4AirMask);
+            if(R.VolumeSettings.bHome4Vorticity&&R.Scalar.Id==TEXT("q")&&Field.VolumeReconstruction()->OriginalGrid&&Grid.Error.IsEmpty())
+            {
+                FString Error;const auto Omega=Field.LoadScalarSnapshot(TEXT("vorticity_magnitude"),R.Cancellation,Error);
+                const auto Description=Field.Scalar(TEXT("vorticity_magnitude"));
+                if(!Omega||!Description.IsSet()||!Omega->OriginalPoints())Grid.Error=Error.IsEmpty()?TEXT("Vorticity volume requires original Q and vorticity magnitude fields."):Error;
+                else
+                {
+                    const auto Mapping=StudioColor::Resolve(R.Field->Identity()->Dataset,Description.GetValue(),{});
+                    const double Ref=FMath::Max(FMath::Abs(Mapping.Minimum),FMath::Abs(Mapping.Maximum));
+                    FStudioColorMapping Weight;Weight.Minimum=0;Weight.Maximum=Ref>0?Ref:1;
+                    const auto O=StudioVolumes::Build(*Omega->OriginalPoints(),*Field.VolumeReconstruction(),TEXT("vorticity_magnitude"),Weight,R.Cancellation,R.VolumeSettings.bHome4AirMask);
+                    if(!O.Error.IsEmpty()||O.Texels.Num()!=Grid.Texels.Num())Grid.Error=O.Error.IsEmpty()?TEXT("Opacity field grid differs from the displayed Q grid."):O.Error;
+                    else
+                    {
+                        Grid.OpacityTexels.SetNumZeroed(Grid.Texels.Num());Grid.OpacitySource=TEXT("vorticity_magnitude squared");Grid.OpacityReference=Ref*Ref;
+                        for(int32 I=0;I<Grid.Texels.Num();++I)
+                        {
+                            if((I&255)==0&&R.IsCancelled())return {};
+                            if(O.Texels[I].Y<.5f){Grid.Texels[I].Y=0;continue;}
+                            const double WeightValue=double(O.Texels[I].X)*O.Texels[I].X;
+                            Grid.OpacityTexels[I]=float(FMath::Min(WeightValue,1.e20));
+                        }
+                    }
+                }
+            }
             Out->VolumeSettings=R.VolumeSettings;
             if(!Grid.Error.IsEmpty())Out->Error=Grid.Error;
             else if(R.VolumeSettings.bVolumeIsosurface)
@@ -326,6 +351,53 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                 Out->Sections[0].Triangle(P,Q,U,SolidColor);Out->Sections[0].Triangle(P,U,T,SolidColor);
                 Out->Sections[0].Triangle(P,FVector(V->CylinderCenter.X,V->SourceBounds.Min.Z,V->CylinderCenter.Y)*100.,Q,SolidColor);
                 Out->Sections[0].Triangle(T,U,FVector(V->CylinderCenter.X,V->SourceBounds.Max.Z,V->CylinderCenter.Y)*100.,SolidColor);
+            }
+        }
+        if(const auto V=Field.VolumeReconstruction();V&&V->OriginalGrid)
+        {
+            struct FSourceLayer{bool Enabled;const TCHAR* Id;double Value;int32 Section;FLinearColor Color;};
+            const FSourceLayer Layers[]={
+                {R.VolumeSettings.bHome4InterfaceSurface,TEXT("phi"),R.VolumeSettings.Home4InterfaceIsovalue,10,FLinearColor(.12,.66,.76,.48)},
+                {R.VolumeSettings.bHome4ObstacleSurface,TEXT("solid"),.5,11,FLinearColor(.25,.3,.36)},
+                {R.VolumeSettings.bHome4SdfSurface,TEXT("sdf"),0,12,FLinearColor(.9,.62,.18)}};
+            for(const auto& Layer:Layers)if(Layer.Enabled)
+            {
+                FString Error;const auto Snapshot=Field.LoadScalarSnapshot(Layer.Id,R.Cancellation,Error);
+                if(!Snapshot||!Snapshot->OriginalPoints()){Out->Error=Error.IsEmpty()?FString(TEXT("Missing layer "))+Layer.Id:Error;continue;}
+                FStudioColorMapping Raw;Raw.Minimum=0;Raw.Maximum=1;
+                const auto Grid=StudioVolumes::Build(*Snapshot->OriginalPoints(),*V,Layer.Id,Raw,R.Cancellation,false);
+                if(!Grid.Error.IsEmpty()){Out->Error=Grid.Error;continue;}
+                const auto Iso=StudioVolumes::Isosurface(Grid,Layer.Value,R.Cancellation);
+                if(!Iso.Error.IsEmpty()){Out->Error=Iso.Error;continue;}
+                auto& Section=Out->Sections[Layer.Section];
+                const FVector CL=R.VolumeSettings.VolumeClipMinimum,CH=R.VolumeSettings.VolumeClipMaximum;
+                const FVector Low=Grid.SourceBounds.Min+Grid.SourceBounds.GetSize()*FVector(CL.X,CL.Z,CL.Y),
+                    High=Grid.SourceBounds.Min+Grid.SourceBounds.GetSize()*FVector(CH.X,CH.Z,CH.Y);
+                const auto ToScene=[](const FVector& P){return FVector(P.X,P.Z,P.Y)*100.;};
+                for(int32 Face=0;Face<Iso.Indices.Num();Face+=3)
+                {
+                    if((Face&255)==0&&R.IsCancelled())return {};
+                    TArray<FVector,TInlineAllocator<12>> Polygon;
+                    for(int32 I=0;I<3;++I)Polygon.Add(Iso.PositionsMeters[Iso.Indices[Face+I]]);
+                    for(int32 Axis=0;Axis<3;++Axis)for(int32 Side=0;Side<2;++Side)
+                    {
+                        TArray<FVector,TInlineAllocator<12>> Clipped;const double Plane=Side?High[Axis]:Low[Axis];
+                        for(int32 I=0;I<Polygon.Num();++I)
+                        {
+                            const FVector A=Polygon[I],B=Polygon[(I+1)%Polygon.Num()];
+                            const bool IA=Side?A[Axis]<=Plane:A[Axis]>=Plane,IB=Side?B[Axis]<=Plane:B[Axis]>=Plane;
+                            if(IA)Clipped.Add(A);if(IA!=IB)Clipped.Add(FMath::Lerp(A,B,(Plane-A[Axis])/(B[Axis]-A[Axis])));
+                        }
+                        Polygon=MoveTemp(Clipped);
+                    }
+                    for(int32 I=1;I+1<Polygon.Num();++I)
+                    {
+                        const FVector A=ToScene(Polygon[0]),B=ToScene(Polygon[I]),C=ToScene(Polygon[I+1]);
+                        Section.Triangle(A,B,C,Layer.Color);
+                        const auto N=FVector::CrossProduct(B-A,C-A).GetSafeNormal();Section.Normals.Append({N,N,N});
+                    }
+                    if(Section.Indices.Num()>900000){Out->Error=TEXT("Clipped source layer exceeds the display budget.");return Out;}
+                }
             }
         }
         PointGeometry(PointRequest,*Points,*Out);
@@ -433,6 +505,10 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         TArray<FStudioSeedObject> Seeds=R.VolumeSettings.InspectionObjects.Seeds;
         const auto Identity=Field.Identity();const auto& Settings=R.VolumeSettings.StreamlineSettings;
         Out->Streams.bAutomaticSeeds=Settings.bAutomaticSeeds;
+        const auto Volume=Field.VolumeReconstruction();const bool Native=Volume&&Volume->OriginalGrid;
+        const auto Speed=Native?Field.Scalar(TEXT("speed")):TOptional<FStudioScalarDescriptor>();
+        const FString StreamScalar=Speed.IsSet()?TEXT("speed"):R.Scalar.Id;
+        const FStudioColorMapping StreamMapping=Speed.IsSet()?StudioColor::Resolve(Identity->Dataset,Speed.GetValue(),R.VolumeSettings.ScalarStyles):R.ColorMapping;
         if(Settings.bAutomaticSeeds&&Identity.IsSet())
         {
             FStudioSeedObject Seed;Seed.Id=FGuid(0x5354524d,0x4155544f,0,1);Seed.Name=TEXT("Automatic flow");
@@ -441,16 +517,18 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
             Seeds.Reset();
             if(!StudioStreamlines::AutomaticSeeds(Field,StreamBounds,Seed.Count,Settings.Direction,Seed.Points,SeedError,R.Cancellation))
             {if(R.IsCancelled())return {};Out->Streams.Notice=SeedError;}
-            else if(!Seed.Points.IsEmpty())Seeds.Add(MoveTemp(Seed));
-            else Out->Streams.Notice=TEXT("No supported flow crosses the domain faces. Use saved seed sets for internal circulation.");
+            else if(!Seed.Points.IsEmpty()){if(!SeedError.IsEmpty())Out->Streams.Notice=SeedError;Seeds.Add(MoveTemp(Seed));}
+            else Out->Streams.Notice=Native?TEXT("No supported liquid cells found in the bounded seed preview."):TEXT("No supported flow crosses the domain faces. Use saved seed sets for internal circulation.");
         }
         FStudioStreamlineOutput Stream;FString Error;
-        if(!StudioStreamlines::Build(Field,StreamBounds,Seeds,Settings,R.Scalar.Id,Stream,Error,R.Cancellation))
+        if(!StudioStreamlines::Build(Field,StreamBounds,Seeds,Settings,StreamScalar,Stream,Error,R.Cancellation))
         {if(R.IsCancelled())return {};Out->Streams.Notice=Error;}
         else
         {
             auto& Summary=Out->Streams;Summary.Seeds=Stream.SeedCount;Summary.Segments=Stream.Segments;
-            Summary.Attempts=Stream.Attempts;Summary.WidthMeters=Stream.WidthMeters;Summary.bBudgetExhausted=Stream.bBudgetExhausted;
+            Summary.Attempts=Stream.Attempts;Summary.Method=Stream.Method;Summary.RejectedAttempts=Stream.RejectedAttempts;
+            Summary.VelocityEvaluations=Stream.VelocityEvaluations;Summary.ScalarEvaluations=Stream.ScalarEvaluations;Summary.SupportEvaluations=Stream.SupportEvaluations;
+            Summary.WidthMeters=Stream.WidthMeters;Summary.bBudgetExhausted=Stream.bBudgetExhausted;
             Summary.SeedNotices=MoveTemp(Stream.Notices);
             for(const auto& Path:Stream.Paths)
             {
@@ -461,7 +539,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                     const FVector A=Path.PositionsMeters[I-1],B=Path.PositionsMeters[I],Delta=B-A;
                     const FVector Direction=Delta/Delta.Size();
                     auto& S=Out->Sections[3];const int32 First=S.Vertices.Num();
-                    const auto StartColor=StudioColor::Map(Path.Scalars[I-1],R.ColorMapping),EndColor=StudioColor::Map(Path.Scalars[I],R.ColorMapping);
+                    const auto StartColor=StudioColor::Map(Path.Scalars[I-1],StreamMapping),EndColor=StudioColor::Map(Path.Scalars[I],StreamMapping);
                     S.Tube(A*100.,B*100.,Stream.WidthMeters*50.,StartColor,&Direction);
                     // Continuous endpoint color along each unchanged integration segment.
                     for(int32 V=First;V<S.Vertices.Num();++V)if((V-First)%6==1||(V-First)%6==2||(V-First)%6==4)S.Colors[V]=EndColor;
@@ -476,7 +554,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                     const FVector D=Marker.Direction,P=Marker.PositionMeters*100.;
                     const FVector Tip=P+D*Marker.LengthMeters*50.,Base=P-D*Marker.LengthMeters*50.;
                     const FVector N=FVector::CrossProduct(D,FMath::Abs(D.Z)<.9?FVector::UpVector:FVector::RightVector).GetSafeNormal();
-                    const FVector T=FVector::CrossProduct(D,N);const auto Color=StudioColor::Map(Marker.Scalar,R.ColorMapping);
+                    const FVector T=FVector::CrossProduct(D,N);const auto Color=StudioColor::Map(Marker.Scalar,StreamMapping);
                     for(int32 Side=0;Side<6;++Side)
                     {
                         const double A=2*PI*Side/6.,B=2*PI*(Side+1)/6.;
@@ -838,13 +916,13 @@ void AStudioScene::ApplyGeometry(const FStudioGeometry& G)
     if(!InspectionInstance)
         for(const auto& Id:G.RenderedSlices)
             GeometrySliceNotices.Add(Id,TEXT("Slice rendering is unavailable. Repair or reinstall the application to restore its rendering assets."));
-    for(int32 I=0;I<10;++I)
+    for(int32 I=0;I<13;++I)
     {
         if((I==8||(I==2&&G.bOriginalSlice))&&!InspectionInstance){Mesh->ClearMeshSection(I);continue;}
         const auto& S=G.Sections[I]; if(S.Vertices.IsEmpty()) { Mesh->ClearMeshSection(I); continue; }
         TArray<FVector> Normals=S.Normals;if(Normals.IsEmpty())Normals.Init(FVector::UpVector,S.Vertices.Num());
         Mesh->CreateMeshSection_LinearColor(I,S.Vertices,S.Indices,Normals,S.UVs,S.VelocityUVs,{},{},S.Colors,TArray<FProcMeshTangent>(),false,false);
-        if(I!=7)Mesh->SetMaterial(I,I==0&&G.bAirfoilSolid&&BodyMaterial?BodyMaterial.Get():I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?(G.bFocusedSurface?FocusScalarInstance.Get():ScalarInstance.Get()):(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
+        if(I!=7)Mesh->SetMaterial(I,I==10?TransparentMaterial.Get():I==11||I==12?OpaqueMaterial.Get():I==0&&G.bAirfoilSolid&&BodyMaterial?BodyMaterial.Get():I==9?MeshEdgeMaterial.Get():I==8?InspectionInstance.Get():(I==2&&G.bOriginalSlice)?OriginalSliceInstance.Get():I==2&&bSurface?(G.bFocusedSurface?FocusScalarInstance.Get():ScalarInstance.Get()):(I==1||I==2?TransparentMaterial.Get():OpaqueMaterial.Get()));
     }
     RenderMilliseconds=G.BuildMs;
     if(!G.Dataset.IsEmpty())RenderedFlowBounds=G.Bounds;
@@ -1154,7 +1232,10 @@ bool AStudioScene::CaptureSnapshot(FStudioSnapshot& Out,const FStudioProbeMarker
     if(!Identity.IsSet()){Error=TEXT("The displayed field has no recorded frame identity.");return false;}
     Out.Identity=*Identity;Out.Project=CapturedProjectId;Out.Capture=CaptureCount;Out.SourceTitle=PresentedTitle;
     Out.Camera=CapturedCamera;Out.SourceSize=CapturedViewportSize;Out.Framing=StudioSnapshot::Frame(Out.SourceSize,Out.Options.Size);
-    Out.Scalar=CapturedScalar;Out.Mapping=CapturedColorMapping;Out.Objects=Model->InspectionObjects;Out.SelectedObject=Model->SelectedInspectionObject;
+    Out.Scalar=CapturedScalar;Out.Mapping=CapturedColorMapping;
+    Out.UnitDisplay=Model->UnitDisplay;Out.SourceUnitMap.Reset();
+    if(const auto V=CapturedField->VolumeReconstruction();V&&V->OriginalGrid)Out.SourceUnitMap=V->OriginalGrid->UnitContext();
+    Out.OriginalSourceJSON=StudioSnapshot::SourceMetadata(*CapturedField,CapturedScalar.Id,CapturedColorMapping,Model->bHome4AirMask);Out.Objects=Model->InspectionObjects;Out.SelectedObject=Model->SelectedInspectionObject;
     Out.DisplaySettings=static_cast<const FStudioViewSettings&>(*Model);Out.FlowBounds=RenderedFlowBounds;Out.SliceNotices=CapturedSliceNotices;
     Out.Vectors=CapturedVectors;Out.Streams=CapturedStreams;Out.Mesh=CapturedMesh;
     Out.bVolumeRendererActive=VolumeComponent&&VolumeComponent->IsVisible()&&VolumeComponent->TextureBytes()>0;
@@ -1223,7 +1304,7 @@ void AStudioGameMode::BeginPlay()
     Super::BeginPlay();
     const bool bAutomation=FParse::Param(FCommandLine::Get(),TEXT("StudioAutomation"));
     const auto M=MakeShared<FStudioModel>(bAutomation?FPaths::ProjectSavedDir()/TEXT("Automation/Session"):FString());
-    if(!bAutomation) M->OpenSession();
+    if(!bAutomation){M->OpenSession();if(M->ProjectPath.IsEmpty()&&!M->IsProjectOpenPending()&&M->PendingRecovery.IsEmpty())M->Workspace=EStudioWorkspace::Validation;}
 #if WITH_DEV_AUTOMATION_TESTS
     // Native relaunch checks reuse only the isolated acceptance session.
     else if(FParse::Param(FCommandLine::Get(),TEXT("StudioRestoreAutomationSession")))M->OpenSession();

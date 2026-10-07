@@ -236,7 +236,7 @@ TSharedRef<SWidget> FStudioSnapshotUI::Menu(const TSharedRef<FStudioModel>& InMo
             .OnCheckStateChanged_Lambda([Self,Member=Entry.Value](ECheckBoxState S){Self->Options.*Member=S==ECheckBoxState::Checked;})[Label(Entry.Key)]];
     }
     Items->AddSlot().AutoHeight().Padding(0,3,0,6)[SNew(STextBlock).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
-        .Text(FText::FromString(TEXT("The outline previews the exported area. Camera, display and original-frame metadata stay embedded in each PNG.")))];
+        .Text(FText::FromString(TEXT("The outline previews the exported area. Camera, display and original-frame metadata are embedded in each PNG and saved in its adjacent JSON sidecar.")))];
     auto Actions=SNew(SVerticalBox);
     Actions->AddSlot().AutoHeight().Padding(0,6,0,8)[SNew(STextBlock).Tag(TEXT("SnapshotNotice")).Font(Font(10)).AutoWrapText(true)
         .Text_Lambda([Self]{return FText::FromString(Self->Status());}).ColorAndOpacity_Lambda([Self]{return FSlateColor(Self->bError||(!Self->IsBusy()&&!Self->Validation().IsEmpty())?Amber:Muted);})];

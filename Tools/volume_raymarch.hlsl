@@ -46,6 +46,7 @@ float4 accumulated = float4(0,0,0,0);
     if (dot(closest,closest) < Cylinder.z*Cylinder.z) continue;
     float3 fraction = node - cell;
     float scalar = 0;
+    float extinction = 0;
     bool valid = true;
     [unroll] for (int corner=0;corner<8;++corner)
     {
@@ -54,6 +55,7 @@ float4 accumulated = float4(0,0,0,0);
         valid = valid && value.g > .5;
         float3 w=lerp(1-fraction,fraction,(float3)offset);
         scalar += value.r*w.x*w.y*w.z;
+        if (IndependentOpacity > .5) extinction += OpacityScalars.Load(int4(cell+offset,0)).r*w.x*w.y*w.z;
     }
     if (!valid) continue;
     if (ThresholdEnabled > .5 && (scalar < ThresholdMinimum || scalar > ThresholdMaximum)) continue;
@@ -72,6 +74,7 @@ float4 accumulated = float4(0,0,0,0);
             q<4?lerp(c3,c4,q-3):q<5?lerp(c4,c5,q-4):lerp(c5,c6,q-5);
     }
     float curve = t < .5 ? lerp(OpacityCurve.x,OpacityCurve.y,t*2) : lerp(OpacityCurve.y,OpacityCurve.z,(t-.5)*2);
+    if (IndependentOpacity > .5) curve = max(extinction,0);
     // Opacity is extinction over 32 reference voxels; use physical path length
     // so changing sampling quality does not change the optical thickness.
     float alpha = 1 - exp(-max(curve,0) * Opacity * stepSize / (referenceStep * 32));

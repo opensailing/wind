@@ -55,6 +55,8 @@ struct FStudioViewSettings
     bool bVolumeThreshold = false;
     bool bVolumeIsosurface = false;
     bool bHome4AirMask = true;
+    bool bHome4InterfaceSurface=false,bHome4ObstacleSurface=false,bHome4SdfSurface=false,bHome4Vorticity=false;
+    double Home4InterfaceIsovalue=.5;
     double VolumeIsovalue = .5;
     double PlaybackRate = 1;
     bool bLoopPlayback = false;

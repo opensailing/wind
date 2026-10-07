@@ -1,9 +1,16 @@
 #include "StudioSnapshot.h"
+#include "StudioModel.h"
+#include "StudioVolume.h"
+#include "StudioPointRecording.h"
+#include "Serialization/JsonReader.h"
 #include "StudioFileDialog.h"
 #include "ImageUtils.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Misc/Crc.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include "Modules/ModuleManager.h"
 #include "Async/Async.h"
 
@@ -19,10 +26,61 @@ FStudioSnapshotFraming StudioSnapshot::Frame(FIntPoint Source,FIntPoint Output)
 }
 FVector2D FStudioSnapshotFraming::ToOutput(FVector2D P,FVector2D SourceSize,FVector2D OutputSize) const
 {return (P/SourceSize-Minimum)/Span*OutputSize;}
+FString StudioSnapshot::SourceMetadata(const IStudioField& Field,const FString& Scalar,const FStudioColorMapping& Mapping,bool AirMask)
+{
+    const auto V=Field.VolumeReconstruction();const auto Points=Field.OriginalPoints();
+    if(!V||!V->OriginalGrid||!Points)return {};
+    const auto& G=*V->OriginalGrid;auto Root=MakeShared<FJsonObject>();
+    auto Vec=[](const FVector& P){TArray<TSharedPtr<FJsonValue>> A;for(int32 I=0;I<3;++I)A.Add(MakeShared<FJsonValueNumber>(P[I]));return A;};
+    Root->SetStringField(TEXT("source_run_id"),G.SourceRunId);Root->SetStringField(TEXT("recipe_id"),G.RecipeId);Root->SetStringField(TEXT("lineage_id"),G.LineageId);
+    Root->SetStringField(TEXT("manifest_sha256"),G.SourceManifestSHA256);Root->SetStringField(TEXT("manifest"),G.SourceManifestPath);
+    Root->SetArrayField(TEXT("original_dimensions"),Vec(FVector(G.OriginalDimensions)));Root->SetArrayField(TEXT("selected_dimensions"),Vec(FVector(G.Dimensions)));
+    Root->SetArrayField(TEXT("crop_minimum_indices"),Vec(FVector(G.CropMinimum)));Root->SetArrayField(TEXT("crop_maximum_exclusive_indices"),Vec(FVector(G.CropMaximum)));
+    Root->SetNumberField(TEXT("preview_stride"),G.PreviewStride);Root->SetArrayField(TEXT("origin_meters"),Vec(G.OriginMeters));Root->SetArrayField(TEXT("spacing_meters"),Vec(G.SpacingMeters));
+    Root->SetArrayField(TEXT("original_origin"),Vec(G.OriginalOrigin));Root->SetArrayField(TEXT("original_spacing"),Vec(G.OriginalSpacing));
+    Root->SetStringField(TEXT("coordinate_units"),G.CoordinateUnits);Root->SetStringField(TEXT("velocity_units"),G.VelocityUnits);
+    Root->SetStringField(TEXT("axis_order"),G.AxisOrder);Root->SetStringField(TEXT("metadata_order"),G.MetadataOrder);
+    Root->SetStringField(TEXT("scene_axes"),TEXT("source X,Z,Y in meters"));Root->SetNumberField(TEXT("time_origin_seconds"),G.TimeOriginSeconds);
+    Root->SetStringField(TEXT("nondimensional_time_origin"),TEXT("original lattice step zero / reference time"));
+    const auto Map=StudioHome4Config::ToJSON(G.UnitContext());Root->SetObjectField(TEXT("units"),Map->GetObjectField(TEXT("units")));Root->SetObjectField(TEXT("reference"),Map->GetObjectField(TEXT("reference")));
+    if(const auto Omega=Field.Scalar(TEXT("vorticity_magnitude"));Omega.IsSet())
+    {
+        const auto Held=StudioColor::Resolve(Field.Identity()->Dataset,Omega.GetValue(),{});
+        const double Reference=FMath::Max(FMath::Abs(Held.Minimum),FMath::Abs(Held.Maximum));
+        Root->SetNumberField(TEXT("vorticity_opacity_reference"),Reference>0?Reference:1);
+        Root->SetStringField(TEXT("vorticity_opacity_reference_unit"),Omega->Unit);
+    }
+    Root->SetBoolField(TEXT("air_mask"),AirMask);Root->SetNumberField(TEXT("liquid_minimum"),G.LiquidMinimum);
+    const auto* Descriptor=Points->Descriptor->FindField(Scalar);const auto* Values=Points->FindValues(Scalar);
+    if(Descriptor)
+    {
+        Root->SetStringField(TEXT("derivative_validity_field"),Descriptor->ValidityMask);
+        Root->SetNumberField(TEXT("first_frame_clipped_above"),Descriptor->FirstFrameClippedAbove);
+    }
+    FString Error;const auto Mask=StudioVolumes::SourceMask(*Points,*V,Scalar,false,Error,{},AirMask);
+    if(Values&&Error.IsEmpty()&&Mask.Num()==Values->Num())
+    {
+        int64 Below=0,Above=0,Excluded=0,Supported=0;double Min=TNumericLimits<double>::Max(),Max=-TNumericLimits<double>::Max();
+        for(int32 I=0;I<Values->Num();++I)
+        {
+            if(Mask[I]!=1){++Excluded;continue;}const double Value=(*Values)[I];++Supported;
+            Min=FMath::Min(Min,Value);Max=FMath::Max(Max,Value);Below+=Value<Mapping.Minimum;Above+=Value>Mapping.Maximum;
+        }
+        Root->SetNumberField(TEXT("supported_original_nodes"),Supported);Root->SetNumberField(TEXT("excluded_original_nodes"),Excluded);
+        Root->SetNumberField(TEXT("clipped_below"),Below);Root->SetNumberField(TEXT("clipped_above"),Above);
+        if(Supported){Root->SetNumberField(TEXT("supported_minimum"),Min);Root->SetNumberField(TEXT("supported_maximum"),Max);}
+        Root->SetStringField(TEXT("clipping_scope"),TEXT("selected original source nodes with active masks; not screen pixels"));
+    }
+    else Root->SetStringField(TEXT("clipping_status"),Error.IsEmpty()?TEXT("Original scalar values not retained"):Error);
+    FString JSON;FJsonSerializer::Serialize(Root,TJsonWriterFactory<TCHAR,TCondensedJsonPrintPolicy<TCHAR>>::Create(&JSON));return JSON;
+}
 FString StudioSnapshot::Metadata(const FStudioSnapshot& S)
 {
     auto Root=MakeShared<FJsonObject>();Root->SetStringField(TEXT("format"),TEXT("LBMStudio.Snapshot"));Root->SetNumberField(TEXT("version"),1);
+    Root->SetStringField(TEXT("unit_display"),S.UnitDisplay==EStudioHome4UnitDisplay::Lattice?TEXT("lattice"):S.UnitDisplay==EStudioHome4UnitDisplay::Physical?TEXT("physical"):TEXT("nondimensional"));
+    TSharedPtr<FJsonObject> Original;if(!S.OriginalSourceJSON.IsEmpty()&&FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(S.OriginalSourceJSON),Original)&&Original)Root->SetObjectField(TEXT("original_grid"),Original);
     Root->SetStringField(TEXT("project"),S.Project.ToString());Root->SetStringField(TEXT("capture"),LexToString(S.Capture));
+    if(!S.MetadataFile.IsEmpty())Root->SetStringField(TEXT("metadata_file"),S.MetadataFile);
     Root->SetStringField(TEXT("title"),S.SourceTitle);Root->SetStringField(TEXT("dataset"),S.Identity.Dataset);
     Root->SetStringField(TEXT("metadata_sha256"),S.Identity.MetadataSHA256);Root->SetStringField(TEXT("payload_sha256"),S.Identity.PayloadSHA256);
     Root->SetStringField(TEXT("reconstruction_sha256"),S.Identity.ReconstructionSHA256);
@@ -77,7 +135,10 @@ FString StudioSnapshot::Metadata(const FStudioSnapshot& S)
     Streams->SetNumberField(TEXT("tube_diameter_m"),S.Streams.WidthMeters);
     Streams->SetBoolField(TEXT("work_limit_reached"),S.Streams.bBudgetExhausted);
     Streams->SetBoolField(TEXT("automatic_inlet"),S.Streams.bAutomaticSeeds);
-    Streams->SetStringField(TEXT("method"),TEXT("Instantaneous velocity streamlines; arc-length midpoint integration"));
+    Streams->SetStringField(TEXT("method"),S.Streams.Method==EStudioStreamMethod::DormandPrince45?TEXT("Instantaneous velocity streamlines; adaptive Dormand-Prince RK45 arc length"):TEXT("Instantaneous velocity streamlines; arc-length midpoint integration"));
+    Streams->SetNumberField(TEXT("rejected_attempts"),S.Streams.RejectedAttempts);Streams->SetNumberField(TEXT("velocity_evaluations"),S.Streams.VelocityEvaluations);
+    Streams->SetNumberField(TEXT("scalar_evaluations"),S.Streams.ScalarEvaluations);Streams->SetNumberField(TEXT("support_evaluations"),S.Streams.SupportEvaluations);
+    if(S.DisplaySettings.bHome4Vorticity&&S.Scalar.Id==TEXT("q")){auto Transfer=MakeShared<FJsonObject>();Transfer->SetStringField(TEXT("color"),TEXT("q"));Transfer->SetStringField(TEXT("opacity"),TEXT("vorticity_magnitude squared / held first-frame percentile squared"));Transfer->SetStringField(TEXT("precision_cap"),TEXT("Extinction weights capped at 1e20 for finite GPU transport"));Root->SetObjectField(TEXT("vorticity_transfer"),Transfer);}
     Root->SetObjectField(TEXT("streamline_display"),Streams);
     auto Mesh=MakeShared<FJsonObject>();Mesh->SetNumberField(TEXT("triangles"),S.Mesh.Triangles);
     Mesh->SetBoolField(TEXT("derived"),S.Mesh.bDerived);Mesh->SetStringField(TEXT("notice"),S.Mesh.Notice);
@@ -137,9 +198,11 @@ bool FStudioSnapshotExportTask::Start(FStudioSnapshot Snapshot,const FString& Pa
 #if WITH_DEV_AUTOMATION_TESTS
         ,BeforeWrite=MoveTemp(BeforeWriteForAutomation)
 #endif
-    ]
+    ]() mutable
     {
         FStudioSnapshotExportResult Result;Result.Path=Path;Result.Frame=Snapshot.Identity.Frame;
+        Snapshot.MetadataFile=FPaths::GetBaseFilename(Path)+TEXT(".")+FGuid::NewGuid().ToString(EGuidFormats::Digits)+TEXT(".json");
+        Result.SidecarPath=FPaths::GetPath(Path)/Snapshot.MetadataFile;
         TArray64<uint8> PNG;
         if(State->load()==EStudioSnapshotExportState::Cancelled){Result.bCancelled=true;return Result;}
         if(!StudioSnapshot::Encode(Snapshot,PNG,Result.Error))
@@ -154,7 +217,17 @@ bool FStudioSnapshotExportTask::Start(FStudioSnapshot Snapshot,const FString& Pa
 #endif
         auto Expected=EStudioSnapshotExportState::Encoding;
         if(!State->compare_exchange_strong(Expected,EStudioSnapshotExportState::Writing)){Result.bCancelled=true;return Result;}
-        const FStudioFileAccess Access(Path);Result.bSuccess=StudioFileDialog::WriteAtomicBytes(Path,PNG,Result.Error);
+        const FStudioFileAccess Access(Path);
+        // Publish the uniquely named complete metadata first. Atomic PNG replacement
+        // is the commit point; its embedded metadata names this exact sidecar.
+        // A failed replacement leaves the old image and its old metadata intact.
+        if(!FFileHelper::SaveStringToFile(StudioSnapshot::Metadata(Snapshot),*Result.SidecarPath,FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,&IFileManager::Get(),FILEWRITE_NoReplaceExisting))
+            Result.Error=TEXT("Could not write the snapshot JSON sidecar. Existing image retained.");
+        else
+        {
+            Result.bSuccess=StudioFileDialog::WriteAtomicBytes(Path,PNG,Result.Error);
+            if(!Result.bSuccess)IFileManager::Get().Delete(*Result.SidecarPath,false,true);
+        }
         State->store(EStudioSnapshotExportState::Complete);return Result;
     });return true;
 }

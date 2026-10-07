@@ -23,6 +23,7 @@ public:
     int64 TextureBytes() const;
 private:
     UPROPERTY(Transient) TObjectPtr<UVolumeTexture> Texture;
+    UPROPERTY(Transient) TObjectPtr<UVolumeTexture> OpacityTexture;
     UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> Material;
     FBox Bounds = FBox(ForceInit);
 };

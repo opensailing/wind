@@ -4,6 +4,7 @@
 #include "StudioAssets.h"
 #include "StudioColor.h"
 #include "StudioStreamlines.h"
+#include "StudioSnapshot.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
@@ -192,6 +193,17 @@ bool FStudioHome4OriginalIso::RunTest(const FString&)
     FStudioScalarStyle Style;Style.Dataset=Solver->Descriptor().Id;Style.Field=TEXT("phi");Style.bManualRange=true;Style.Minimum=.2;Style.Maximum=.8;
     const auto Manual=StudioColor::Resolve(Solver->Descriptor().Id,*Scalar,{Style});TestEqual(TEXT("Explicit range wins"),Manual.Maximum,.8);
     TestEqual(TEXT("Clipped count provenance retained"),R.Recording->Descriptor().FindField(TEXT("phi"))->FirstFrameClippedAbove,int64(1));
+    const auto Field=Solver->CaptureViewField(0,TEXT("phi"),false);TSharedPtr<FJsonObject> ImageSource;
+    const auto JSON=StudioSnapshot::SourceMetadata(*Field,TEXT("phi"),Default,true);
+    TestTrue(TEXT("Image source metadata parses"),FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(JSON),ImageSource));
+    if(ImageSource)
+    {
+        TestEqual(TEXT("Actual clipped source node count"),ImageSource->GetNumberField(TEXT("clipped_above")),1.);
+        TestEqual(TEXT("Original crop retained in image"),ImageSource->GetArrayField(TEXT("crop_minimum_indices"))[0]->AsNumber(),1.);
+        TestEqual(TEXT("Preview explicitly identified"),ImageSource->GetNumberField(TEXT("preview_stride")),2.);
+        TestEqual(TEXT("Image source step conversion is not case unit map"),ImageSource->GetObjectField(TEXT("units"))->GetNumberField(TEXT("dtSeconds")),.02);
+    }
+
     return true;
 }
 

@@ -280,7 +280,7 @@ TArray<uint8> StudioVolumes::SourceMask(const FStudioPointFrame& Frame,const FSt
             ((*SolidSupport)[I]!=0&&(*SolidSupport)[I]!=1)||((*LiquidSupport)[I]!=0&&(*LiquidSupport)[I]!=1)||
             (Valid&&(*Valid)[I]!=0&&(*Valid)[I]!=1))return Fail(TEXT("Original masks contain invalid values."));
     }
-    const bool bSolidDisplay=!bVelocity&&Field==S->SolidField;
+    const bool bSolidDisplay=!bVelocity&&(Field==S->SolidField||Field==TEXT("sdf"));
     const bool bScientific=bVelocity||(F&&(F->bAirMaskDefault||!F->ValidityMask.IsEmpty()));
     const bool bAir=bVelocity||(F&&F->bAirMaskDefault&&AirMaskOverride.Get(true));
     TArray<uint8> Out;Out.SetNumZeroed(Count);
@@ -337,7 +337,7 @@ bool StudioVolumes::SourceNodeSupported(const FStudioPointFrame& Frame,const FSt
     const auto* Valid=F->ValidityMask.IsEmpty()?nullptr:Frame.FindValues(F->ValidityMask);
     if(!Phi||!Solid||Phi->Num()!=V.Classification.Num()||Solid->Num()!=Phi->Num()||!Phi->IsValidIndex(I)||
         !FMath::IsFinite((*Phi)[I])||(!F->ValidityMask.IsEmpty()&&(!Valid||!Valid->IsValidIndex(I)||(*Valid)[I]!=1)))return false;
-    if(!bVelocity&&Field==S->SolidField)return (*Solid)[I]==0||(*Solid)[I]==1;
+    if(!bVelocity&&(Field==S->SolidField||Field==TEXT("sdf")))return (*Solid)[I]==0||(*Solid)[I]==1;
     if((*Solid)[I]!=0||!SolidSupport||!LiquidSupport||SolidSupport->Num()!=Phi->Num()||LiquidSupport->Num()!=Phi->Num()||
         (*SolidSupport)[I]!=1||((F->bAirMaskDefault||bVelocity)&&(*LiquidSupport)[I]!=1))return false;
     if(!F->bAirMaskDefault&&F->ValidityMask.IsEmpty()&&!bVelocity)return true;

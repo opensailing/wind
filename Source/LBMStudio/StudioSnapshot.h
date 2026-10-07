@@ -6,6 +6,8 @@
 #include "StudioInspectionOverlay.h"
 #include "StudioMeshDisplay.h"
 
+class IStudioField;
+
 struct FStudioSnapshotOptions
 {
     FIntPoint Size=FIntPoint(1920,1080);
@@ -26,7 +28,9 @@ struct FStudioSnapshot
     FStudioSnapshotOptions Options;
     FStudioFieldIdentity Identity;
     FGuid Project,SelectedObject;
-    FString SourceTitle,ProbeCSV;
+    FString SourceTitle,ProbeCSV,MetadataFile,OriginalSourceJSON;
+    EStudioHome4UnitDisplay UnitDisplay=EStudioHome4UnitDisplay::Lattice;
+    TOptional<FStudioHome4Spec> SourceUnitMap;
     uint64 Capture=0;
     FStudioCameraState Camera;
     FIntPoint SourceSize=FIntPoint::ZeroValue;
@@ -54,13 +58,15 @@ namespace StudioSnapshot
      * camera, crop, scalar, mapping, inspection and optional probe identity. */
     bool Encode(const FStudioSnapshot& Snapshot,TArray64<uint8>& PNG,FString& Error);
     FString Metadata(const FStudioSnapshot& Snapshot);
+    /** Capture original-grid map and actual clipping statistics from the immutable displayed frame. */
+    FString SourceMetadata(const IStudioField& Field,const FString& Scalar,const FStudioColorMapping& Mapping,bool AirMask);
 }
 
 enum class EStudioSnapshotExportState : uint8 { Encoding,Cancelled,Writing,Complete };
 struct FStudioSnapshotExportResult
 {
     bool bSuccess=false,bCancelled=false;
-    FString Path,Error;
+    FString Path,Error,SidecarPath;
     FStudioFrame Frame;
 };
 

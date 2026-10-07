@@ -86,7 +86,7 @@ void FStudioImageSequenceRenderer::Tick()
         if(!Scene.IsValid())
         {
             auto M=MakeShared<FStudioModel>(Prepared->Snapshot.ToSharedRef());
-            M->Project.Id=Frozen.View.Project;M->Project.Camera=Frozen.View.Camera;
+            M->UnitDisplay=Frozen.View.UnitDisplay;M->Project.Id=Frozen.View.Project;M->Project.Camera=Frozen.View.Camera;
             static_cast<FStudioViewSettings&>(*M)=Frozen.View.DisplaySettings;
             M->SelectedInspectionObject=Frozen.View.SelectedObject;M->Project.View=Frozen.View.DisplaySettings;
             auto* Actor=World->SpawnActor<AStudioScene>();

@@ -1,4 +1,5 @@
 #include "SStudioSnapshotOverlay.h"
+#include "StudioHome4Readouts.h"
 #include "Brushes/SlateColorBrush.h"
 #include "Rendering/DrawElements.h"
 #include "Framework/Application/SlateApplication.h"
@@ -37,7 +38,7 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
         double Y=Size.Y-Footer+7*Scale;
         if(S.Options.bFrameInfo)
         {
-            const FString Tail=FString::Printf(TEXT(" · frame %d · %.9g s"),S.Identity.Frame.Index,S.Identity.Frame.Time);
+            const FString Tail=S.SourceUnitMap.IsSet()?TEXT(" · ")+StudioHome4Readouts::Time(S.Identity.Frame.Index,&S.SourceUnitMap.GetValue(),S.Identity.Frame.Time):FString::Printf(TEXT(" · frame %d · %.9g s"),S.Identity.Frame.Index,S.Identity.Frame.Time);
             FString Title=S.SourceTitle;
             while(Title.Len()>1&&Measure->Measure(Title+Tail,Font).X>Size.X-2*Margin)Title.LeftChopInline(1);
             Label(Title+Tail,FVector2D(Margin,Y),Text,Layer+7);Y+=20*Scale;
@@ -57,7 +58,7 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
         {
             FString Meaning=TEXT("Instantaneous velocity streamlines");
             if(S.Identity.Interpolation==EStudioFieldInterpolation::ReconstructedGrid)
-                Meaning+=TEXT(" · derived 3D grid interpolation");
+                Meaning+=S.SourceUnitMap.IsSet()?TEXT(" · original 3D grid interpolation"):TEXT(" · derived 3D grid interpolation");
             else if(S.Identity.Interpolation==EStudioFieldInterpolation::ReconstructedTriangles)
                 Meaning+=TEXT(" · derived 2D triangle interpolation");
             Label(Meaning,FVector2D(Margin,Y),Muted,Layer+7);Y+=20*Scale;
@@ -68,7 +69,7 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
     }
     if(S.Options.bLegend)
     {
-        const FString Title=S.Scalar.Label+TEXT(" (")+S.Scalar.Unit+TEXT(")");
+        const FString Title=S.Scalar.Label;
         const bool HasVectors=S.Vectors.GlyphCount>0;
         const FString VectorLength=FString::Printf(TEXT("Arrow length: %.4g m"),S.Vectors.ReferenceLengthMeters);
         const FString VectorMeaning=S.Vectors.bUniformLength?TEXT("Equal length · direction only"):
@@ -82,9 +83,9 @@ int32 SStudioSnapshotOverlay::OnPaint(const FPaintArgs&,const FGeometry& G,const
         for(int32 I=0;I<64;++I)
             Box(Bar+FVector2D(0,I*2*Scale),FVector2D(14*Scale,2*Scale+.25),
                 StudioColor::Map(FMath::Lerp(S.Mapping.Maximum,S.Mapping.Minimum,I/63.),S.Mapping),Layer+7);
-        for(int32 I=0;I<5;++I)Label(FString::Printf(TEXT("%.6g"),FMath::Lerp(S.Mapping.Maximum,S.Mapping.Minimum,I/4.)),
+        for(int32 I=0;I<5;++I)Label(StudioHome4Readouts::Scalar(FMath::Lerp(S.Mapping.Maximum,S.Mapping.Minimum,I/4.),S.Scalar.Unit,S.UnitDisplay,S.SourceUnitMap.IsSet()?&S.SourceUnitMap.GetValue():nullptr),
             Bar+FVector2D(23,I*30-3)*Scale,Text,Layer+7);
-        Label(S.Mapping.bManualRange?TEXT("Custom range"):TEXT("Source range"),At+FVector2D(10,168)*Scale,Muted,Layer+7);
+        Label(S.Mapping.bManualRange?TEXT("Custom range"):S.Scalar.DefaultDisplayMaximum.IsSet()?TEXT("First-frame 99% range"):TEXT("Source range"),At+FVector2D(10,168)*Scale,Muted,Layer+7);
         if(HasVectors)
         {
             Label(VectorLength,At+FVector2D(10,190)*Scale,Text,Layer+7);

@@ -36,7 +36,9 @@ bool StudioView::BuildClippedProjection(const FStudioCameraState& C,FIntPoint Si
 static bool FieldDisplayEquals(const FStudioViewSettings& A, const FStudioViewSettings& B)
 {
     return A.bStreamlines==B.bStreamlines && A.bVectors==B.bVectors && A.bCutPlane==B.bCutPlane &&
-        A.bVolume==B.bVolume && A.bHome4AirMask==B.bHome4AirMask && A.bMesh==B.bMesh && A.MeshStyle==B.MeshStyle && A.SliceAxis==B.SliceAxis && A.SlicePosition==B.SlicePosition &&
+        A.bVolume==B.bVolume && A.bHome4AirMask==B.bHome4AirMask && A.bHome4InterfaceSurface==B.bHome4InterfaceSurface &&
+        A.bHome4ObstacleSurface==B.bHome4ObstacleSurface && A.bHome4SdfSurface==B.bHome4SdfSurface && A.bHome4Vorticity==B.bHome4Vorticity &&
+        A.Home4InterfaceIsovalue==B.Home4InterfaceIsovalue && A.bMesh==B.bMesh && A.MeshStyle==B.MeshStyle && A.SliceAxis==B.SliceAxis && A.SlicePosition==B.SlicePosition &&
         A.StreamlineDensity==B.StreamlineDensity && A.StreamlineSettings==B.StreamlineSettings && A.VectorScale==B.VectorScale &&
         A.VectorCount==B.VectorCount && A.bUniformVectors==B.bUniformVectors && A.VolumeOpacity==B.VolumeOpacity &&
         A.ScalarField==B.ScalarField && A.bSourcePoints==B.bSourcePoints && A.bReconstructedSurface==B.bReconstructedSurface && A.bFocusWingRegion==B.bFocusWingRegion &&
@@ -94,7 +96,7 @@ bool StudioView::IsValid(const FStudioInspectionState& S)
         Range(C.FieldOfView,5,160) && Range(C.OrthoWidth,.001,1.e6) && IsValidClipping(C) && V.SliceAxis>=0 && V.SliceAxis<=2 &&
         V.MeshStyle>=0 && V.MeshStyle<=2 && Range(V.SlicePosition,-1.e9,1.e9) && Range(V.StreamlineDensity,0,1) &&
         Range(V.VectorScale,.2,3) && V.VectorCount>=1 && V.VectorCount<=4096 &&
-        Range(V.VolumeOpacity,0,1) && Range(V.PointSize,.25,3) && StudioColor::IsValid(V.ScalarStyles);
+        Range(V.Home4InterfaceIsovalue,0,1) && Range(V.VolumeOpacity,0,1) && Range(V.PointSize,.25,3) && StudioColor::IsValid(V.ScalarStyles);
 }
 FQuat StudioView::Turn(const FQuat& Q,double DX,double DY,double Scale)
 {

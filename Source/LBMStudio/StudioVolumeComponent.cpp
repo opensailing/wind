@@ -16,7 +16,7 @@ bool UStudioVolumeComponent::Present(const FStudioVolumeRenderData& Data,const F
 {
     check(IsInGameThread());
     const auto D=Data.Dimensions;
-    if(!Data.Error.IsEmpty()||D.GetMin()<2||Data.Texels.Num()!=int64(D.X)*D.Y*D.Z||Data.Texels.Num()>StudioVolumes::MaximumVoxels)
+    if(!Data.Error.IsEmpty()||D.GetMin()<2||Data.Texels.Num()!=int64(D.X)*D.Y*D.Z||Data.Texels.Num()>StudioVolumes::MaximumVoxels||(!Data.OpacityTexels.IsEmpty()&&Data.OpacityTexels.Num()!=Data.Texels.Num()))
     {ClearVolume();Error=Data.Error.IsEmpty()?TEXT("Invalid volume upload."):Data.Error;return false;}
     if(!Material)
     {
@@ -46,6 +46,29 @@ bool UStudioVolumeComponent::Present(const FStudioVolumeRenderData& Data,const F
                 reinterpret_cast<const uint8*>(Upload->GetData()));
         }
     });
+    if(!Data.OpacityTexels.IsEmpty())
+    {
+        if(!OpacityTexture||OpacityTexture->GetSizeX()!=D.X||OpacityTexture->GetSizeY()!=D.Y||OpacityTexture->GetSizeZ()!=D.Z)
+        {
+            if(OpacityTexture)OpacityTexture->ReleaseResource();
+            OpacityTexture=UVolumeTexture::CreateTransient(D.X,D.Y,D.Z,PF_R32_FLOAT);
+            if(!OpacityTexture){ClearVolume();Error=TEXT("Vorticity opacity allocation failed.");return false;}
+            OpacityTexture->SRGB=false;OpacityTexture->Filter=TF_Nearest;OpacityTexture->NeverStream=true;OpacityTexture->AddressMode=TA_Clamp;
+            OpacityTexture->UpdateResource();
+        }
+        auto Alpha=MakeShared<TArray<float>,ESPMode::ThreadSafe>(Data.OpacityTexels);FTextureResource* AlphaResource=OpacityTexture->GetResource();
+        if(!AlphaResource){ClearVolume();Error=TEXT("Vorticity opacity resource unavailable.");return false;}
+        ENQUEUE_RENDER_COMMAND(StudioVorticityUpload)([AlphaResource,Alpha,D](FRHICommandListImmediate& RHICmdList)
+        {
+            if(AlphaResource->TextureRHI)RHICmdList.UpdateTexture3D(AlphaResource->TextureRHI,0,FUpdateTextureRegion3D(0,0,0,0,0,0,D.X,D.Y,D.Z),D.X*sizeof(float),D.X*D.Y*sizeof(float),reinterpret_cast<const uint8*>(Alpha->GetData()));
+        });
+        Material->SetTextureParameterValue(TEXT("OpacityScalars"),OpacityTexture);Material->SetScalarParameterValue(TEXT("IndependentOpacity"),1);
+    }
+    else
+    {
+        Material->SetScalarParameterValue(TEXT("IndependentOpacity"),0);Material->SetTextureParameterValue(TEXT("OpacityScalars"),Texture);
+        if(OpacityTexture)OpacityTexture->ReleaseResource();OpacityTexture=nullptr;
+    }
     const FVector Lo=Data.SourceBounds.Min,Hi=Data.SourceBounds.Max;
     const FBox SceneBounds(FVector(Lo.X,Lo.Z,Lo.Y)*100.,FVector(Hi.X,Hi.Z,Hi.Y)*100.);
     Bounds=SceneBounds;
@@ -101,9 +124,10 @@ void UStudioVolumeComponent::CameraChanged(const FStudioCameraState& Camera,FInt
 void UStudioVolumeComponent::ClearVolume(bool bReleaseResources)
 {
     ClearAllMeshSections();SetVisibility(false);Bounds=FBox(ForceInit);
-    if(Material)Material->SetTextureParameterValue(TEXT("VolumeScalars"),nullptr);
+    if(Material){Material->SetTextureParameterValue(TEXT("VolumeScalars"),nullptr);Material->SetTextureParameterValue(TEXT("OpacityScalars"),nullptr);Material->SetScalarParameterValue(TEXT("IndependentOpacity"),0);}
+    if(OpacityTexture)OpacityTexture->ReleaseResource();OpacityTexture=nullptr;
     if(bReleaseResources&&Texture)Texture->ReleaseResource();
     Texture=nullptr;
 }
 int64 UStudioVolumeComponent::TextureBytes() const
-{ return Texture?int64(Texture->GetSizeX())*Texture->GetSizeY()*Texture->GetSizeZ()*sizeof(FVector2f):0; }
+{ return (Texture?int64(Texture->GetSizeX())*Texture->GetSizeY()*Texture->GetSizeZ()*sizeof(FVector2f):0)+(OpacityTexture?int64(OpacityTexture->GetSizeX())*OpacityTexture->GetSizeY()*OpacityTexture->GetSizeZ()*sizeof(float):0); }

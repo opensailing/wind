@@ -98,6 +98,9 @@ namespace
         O->SetNumberField(TEXT("volumeStepVoxels"),V.VolumeStepVoxels);
         O->SetBoolField(TEXT("volumeThreshold"),V.bVolumeThreshold);
         O->SetBoolField(TEXT("home4AirMask"),V.bHome4AirMask);
+        O->SetBoolField(TEXT("home4InterfaceSurface"),V.bHome4InterfaceSurface);O->SetBoolField(TEXT("home4ObstacleSurface"),V.bHome4ObstacleSurface);
+        O->SetBoolField(TEXT("home4SdfSurface"),V.bHome4SdfSurface);O->SetBoolField(TEXT("home4Vorticity"),V.bHome4Vorticity);
+        O->SetNumberField(TEXT("home4InterfaceIsovalue"),V.Home4InterfaceIsovalue);
         O->SetBoolField(TEXT("volumeIsosurface"),V.bVolumeIsosurface);O->SetNumberField(TEXT("volumeIsovalue"),V.VolumeIsovalue);
         O->SetNumberField(TEXT("volumeThresholdMinimum"),V.VolumeThresholdMinimum);
         O->SetNumberField(TEXT("volumeThresholdMaximum"),V.VolumeThresholdMaximum);
@@ -119,6 +122,11 @@ namespace
     bool ReadView(const FObject& O, FStudioViewSettings& V, bool bLegacy, bool bPointSettings=false,bool bColorSettings=false,bool bSurfaceSettings=false,bool bVolumeSettings=false,bool bInspectionSettings=false,bool bVectorSettings=false,bool bStreamSettings=false)
     {
         if(O->HasField(TEXT("home4AirMask"))&&!O->TryGetBoolField(TEXT("home4AirMask"),V.bHome4AirMask))return false;
+        if(O->HasField(TEXT("home4InterfaceSurface"))&&!O->TryGetBoolField(TEXT("home4InterfaceSurface"),V.bHome4InterfaceSurface))return false;
+        if(O->HasField(TEXT("home4ObstacleSurface"))&&!O->TryGetBoolField(TEXT("home4ObstacleSurface"),V.bHome4ObstacleSurface))return false;
+        if(O->HasField(TEXT("home4SdfSurface"))&&!O->TryGetBoolField(TEXT("home4SdfSurface"),V.bHome4SdfSurface))return false;
+        if(O->HasField(TEXT("home4Vorticity"))&&!O->TryGetBoolField(TEXT("home4Vorticity"),V.bHome4Vorticity))return false;
+        if(O->HasField(TEXT("home4InterfaceIsovalue"))&&!ReadNumber(O,TEXT("home4InterfaceIsovalue"),V.Home4InterfaceIsovalue,0,1))return false;
         if (!ReadInteger(O,TEXT("sliceAxis"),V.SliceAxis,0,2) ||
             !ReadNumber(O,TEXT("slicePosition"),V.SlicePosition,-1.e9,1.e9) ||
             !ReadNumber(O,TEXT("streamlineDensity"),V.StreamlineDensity,0,1) ||

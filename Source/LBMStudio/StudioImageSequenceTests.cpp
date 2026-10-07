@@ -129,7 +129,7 @@ bool FImageSequenceWrite::RunTest(const FString&)
     const auto Result=Await(Task);
     if(!TestTrue(TEXT("All selected images publish together"),Result&&Result->bSuccess&&!Result->bCancelled&&Result->CompletedFrames==3&&Result->FailedOrdinal==INDEX_NONE))return false;
     const auto Files=Entries(Result->Path);
-    TestTrue(TEXT("No frame interpolation or extra files"),Files==TArray<FString>{TEXT("frame_000003.png"),TEXT("frame_000006.png"),TEXT("frame_000009.png"),TEXT("frames.jsonl"),TEXT("sequence.json")});
+    TestTrue(TEXT("Exact frames and adjacent metadata pairs"),Files==TArray<FString>{TEXT("frame_000003.json"),TEXT("frame_000003.png"),TEXT("frame_000006.json"),TEXT("frame_000006.png"),TEXT("frame_000009.json"),TEXT("frame_000009.png"),TEXT("frames.jsonl"),TEXT("sequence.json")});
     FString Manifest;FFileHelper::LoadFileToString(Manifest,*(Result->Path/TEXT("sequence.json")));
     TSharedPtr<FJsonObject> J;TestTrue(TEXT("Manifest JSON readable"),FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Manifest),J));
     if(!J)return false;
@@ -144,6 +144,9 @@ bool FImageSequenceWrite::RunTest(const FString&)
         if(!TestTrue(TEXT("Index row parses"),FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Lines[K]),Entry)))return false;
         TestEqual(TEXT("Original source step"),Entry->GetNumberField(TEXT("source_step")),double(Frozen.Source->Descriptor().Frames[N].Index));
         TestEqual(TEXT("Original physical time"),Entry->GetNumberField(TEXT("source_time_seconds")),Frozen.Source->Descriptor().Frames[N].Time);
+        FString Sidecar;TSharedPtr<FJsonObject> ImageMetadata;
+        TestTrue(TEXT("Every indexed PNG has readable adjacent source metadata"),FFileHelper::LoadFileToString(Sidecar,*(Result->Path/Entry->GetStringField(TEXT("metadata_file"))))&&FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Sidecar),ImageMetadata));
+        if(ImageMetadata)TestEqual(TEXT("Sidecar original step agrees with frame index"),ImageMetadata->GetNumberField(TEXT("frame")),Entry->GetNumberField(TEXT("source_step")));
         TArray64<uint8> PNG;FFileHelper::LoadFileToArray(PNG,*(Result->Path/Entry->GetStringField(TEXT("file"))));
         const auto Reader=Module.CreateImageWrapper(EImageFormat::PNG);TArray64<uint8> Raw;
         if(!TestTrue(TEXT("Each PNG independently decodes"),Reader->SetCompressed(PNG.GetData(),PNG.Num())&&Reader->GetRaw(ERGBFormat::RGBA,8,Raw)))return false;
@@ -289,7 +292,7 @@ bool FMovieWrite::RunTest(const FString&)
     const auto Result=Await(Task);
     if(!TestTrue(Result?*Result->Error:TEXT("Movie timed out"),Result&&Result->bSuccess&&Result->CompletedFrames==30))return false;
     TestTrue(TEXT("Native MP4 exists beside lossless originals"),IFileManager::Get().FileSize(*(Result->Path/TEXT("flow.mp4")))>0);
-    TestEqual(TEXT("Movie bundle has one video, index, manifest and thirty PNGs"),Entries(Result->Path).Num(),33);
+    TestEqual(TEXT("Movie bundle has video, index, manifest and thirty PNG/JSON pairs"),Entries(Result->Path).Num(),63);
     FString Text;FFileHelper::LoadFileToString(Text,*(Result->Path/TEXT("sequence.json")));TSharedPtr<FJsonObject> J;
     if(!TestTrue(TEXT("Movie metadata readable"),FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text),J)))return false;
     const auto Video=J->GetObjectField(TEXT("movie"));

@@ -248,6 +248,7 @@ public:
     FString Notice;
     EStudioWorkspace Workspace = EStudioWorkspace::Solve;
     bool bSidebarCollapsed = false;
+    EStudioHome4UnitDisplay UnitDisplay=EStudioHome4UnitDisplay::Lattice;
     TMap<FName,FStudioFloatingPaneState> FloatingPanes;
     bool bViewportExpanded = false; // Session layout, never case or camera state.
     int32 InspectorTab = 3; // Setup, Physics, BCs, Display; session preference only.
