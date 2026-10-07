@@ -173,6 +173,7 @@ bool FStudioStreamIntegration::RunTest(const FString&)
 {
     FStreamAnalyticField Field;auto Seed=StreamSeed(*Field.Identity());Seed.Kind=EStudioSeedKind::Points;Seed.Points={FVector::ZeroVector};
     const FBox Bounds(FVector(-5,-1,-5),FVector(5,1,5));FStudioStreamlineSettings S;S.Direction=EStudioStreamDirection::Both;
+    S.Method=EStudioStreamMethod::Midpoint; // Independent legacy numerical path audit remains exact.
     S.StepFraction=.013;S.MaximumLength=.071;S.MaximumSteps=100;S.WorkBudget=1000;
     FString Error;FStudioStreamlineOutput Out;
     if(!TestTrue(*Error,StudioStreamlines::Build(Field,Bounds,{Seed},S,TEXT("pressure"),Out,Error))||!TestEqual(TEXT("Both directions are separate branches"),Out.Paths.Num(),2))return false;
@@ -234,7 +235,8 @@ bool FStudioStreamPersistence::RunTest(const FString&)
     JSON->SetNumberField(TEXT("version"),14);const auto Objects=View->GetObjectField(TEXT("inspectionObjects"));
     Objects->SetNumberField(TEXT("version"),1);Objects->RemoveField(TEXT("seeds"));
     TestTrue(TEXT("Schema14 migrates without inventing saved seeds"),StudioProjectIO::Parse(StreamJSON(JSON.ToSharedRef()),Loaded,Error));
-    TestTrue(TEXT("Prior view gets safe tracing defaults"),Loaded.View.StreamlineSettings==FStudioStreamlineSettings()&&Loaded.View.InspectionObjects.Seeds.IsEmpty());
+    auto MigratedDefaults=FStudioStreamlineSettings();MigratedDefaults.Method=EStudioStreamMethod::Midpoint;
+    TestTrue(TEXT("Prior view preserves legacy midpoint defaults"),Loaded.View.StreamlineSettings==MigratedDefaults&&Loaded.View.InspectionObjects.Seeds.IsEmpty());
     auto Settings=StudioStreamlines::ToJSON(P.View.StreamlineSettings);auto Kept=P.View.StreamlineSettings;
     for(double Bad:{0.,65537.,3.5,std::numeric_limits<double>::infinity()})
     {
@@ -319,6 +321,7 @@ bool FStudioStreamRecorded::RunTest(const FString&)
         }
         if(!TestTrue(TEXT("Recording has supported seed locations"),Seed.Points.Num()>8))return false;
         FStudioStreamlineSettings S;S.Direction=EStudioStreamDirection::Both;S.StepFraction=.001;S.MaximumSteps=40;S.WorkBudget=6000;
+        S.Method=EStudioStreamMethod::Midpoint;
         FStudioStreamlineOutput Out;FString Error;
         if(!TestTrue(*Error,StudioStreamlines::Build(*Field,Bounds,{Seed},S,TEXT("pressure"),Out,Error)))return false;
         TestTrue(TEXT("Substantial authentic traces generated"),Out.Segments>100);

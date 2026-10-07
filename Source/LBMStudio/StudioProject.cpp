@@ -134,6 +134,7 @@ namespace
             const FObject* Settings=nullptr;
             if(!O->TryGetObjectField(TEXT("streamlineSettings"),Settings)||!StudioStreamlines::FromJSON(*Settings,V.StreamlineSettings))return false;
         }
+        if(!bStreamSettings)V.StreamlineSettings.Method=EStudioStreamMethod::Midpoint;
         if ((!bLegacy || O->HasField(TEXT("playbackRate"))) && !ReadNumber(O,TEXT("playbackRate"),V.PlaybackRate,.25,4)) return false;
         if ((!bLegacy || O->HasField(TEXT("loopPlayback"))) && !O->TryGetBoolField(TEXT("loopPlayback"),V.bLoopPlayback)) return false;
         if(bPointSettings)

@@ -92,7 +92,7 @@ bool FStudioColorSchemaTest::RunTest(const FString&)
     O->SetNumberField(TEXT("version"),7);
     TestTrue(TEXT("V7 migrates without color settings"),StudioProjectIO::Parse(ColorJSON(O),Out,Error));
     TestTrue(TEXT("Migrated projects retain source palette/ranges by default"),Out.View.ScalarStyles.IsEmpty());
-    auto Expected=P;Expected.View.ScalarStyles.Reset();
+    auto Expected=P;Expected.View.ScalarStyles.Reset();Expected.View.StreamlineSettings.Method=EStudioStreamMethod::Midpoint;
     TestEqual(TEXT("Migration preserves the rest of the complete document"),StudioProjectIO::Serialize(Out),StudioProjectIO::Serialize(Expected));
     return true;
 }

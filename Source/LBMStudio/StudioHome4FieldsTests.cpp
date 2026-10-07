@@ -3,6 +3,7 @@
 #include "StudioModel.h"
 #include "StudioAssets.h"
 #include "StudioColor.h"
+#include "StudioStreamlines.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
@@ -210,6 +211,37 @@ bool FStudioHome4OriginalIntegrity::RunTest(const FString&)
     Fixture F;FStudioPointReadOptions Small;Small.LiveArrayBytes=343*8;Small.CacheBytes=0;
     const auto R=F.Open(Small);if(!TestTrue(*R.Error,R.Recording.IsValid()))return false;
     TestFalse(TEXT("Dependencies honor explicit live-byte cap"),R.Recording->ReadFrame(0,{TEXT("q")}).Frame.IsValid());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4LiquidStreams,"Studio.Streamlines.RK45.SourceMasksAndLiquidSeeds",StudioHome4FieldsTestPrivate::Flags)
+bool FStudioHome4LiquidStreams::RunTest(const FString&)
+{
+    using namespace StudioHome4FieldsTestPrivate;Fixture F;const auto R=F.Open();if(!TestTrue(*R.Error,R.Recording.IsValid()))return false;
+    const auto Grid=StudioVolumes::OriginalSource(R.Recording->Descriptor(),R.Recording->Geometry());if(!TestTrue(*Grid.Error,Grid.Volume.IsValid()))return false;
+    auto Solver=MakeShared<FPointRecordedSolver,ESPMode::ThreadSafe>(R.Recording.ToSharedRef(),nullptr,Grid.Volume);
+    const auto First=Solver->CaptureViewField(0,TEXT("phi"),true);const auto Second=Solver->CaptureViewField(1,TEXT("phi"),true);
+    if(!TestTrue(TEXT("Source frames retain valid velocity"),First->IsValid()&&Second->IsValid()))return false;
+    const FBox Bounds=StudioStreamlines::DomainBounds(*First,Solver->Descriptor().DisplayBounds);
+    TArray<FVector> Seeds,Again;FString Error;
+    if(!TestTrue(*Error,StudioStreamlines::AutomaticSeeds(*First,Bounds,12,EStudioStreamDirection::Forward,Seeds,Error)))return false;
+    TestEqual(TEXT("Native grid seeds interior supported liquid cells"),Seeds.Num(),12);
+    TestTrue(TEXT("Interior seeding ignores tracing direction deterministically"),StudioStreamlines::AutomaticSeeds(*First,Bounds,12,EStudioStreamDirection::Both,Again,Error)&&Seeds==Again);
+    for(const FVector& P:Seeds)
+    {FVector V;double Phi;TestTrue(TEXT("Every original seed has recorded liquid velocity and whole-cell support"),First->SampleVelocity(P,V)&&First->SampleScalar(P,TEXT("phi"),Phi)&&Phi>=.5&&First->SupportsSegment(P,P));}
+    FStudioSeedObject Seed;Seed.Name=TEXT("Liquid seeds");Seed.Kind=EStudioSeedKind::Points;Seed.Points=Seeds;const auto Identity=*First->Identity();Seed.Source={Identity.Dataset,Identity.MetadataSHA256,Identity.PayloadSHA256};
+    FStudioStreamlineSettings Settings;Settings.MaximumSteps=3;Settings.WorkBudget=128;
+    FStudioStreamlineOutput Output;if(!TestTrue(*Error,StudioStreamlines::Build(*First,Bounds,{Seed},Settings,TEXT("phi"),Output,Error)))return false;
+    TestTrue(TEXT("RK45 follows actual original-grid velocities"),Output.Segments>0&&Output.Method==EStudioStreamMethod::DormandPrince45);
+    TestEqual(TEXT("Exact original frame bound"),Output.Identity->Ordinal,0);
+    for(const auto& Path:Output.Paths)for(int32 I=1;I<Path.PositionsMeters.Num();++I)
+        TestTrue(TEXT("Native trajectories cannot bridge source air or solids"),First->SupportsSegment(Path.PositionsMeters[I-1],Path.PositionsMeters[I]));
+    const auto Kept=Seeds;const auto Cancel=MakeShared<std::atomic<bool>,ESPMode::ThreadSafe>(true);
+    TestFalse(TEXT("Cancelled liquid seeding is atomic"),StudioStreamlines::AutomaticSeeds(*Second,Bounds,12,EStudioStreamDirection::Forward,Seeds,Error,Cancel));
+    TestTrue(TEXT("Prior exact seeds preserved"),Seeds==Kept);
+    const FVector SolidPoint(1+.2*3,3+.4*3,2+.3*3);
+    TestTrue(TEXT("Second-frame source solid available"),Second->IsSolid(SolidPoint));
+    TestFalse(TEXT("First-frame snapshot does not acquire later solid"),First->IsSolid(SolidPoint));
     return true;
 }
 #endif
