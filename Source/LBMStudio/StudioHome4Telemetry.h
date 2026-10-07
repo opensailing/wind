@@ -106,6 +106,8 @@ struct FStudioHome4SourceMetadata
     TOptional<double> DevicePeakGBps;
     FString DevicePeakSource;
     TArray<int32> DeclaredLevels;
+    TArray<FStudioHome4EnergyBudgetRegion> EnergyBudgetDomains;
+    FString EnergyBudgetDomainSource,EnergyBudgetDomainConvention;
     bool Equivalent(const FStudioHome4SourceMetadata& Other) const;
 };
 struct FStudioHome4Histogram

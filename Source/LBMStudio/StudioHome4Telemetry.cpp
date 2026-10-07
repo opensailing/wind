@@ -1,5 +1,6 @@
 #include "StudioHome4Telemetry.h"
 #include "StudioHome4JSON.h"
+#include "StudioHome4EnergyBudget.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -187,6 +188,15 @@ namespace StudioHome4TelemetryPrivate
             Seen.Add(int32(D));M->DeclaredLevels.Add(int32(D));
         }
         M->DeclaredLevels.Sort();
+        const auto Domains=R.Field(O,TEXT("budget_domains"));
+        if(Domains&&Domains->Type!=EJson::Null)
+        {
+            FString DomainError;
+            if(Domains->Type!=EJson::Array||!StudioHome4EnergyBudget::ParseOriginal(Domains->AsArray(),M->EnergyBudgetDomains,DomainError)||!StudioHome4EnergyBudget::ValidateMapped(M->EnergyBudgetDomains,M->UnitMap,DomainError))R.bValid=false;
+        }
+        R.String(O,TEXT("budget_domain_source"),M->EnergyBudgetDomainSource,2048);
+        R.String(O,TEXT("budget_domain_convention"),M->EnergyBudgetDomainConvention,2048);
+        if(!M->EnergyBudgetDomains.IsEmpty()&&(M->EnergyBudgetDomainSource.TrimStartAndEnd().IsEmpty()||M->EnergyBudgetDomainConvention.TrimStartAndEnd().IsEmpty()))R.bValid=false;
         const auto Bodies = R.Object(O, TEXT("body_normalizations"));
         if (Bodies)
         {
@@ -419,8 +429,11 @@ bool FStudioHome4SourceMetadata::Equivalent(const FStudioHome4SourceMetadata& O)
     auto Same = [](const FStudioHome4Normalization& A, const FStudioHome4Normalization& B)
     { return A.ForceDivisor == B.ForceDivisor && A.MomentDivisor == B.MomentDivisor && A.ForceLabel == B.ForceLabel && A.MomentLabel == B.MomentLabel; };
     if (ForceUnits != O.ForceUnits || EnergyUnits != O.EnergyUnits || VelocityUnits != O.VelocityUnits || LengthUnits != O.LengthUnits ||
+        EnergyBudgetDomainSource!=O.EnergyBudgetDomainSource||EnergyBudgetDomainConvention!=O.EnergyBudgetDomainConvention||EnergyBudgetDomains.Num()!=O.EnergyBudgetDomains.Num()||
         DivergenceConvention!=O.DivergenceConvention||DivergenceUnit!=O.DivergenceUnit||DivergenceDomain!=O.DivergenceDomain||DevicePeakGBps!=O.DevicePeakGBps||DevicePeakSource!=O.DevicePeakSource||DeclaredLevels!=O.DeclaredLevels||
         StudioHome4Config::Serialize(UnitMap) != StudioHome4Config::Serialize(O.UnitMap) || !Same(Normalization, O.Normalization) || BodyNormalizations.Num() != O.BodyNormalizations.Num()) return false;
+    for(int32 I=0;I<EnergyBudgetDomains.Num();++I)
+    {const auto& A=EnergyBudgetDomains[I];const auto& B=O.EnergyBudgetDomains[I];if(A.Role!=B.Role||A.BodyId!=B.BodyId||A.Units!=B.Units||A.Frame!=B.Frame||A.Tracking!=B.Tracking||A.Region!=B.Region||A.PhaseMask!=B.PhaseMask||A.Minimum!=B.Minimum||A.Maximum!=B.Maximum)return false;}
     for (const auto& E : BodyNormalizations) { const auto* Other = O.BodyNormalizations.Find(E.Key); if (!Other || !Same(E.Value, *Other)) return false; }
     return true;
 }

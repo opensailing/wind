@@ -3,6 +3,7 @@
 #include "StudioProject.h"
 #include "StudioHome4Recipes.h"
 #include "StudioHome4Validation.h"
+#include "StudioHome4EnergyBudget.h"
 #include "StudioHome4SpatialDiagnostics.h"
 #include "StudioFileDialog.h"
 #include "Misc/FileHelper.h"
@@ -42,6 +43,7 @@ namespace StudioHome4ReportTelemetryPrivate
         for(const auto& B:M.BodyNormalizations)Bodies->SetObjectField(B.Key,Normalization(B.Value));
         O->SetObjectField(TEXT("body_normalizations"),Bodies);
         O->SetStringField(TEXT("divergence_convention"),M.DivergenceConvention);O->SetStringField(TEXT("divergence_unit"),M.DivergenceUnit);O->SetStringField(TEXT("divergence_domain"),M.DivergenceDomain);
+        O->SetArrayField(TEXT("budget_domains"),StudioHome4EnergyBudget::OriginalJSON(M.EnergyBudgetDomains));O->SetStringField(TEXT("budget_domain_source"),M.EnergyBudgetDomainSource);O->SetStringField(TEXT("budget_domain_convention"),M.EnergyBudgetDomainConvention);
         Optional(O,TEXT("device_peak_gbps"),M.DevicePeakGBps);O->SetStringField(TEXT("device_peak_source"),M.DevicePeakSource);
         TArray<TSharedPtr<FJsonValue>> Levels;for(int32 L:M.DeclaredLevels)Levels.Add(MakeShared<FJsonValueNumber>(L));O->SetArrayField(TEXT("declared_levels"),Levels);return O;
     }

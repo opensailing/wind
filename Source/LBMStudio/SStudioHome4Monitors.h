@@ -7,6 +7,7 @@
 
 class FStudioModel;
 class FStudioHome4RuntimeSession;
+class FStudioHome4Session;
 class SScrollBox;
 class SVerticalBox;
 DECLARE_DELEGATE_OneParam(FStudioHome4LocateCell, const FStudioHome4CellFacts&);
@@ -20,6 +21,7 @@ public:
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>, Model)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4TelemetryStream>, Stream)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4RuntimeSession>, Runtime)
+        SLATE_ARGUMENT(TSharedPtr<FStudioHome4Session>, Editor)
         SLATE_ATTRIBUTE(EStudioHome4UnitDisplay, UnitDisplay)
         SLATE_EVENT(FStudioHome4LocateCell, OnLocateCell)
     SLATE_END_ARGS()

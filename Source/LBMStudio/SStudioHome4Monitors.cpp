@@ -1,6 +1,8 @@
 #include "SStudioHome4Monitors.h"
 #include "StudioHome4Runtime.h"
 #include "StudioHome4BodyDiagnostics.h"
+#include "StudioHome4EnergyBudget.h"
+#include "SStudioHome4EnergyBudget.h"
 #include "StudioModel.h"
 #include "StudioFileDialog.h"
 #include "StudioTheme.h"
@@ -236,6 +238,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
     {Content->AddSlot().AutoHeight()[SNew(STextBlock).Tag(FName(*(TEXT("Home4Detail_")+Key.ToString()))).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true).Text_Lambda([this,Key]{return FText::FromString(DetailText(Key));}).ToolTipText_Lambda([this,Key]{return FText::FromString(ScienceTooltips(Key));})];};
     auto Budget=Section(TEXT("Energy budget and residual"),TEXT("Budget"),true);Detail(Budget,TEXT("Budget"));
     Budget->AddSlot().AutoHeight().Padding(0,6)[SNew(SHome4BudgetBars).Read([this]{return StudioHome4SciencePresentation::Budget(Sample(),UnitDisplay.Get(),SelectedPhase);})];
+    if(A._Editor||A._Model)Budget->AddSlot().AutoHeight().Padding(0,6)[SNew(SStudioHome4EnergyBudget).Model(A._Model).Editor(A._Editor)];
     auto Forces=Section(TEXT("Independent force channels"),TEXT("Forces"),true);
     auto Components=SNew(SHorizontalBox);const TCHAR* Names[]={TEXT("Fx"),TEXT("Fy"),TEXT("Fz"),TEXT("My")};
     for(int32 I=0;I<4;++I)Components->AddSlot().FillWidth(1).Padding(0,0,4,0)[SNew(SButton).Tag(FName(*FString::Printf(TEXT("Home4PlotComponent%d"),I))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,4))
@@ -471,7 +474,9 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
         const auto* B=SelectedPhase.IsEmpty()?&S->Budget:S->PhaseBudgets.Find(SelectedPhase);
         if(!B)return TEXT("Selected phase budget unavailable at this original sample.");
         return (SelectedPhase.IsEmpty()?TEXT("Root budget"):TEXT("Phase ")+SelectedPhase)+TEXT(" · ")+Value(B->Work,EStudioHome4Quantity::Energy)+TEXT(" work")+
-            TEXT("\nReported residual ")+Value(B->Residual,EStudioHome4Quantity::Energy)+TEXT(" · computed W − losses − ΔE ")+Value(StudioHome4SciencePresentation::BudgetImbalance(*B),EStudioHome4Quantity::Energy);
+            TEXT("\nReported residual ")+Value(B->Residual,EStudioHome4Quantity::Energy)+TEXT(" · computed W − losses − ΔE ")+Value(StudioHome4SciencePresentation::BudgetImbalance(*B),EStudioHome4Quantity::Energy)+
+            TEXT("\nOriginal energy domains: ")+(S->Metadata?StudioHome4EnergyBudget::Description(S->Metadata->EnergyBudgetDomains,&S->Metadata->UnitMap):TEXT("not supplied"))+
+            (S->Metadata&&!S->Metadata->EnergyBudgetDomains.IsEmpty()?TEXT("\nOriginal domain source: ")+S->Metadata->EnergyBudgetDomainSource+TEXT("\nOriginal sampling convention: ")+S->Metadata->EnergyBudgetDomainConvention:TEXT(""));
     }
     if (Key == TEXT("Forces"))
     {
