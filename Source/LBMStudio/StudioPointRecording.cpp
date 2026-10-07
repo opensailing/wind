@@ -9,6 +9,7 @@
 #include "Misc/ScopeLock.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include <limits>
 
 #define UI UI_ST
 THIRD_PARTY_INCLUDES_START
@@ -101,6 +102,94 @@ bool Bounds(const FJsonObject& O, const TCHAR* Key, int32 Dimensions, FVector& O
         if (!(*Values)[I]->TryGetNumber(Out[I]) || !FMath::IsFinite(Out[I])) return false;
     return true;
 }
+bool GridIntegers(const FJsonObject& O,const TCHAR* Key,int32 Minimum,int32 Maximum,FIntVector& Out)
+{
+    FVector V;if(!Bounds(O,Key,3,V))return false;
+    for(int32 A=0;A<3;++A)
+    {if(V[A]<Minimum||V[A]>Maximum||V[A]!=FMath::FloorToDouble(V[A]))return false;Out[A]=int32(V[A]);}
+    return true;
+}
+bool GridOptionalPositive(const FJsonObject& O,const TCHAR* Key,TOptional<double>& Out)
+{
+    if(!O.HasField(Key)||O.HasTypedField<EJson::Null>(Key))return true;
+    double V;if(!O.TryGetNumberField(Key,V)||!FMath::IsFinite(V)||V<=0)return false;Out=V;return true;
+}
+bool ParseGrid(const FJsonObject& O,FStudioPointRecordingDescriptor& D)
+{
+    const TSharedPtr<FJsonObject>* G=nullptr;
+    if(!O.HasField(TEXT("structuredGrid")))return true;
+    if(D.SpatialDimensions!=3||!O.TryGetObjectField(TEXT("structuredGrid"),G)||!G||!G->IsValid())return false;
+    auto S=MakeShared<FStudioPointStructuredGrid,ESPMode::ThreadSafe>();
+    int64 Version,Stride,Frames;FString Kind,Layout;
+    const TSharedPtr<FJsonObject>* Units=nullptr;const TSharedPtr<FJsonObject>* Reference=nullptr;const TSharedPtr<FJsonObject>* Manifest=nullptr;
+    if(!Integer(**G,TEXT("version"),1,1,Version)||!String(**G,TEXT("kind"),Kind)||Kind!=TEXT("home4_structured_source")||
+        !String(**G,TEXT("layout"),Layout)||Layout!=TEXT("x_fastest_node_grid")||
+        !GridIntegers(**G,TEXT("dimensionsXYZ"),2,512,S->Dimensions)||
+        !GridIntegers(**G,TEXT("originalDimensionsXYZ"),2,16000000,S->OriginalDimensions)||
+        !GridIntegers(**G,TEXT("cropMinimumXYZ"),0,16000000,S->CropMinimum)||
+        !GridIntegers(**G,TEXT("cropMaximumXYZ"),1,16000000,S->CropMaximum)||
+        !Integer(**G,TEXT("previewStride"),1,16000000,Stride)||
+        !Bounds(**G,TEXT("originMeters"),3,S->OriginMeters)||!Bounds(**G,TEXT("spacingMeters"),3,S->SpacingMeters)||
+        !Bounds(**G,TEXT("originalOriginXYZ"),3,S->OriginalOrigin)||!Bounds(**G,TEXT("originalSpacingXYZ"),3,S->OriginalSpacing)||
+        !String(**G,TEXT("axisOrder"),S->AxisOrder,3)||!String(**G,TEXT("metadataOrder"),S->MetadataOrder,5)||
+        !String(**G,TEXT("coordinateUnits"),S->CoordinateUnits,8)||!String(**G,TEXT("velocityUnits"),S->VelocityUnits,8)||
+        !String(**G,TEXT("phaseField"),S->PhaseField,128)||!String(**G,TEXT("solidField"),S->SolidField,128)||
+        !(*G)->TryGetStringField(TEXT("derivativeValidityField"),S->DerivativeValidityField)||
+        !String(**G,TEXT("solidSupportField"),S->SolidSupportField,128)||!String(**G,TEXT("liquidSupportField"),S->LiquidSupportField,128)||
+        !(*G)->TryGetNumberField(TEXT("phiLiquidMin"),S->LiquidMinimum)||!FMath::IsFinite(S->LiquidMinimum)||S->LiquidMinimum<0||S->LiquidMinimum>1||
+        !(*G)->TryGetNumberField(TEXT("timeOriginSeconds"),S->TimeOriginSeconds)||!FMath::IsFinite(S->TimeOriginSeconds)||
+        !(*G)->TryGetObjectField(TEXT("units"),Units)||!(*G)->TryGetObjectField(TEXT("reference"),Reference)||
+        !(*G)->TryGetObjectField(TEXT("sourceManifest"),Manifest)||
+        !String(**Manifest,TEXT("path"),S->SourceManifestPath,128)||!Identifier(S->SourceManifestPath)||
+        !String(**Manifest,TEXT("sha256"),S->SourceManifestSHA256)||!HashValid(S->SourceManifestSHA256)||
+        !Integer(**Manifest,TEXT("frameCount"),D.Frames.Num(),D.Frames.Num(),Frames)||
+        !GridOptionalPositive(**Units,TEXT("dxMeters"),S->Units.DxMeters)||
+        !GridOptionalPositive(**Units,TEXT("dtSeconds"),S->Units.DtSeconds)||
+        !GridOptionalPositive(**Units,TEXT("densityReferenceKgM3"),S->Units.DensityReferenceKgM3)||
+        !GridOptionalPositive(**Reference,TEXT("lengthCells"),S->Reference.LengthCells)||
+        !GridOptionalPositive(**Reference,TEXT("speedCellsPerStep"),S->Reference.SpeedCellsPerStep)||
+        !GridOptionalPositive(**Reference,TEXT("timeSteps"),S->Reference.TimeSteps)||
+        !GridOptionalPositive(**Reference,TEXT("densityLattice"),S->ReferenceDensityLattice))return false;
+    for(const auto& Identity: {TPair<const TCHAR*,FString*>(TEXT("sourceRunId"),&S->SourceRunId),
+        TPair<const TCHAR*,FString*>(TEXT("recipeId"),&S->RecipeId),TPair<const TCHAR*,FString*>(TEXT("lineageId"),&S->LineageId)})
+        if((*G)->HasField(Identity.Key)&&(!String(**G,Identity.Key,*Identity.Value,256)))return false;
+    if(!TArray<FString>{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx")}.Contains(S->AxisOrder)||
+        (S->MetadataOrder!=TEXT("xyz")&&S->MetadataOrder!=TEXT("array"))||
+        (S->CoordinateUnits!=TEXT("physical")&&S->CoordinateUnits!=TEXT("lattice"))||
+        (S->VelocityUnits!=TEXT("physical")&&S->VelocityUnits!=TEXT("lattice"))||
+        (S->CoordinateUnits==TEXT("lattice")&&!S->Units.DxMeters.IsSet())||
+        (S->VelocityUnits==TEXT("lattice")&&(!S->Units.DxMeters.IsSet()||!S->Units.DtSeconds.IsSet())))return false;
+    int64 OriginalCount=1;
+    for(int32 A=0;A<3;++A){if(OriginalCount>16000000/S->OriginalDimensions[A])return false;OriginalCount*=S->OriginalDimensions[A];}
+    if(int64(S->Dimensions.X)*S->Dimensions.Y*S->Dimensions.Z!=D.PointCount)return false;
+    S->PreviewStride=int32(Stride);const double Scale=S->CoordinateUnits==TEXT("lattice")?S->Units.DxMeters.GetValue():1.;
+    for(int32 A=0;A<3;++A)
+    {
+        if(S->CropMinimum[A]>=S->CropMaximum[A]||S->CropMaximum[A]>S->OriginalDimensions[A]||
+            S->Dimensions[A]!=(S->CropMaximum[A]-S->CropMinimum[A]+Stride-1)/Stride||
+            S->SpacingMeters[A]<=0||S->OriginalSpacing[A]<=0||
+            FMath::Abs(S->OriginMeters[A])>1.e8||S->SpacingMeters[A]*(S->Dimensions[A]-1)>1.e8)return false;
+        const double Origin=(S->OriginalOrigin[A]+S->CropMinimum[A]*S->OriginalSpacing[A])*Scale;
+        const double Spacing=S->OriginalSpacing[A]*Stride*Scale;
+        const double Tolerance=64*std::numeric_limits<double>::epsilon()*FMath::Max(1.,FMath::Abs(Origin)+Spacing*S->Dimensions[A]);
+        if(FMath::Abs(Origin-S->OriginMeters[A])>Tolerance||FMath::Abs(Spacing-S->SpacingMeters[A])>Tolerance)return false;
+    }
+    auto MaskField=[&](const FString& Id,bool bBinary)
+    {const auto* F=D.FindField(Id);return F&&F->Origin==TEXT("source")&&F->Unit==TEXT("1")&&(!bBinary||(F->Minimum>=0&&F->Maximum<=1));};
+    if(!MaskField(S->PhaseField,false)||!MaskField(S->SolidField,true)||S->PhaseField==S->SolidField)return false;
+    if(!S->DerivativeValidityField.IsEmpty())
+    {const auto* F=D.FindField(S->DerivativeValidityField);if(!F||F->Unit!=TEXT("1")||F->Minimum<0||F->Maximum>1)return false;}
+    for(const FString& Id:{S->SolidSupportField,S->LiquidSupportField})
+    {const auto* F=D.FindField(Id);if(!F||F->Origin!=TEXT("derived")||F->Unit!=TEXT("1")||F->Minimum<0||F->Maximum>1)return false;}
+    for(const auto& F:D.Fields)
+        if(!F.ValidityMask.IsEmpty()&&F.ValidityMask!=S->DerivativeValidityField)return false;
+    if(S->Units.DtSeconds.IsSet())for(const auto& Frame:D.Frames)
+    {
+        const double Time=Frame.Index*S->Units.DtSeconds.GetValue()+S->TimeOriginSeconds;
+        if(!FMath::IsFinite(Time)||FMath::Abs(Time-Frame.Time)>64*std::numeric_limits<double>::epsilon()*FMath::Max(1.,FMath::Abs(Time)))return false;
+    }
+    S->SourceManifestSHA256.ToLowerInline();D.StructuredGrid=S;return true;
+}
 bool Parse(const TArray<uint8>& Bytes, FStudioPointRecordingDescriptor& D, FString& ProvenanceHash,
     FString& AttributionHash, const FStudioLoadCancellation& Cancel, FString& Error)
 {
@@ -180,6 +269,19 @@ bool Parse(const TArray<uint8>& Bytes, FStudioPointRecordingDescriptor& D, FStri
             Paths.Contains(Field.Array.Path.ToLower())) return Fail(TEXT("Fields require distinct IDs/paths, explicit units/origin, point association and valid ranges/shapes."));
         if (Field.Origin == TEXT("derived") && !String(**F, TEXT("expression"), Field.Expression))
             return Fail(TEXT("Derived fields require their calculation."));
+        if((*F)->HasField(TEXT("airMaskDefault"))&&!(*F)->TryGetBoolField(TEXT("airMaskDefault"),Field.bAirMaskDefault))
+            return Fail(TEXT("Invalid source air-mask policy."));
+        if((*F)->HasField(TEXT("validityMask"))&&(!String(**F,TEXT("validityMask"),Field.ValidityMask,128)||!Identifier(Field.ValidityMask)))
+            return Fail(TEXT("Invalid field validity-mask reference."));
+        if((*F)->HasField(TEXT("displayRange")))
+        {
+            const TSharedPtr<FJsonObject>* R=nullptr;FString Policy;double Lo,Hi;
+            if(!(*F)->TryGetObjectField(TEXT("displayRange"),R)||!String(**R,TEXT("policy"),Policy)||Policy!=TEXT("first_frame_percentile_99")||
+                !(*R)->TryGetNumberField(TEXT("minimum"),Lo)||!(*R)->TryGetNumberField(TEXT("maximum"),Hi)||
+                !FMath::IsFinite(Lo)||!FMath::IsFinite(Hi)||Lo>Hi||Lo<Field.Minimum||Hi>Field.Maximum||
+                !Integer(**R,TEXT("clippedAbove"),0,Points,Field.FirstFrameClippedAbove))return Fail(TEXT("Invalid first-frame display range."));
+            Field.DisplayMinimum=Lo;Field.DisplayMaximum=Hi;
+        }
         const bool bVector = (*F)->HasField(TEXT("vector")), bComponent = (*F)->HasField(TEXT("component"));
         if (bVector || bComponent)
         {
@@ -209,6 +311,7 @@ bool Parse(const TArray<uint8>& Bytes, FStudioPointRecordingDescriptor& D, FStri
         Paths.Add(Field.Array.Path.ToLower()); Names.Add(Field.Id); D.Fields.Add(MoveTemp(Field));
     }
     if (!D.FindField(D.DefaultScalar)) return Fail(TEXT("Default scalar is not supplied by this recording."));
+    if(!ParseGrid(*O,D))return Fail(TEXT("Original structured grid metadata, source units, mask references or crop identity are invalid."));
     const TArray<TSharedPtr<FJsonValue>>* Notes = nullptr;
     if (!O->TryGetArrayField(TEXT("limitations"), Notes) || Notes->Num() > 32) return Fail(TEXT("Recording limitations are missing or invalid."));
     for (const auto& Value : *Notes)
@@ -304,6 +407,14 @@ struct FStudioPointRecordingData
 
 const FStudioPointFieldDescriptor* FStudioPointRecordingDescriptor::FindField(const FString& FieldId) const
 { return Fields.FindByPredicate([&](const auto& F) { return F.Id == FieldId; }); }
+FStudioHome4Spec FStudioPointStructuredGrid::UnitContext() const
+{FStudioHome4Spec S;S.Units=Units;S.Reference=Reference;S.Fluids.RhoHeavy=ReferenceDensityLattice;S.RecipeId=RecipeId;S.LineageId=LineageId;return S;}
+bool FStudioPointStructuredGrid::OriginalIndex(int32 Row,FIntVector& Out) const
+{
+    if(Row<0||Dimensions.GetMin()<2||int64(Row)>=int64(Dimensions.X)*Dimensions.Y*Dimensions.Z)return false;
+    Out=CropMinimum+FIntVector(Row%Dimensions.X,(Row/Dimensions.X)%Dimensions.Y,Row/(Dimensions.X*Dimensions.Y))*PreviewStride;
+    return true;
+}
 const TArray<double>* FStudioPointFrame::FindValues(const FString& FieldId) const
 { const auto* V = Fields.Find(FieldId); return V ? &(*V)->Values : nullptr; }
 FStudioPointRecording::FStudioPointRecording(TSharedRef<FStudioPointRecordingData, ESPMode::ThreadSafe> InData) : Data(MoveTemp(InData)) {}
@@ -340,7 +451,17 @@ FStudioPointOpenResult StudioPointRecordings::Open(const FString& Path, const FS
         !Data->Meta->MetadataSHA256.Equals(ExpectedMetadataSHA256, ESearchCase::IgnoreCase)))
         return Fail(TEXT("Recording metadata differs from the saved source. Locate an exact copy."));
     if (!Parse(Bytes, *Data->Meta, ProvenanceHash, AttributionHash, Cancellation, Result.Error)) return Fail(Result.Error);
+    // Nine source/dependency arrays for two immutable view snapshots fit in this explicit bounded source-grid budget.
+    if(Data->Meta->StructuredGrid&&Options.LiveArrayBytes==FStudioPointReadOptions().LiveArrayBytes)
+        Data->Options.LiveArrayBytes=192LL*1024*1024;
     Bytes.Empty();
+    if(const auto S=Data->Meta->StructuredGrid)
+    {
+        FString Hash;
+        if(!SmallFile(Data->Folder/S->SourceManifestPath,MaxMetadataBytes,Bytes,Cancellation)||!Digest(Bytes.GetData(),Bytes.Num(),Hash)||Hash!=S->SourceManifestSHA256)
+            return Fail(TEXT("Original snapshot provenance manifest is missing, changed or too large."));
+        Bytes.Empty();
+    }
     // Includes 3 doubles + int64 per point and a sorted ID copy used only during validation.
     if (int64(Data->Meta->PointCount) * 40 > Options.GeometryBytes || Data->ArrayBytes() > Options.LiveArrayBytes)
         return Fail(TEXT("Recording geometry or one scalar frame exceeds its memory budget."));
@@ -399,6 +520,19 @@ FStudioPointOpenResult StudioPointRecordings::Open(const FString& Path, const FS
         D.PointIds.ByteLength, Cancel, nullptr, &IdHash, Result.Error)) return Fail(Result.Error);
     if (IdHash != D.PointIds.SHA256) return Fail(TEXT("Point IDs changed during loading."));
     FromLittleEndian(G.PointIds);
+    if(const auto S=D.StructuredGrid)
+    {
+        for(int32 I=0;I<D.PointCount;++I)
+        {
+            if((I&1023)==0&&Cancelled(Cancel))return Fail(TEXT("Original grid validation cancelled."));
+            FIntVector Index;if(!S->OriginalIndex(I,Index))return Fail(TEXT("Invalid original grid row identity."));
+            const int64 Id=int64(Index.X)+int64(S->OriginalDimensions.X)*(int64(Index.Y)+int64(S->OriginalDimensions.Y)*Index.Z);
+            const FIntVector Local(I%S->Dimensions.X,(I/S->Dimensions.X)%S->Dimensions.Y,I/(S->Dimensions.X*S->Dimensions.Y));
+            const FVector Expected=S->OriginMeters+FVector(Local)*S->SpacingMeters;
+            const double Tolerance=64*std::numeric_limits<double>::epsilon()*FMath::Max(1.,Expected.GetAbsMax());
+            if(G.PointIds[I]!=Id||!G.Positions[I].Equals(Expected,Tolerance))return Fail(TEXT("Source coordinates or point IDs disagree with the original affine grid."));
+        }
+    }
     {
         TArray<int64> SortedIds = G.PointIds; SortedIds.Sort();
         for (int32 I = 1; I < SortedIds.Num(); ++I)
@@ -412,20 +546,27 @@ FStudioPointOpenResult StudioPointRecordings::Open(const FString& Path, const FS
     Result.Recording = MakeShared<FStudioPointRecording, ESPMode::ThreadSafe>(MoveTemp(Data)); return Result;
 }
 
-FStudioPointReadResult FStudioPointRecording::ReadFrame(int32 Ordinal, const TArray<FString>& FieldIds,
+FStudioPointReadResult FStudioPointRecording::ReadFrame(int32 Ordinal, const TArray<FString>& RequestedIds,
     const FStudioLoadCancellation& Cancellation) const
 {
     using namespace StudioPointPrivate;
     FStudioPointReadResult Result;
     auto Fail = [&](const TCHAR* Error) { Result.Error = Error; return Result; };
     if (Cancelled(Cancellation)) return Fail(TEXT("Point recording read cancelled."));
-    if (!Data->Meta->Frames.IsValidIndex(Ordinal) || FieldIds.IsEmpty() || FieldIds.Num() > MaxFields)
+    if (!Data->Meta->Frames.IsValidIndex(Ordinal) || RequestedIds.IsEmpty() || RequestedIds.Num() > MaxFields)
         return Fail(TEXT("Choose an available original frame and at least one supplied field."));
     TSet<FString> Seen;
-    for (const FString& Id : FieldIds)
+    for (const FString& Id : RequestedIds)
     {
         if (!Data->Meta->FindField(Id) || Seen.Contains(Id)) return Fail(TEXT("Requested field is absent or duplicated."));
         Seen.Add(Id);
+    }
+    TArray<FString> FieldIds=RequestedIds;
+    if(const auto S=Data->Meta->StructuredGrid)
+    {
+        FieldIds.AddUnique(S->PhaseField);FieldIds.AddUnique(S->SolidField);
+        FieldIds.AddUnique(S->SolidSupportField);FieldIds.AddUnique(S->LiquidSupportField);
+        if(!S->DerivativeValidityField.IsEmpty())FieldIds.AddUnique(S->DerivativeValidityField);
     }
     if (int64(FieldIds.Num()) * Data->ArrayBytes() > Data->Options.LiveArrayBytes)
         return Fail(TEXT("Requested fields exceed the live scalar-array budget."));
@@ -462,6 +603,9 @@ FStudioPointReadResult FStudioPointRecording::ReadFrame(int32 Ordinal, const TAr
             const double V = Values->Values[I];
             if (!FMath::IsFinite(V) || V < Field.Minimum || V > Field.Maximum)
                 return Fail(TEXT("Source field contains a nonfinite value or exceeds its declared range."));
+            if(const auto S=Data->Meta->StructuredGrid)
+                if((Id==S->SolidField||Id==S->DerivativeValidityField||Id==S->SolidSupportField||Id==S->LiquidSupportField)&&V!=0&&V!=1)
+                    return Fail(TEXT("Original solid and derivative-valid masks require binary values."));
         }
         Frame->Fields.Add(Id, Values);
         FScopeLock Lock(&Data->CacheMutex); ++Data->Loads;

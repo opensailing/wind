@@ -20,6 +20,7 @@ import numpy as np
 from home4_archive import (ArchiveError, Limits, Mapping, SafeNPZ, bounded_json, convert_snapshots,
                            derivative_fields, derive_fields, export_vti, inspect_archive, main,
                            mapping_from_run_spec, parse_crop, range_report, read_snapshot, _publish_new_directory)
+from home4_archive import native_support_fields
 
 
 class ArchiveTests(unittest.TestCase):
@@ -236,6 +237,57 @@ class ArchiveTests(unittest.TestCase):
         snapshots = json.loads(manifest.read_text())["snapshots"]
         self.assertEqual(snapshots[0]["sourceSHA256"], hashlib.sha256(first.read_bytes()).hexdigest())
         self.assertTrue(snapshots[0]["previewOnly"])
+        grid = d["structuredGrid"]
+        self.assertEqual(grid["dimensionsXYZ"], [2, 2, 3])
+        self.assertEqual(grid["originalDimensionsXYZ"], [5, 6, 7])
+        self.assertEqual(grid["cropMinimumXYZ"], [1, 2, 1]);self.assertEqual(grid["previewStride"], 2)
+        np.testing.assert_allclose(grid["originMeters"], [.2, .4, .4])
+        np.testing.assert_allclose(grid["spacingMeters"], [.2, .2, .2])
+        np.testing.assert_allclose(grid["originalOriginXYZ"], [1, 2, 3])
+        self.assertEqual(grid["sourceManifest"], p["sourcesManifest"])
+        self.assertEqual(grid["units"]["dxMeters"], .1)
+        speed = next(f for f in d["fields"] if f["id"] == "speed")
+        self.assertEqual(speed["displayRange"]["policy"], "first_frame_percentile_99")
+        self.assertLess(speed["displayRange"]["maximum"], speed["range"][1])
+
+    def test_source_reference_anchors_and_original_kinetic_states(self):
+        state = np.arange(5*6*7, dtype=float).reshape(5, 6, 7)
+        spec = {"reference": {"lengthCells": 25., "speedCellsPerStep": .03, "timeSteps": 500.},
+                "fluids": {"rhoHeavy": 1.}, "archive": {"fieldUnits": {"a3_xxy": "original_moment_units"}}}
+        source = self.source(a3_xxy=state, run_spec=np.array(json.dumps(spec)))
+        output = self.root / "kinetic"
+        d = convert_snapshots([source], output, self.mapping, source_url="urn:artificial", attribution="Artificial unit fixture")
+        self.assertEqual(d["structuredGrid"]["reference"], {"lengthCells": 25., "speedCellsPerStep": .03, "timeSteps": 500., "densityLattice": 1.})
+        field = next(f for f in d["fields"] if f["id"] == "a3_xxy")
+        self.assertEqual(field["origin"], "source");self.assertEqual(field["unit"], "original_moment_units")
+        self.assertTrue(field["airMaskDefault"])
+        np.testing.assert_array_equal(np.fromfile(output / "a3_xxy.f64", dtype="<f8"), state.ravel(order="F"))
+        with self.assertRaisesRegex(ArchiveError, "normalization is unknown"):
+            read_snapshot(self.source("unknown-kinetic.npz", a3_xxy=state), self.mapping)
+
+    def test_declared_npy_header_length_is_bounded_before_payload_read(self):
+        payload = b"\x93NUMPY\x02\x00" + struct.pack("<I", 500_000_000) + b" " * 16
+        source = self.malformed_zip("huge-header.npz", [("value.npy", payload)])
+        with self.assertRaisesRegex(ArchiveError, "header exceeds byte limit"):
+            SafeNPZ(source)
+
+    def test_preview_support_excludes_unselected_original_obstacle_and_air(self):
+        solid = np.zeros((7, 7, 7));solid[3, 3, 3] = 1
+        phi = np.ones_like(solid);phi[1, 1, 1] = 0
+        snapshot = read_snapshot(self.source(shape=(7, 7, 7), solid=solid, phi=phi), self.mapping, stride=2)
+        self.assertEqual(snapshot.fields["solid"].sum(), 0)  # Neither original invalid node is retained by the preview.
+        self.assertEqual(snapshot.fields["phi"].min(), 1)
+        support = native_support_fields(snapshot, 2)
+        for i, x in enumerate(snapshot.selected_indices[0]):
+            for j, y in enumerate(snapshot.selected_indices[1]):
+                for k, z in enumerate(snapshot.selected_indices[2]):
+                    region = tuple(slice(max(0, n-2), min(7, n+3)) for n in (x, y, z))
+                    self.assertEqual(support["solid_support"][i,j,k], float(not solid[region].any()))
+                    self.assertEqual(support["liquid_support"][i,j,k], float(not solid[region].any() and phi[region].min() >= .5))
+        output = self.root / "hidden-mask"
+        d = convert_snapshots([snapshot.source], output, self.mapping, stride=2, source_url="urn:artificial", attribution="Artificial unit fixture")
+        self.assertEqual(d["structuredGrid"]["solidSupportField"], "solid_support")
+        np.testing.assert_array_equal(np.fromfile(output / "solid_support.f64", dtype="<f8"), support["solid_support"].ravel(order="F"))
 
     def test_transactional_sequence_failures_and_existing_output(self):
         first = self.source("first.npz", iteration=np.array(10))

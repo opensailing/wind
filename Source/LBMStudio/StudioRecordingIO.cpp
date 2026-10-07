@@ -60,7 +60,13 @@ static FStudioRecordingLoadResult ReadPointRecording(const FString& Path,int32 F
     TSharedPtr<const FStudioSurfaceReconstruction,ESPMode::ThreadSafe> Surface;
     TSharedPtr<const FStudioVolumeReconstruction,ESPMode::ThreadSafe> Volume;
     auto BoundReconstruction=Reconstruction;
-    if(Reconstruction.IsSet()&&Opened.Recording->Descriptor().SpatialDimensions==3)
+    if(Opened.Recording->Descriptor().StructuredGrid)
+    {
+        if(Reconstruction.IsSet()){Result.Error=TEXT("Original structured grids use their supplied nodes and masks; a separate reconstruction attachment is unsupported.");return Result;}
+        auto Loaded=StudioVolumes::OriginalSource(Opened.Recording->Descriptor(),Opened.Recording->Geometry(),Cancel);
+        if(!Loaded.Volume){Result.Error=Loaded.Error;return Result;}Volume=MoveTemp(Loaded.Volume);
+    }
+    else if(Reconstruction.IsSet()&&Opened.Recording->Descriptor().SpatialDimensions==3)
     {
         auto Loaded=StudioVolumes::Load(Reconstruction->Path,Opened.Recording->Descriptor(),Opened.Recording->Geometry(),Cancel,Reconstruction->MetadataSHA256);
         if(!Loaded.Volume){Result.Error=Loaded.Error;Result.bReconstructionFailed=true;return Result;}

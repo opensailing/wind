@@ -3,8 +3,8 @@
 #include "StudioPointRecording.h"
 #include "StudioColor.h"
 
-/** A display grid explicitly reconstructed from original source rows. No CFD values
- * are stored here. Source-space XYZ is mapped to scene XZY only at presentation. */
+/** A verified display grid from original source rows (identity weights for supplied structured nodes).
+ * No CFD values are stored here. Source-space XYZ maps to scene XZY only at presentation. */
 struct FStudioVolumeStencil
 {
     int32 Rows[4] = {INDEX_NONE, INDEX_NONE, INDEX_NONE, INDEX_NONE};
@@ -23,6 +23,8 @@ struct FStudioVolumeReconstruction
     TArray<FStudioVolumeStencil> Stencils;
     // 0 = no support, 1 = fluid, 2 = explicitly classified solid.
     TArray<uint8> Classification;
+    // Present only for original structured samples. Static Classification is topology, never a frame mask.
+    TSharedPtr<const FStudioPointStructuredGrid,ESPMode::ThreadSafe> OriginalGrid;
     FVector Position(int32 Index) const;
     bool Sample(const FVector& SourcePosition, const TArray<double>& OriginalValues, double& Out) const;
     bool IsSolid(const FVector& SourcePosition) const;
@@ -65,8 +67,22 @@ namespace StudioVolumes
     FStudioVolumeLoadResult Load(const FString& Path, const FStudioPointRecordingDescriptor& Source,
         TSharedRef<const FStudioPointGeometry, ESPMode::ThreadSafe> Geometry,
         const FStudioLoadCancellation& Cancellation = {}, const FString& ExpectedMetadata = {});
+    FStudioVolumeLoadResult OriginalSource(const FStudioPointRecordingDescriptor& Source,
+        TSharedRef<const FStudioPointGeometry,ESPMode::ThreadSafe> Geometry,const FStudioLoadCancellation& Cancellation={});
+    /** Frame-specific classes: 0 unsupported, 1 valid, 2 source solid. Bounded to one byte/node. */
+    TArray<uint8> SourceMask(const FStudioPointFrame& Frame,const FStudioVolumeReconstruction& Volume,
+        const FString& Field,bool bVelocity,FString& Error,const FStudioLoadCancellation& Cancellation={},
+        TOptional<bool> AirMaskOverride={});
+    bool SourceNodeSupported(const FStudioPointFrame& Frame,const FStudioVolumeReconstruction& Volume,
+        const FString& Field,int32 Row,bool bVelocity=false);
+    bool SampleSource(const FStudioPointFrame& Frame,const FStudioVolumeReconstruction& Volume,
+        const TArray<uint8>& Mask,const FString& Field,const FVector& SourcePosition,double& Out);
+    bool SupportsSourceRegion(const FStudioVolumeReconstruction& Volume,const TArray<uint8>& Mask,
+        const FBox& SourceRegion,const FStudioLoadCancellation& Cancellation={});
+    bool IsSourceSolid(const FStudioPointFrame& Frame,const FStudioVolumeReconstruction& Volume,const FVector& SourcePosition);
     FStudioVolumeRenderData Build(const FStudioPointFrame& Frame, const FStudioVolumeReconstruction& Volume,
-        const FString& Field, const FStudioColorMapping& Mapping, const FStudioLoadCancellation& Cancellation = {});
+        const FString& Field, const FStudioColorMapping& Mapping, const FStudioLoadCancellation& Cancellation = {},
+        TOptional<bool> AirMaskOverride={});
     FStudioVolumeIsosurface Isosurface(const FStudioVolumeRenderData& Grid, double NormalizedValue,
         const FStudioLoadCancellation& Cancellation = {});
     /** Robust slab intersection; direction is a unit vector and lengths use the

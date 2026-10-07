@@ -2,8 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "StudioRecording.h"
+#include "StudioHome4Config.h"
 
-/** Version 3 keeps optional source fields separate. A point recording supplies no cells or solid boundary. */
+/** Version 3 keeps optional source fields separate. structuredGrid optionally declares original affine node topology and source masks. */
 struct FStudioPointArrayDescriptor
 {
     FString Path, SHA256;
@@ -17,6 +18,31 @@ struct FStudioPointFieldDescriptor
     bool bStatic = false;
     double Minimum = 0, Maximum = 0;
     FStudioPointArrayDescriptor Array;
+    bool bAirMaskDefault = false;
+    FString ValidityMask;
+    TOptional<double> DisplayMinimum, DisplayMaximum;
+    int64 FirstFrameClippedAbove = 0;
+};
+
+/** Immutable original-source affine lattice metadata, bound by recording.json's hash.
+ * SI storage and the original lattice map are distinct; editable case requests never enter this object. */
+struct FStudioPointStructuredGrid
+{
+    FIntVector Dimensions, OriginalDimensions, CropMinimum, CropMaximum;
+    int32 PreviewStride = 1;
+    FVector OriginMeters, SpacingMeters, OriginalOrigin, OriginalSpacing;
+    FString AxisOrder, MetadataOrder, CoordinateUnits, VelocityUnits;
+    FString SourceRunId, RecipeId, LineageId;
+    FString PhaseField, SolidField, DerivativeValidityField, SourceManifestPath, SourceManifestSHA256;
+    FString SolidSupportField,LiquidSupportField;
+    double LiquidMinimum = .5;
+    double TimeOriginSeconds = 0;
+    FStudioHome4Units Units;
+    FStudioHome4Reference Reference;
+    TOptional<double> ReferenceDensityLattice;
+    /** Narrow conversion context from original anchors only, never a runnable case. */
+    FStudioHome4Spec UnitContext() const;
+    bool OriginalIndex(int32 Row,FIntVector& Out) const;
 };
 
 struct FStudioPointRecordingDescriptor
@@ -28,6 +54,7 @@ struct FStudioPointRecordingDescriptor
     TArray<FStudioFrame> Frames;
     TArray<FString> FrameLabels, Limitations;
     TArray<FStudioPointFieldDescriptor> Fields;
+    TSharedPtr<const FStudioPointStructuredGrid,ESPMode::ThreadSafe> StructuredGrid;
     const FStudioPointFieldDescriptor* FindField(const FString& Id) const;
 };
 
@@ -122,7 +149,8 @@ namespace StudioPointRecordings
     /** Worker-only. Verifies every array SHA-256 and source notices before publication.
      * Metadata SHA-256 pins all member identities for future save/relink support.
      * Version 3 currently accepts static point positions in 2D/3D, scalar arrays and
-     * explicit vector components. Connectivity and spatial interpolation are unavailable.
+     * explicit vector components. Optional verified structuredGrid enables original-grid interpolation;
+     * plain point recordings still have no connectivity or interpolation.
      */
     FStudioPointOpenResult Open(const FString& DescriptorPath,
         const FStudioPointReadOptions& Options = {}, const FStudioLoadCancellation& Cancellation = {},

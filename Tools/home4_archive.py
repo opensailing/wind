@@ -100,8 +100,15 @@ class SafeNPZ:
                 with self._zip.open(info) as stream:
                     version = np.lib.format.read_magic(stream)
                     require(version in ((1, 0), (2, 0)), "Unsupported NPY header version")
+                    length_bytes = 2 if version == (1, 0) else 4
+                    length_raw = stream.read(length_bytes)
+                    require(len(length_raw) == length_bytes, "Truncated NPY header length")
+                    header_length = int.from_bytes(length_raw, "little")
+                    require(0 < header_length <= limits.max_header_bytes, "NPY header exceeds byte limit")
+                    header = stream.read(header_length)
+                    require(len(header) == header_length, "Truncated NPY header")
                     reader = np.lib.format.read_array_header_1_0 if version == (1, 0) else np.lib.format.read_array_header_2_0
-                    shape, order, dtype = reader(stream, max_header_size=limits.max_header_bytes)
+                    shape, order, dtype = reader(io.BytesIO(length_raw + header), max_header_size=limits.max_header_bytes)
                     require(dtype.kind in "biufSU" and not dtype.hasobject and dtype.fields is None,
                             "Object, structured or unsupported NPY dtype is forbidden")
                     require(len(shape) <= 8 and all(type(n) is int and 0 <= n <= limits.max_values for n in shape),
@@ -360,6 +367,19 @@ def read_snapshot(path: Path | str, mapping: Mapping, *, crop: tuple[tuple[int, 
             require(isinstance(raw, str), "run_spec must be a scalar JSON string")
             run_spec = bounded_json(raw)
             require(isinstance(run_spec, dict), "run_spec must be a JSON object")
+        archive_spec = (run_spec or {}).get("archive", {})
+        require(isinstance(archive_spec, dict), "Original archive conventions must be an object")
+        source_units = archive_spec.get("fieldUnits", {})
+        require(isinstance(source_units, dict), "Original archive.fieldUnits must be an object")
+        for key in sorted(archive.members):
+            if key in arrays or not re.fullmatch(r"(?:a[34]_[A-Za-z0-9_]+|[JP][xyz]{1,2}_phi|grad_phi_[xyz]|F_[A-Za-z0-9_]+|tau_fld|sdf)", key):
+                continue
+            unit = source_units.get(key)
+            require(isinstance(unit, str) and 0 < len(unit) <= 128 and unit.strip() and all(ord(c) >= 32 and ord(c) != 127 for c in unit),
+                    f"Original {key} requires explicit run_spec.archive.fieldUnits; its solver normalization is unknown")
+            value = archive.read(key)
+            require(value.shape == shape and value.dtype.kind in "iuf", f"Original advanced field shape/dtype mismatch: {key}")
+            arrays[key] = _exact_float64(_canonical(value, mapping.axis_order)[slices], key)
         origin = origin + np.array([a for a, _ in bounds]) * spacing
         spacing = spacing * stride
         require(np.isfinite(origin).all() and np.isfinite(spacing).all(), "Crop/stride coordinates overflow")
@@ -435,11 +455,39 @@ def derive_fields(snapshot: Snapshot, *, derivatives: bool = False, pressure_con
     return result
 
 
+def native_support_fields(snapshot: Snapshot, stride: int) -> dict[str, np.ndarray]:
+    """Conservative original-node support: preview interpolation never skips an unseen solid/air node."""
+    require(math.prod(snapshot.original_shape) <= 2_000_000, "Native original mask support exceeds the bounded two-million-node workload")
+    if stride == 1:
+        return {"solid_support": (snapshot.fields["solid"] == 0).astype(float),
+                "liquid_support": ((snapshot.fields["solid"] == 0) & (snapshot.fields["phi"] >= snapshot.mapping.phi_liquid_min)).astype(float)}
+    with SafeNPZ(snapshot.source, snapshot.limits) as archive:
+        require(archive.sha256 == snapshot.source_sha256, "Archive changed before original mask support evaluation")
+        solid = _canonical(archive.read("solid"), snapshot.mapping.axis_order)
+        phi = _canonical(archive.read("phi"), snapshot.mapping.axis_order)
+        require(solid.shape == snapshot.original_shape and phi.shape == solid.shape and ((solid == 0) | (solid == 1)).all(),
+                "Original support masks changed shape or type")
+    coords = np.meshgrid(*snapshot.selected_indices, indexing="ij")
+    low = [np.maximum(0, c - stride) for c in coords]
+    high = [np.minimum(snapshot.original_shape[a], c + stride + 1) for a, c in enumerate(coords)]
+    result = {}
+    for key, invalid in (("solid_support", solid != 0), ("liquid_support", (solid != 0) | (phi < snapshot.mapping.phi_liquid_min))):
+        prefix = np.pad(invalid.astype(np.int64), ((1, 0),) * 3)
+        for axis in range(3):
+            np.cumsum(prefix, axis=axis, out=prefix)
+        counts = np.zeros(snapshot.shape, dtype=np.int64)
+        for corner in range(8):
+            at = tuple(high[a] if corner & (1 << a) else low[a] for a in range(3))
+            counts += (1 if corner.bit_count() % 2 == 1 else -1) * prefix[at]
+        result[key] = (counts == 0).astype(float)
+    return result
+
+
 def range_report(snapshot: Snapshot, derived: dict[str, np.ndarray], physical: bool = False) -> dict:
     liquid = (snapshot.fields["phi"] >= snapshot.mapping.phi_liquid_min) & (snapshot.fields["solid"] == 0)
     ranges = {}
     for key, values in {**snapshot.fields, **derived}.items():
-        masked = key.startswith("vorticity") or key in ("q", "helicity", "pressure", "p_star", "Pi_h", "Pi_h0", "divergence", "dissipation")
+        masked = key.startswith(("vorticity", "a3_", "a4_", "S", "F_")) or key in ("q", "helicity", "pressure", "p_star", "Pi_h", "Pi_h0", "divergence", "dissipation")
         mask = liquid.copy() if masked else (snapshot.fields["solid"] == 0)
         if key in ("q", "helicity", "divergence") or key.startswith("vorticity"):
             mask &= derived["derivative_valid"] > 0
@@ -521,7 +569,7 @@ def _field_unit(key: str, snapshot: Snapshot, physical: bool) -> tuple[str, floa
     velocity_unit = "m/s" if physical or m.velocity_units == "physical" else "lu_velocity"
     if key in ("ux", "uy", "uz", "speed"):
         return velocity_unit, vel
-    if key in ("phi", "solid", "derivative_valid"):
+    if key in ("phi", "solid", "derivative_valid", "solid_support", "liquid_support"):
         return "1", 1.0
     if key.startswith("vorticity") or key == "divergence":
         return ("1/s" if coordinate_unit == "m" and velocity_unit == "m/s" else f"({velocity_unit})/({coordinate_unit})"), vel / coord
@@ -558,6 +606,10 @@ def _field_unit(key: str, snapshot: Snapshot, physical: bool) -> tuple[str, floa
         if physical and m.dx_m is not None and m.dt_s is not None:
             return "m2/s3", m.dx_m**2 / m.dt_s**3
         return "cells2/step3", 1.0
+    source_units = (snapshot.run_spec or {}).get("archive", {}).get("fieldUnits", {})
+    if key in source_units:
+        # Advanced solver normalization is an explicit original-unit label, with original values retained exactly.
+        return source_units[key], 1.0
     raise ArchiveError(f"Unsupported field unit convention: {key}")
 
 
@@ -609,10 +661,12 @@ def convert_snapshots(sources: list[Path | str], output: Path | str, mapping: Ma
     require(isinstance(source_url, str) and 0 < len(source_url) <= 2048 and not any(ord(c) < 32 or ord(c) == 127 for c in source_url), "Explicit source identity URL/URI is required")
     require(isinstance(attribution, str) and 0 < len(attribution) <= 16384 and "\x00" not in attribution, "Source attribution is required")
     first = read_snapshot(sources[0], mapping, crop=crop, stride=stride, limits=limits)
+    require(all(n <= 512 for n in first.shape), "Native display grid dimensions exceed 512 nodes; choose an explicit crop/preview stride")
     points = math.prod(first.shape)
     require(points <= 1000000, "Native point reader supports at most one million selected nodes; use an explicitly recorded preview stride")
     require(min(first.shape) >= 2, "Native 3-D renderer needs non-degenerate extents on every axis")
     first_derived = derive_fields(first, derivatives=derivatives, pressure_convention=pressure_convention)
+    first_derived.update(native_support_fields(first, stride))
     field_ids = list(first.fields) + list(first_derived)
     require(len(field_ids) <= 32 and len(set(field_ids)) == len(field_ids), "Native field count exceeds limit or duplicates a supplied source field")
     field_mins = {key: math.inf for key in field_ids}
@@ -640,10 +694,16 @@ def convert_snapshots(sources: list[Path | str], output: Path | str, mapping: Ma
                 require(snapshot.shape == first.shape and snapshot.original_shape == first.original_shape and
                         np.array_equal(snapshot.origin, first.origin) and np.array_equal(snapshot.spacing, first.spacing),
                         "Native recording requires unchanged original grid geometry")
+                original_identity_keys = ("runId", "recipeId", "lineageId", "reference", "fluids")
+                require(all((snapshot.run_spec or {}).get(k) == (first.run_spec or {}).get(k) for k in original_identity_keys),
+                        "Original run identity/reference anchors changed across the timeline")
                 derived = first_derived if ordinal == 0 else derive_fields(snapshot, derivatives=derivatives, pressure_convention=pressure_convention)
+                if ordinal != 0:
+                    derived.update(native_support_fields(snapshot, stride))
                 require(list(snapshot.fields) + list(derived) == field_ids, "Snapshot source/derived fields differ across the timeline")
                 for key, values in {**snapshot.fields, **derived}.items():
                     _unit, scale = _field_unit(key, snapshot, physical=True)
+                    require(_unit == _field_unit(key, first, physical=True)[0], "Original field units changed across the timeline")
                     data = (values.ravel(order="F") * scale).astype("<f8")
                     require(np.isfinite(data).all(), f"Physical field conversion overflows: {key}")
                     field_mins[key] = min(field_mins[key], float(data.min()))
@@ -660,12 +720,21 @@ def convert_snapshots(sources: list[Path | str], output: Path | str, mapping: Ma
                        "helicity": "u dot curl(u) from central differences", "pressure": "rho*(1/3)*p_star+(Pi_h-Pi_h0), explicit wb_lattice convention",
                        "dissipation": "2*nu*(Sxx^2+Syy^2+Szz^2+2*(Sxy^2+Sxz^2+Syz^2)) from stored state",
                        "derivative_valid": "1 only where the complete original one-node halo is liquid and nonsolid; 0 means unavailable"}
+        expressions.update(solid_support="1 only if the complete original support around a retained preview node is nonsolid; summed-volume original mask check",
+                           liquid_support="1 only if the complete original support around a retained preview node is liquid and nonsolid; summed-volume original mask check")
         for key in field_ids:
             unit, _scale = _field_unit(key, first, physical=True)
             field = {"id": key, "label": labels.get(key, key.replace("_", " ").title()), "unit": unit,
                      "association": "point", "origin": "derived" if key in first_derived else "source", "static": False,
                      "range": [field_mins[key], field_maxs[key]],
                      "array": _array_descriptor(stage / (key + ".f64"), (len(sources), points), frames=True)}
+            range_info = first_report["ranges"][key]
+            field["airMaskDefault"] = range_info["airMaskDefault"]
+            if range_info["available"]:
+                field["displayRange"] = {"minimum": range_info["minimum"], "maximum": range_info["firstFramePercentile99"],
+                                         "policy": "first_frame_percentile_99", "clippedAbove": range_info["clippedAbovePercentile99"]}
+            if key in ("q", "divergence", "helicity") or key.startswith("vorticity"):
+                field["validityMask"] = "derivative_valid"
             if key in first_derived:
                 field["expression"] = expressions.get(key, "central-difference curl(u) with conservative one-node air/solid exclusion and explicit derivative_valid mask")
             if key in ("ux", "uy", "uz"):
@@ -676,7 +745,7 @@ def convert_snapshots(sources: list[Path | str], output: Path | str, mapping: Ma
                       "converterSHA256": file_digest(__file__), "mapping": mapping.as_dict(),
                       "sourcesManifest": {"path": "source-manifest.json", "sha256": file_digest(stage / "source-manifest.json"),
                                           "frameCount": len(snapshots)},
-                      "sourceURL": source_url, "topology": "Original structured-grid sample nodes retained as native points; no native volume reconstruction implied.",
+                      "sourceURL": source_url, "topology": "Original structured-grid sample nodes retained as native points with an affine structuredGrid attachment; no cylinder reconstruction.",
                       "pointIdDefinition": "original x + Nx*(y + Ny*z), before crop or preview stride",
                       "changes": "Explicit array-axis permutation, crop/preview selection, physical unit mapping, float64 storage, separately identified derived fields."}
         write_json(stage / "provenance.json", provenance)
@@ -708,6 +777,39 @@ def convert_snapshots(sources: list[Path | str], output: Path | str, mapping: Ma
                                       "Derivative invalid nodes carry zero display values and an explicit derivative_valid mask; they are unavailable measurements.",
                                       "Pressure is unavailable unless all WB components and its explicit lattice convention are supplied.",
                                       "Crop and preview stride are recorded in provenance; preview selection is not the full numerical grid."]}
+        reference = (first.run_spec or {}).get("reference", {})
+        fluids = (first.run_spec or {}).get("fluids", {})
+        require(isinstance(reference, dict) and isinstance(fluids, dict), "Original reference/fluid metadata must be objects")
+        reference_anchors = {key: reference.get(key) for key in ("lengthCells", "speedCellsPerStep", "timeSteps")}
+        reference_anchors["densityLattice"] = fluids.get("rhoHeavy")
+        for key, value in reference_anchors.items():
+            require(value is None or (type(value) in (int, float) and math.isfinite(value) and value > 0),
+                    f"Original reference anchor must be finite positive: {key}")
+        # These values come only from the imported run_spec and explicit import map, never the next-run case.
+        original_spacing = first.spacing / stride
+        original_origin = first.origin - np.array([a for a, _ in (crop or ((0, n) for n in first.original_shape))]) * original_spacing
+        coord_scale = mapping.dx_m if mapping.coordinate_units == "lattice" else 1.
+        descriptor["structuredGrid"] = {"version": 1, "kind": "home4_structured_source", "layout": "x_fastest_node_grid",
+            "dimensionsXYZ": list(first.shape), "originalDimensionsXYZ": list(first.original_shape),
+            "originMeters": (first.origin * coord_scale).tolist(), "spacingMeters": (first.spacing * coord_scale).tolist(),
+            "originalOriginXYZ": original_origin.tolist(), "originalSpacingXYZ": original_spacing.tolist(),
+            "cropMinimumXYZ": [a for a, _ in (crop or ((0, n) for n in first.original_shape))],
+            "cropMaximumXYZ": [b for _, b in (crop or ((0, n) for n in first.original_shape))],
+            "previewStride": stride, "axisOrder": mapping.axis_order, "metadataOrder": mapping.metadata_order,
+            "coordinateUnits": mapping.coordinate_units, "velocityUnits": mapping.velocity_units,
+            "timeOriginSeconds": mapping.time_origin_s,
+            "units": {"dxMeters": mapping.dx_m, "dtSeconds": mapping.dt_s, "densityReferenceKgM3": mapping.rho_ref_kg_m3},
+            "reference": reference_anchors, "phaseField": "phi", "solidField": "solid", "phiLiquidMin": mapping.phi_liquid_min,
+            "derivativeValidityField": "derivative_valid" if "derivative_valid" in field_ids else "",
+            "solidSupportField": "solid_support", "liquidSupportField": "liquid_support",
+            "sourceManifest": provenance["sourcesManifest"]}
+        for imported_key, grid_key in (("runId", "sourceRunId"), ("recipeId", "recipeId"), ("lineageId", "lineageId")):
+            value = (first.run_spec or {}).get(imported_key)
+            if value is not None:
+                require(isinstance(value, str) and 0 < len(value) <= 256 and value.strip() and all(ord(c) >= 32 and ord(c) != 127 for c in value),
+                        f"Invalid original source identity: {imported_key}")
+                descriptor["structuredGrid"][grid_key] = value
+        descriptor["limitations"][1] = "Original structured samples retained with explicit affine-grid metadata; native trilinear display interpolation excludes source masks."
         write_json(stage / "recording.json", descriptor)
     return descriptor
 

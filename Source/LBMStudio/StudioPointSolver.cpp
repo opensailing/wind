@@ -15,9 +15,28 @@ public:
     FPointField(TSharedPtr<const FStudioPointFrame,ESPMode::ThreadSafe> InFrame,
         TSharedPtr<const FStudioSurfaceReconstruction,ESPMode::ThreadSafe> InSurface,
         TSharedPtr<const FStudioVolumeReconstruction,ESPMode::ThreadSafe> InVolume,
-        TSharedRef<FStudioPointRecording,ESPMode::ThreadSafe> InRecording)
-        : Frame(MoveTemp(InFrame)), Surface(MoveTemp(InSurface)), Volume(MoveTemp(InVolume)), Recording(MoveTemp(InRecording)) {}
-    bool IsValid() const override { return Frame.IsValid(); }
+        TSharedRef<FStudioPointRecording,ESPMode::ThreadSafe> InRecording,const FStudioLoadCancellation& Cancellation={})
+        : Frame(MoveTemp(InFrame)), Surface(MoveTemp(InSurface)), Volume(MoveTemp(InVolume)), Recording(MoveTemp(InRecording))
+    {
+        if(!Frame||!Volume||!Volume->OriginalGrid)return;
+        for(const auto& Pair:Frame->Fields)
+        {
+            const auto* F=Frame->Descriptor->FindField(Pair.Key);if(!F)continue;
+            const FString Key=MaskKey(*F);
+            if(!Masks.Contains(Key))
+            {
+                auto Mask=StudioVolumes::SourceMask(*Frame,*Volume,F->Id,false,MaskError,Cancellation);
+                if(!MaskError.IsEmpty())return;Masks.Add(Key,MoveTemp(Mask));
+            }
+            if(F->Vector==TEXT("velocity")&&VelocityMask.IsEmpty())
+            {
+                VelocityMask=StudioVolumes::SourceMask(*Frame,*Volume,F->Id,true,MaskError,Cancellation);
+                if(!MaskError.IsEmpty())return;
+            }
+        }
+    }
+    bool IsValid() const override { return Frame.IsValid()&&MaskError.IsEmpty(); }
+    FString SourceMaskError() const {return MaskError;}
     int32 OriginalPointCount() const override {return Frame?Frame->Geometry->Positions.Num():0;}
     bool OriginalPoint(int32 Index,int64& Id,FVector& Position) const override
     {
@@ -42,7 +61,7 @@ public:
     }
     TOptional<FStudioScalarDescriptor> Scalar(const FString& Id) const override
     {
-        if(Frame)if(const auto* S=Frame->Descriptor->FindField(Id))return FStudioScalarDescriptor{S->Id,S->Label,S->Unit,S->Minimum,S->Maximum,S->Origin};
+        if(Frame)if(const auto* S=Frame->Descriptor->FindField(Id))return FStudioScalarDescriptor{S->Id,S->Label,S->Unit,S->Minimum,S->Maximum,S->Origin,S->DisplayMinimum,S->DisplayMaximum};
         return {};
     }
     TSharedPtr<const IStudioField,ESPMode::ThreadSafe> LoadScalarSnapshot(const FString& Id,
@@ -53,15 +72,25 @@ public:
         const auto Read=Recording->ReadFrame(Frame->Ordinal,{Id},Cancellation);
         Error=Read.Error;
         if(!Read.Frame)return {};
-        return MakeShared<FPointField,ESPMode::ThreadSafe>(Read.Frame,Surface,Volume,Recording);
+        auto Field=MakeShared<FPointField,ESPMode::ThreadSafe>(Read.Frame,Surface,Volume,Recording,Cancellation);
+        if(!Field->IsValid()){Error=Field->SourceMaskError();return {};}
+        return Field;
     }
     // A point recording has optional arrays, never the legacy complete tuple.
     bool Sample(const FVector&,FStudioFieldValue& Out) const override { Out={};return false; }
     bool SampleScalar(const FVector& P,const FString& Id,double& Out) const override
     {
         Out=std::numeric_limits<double>::quiet_NaN();
+        if(!IsValid())return false;
         if(Frame&&Volume)
-        {const auto* Values=Frame->FindValues(Id);return Values&&Volume->Sample(FVector(P.X,P.Z,P.Y),*Values,Out);}
+        {
+            if(Volume->OriginalGrid)
+            {
+                const auto* F=Frame->Descriptor->FindField(Id);const auto* Mask=F?Masks.Find(MaskKey(*F)):nullptr;
+                return Mask&&StudioVolumes::SampleSource(*Frame,*Volume,*Mask,Id,FVector(P.X,P.Z,P.Y),Out);
+            }
+            const auto* Values=Frame->FindValues(Id);return Values&&Volume->Sample(FVector(P.X,P.Z,P.Y),*Values,Out);
+        }
         if(!OnSurfacePlane(P))return false;
         const auto* Values=Frame->FindValues(Id);
         return Values&&Surface->Surface->Sample(FVector2D(P.X,P.Z),*Values,Out);
@@ -81,21 +110,28 @@ public:
             else if(F.Component==TEXT("y"))Y=&F;
             else if(F.Component==TEXT("z"))Z=&F;
         }
+        auto SampleComponent=[&](const FString& Id,double& Value)
+        {
+            if(Volume&&Volume->OriginalGrid)return IsValid()&&StudioVolumes::SampleSource(*Frame,*Volume,VelocityMask,Id,FVector(P.X,P.Z,P.Y),Value);
+            return SampleScalar(P,Id,Value);
+        };
         double U,V;
-        if(!X||!Y||!SampleScalar(P,X->Id,U)||!SampleScalar(P,Y->Id,V))return false;
-        double W=0;if(Volume&&(!Z||!SampleScalar(P,Z->Id,W)))return false;
+        if(!X||!Y||!SampleComponent(X->Id,U)||!SampleComponent(Y->Id,V))return false;
+        double W=0;if(Volume&&(!Z||!SampleComponent(Z->Id,W)))return false;
         Out=FVector(U,W,V); // Source XYZ maps to scene XZY.
         return true;
     }
     // No material classification is supplied by a point recording. Triangle
     // coverage, including the explicitly reconstructed hole, governs sampling.
-    bool IsSolid(const FVector& P) const override { return Volume&&Volume->IsSolid(FVector(P.X,P.Z,P.Y)); }
+    bool IsSolid(const FVector& P) const override
+    {return Frame&&Volume&&(Volume->OriginalGrid?StudioVolumes::IsSourceSolid(*Frame,*Volume,FVector(P.X,P.Z,P.Y)):Volume->IsSolid(FVector(P.X,P.Z,P.Y)));}
     bool SupportsSegment(const FVector& A,const FVector& B,const FStudioLoadCancellation& Cancellation) const override
     {
         if(!Frame||A.ContainsNaN()||B.ContainsNaN())return false;
         if(Volume)
         {
             FBox Region(ForceInit);Region+=FVector(A.X,A.Z,A.Y);Region+=FVector(B.X,B.Z,B.Y);
+            if(Volume->OriginalGrid)return StudioVolumes::SupportsSourceRegion(*Volume,VelocityMask,Region,Cancellation);
             return Volume->SupportsRegion(Region,Cancellation);
         }
         return OnSurfacePlane(A)&&OnSurfacePlane(B)&&
@@ -107,6 +143,9 @@ public:
     TSharedPtr<const FStudioSurfaceReconstruction,ESPMode::ThreadSafe> Reconstruction() const override { return Surface; }
     TSharedPtr<const FStudioVolumeReconstruction,ESPMode::ThreadSafe> VolumeReconstruction() const override { return Volume; }
 private:
+    FString MaskKey(const FStudioPointFieldDescriptor& F) const
+    {return Volume&&Volume->OriginalGrid&&F.Id==Volume->OriginalGrid->SolidField?TEXT("solid-display"):
+        (F.bAirMaskDefault?TEXT("1/"):TEXT("0/"))+F.ValidityMask;}
     bool OnSurfacePlane(const FVector& P) const
     {
         return Frame&&Surface&&Surface->Surface&&Frame->Descriptor->SpatialDimensions==2&&
@@ -116,6 +155,10 @@ private:
     TSharedPtr<const FStudioSurfaceReconstruction,ESPMode::ThreadSafe> Surface;
     TSharedPtr<const FStudioVolumeReconstruction,ESPMode::ThreadSafe> Volume;
     TSharedRef<FStudioPointRecording,ESPMode::ThreadSafe> Recording;
+    // Immutable frame-specific masks, shared by fields with the same policy; source arrays remain untouched.
+    TMap<FString,TArray<uint8>> Masks;
+    TArray<uint8> VelocityMask;
+    FString MaskError;
 };
 FVector DisplayPoint(const FVector& P) { return FVector(P.X,P.Z,P.Y); }
 FString CSVCell(FString Value) { Value.ReplaceInline(TEXT("\""),TEXT("\"\""));return TEXT("\"")+Value+TEXT("\""); }
@@ -136,7 +179,9 @@ FPointRecordedSolver::FPointRecordedSolver(TSharedRef<FStudioPointRecording,ESPM
         TEXT("Original 3D points. No supplied mesh or solid boundary.");
     if(SurfaceReconstruction)
         Meta.FieldNote=TEXT("Original 2D values on an explicitly reconstructed X/Z surface. Derived connectivity and boundary; no spanwise data.");
-    if(Volume)Meta.FieldNote=TEXT("Original 3D source values on an explicitly reconstructed display grid. Probes use derived grid interpolation; raw CSV retains the original points.");
+    if(Volume)Meta.FieldNote=Volume->OriginalGrid?
+        TEXT("Original structured grid. Source XYZ nodes, physical origin/spacing and source unit map; frame-specific solid/phase masks. Trilinear probes; raw points and values retained."):
+        TEXT("Original 3D source values on an explicitly reconstructed display grid. Probes use derived grid interpolation; raw CSV retains the original points.");
     Meta.DisplayBounds=FBox(DisplayPoint(D.SourceBounds.Min),DisplayPoint(D.SourceBounds.Max));
     if(D.SpatialDimensions==2)
     {
@@ -150,7 +195,7 @@ FPointRecordedSolver::FPointRecordedSolver(TSharedRef<FStudioPointRecording,ESPM
     Meta.Scalars.Reset();TSet<FString> VelocityComponents;
     for(const auto& F:D.Fields)
     {
-        Meta.Scalars.Add({F.Id,F.Label,F.Unit,F.Minimum,F.Maximum,F.Origin});
+        Meta.Scalars.Add({F.Id,F.Label,F.Unit,F.Minimum,F.Maximum,F.Origin,F.DisplayMinimum,F.DisplayMaximum});
         if(F.Vector==TEXT("velocity")&&F.Unit==TEXT("m/s"))VelocityComponents.Add(F.Component);
     }
     Meta.bPointVelocity=VelocityComponents.Contains(TEXT("x"))&&VelocityComponents.Contains(TEXT("y"))&&
@@ -181,7 +226,9 @@ TSharedRef<const IStudioField,ESPMode::ThreadSafe> FPointRecordedSolver::Capture
 {
     const auto R=Recording->ReadFrame(Ordinal,RequestedFields(ScalarId,bVectors),Cancellation);
     if(!Cancellation||!Cancellation->load())SetError(R.Error);
-    return MakeShared<FPointField,ESPMode::ThreadSafe>(R.Frame,SurfaceReconstruction,Volume,Recording);
+    auto Field=MakeShared<FPointField,ESPMode::ThreadSafe>(R.Frame,SurfaceReconstruction,Volume,Recording,Cancellation);
+    if(!Field->SourceMaskError().IsEmpty()&&(!Cancellation||!Cancellation->load()))SetError(Field->SourceMaskError());
+    return Field;
 }
 FStudioFieldReadResult FPointRecordedSolver::ReadScalarFrame(int32 Ordinal,const FString& ScalarId,
     const FStudioLoadCancellation& Cancellation) const
@@ -194,7 +241,11 @@ FStudioFieldReadResult FPointRecordedSolver::ReadViewFrame(int32 Ordinal,const F
     {Out.Error=TEXT("The exact requested frame or scalar is not supplied by this recording.");return Out;}
     const auto Read=Recording->ReadFrame(Ordinal,RequestedFields(ScalarId,bVelocity),Cancellation);Out.Error=Read.Error;
     if(Cancellation&&Cancellation->load())Out.Error=TEXT("Recorded-frame analysis cancelled.");
-    else if(Read.Frame)Out.Field=MakeShared<FPointField,ESPMode::ThreadSafe>(Read.Frame,SurfaceReconstruction,Volume,Recording);
+    else if(Read.Frame)
+    {
+        auto Field=MakeShared<FPointField,ESPMode::ThreadSafe>(Read.Frame,SurfaceReconstruction,Volume,Recording,Cancellation);
+        if(Field->IsValid())Out.Field=Field;else Out.Error=Field->SourceMaskError();
+    }
     else if(Out.Error.IsEmpty())Out.Error=TEXT("Could not read the requested recorded frame.");
     return Out;
 }

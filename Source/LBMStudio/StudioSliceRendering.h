@@ -21,5 +21,5 @@ namespace StudioSliceRendering
     constexpr int32 MaximumVertices=65536;
     FStudioSliceRenderData Build(const IStudioField& Field,const FBox& Bounds,
         const TArray<FStudioSliceObject>& Slices,const FString& Scalar,
-        const FStudioLoadCancellation& Cancellation={});
+        const FStudioLoadCancellation& Cancellation={},TOptional<bool> AirMaskOverride={});
 }

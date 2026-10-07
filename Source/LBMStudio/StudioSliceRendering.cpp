@@ -4,7 +4,7 @@
 #include "StudioSurfaceReconstruction.h"
 
 FStudioSliceRenderData StudioSliceRendering::Build(const IStudioField& Field,const FBox& Bounds,
-    const TArray<FStudioSliceObject>& Slices,const FString& Scalar,const FStudioLoadCancellation& Cancellation)
+    const TArray<FStudioSliceObject>& Slices,const FString& Scalar,const FStudioLoadCancellation& Cancellation,TOptional<bool> AirMaskOverride)
 {
     FStudioSliceRenderData Out;
     auto Cancelled=[&]{return Cancellation&&Cancellation->load(std::memory_order_relaxed);};
@@ -28,11 +28,27 @@ FStudioSliceRenderData StudioSliceRendering::Build(const IStudioField& Field,con
         const FVector V=FVector::CrossProduct(Slice.Normal,U).GetSafeNormal();
         FBox2D Range(ForceInit);for(const auto& P:Polygon)Range+=FVector2D(FVector::DotProduct(P-Slice.Origin,U),FVector::DotProduct(P-Slice.Origin,V));
         const int32 Base=Out.PositionsMeters.Num(),Row=Steps+1;
+        TArray<uint8> OriginalMask;
+        const auto OriginalVolume=Field.VolumeReconstruction();
+        if(OriginalVolume&&OriginalVolume->OriginalGrid)
+        {
+            const auto Frame=Field.OriginalPoints();FString Error;
+            if(Frame)OriginalMask=StudioVolumes::SourceMask(*Frame,*OriginalVolume,Scalar,
+                Frame->Descriptor&&!Frame->Descriptor->FindField(Scalar),Error,Cancellation,AirMaskOverride);
+            if(!Frame||!Error.IsEmpty()||OriginalMask.IsEmpty())
+            {Out.Notices.Add(Slice.Id,Error.IsEmpty()?TEXT("Original source masks are unavailable for this slice."):Error);continue;}
+        }
         TBitArray<> Valid(false,Row*Row);
         auto Sample=[&](FVector P,double& Value)
         {
             if(!Bounds.IsInsideOrOn(P))return false;
             if(Identity->SpatialDimensions==2)P.Y=Identity->SourceOffset.Y;
+            if(OriginalVolume&&OriginalVolume->OriginalGrid)
+            {
+                const auto Frame=Field.OriginalPoints();
+                if(Frame&&Frame->Descriptor->FindField(Scalar))
+                {P-=Identity->SourceOffset;return StudioVolumes::SampleSource(*Frame,*OriginalVolume,OriginalMask,Scalar,FVector(P.X,P.Z,P.Y),Value);}
+            }
             return !Field.IsSolid(P)&&Field.SampleScalar(P,Scalar,Value)&&FMath::IsFinite(Value);
         };
         for(int32 J=0;J<Row;++J)for(int32 I=0;I<Row;++I)
@@ -56,7 +72,9 @@ FStudioSliceRenderData StudioSliceRendering::Build(const IStudioField& Field,con
             if(const auto Volume=Field.VolumeReconstruction())
             {
                 const auto ToSource=[&](FVector P){P-=Identity->SourceOffset;return FVector(P.X,P.Z,P.Y);};
-                if(!Volume->SupportsRegion(FBox(ToSource(Cell.Min),ToSource(Cell.Max)),Cancellation))continue;
+                const FBox SourceCell(ToSource(Cell.Min),ToSource(Cell.Max));
+                if(Volume->OriginalGrid?!StudioVolumes::SupportsSourceRegion(*Volume,OriginalMask,SourceCell,Cancellation):
+                    !Volume->SupportsRegion(SourceCell,Cancellation))continue;
             }
             // Conservative solid-boundary rejection. The bounding box may
             // omit an extra edge cell; it must never paint across the airfoil.

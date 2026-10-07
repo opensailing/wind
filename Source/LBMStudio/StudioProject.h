@@ -54,6 +54,7 @@ struct FStudioViewSettings
     double VolumeThresholdMinimum = 0, VolumeThresholdMaximum = 1;
     bool bVolumeThreshold = false;
     bool bVolumeIsosurface = false;
+    bool bHome4AirMask = true;
     double VolumeIsovalue = .5;
     double PlaybackRate = 1;
     bool bLoopPlayback = false;

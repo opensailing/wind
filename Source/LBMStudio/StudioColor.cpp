@@ -33,7 +33,7 @@ bool StudioColor::IsValid(const TArray<FStudioScalarStyle>& Styles)
 }
 FStudioColorMapping StudioColor::Resolve(const FString& Dataset,const FStudioScalarDescriptor& F,const TArray<FStudioScalarStyle>& Styles)
 {
-    FStudioColorMapping M;M.Minimum=F.Minimum;M.Maximum=F.Maximum;
+    FStudioColorMapping M;M.Minimum=F.DefaultDisplayMinimum.Get(F.Minimum);M.Maximum=F.DefaultDisplayMaximum.Get(F.Maximum);
     if(const auto* S=Styles.FindByPredicate([&](const auto& V){return V.Dataset==Dataset&&V.Field==F.Id;}))
     {
         M.Palette=S->Palette;M.bManualRange=S->bManualRange;

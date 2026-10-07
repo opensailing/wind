@@ -36,7 +36,7 @@ bool StudioView::BuildClippedProjection(const FStudioCameraState& C,FIntPoint Si
 static bool FieldDisplayEquals(const FStudioViewSettings& A, const FStudioViewSettings& B)
 {
     return A.bStreamlines==B.bStreamlines && A.bVectors==B.bVectors && A.bCutPlane==B.bCutPlane &&
-        A.bVolume==B.bVolume && A.bMesh==B.bMesh && A.MeshStyle==B.MeshStyle && A.SliceAxis==B.SliceAxis && A.SlicePosition==B.SlicePosition &&
+        A.bVolume==B.bVolume && A.bHome4AirMask==B.bHome4AirMask && A.bMesh==B.bMesh && A.MeshStyle==B.MeshStyle && A.SliceAxis==B.SliceAxis && A.SlicePosition==B.SlicePosition &&
         A.StreamlineDensity==B.StreamlineDensity && A.StreamlineSettings==B.StreamlineSettings && A.VectorScale==B.VectorScale &&
         A.VectorCount==B.VectorCount && A.bUniformVectors==B.bUniformVectors && A.VolumeOpacity==B.VolumeOpacity &&
         A.ScalarField==B.ScalarField && A.bSourcePoints==B.bSourcePoints && A.bReconstructedSurface==B.bReconstructedSurface && A.bFocusWingRegion==B.bFocusWingRegion &&

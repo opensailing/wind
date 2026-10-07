@@ -47,8 +47,13 @@ bool FStudioPipelineField::Values(int32 Last,int32 Row,const FVector* Position,d
         {
             if(Stencil)
             {
+                const auto SourceVolume=N.Original->VolumeReconstruction();const auto Frame=N.Original->OriginalPoints();
                 for(int32 K=0;K<4;++K)
-                {double S;if(!N.Original->OriginalScalar(Stencil->Rows[K],N.Scalar.Id,S))return false;V+=Stencil->Weights[K]*S;}
+                {
+                    if(Stencil->Weights[K]==0)continue;
+                    if(SourceVolume&&SourceVolume->OriginalGrid&&(!Frame||!StudioVolumes::SourceNodeSupported(*Frame,*SourceVolume,N.Scalar.Id,Stencil->Rows[K])))return false;
+                    double S;if(!N.Original->OriginalScalar(Stencil->Rows[K],N.Scalar.Id,S))return false;V+=Stencil->Weights[K]*S;
+                }
             }
             else if(Position?!N.Original->SampleScalar(*Position,N.Scalar.Id,V):!N.Original->OriginalScalar(Row,N.Scalar.Id,V))return false;
         }

@@ -97,6 +97,7 @@ namespace
         O->SetArrayField(TEXT("volumeOpacityCurve"),Numbers({V.VolumeOpacityCurve.X,V.VolumeOpacityCurve.Y,V.VolumeOpacityCurve.Z}));
         O->SetNumberField(TEXT("volumeStepVoxels"),V.VolumeStepVoxels);
         O->SetBoolField(TEXT("volumeThreshold"),V.bVolumeThreshold);
+        O->SetBoolField(TEXT("home4AirMask"),V.bHome4AirMask);
         O->SetBoolField(TEXT("volumeIsosurface"),V.bVolumeIsosurface);O->SetNumberField(TEXT("volumeIsovalue"),V.VolumeIsovalue);
         O->SetNumberField(TEXT("volumeThresholdMinimum"),V.VolumeThresholdMinimum);
         O->SetNumberField(TEXT("volumeThresholdMaximum"),V.VolumeThresholdMaximum);
@@ -117,6 +118,7 @@ namespace
     }
     bool ReadView(const FObject& O, FStudioViewSettings& V, bool bLegacy, bool bPointSettings=false,bool bColorSettings=false,bool bSurfaceSettings=false,bool bVolumeSettings=false,bool bInspectionSettings=false,bool bVectorSettings=false,bool bStreamSettings=false)
     {
+        if(O->HasField(TEXT("home4AirMask"))&&!O->TryGetBoolField(TEXT("home4AirMask"),V.bHome4AirMask))return false;
         if (!ReadInteger(O,TEXT("sliceAxis"),V.SliceAxis,0,2) ||
             !ReadNumber(O,TEXT("slicePosition"),V.SlicePosition,-1.e9,1.e9) ||
             !ReadNumber(O,TEXT("streamlineDensity"),V.StreamlineDensity,0,1) ||

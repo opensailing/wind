@@ -15,6 +15,8 @@ struct FStudioScalarDescriptor
     FString Id = TEXT("velocity_magnitude"), Label = TEXT("Velocity magnitude"), Unit = TEXT("m/s");
     double Minimum = 0, Maximum = 400;
     FString Origin = TEXT("derived");
+    // Display policy is separate from the complete, verified source value range.
+    TOptional<double> DefaultDisplayMinimum, DefaultDisplayMaximum;
 };
 
 enum class EStudioFieldInterpolation : uint8 { None, SourceTriangles, ReconstructedTriangles, ReconstructedGrid };

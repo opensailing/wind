@@ -267,7 +267,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         if(MeshOnly){PointRequest.bSourcePoints=false;PointRequest.bReconstructedSurface=false;}
         if(Field.VolumeReconstruction()&&(R.Volume||R.VolumeSettings.bVolumeIsosurface))
         {
-            auto Grid=StudioVolumes::Build(*Points,*Field.VolumeReconstruction(),R.Scalar.Id,R.ColorMapping,R.Cancellation);
+            auto Grid=StudioVolumes::Build(*Points,*Field.VolumeReconstruction(),R.Scalar.Id,R.ColorMapping,R.Cancellation,R.VolumeSettings.bHome4AirMask);
             Out->VolumeSettings=R.VolumeSettings;
             if(!Grid.Error.IsEmpty())Out->Error=Grid.Error;
             else if(R.VolumeSettings.bVolumeIsosurface)
@@ -316,7 +316,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
             const auto V=Field.VolumeReconstruction();
             constexpr int32 Segments=64;
             const FLinearColor SolidColor(.07,.09,.11);
-            for(int32 I=0;I<Segments;++I)
+            for(int32 I=0;!V->OriginalGrid&&I<Segments;++I)
             {
                 const double A=2*PI*I/Segments,B=2*PI*(I+1)/Segments;
                 const auto At=[&](double Angle,double Z){return FVector(V->CylinderCenter.X+V->CylinderRadius*FMath::Cos(Angle),Z,
@@ -342,6 +342,13 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         {
             // A derived inspection slice samples the same immutable 3D field.
             // Unsupported cells are omitted, never bridged with zero-valued data.
+            TArray<uint8> OriginalMask;
+            if(VolumeGrid->OriginalGrid)
+            {
+                const auto Frame=Field.OriginalPoints();FString MaskError;
+                if(Frame)OriginalMask=StudioVolumes::SourceMask(*Frame,*VolumeGrid,R.Scalar.Id,false,MaskError,R.Cancellation,R.VolumeSettings.bHome4AirMask);
+                if(!Frame||!MaskError.IsEmpty()||OriginalMask.IsEmpty()){Out->Error=MaskError.IsEmpty()?TEXT("Original source masks are unavailable."):MaskError;return Out;}
+            }
             const int32 Axis=R.SliceAxis,A=(Axis+1)%3,B=(Axis+2)%3;
             const FIntVector SceneDimensions(VolumeGrid->Dimensions.X,VolumeGrid->Dimensions.Z,VolumeGrid->Dimensions.Y);
             const int32 NX=SceneDimensions[A]-1,NY=SceneDimensions[B]-1,Width=512,Height=FMath::DivideAndRoundUp((NX+1)*(NY+1),Width);
@@ -354,7 +361,9 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                 if(R.IsCancelled())return {};
                 const int32 Index=J*(NX+1)+I;FVector P=SliceBounds.Min;
                 P[Axis]=R.SlicePosition;P[A]+=SliceSize[A]*I/NX;P[B]+=SliceSize[B]*J/NY;
-                double Scalar;Valid[Index]=Field.SampleScalar(P,R.Scalar.Id,Scalar);
+                double Scalar;
+                if(VolumeGrid->OriginalGrid){const FVector Source(P.X,P.Z,P.Y);Valid[Index]=StudioVolumes::SampleSource(*Points,*VolumeGrid,OriginalMask,R.Scalar.Id,Source,Scalar);}
+                else Valid[Index]=Field.SampleScalar(P,R.Scalar.Id,Scalar);
                 if(Valid[Index])
                 {
                     const double Normalized=Range>0?(Scalar-R.ColorMapping.Minimum)/Range:.5;
@@ -371,7 +380,9 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
                 {
                     const auto SourcePosition=[](const FVector& P){return FVector(P.X,P.Z,P.Y)/100.;};
                     const FBox Cell(SourcePosition(S.Vertices[N]),SourcePosition(S.Vertices[N+NX+2]));
-                    if(!Field.VolumeReconstruction()->ContainsSolid(Cell))
+                    if(Field.VolumeReconstruction()->OriginalGrid?
+                        StudioVolumes::SupportsSourceRegion(*VolumeGrid,OriginalMask,Cell,R.Cancellation):
+                        !Field.VolumeReconstruction()->ContainsSolid(Cell))
                         S.Indices.Append({N,N+1,N+NX+2,N,N+NX+2,N+NX+1});
                 }
             }
@@ -487,7 +498,7 @@ static TSharedPtr<FStudioGeometry> BuildGeometry(const FRenderRequest& R)
         for(int32 I=0;I<=32;++I) { const double X=Bounds.Min.X+Size.X*I/32.; Out->Sections[6].Tube(FVector(X,Bounds.Min.Y,Bounds.Min.Z)*100.,FVector(X,Bounds.Max.Y,Bounds.Min.Z)*100.,Stroke*.000375,FLinearColor(0.05,0.13,0.17)); }
         for(int32 I=0;I<=12;++I) { const double Y=Bounds.Min.Y+Size.Y*I/12.; Out->Sections[6].Tube(FVector(Bounds.Min.X,Y,Bounds.Min.Z)*100.,FVector(Bounds.Max.X,Y,Bounds.Min.Z)*100.,Stroke*.000375,FLinearColor(0.05,0.13,0.17)); }
     }
-    const auto Slices=StudioSliceRendering::Build(Field,Bounds,R.VolumeSettings.InspectionObjects.Slices,R.Scalar.Id,R.Cancellation);
+    const auto Slices=StudioSliceRendering::Build(Field,Bounds,R.VolumeSettings.InspectionObjects.Slices,R.Scalar.Id,R.Cancellation,R.VolumeSettings.bHome4AirMask);
     Out->SliceNotices=Slices.Notices;
     Out->RenderedSlices=Slices.RenderedSlices;
     auto& InspectionSection=Out->Sections[8];const double ScalarRange=R.ColorMapping.Maximum-R.ColorMapping.Minimum;
