@@ -336,10 +336,22 @@ TSharedRef<SWidget> SStudioResultsWorkspace::RunDetails()
     {
         Property(TEXT("Captured case"),C->Name);Property(TEXT("Case revision"),FString::Printf(TEXT("%lld"),C->Revision));
         Property(TEXT("Backend"),R->GetBackendId().IsEmpty()?TEXT("Not selected"):R->GetBackendId());
+        if(C->Home4)
+        {
+            const auto& H=*C->Home4;Property(TEXT("Recipe / lineage"),H.RecipeId+TEXT(" / ")+H.LineageId);
+            Property(TEXT("HOME4 lattice request"),H.Lattice.Extents?H.Lattice.Extents->ToString():TEXT("Not supplied"));
+            Property(TEXT("HOME4 step limit"),H.Run.Steps?LexToString(*H.Run.Steps):TEXT("Not supplied"));
+            Property(TEXT("HOME4 requested backend"),StudioHome4Config::ToJSON(H)->GetObjectField(TEXT("run"))->GetStringField(TEXT("backend")));
+            Property(TEXT("Source geometry"),H.Geometry.SourcePath.IsEmpty()?H.Authoring.Primitive:H.Geometry.SourcePath);
+            Property(TEXT("Frozen run specification"),StudioHome4Config::Serialize(H));
+        }
+        else
+        {
         Property(TEXT("Geometry / materials"),FString::Printf(TEXT("%d geometries · %d materials"),C->Geometry.Num(),C->Materials.Num()));
         Property(TEXT("Lattice request"),FString::Printf(TEXT("%d × %d × %d"),C->Setup.LatticeResolution.X,C->Setup.LatticeResolution.Y,C->Setup.LatticeResolution.Z));
         Property(TEXT("Step limit"),FString::Printf(TEXT("%lld"),C->Setup.MaxSteps));
         Property(TEXT("Physical time limit"),C->Setup.MaxPhysicalTime?FString::Printf(TEXT("%.9g s"),*C->Setup.MaxPhysicalTime):TEXT("Not specified"));
+        }
         Content->AddSlot().AutoHeight().Padding(0,8)[ResultText(TEXT("These settings are the immutable run snapshot. Editing the current case does not change them."),10,Muted)];
     }
     return Content;

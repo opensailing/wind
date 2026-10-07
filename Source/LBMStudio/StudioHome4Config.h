@@ -9,7 +9,8 @@ enum class EStudioHome4Quantity : uint8
 {
     Dimensionless, Length, Time, Density, Velocity, KinematicViscosity, Pressure,
     Acceleration, SurfaceTension, Mobility, Force, Moment, Energy, StrainRate,
-    SquaredRate, SpecificDissipation
+    SquaredRate, SpecificDissipation, Mass, Inertia, Frequency, AngularRate,
+    StiffnessTranslation, StiffnessCoupling, StiffnessRotation, Gradient, ForceDensity
 };
 enum class EStudioHome4IssueSeverity : uint8 { Information, Warning, Blocking };
 
@@ -52,6 +53,7 @@ struct FStudioHome4Geometry
     TOptional<FVector> InitialPositionCells, InitialAttitudeDegrees;
     TOptional<FVector> InitialVelocityCellsPerStep, InitialAngularVelocityRadiansPerStep;
     TArray<double> Stiffness; // Empty or 36 row-major entries for a 6-DOF stiffness matrix.
+    TOptional<FVector> InertiaDiagonal, InertiaProducts; // Body-frame LU, xy/xz/yz products.
 };
 struct FStudioHome4Lattice
 {
@@ -96,6 +98,38 @@ struct FStudioHome4Allocation
     FString Name;
     TOptional<int64> Nodes;
     int64 Components = 1, BytesPerComponent = 4, Buffers = 1;
+    FString NodeScope; // Empty/fixed preserves explicit counts; root or level:N tracks sizing.
+};
+
+/** Frontend geometry conventions are explicit and do not assert a HOME4 CLI encoding. */
+struct FStudioHome4AuthoredZone
+{
+    FString Id, Kind=TEXT("sponge"), Profile=TEXT("cubic"), Axis=TEXT("x");
+    FVector Minimum=FVector::ZeroVector, Maximum=FVector::OneVector;
+    double Strength=0, LevelExponent=1;
+};
+struct FStudioHome4AuthoredPatch
+{
+    FString Id, BodyId;
+    int32 Level=1;
+    FVector Origin=FVector::ZeroVector;
+    FIntVector Extents=FIntVector(16);
+    bool bFollowBody=false;
+};
+struct FStudioHome4Authoring
+{
+    FString BodyId=TEXT("body"), GeometryAssetId, SourceSHA256;
+    FString Primitive, TessellatorPython, TessellatorLibrary, PreparationMethod;
+    TOptional<double> MetersPerSourceUnit, WaterlineCells, SurfaceTolerance;
+    TOptional<double> DomainLengthRatio, DomainWidthRatio, DomainHeightRatio, SpongeLengthRatio;
+    TOptional<FVector> PrimitiveSizeCells;
+    int32 SourceUpAxis=2, SourceForwardAxis=0;
+    FString ZoneUnits=TEXT(""), BoundaryWall=TEXT("no-slip"), InletMode=TEXT("stream"), OutletMode=TEXT("open");
+    FString PierceMode=TEXT("off"), WaveModel=TEXT("none"), DeviceProfile;
+    TOptional<double> WaveLengthCells, WavePeriodSteps, WaveDepthCells;
+    TOptional<bool> PreserveCahn;
+    TArray<FStudioHome4AuthoredZone> Zones;
+    TArray<FStudioHome4AuthoredPatch> Patches;
 };
 struct FStudioHome4Performance
 {
@@ -109,7 +143,7 @@ struct FStudioHome4Performance
 struct FStudioHome4Spec
 {
     int32 Version = 1;
-    FString RecipeId, LineageId;
+    FString RecipeId, LineageId, ParentRunId, ParentSpecSHA256, BranchId;
     FStudioHome4Units Units;
     FStudioHome4Reference Reference;
     FStudioHome4Fluids Fluids;
@@ -119,6 +153,7 @@ struct FStudioHome4Spec
     FStudioHome4Multidomain Multidomain;
     FStudioHome4Run Run;
     FStudioHome4Performance Performance;
+    FStudioHome4Authoring Authoring;
 };
 struct FStudioHome4Issue
 {
@@ -157,6 +192,8 @@ struct FStudioHome4Field
     bool bOptional = true;
     double Minimum = -1.e12, Maximum = 1.e12;
     TArray<FString> Choices;
+    EStudioHome4Quantity Quantity=EStudioHome4Quantity::Dimensionless;
+    bool bQuantity=false, bBodyLengths=false;
 };
 
 namespace StudioHome4Config
@@ -184,4 +221,8 @@ namespace StudioHome4Config
     bool BuildHullDriverArgv(const FStudioHome4Spec& Spec, const FString& PythonExecutable,
         const FString& DriverPath, FStudioHome4DriverCommand& Out, FString& Error);
     FString ShellDisplay(const TArray<FString>& Argv);
+    /** Coupled edit scales the actual grid and declared allocation scopes; transaction on failure. */
+    bool Resize(FStudioHome4Spec& Spec,double Length,double Mach,double Reynolds,FString& Error);
+    TOptional<double> FieldConversion(double Value,const FStudioHome4Field& Field,
+        EStudioHome4UnitDisplay From,EStudioHome4UnitDisplay To,const FStudioHome4Spec& Spec);
 }

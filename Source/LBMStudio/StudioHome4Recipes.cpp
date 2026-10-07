@@ -15,7 +15,7 @@ void Changed(const TSharedPtr<FJsonObject>& Base,const TSharedPtr<FJsonObject>& 
     TArray<FString> Keys;for(const auto& E:Base->Values)Keys.Add(FString(*E.Key));Keys.Sort();
     for(const auto& Key:Keys)
     {
-        if(Key==TEXT("recipeId")||Key==TEXT("lineageId")||Key==TEXT("version"))continue;
+        if(Key==TEXT("recipeId")||Key==TEXT("lineageId")||Key==TEXT("branchId")||Key==TEXT("parentRunId")||Key==TEXT("parentSpecSHA256")||Key==TEXT("version"))continue;
         const auto B=Base->TryGetField(Key);const auto C=Current->TryGetField(Key);
         if(B->Type==EJson::Null)continue;
         const FString Path=Prefix.IsEmpty()?Key:Prefix+TEXT(".")+Key;
@@ -50,20 +50,20 @@ const TArray<FStudioHome4Recipe>& StudioHome4Recipes::All()
         Wave.Notes+=TEXT(" Nx=400, W/L=0.25, Lz/L=0.30, wave c_lat=0.015, slope=0.08. c_lat=0.02 is a documented failure; wave speed is not an inlet-speed substitute.");R.Add(Wave);
         auto Cylinder=Recipe(TEXT("colagrossi-wb"),TEXT("Colagrossi WB cylinder"),TEXT("Colagrossi 2018"),TEXT("run_cylinder3d_colagrossi.py"),TEXT("Colagrossi Cd, Cl and free-surface profiles"),TEXT("Drag, lift and surface profile agreement"));
         Cylinder.Template.Reference.Bond=200;Cylinder.Template.Fluids.PhaseSXY=1.8;Cylinder.Template.Fluids.GradientLimiter=true;
-        Cylinder.Notes+=TEXT(" Use Fr-aware U and g=(U/Fr)^2/D; M=0.05 applies only when Fr<0.8. Sponge width is 8D.");R.Add(Cylinder);
+        Cylinder.Notes+=TEXT(" Use Fr-aware U and g=(U/Fr)^2/D; M=0.05 applies only when Fr<0.8. Sponge width is 8D.");Cylinder.Template.Authoring.Primitive=TEXT("cylinder");Cylinder.Template.Authoring.SpongeLengthRatio=8;R.Add(Cylinder);
         auto Osc=Recipe(TEXT("oscillating-cylinder"),TEXT("Oscillating cylinder · Dütsch"),TEXT("Dütsch oscillating cylinder"),TEXT("run_cylinder3d_oscillating.py"),TEXT("Dütsch force history"),TEXT("Force history agreement"));
         Osc.Template.Reference.Reynolds=100;Osc.Template.Reference.KeuleganCarpenter=5;Osc.Template.Reference.OscillationPeakSpeed=.04;
-        Osc.Template.Geometry.BodyMotion=TEXT("forced-heave");Osc.Notes+=TEXT(" KC=5, U_max=0.04, domain=20D. Oscillation peak speed is not a steady inlet speed.");R.Add(Osc);
+        Osc.Template.Geometry.BodyMotion=TEXT("forced-heave");Osc.Notes+=TEXT(" KC=5, U_max=0.04, domain=20D. Oscillation peak speed is not a steady inlet speed.");Osc.Template.Authoring.Primitive=TEXT("cylinder");Osc.Template.Authoring.DomainLengthRatio=20;Osc.Template.Authoring.DomainWidthRatio=20;R.Add(Osc);
         auto Spin=Recipe(TEXT("couette-spin"),TEXT("Couette spin gate"),TEXT("Analytic Couette torque"),TEXT("run_cylinder3d_spinning.py"),TEXT("Analytic torque"),TEXT("Torque agreement with analytic reference"));
         Spin.Template.Geometry.BodyMotion=TEXT("forced-spin");Spin.Template.Reference.SpinSurfaceSpeed=.04;Spin.Template.Reference.RotationalReynolds=100;
-        Spin.Notes+=TEXT(" U_s=0.04, rotational Re=100, box=12D. Rotational and translational Reynolds numbers remain distinct.");R.Add(Spin);
+        Spin.Notes+=TEXT(" U_s=0.04, rotational Re=100, box=12D. Rotational and translational Reynolds numbers remain distinct.");Spin.Template.Authoring.Primitive=TEXT("cylinder");Spin.Template.Authoring.DomainLengthRatio=12;Spin.Template.Authoring.DomainWidthRatio=12;R.Add(Spin);
         auto Magnus=Recipe(TEXT("magnus"),TEXT("Magnus"),TEXT("Literature anchor requires verification"),TEXT("run_md_magnus_patch.py"),TEXT("Lift reference not yet verified"),TEXT("Lift agreement; reference anchor unresolved"));
-        Magnus.Template.Reference.Reynolds=100;Magnus.Template.Reference.SpeedCellsPerStep=.05;Magnus.Template.Geometry.BodyMotion=TEXT("forced-spin");Magnus.Notes+=TEXT(" 30D × 16D, ramped spin.");R.Add(Magnus);
+        Magnus.Template.Reference.Reynolds=100;Magnus.Template.Reference.SpeedCellsPerStep=.05;Magnus.Template.Geometry.BodyMotion=TEXT("forced-spin");Magnus.Notes+=TEXT(" 30D × 16D, ramped spin.");Magnus.Template.Authoring.Primitive=TEXT("cylinder");Magnus.Template.Authoring.DomainLengthRatio=30;Magnus.Template.Authoring.DomainWidthRatio=16;R.Add(Magnus);
         auto Sed=Recipe(TEXT("sedimentation"),TEXT("Sedimentation"),TEXT("Sedimenting cylinder"),TEXT("run_cylinder3d_sedimenting.py"),TEXT("Terminal velocity reference"),TEXT("Terminal velocity agreement"));
         Sed.Template.Geometry.BodyMotion=TEXT("free");Sed.Template.Geometry.BodyFluidDensityRatio=1.25;Sed.Template.Reference.Galileo=19.6;
-        Sed.Notes+=TEXT(" Body/fluid density ratio=1.25, Ga=19.6. This is not the heavy/light fluid density ratio.");R.Add(Sed);
+        Sed.Notes+=TEXT(" Body/fluid density ratio=1.25, Ga=19.6. This is not the heavy/light fluid density ratio.");Sed.Template.Authoring.Primitive=TEXT("cylinder");R.Add(Sed);
         auto Barge=Recipe(TEXT("vugts-barge"),TEXT("Vugts barge · H2-c"),TEXT("Vugts added mass and damping"),TEXT("run_barge_roll.py"),TEXT("Vugts/BEM coefficient curves"),TEXT("Added mass and damping agreement"));
-        Barge.Template.Geometry.BodyMotion=TEXT("forced-heave");Barge.Template.Geometry.BeamDraftRatio=2;Barge.Notes+=TEXT(" B/T=2, forced heave/roll.");R.Add(Barge);
+        Barge.Template.Geometry.BodyMotion=TEXT("forced-heave");Barge.Template.Geometry.BeamDraftRatio=2;Barge.Notes+=TEXT(" B/T=2, forced heave/roll.");Barge.Template.Authoring.Primitive=TEXT("box");R.Add(Barge);
         auto Hull=Recipe(TEXT("th01-hull"),TEXT("TH01 hull"),TEXT("SYRF TH01 tank and BEM"),TEXT("run_hull_speed.py"),TEXT("th01_tank_data.py; th01_bem_capytaine.py"),TEXT("Heave, trim and drag vs tank; BEM intercepts"));
         Hull.Template.Reference.LengthCells=256;Hull.Template.Geometry.BodyMotion=TEXT("fixed");Hull.Notes+=TEXT(" Choose Fr, Re_ref and measured G/Q/P zone preset. Static flotation uses run_hull_static.py.");R.Add(Hull);
         auto Foil=Recipe(TEXT("hydrofoil-parkin"),TEXT("Hydrofoil · Parkin"),TEXT("Parkin–Wu"),TEXT("run_hydrofoil_parkin.py"),TEXT("Parkin–Wu free-surface profile"),TEXT("Surface profile agreement"));
@@ -86,6 +86,9 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
     if(Refinements.IsEmpty()||Refinements.Num()>12||!Base.Reference.LengthCells||!Base.Fluids.Xi||
         *Base.Reference.LengthCells<=0||*Base.Fluids.Xi<=0)
     {Error=TEXT("A ladder needs positive body length, interface width and 1–12 refinement factors.");return false;}
+    if((Base.Zones.Sponge||Base.Zones.XBeach||Base.Zones.BeachY||Base.Zones.BeachGap||!Base.Authoring.Zones.IsEmpty())&&
+        Base.Authoring.ZoneUnits.IsEmpty())
+    {Error=TEXT("Declare zone coordinates as root-cells, body-lengths or physical-metres before refinement.");return false;}
     // Resolve only physics derived from supplied inputs, then retain U under acoustic refinement.
     const auto Physics=StudioHome4Config::Derive(Base);
     const FString Lineage=Base.LineageId.IsEmpty()?FGuid::NewGuid().ToString():Base.LineageId;
@@ -95,8 +98,7 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         if(Scale<=Previous||Scale>64){Error=TEXT("Refinement factors must increase, from 1 to 64.");return false;}Previous=Scale;
         const int64 Volume=int64(Scale)*Scale*Scale;
         FStudioHome4LadderRung R;R.Refinement=Scale;R.Spec=Base;R.Spec.LineageId=Lineage;
-        if(Scale>1&&(Base.Zones.Sponge||Base.Zones.XBeach||Base.Zones.BeachY||Base.Zones.BeachGap))
-        {Error=TEXT("Zone widths/positions need their actual driver unit contract before refinement; driver-value units cannot be guessed.");return false;}
+
         auto Multiply=[&](TOptional<double>& Value,const TOptional<double>& Original,double Factor)
         {if(Original)Value=*Original*Factor;};
         auto Count=[&](TOptional<int64>& Value,const TOptional<int64>& Original,int64 Factor)
@@ -124,8 +126,25 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         if(Base.Geometry.InitialPositionCells)R.Spec.Geometry.InitialPositionCells=*Base.Geometry.InitialPositionCells*Scale;
         if(Base.Geometry.InitialAngularVelocityRadiansPerStep)R.Spec.Geometry.InitialAngularVelocityRadiansPerStep=*Base.Geometry.InitialAngularVelocityRadiansPerStep/Scale;
         Multiply(R.Spec.Geometry.BodyMass,Base.Geometry.BodyMass,double(Volume));
-        if(Scale>1&&!Base.Geometry.Stiffness.IsEmpty())
-        {Error=TEXT("A stiffness matrix needs its explicit translational/rotational unit contract before refinement.");return false;}
+        for(int32 I=0;I<R.Spec.Geometry.Stiffness.Num();++I)
+        {
+            const int32 Power=1+(I/6>=3?1:0)+(I%6>=3?1:0);
+            R.Spec.Geometry.Stiffness[I]*=FMath::Pow(double(Scale),Power);
+        }
+        for(auto* V:{&R.Spec.Geometry.InertiaDiagonal,&R.Spec.Geometry.InertiaProducts})if(*V)**V=**V*FMath::Pow(double(Scale),5.);
+        if(R.Spec.Authoring.PrimitiveSizeCells)R.Spec.Authoring.PrimitiveSizeCells=*R.Spec.Authoring.PrimitiveSizeCells*Scale;
+        Multiply(R.Spec.Authoring.WaterlineCells,Base.Authoring.WaterlineCells,Scale);
+        Multiply(R.Spec.Authoring.WaveLengthCells,Base.Authoring.WaveLengthCells,Scale);
+        Multiply(R.Spec.Authoring.WaveDepthCells,Base.Authoring.WaveDepthCells,Scale);
+        Multiply(R.Spec.Authoring.WavePeriodSteps,Base.Authoring.WavePeriodSteps,Scale);
+        if(Base.Authoring.ZoneUnits==TEXT("root-cells"))
+        {
+            Multiply(R.Spec.Zones.Sponge,Base.Zones.Sponge,Scale);Multiply(R.Spec.Zones.XBeach,Base.Zones.XBeach,Scale);
+            Multiply(R.Spec.Zones.BeachY,Base.Zones.BeachY,Scale);Multiply(R.Spec.Zones.BeachGap,Base.Zones.BeachGap,Scale);
+            for(auto& Z:R.Spec.Authoring.Zones){Z.Minimum*=Scale;Z.Maximum*=Scale;}
+        }
+        for(auto& P:R.Spec.Authoring.Patches){P.Origin*=Scale;P.Extents*=Scale;}
+
         Multiply(R.Spec.Multidomain.Z1,Base.Multidomain.Z1,Scale);Multiply(R.Spec.Multidomain.Z2,Base.Multidomain.Z2,Scale);
         Multiply(R.Spec.Multidomain.Margin,Base.Multidomain.Margin,Scale);Multiply(R.Spec.Multidomain.BandDepth,Base.Multidomain.BandDepth,Scale);
         Multiply(R.Spec.Multidomain.Overlap,Base.Multidomain.Overlap,Scale);Multiply(R.Spec.Multidomain.RestrictionMargin,Base.Multidomain.RestrictionMargin,Scale);
@@ -150,6 +169,7 @@ bool StudioHome4Recipes::Ladder(const FStudioHome4Spec& Base,const TArray<int32>
         for(auto& Allocation:R.Spec.Performance.Allocations)if(Allocation.Nodes)
         {if(*Allocation.Nodes>1000000000000LL/Volume){Error=TEXT("Refined allocation node count exceeds its budget.");return false;}Allocation.Nodes=*Allocation.Nodes*Volume;}
         R.Spec.Run.Tag=(Base.Run.Tag.IsEmpty()?TEXT("home4"):Base.Run.Tag)+FString::Printf(TEXT("_r%d"),Scale);
+        R.Spec.ParentRunId=Base.ParentRunId;R.Spec.BranchId=FGuid::NewGuid().ToString();
         if(Scale>1)R.Spec.Run.InitState.Empty(); // A coarse restart has no certified refined-grid compatibility.
         if(!Base.Run.VizDirectory.IsEmpty())R.Spec.Run.VizDirectory=Base.Run.VizDirectory+FString::Printf(TEXT("_r%d"),Scale);
         if(!Base.Run.SaveState.IsEmpty())R.Spec.Run.SaveState=Base.Run.SaveState+FString::Printf(TEXT("_r%d"),Scale);

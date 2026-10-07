@@ -14,6 +14,13 @@ public:
     FString Get(const FString& Key) const;
     bool Build(FStudioHome4Spec& Out,FString& Error) const;
     bool Apply();
+    /** Replace the retained draft transactionally, preserving the applied baseline/undo boundary. */
+    bool Replace(const FStudioHome4Spec& Spec,FString& Error);
+    bool DeriveFrom(const FStudioHome4Spec& Spec,const FString& ParentRun,FString& Error);
+    FString DisplayText(const FStudioHome4Field& Field,EStudioHome4UnitDisplay Display) const;
+    bool SetDisplayText(const FStudioHome4Field& Field,const FString& Text,EStudioHome4UnitDisplay Display,FString& Error);
+    FString FieldTooltip(const FStudioHome4Field& Field) const;
+    TSharedPtr<FStudioModel> Owner() const {return Model.Pin();}
     int32 AllocationCount() const {return AllocationEdits.Num();}
     FString AllocationValue(int32 Row,int32 Column) const;
     void SetAllocation(int32 Row,int32 Column,const FString& Value);
@@ -33,5 +40,6 @@ private:
     FStudioHome4Spec Saved;
     TMap<FString,FString> Edits,Original;
     TArray<TArray<FString>> AllocationEdits,OriginalAllocations;
-    bool bConflict=false;
+    bool bConflict=false,bExtraDirty=false;
+    void LoadValues(const FStudioHome4Spec& Spec);
 };

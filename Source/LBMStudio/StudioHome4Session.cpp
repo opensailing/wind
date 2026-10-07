@@ -2,6 +2,13 @@
 #include "StudioHome4Recipes.h"
 #include "StudioModel.h"
 #include "Dom/JsonObject.h"
+#include "StudioHome4Readouts.h"
+#include "StudioAssets.h"
+#define UI UI_ST
+THIRD_PARTY_INCLUDES_START
+#include <openssl/sha.h>
+THIRD_PARTY_INCLUDES_END
+#undef UI
 
 namespace
 {
@@ -44,17 +51,8 @@ void FStudioHome4Session::Revert()
     const auto M=Model.Pin();if(!M)return;
     Project=M->Project.Id;Case=M->Project.Draft.Id;Saved=M->Project.Draft.Home4.Get(FStudioHome4Spec());
     Baseline=M->Project.Draft.Home4.IsSet()?StudioHome4Config::Serialize(Saved):FString();Edits.Reset();
-    const auto JSON=StudioHome4Config::ToJSON(Saved);
-    for(const auto& Field:StudioHome4Config::Fields())
-    {
-        if(Field.Section.IsEmpty()){const auto V=JSON->TryGetField(Field.Key);Edits.Add(Key(Field),ValueText(V));continue;}
-        const TSharedPtr<FJsonObject>* Section=nullptr;
-        if(JSON->TryGetObjectField(Field.Section,Section))
-        {const auto V=(*Section)->TryGetField(Field.Key);Edits.Add(Key(Field),ValueText(V));}
-    }
-    AllocationEdits.Reset();
-    for(const auto& A:Saved.Performance.Allocations)AllocationEdits.Add({A.Name,A.Nodes.IsSet()?LexToString(*A.Nodes):FString(),LexToString(A.Components),LexToString(A.BytesPerComponent),LexToString(A.Buffers)});
-    OriginalAllocations=AllocationEdits;Original=Edits;bConflict=false;Status.Empty();
+    LoadValues(Saved);
+    OriginalAllocations=AllocationEdits;Original=Edits;bConflict=false;bExtraDirty=false;Status.Empty();
 }
 void FStudioHome4Session::Refresh()
 {
@@ -70,7 +68,7 @@ void FStudioHome4Session::Refresh()
 void FStudioHome4Session::Set(const FString& Key,const FString& Value){if(Edits.Contains(Key)){Edits[Key]=Value;Status.Empty();}}
 FString FStudioHome4Session::Get(const FString& Key) const {const auto* V=Edits.Find(Key);return V?*V:FString();}
 bool FStudioHome4Session::IsDirty() const
-{if(AllocationEdits!=OriginalAllocations)return true;for(const auto& E:Edits){const auto* O=Original.Find(E.Key);if(!O||*O!=E.Value)return true;}return false;}
+{if(bExtraDirty||AllocationEdits!=OriginalAllocations)return true;for(const auto& E:Edits){const auto* O=Original.Find(E.Key);if(!O||*O!=E.Value)return true;}return false;}
 FString FStudioHome4Session::AllocationValue(int32 Row,int32 Column) const
 {return AllocationEdits.IsValidIndex(Row)&&AllocationEdits[Row].IsValidIndex(Column)?AllocationEdits[Row][Column]:FString();}
 void FStudioHome4Session::SetAllocation(int32 Row,int32 Column,const FString& Value)
@@ -123,6 +121,8 @@ bool FStudioHome4Session::Build(FStudioHome4Spec& Out,FString& Error) const
     for(const auto& Draft:AllocationEdits)
     {
         auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("name"),Draft[0]);
+        const int32 Row=Allocations.Num();
+        A->SetStringField(TEXT("nodeScope"),Saved.Performance.Allocations.IsValidIndex(Row)?Saved.Performance.Allocations[Row].NodeScope:TEXT("root"));
         const TCHAR* Keys[]={TEXT("nodes"),TEXT("components"),TEXT("bytesPerComponent"),TEXT("buffers")};
         for(int32 I=1;I<5;++I)
         {
@@ -150,4 +150,79 @@ bool FStudioHome4Session::ApplyRecipe(const FString& Id)
     auto Spec=R->Template;Spec.LineageId=FGuid::NewGuid().ToString();
     if(!M->EditCase(TEXT("Start HOME4 recipe lineage"),[&](auto& D){D.Home4=Spec;D.Name=R->Name;})){Status=M->Notice;return false;}
     Revert();Status=TEXT("Recipe applied. Reference evidence and solver measurements are not supplied.");return true;
+}
+
+void FStudioHome4Session::LoadValues(const FStudioHome4Spec& Spec)
+{
+    Edits.Reset();
+    const auto JSON=StudioHome4Config::ToJSON(Spec);
+    for(const auto& Field:StudioHome4Config::Fields())
+    {
+        if(Field.Section.IsEmpty()){const auto V=JSON->TryGetField(Field.Key);Edits.Add(Key(Field),ValueText(V));continue;}
+        const TSharedPtr<FJsonObject>* Section=nullptr;
+        if(JSON->TryGetObjectField(Field.Section,Section))
+        {const auto V=(*Section)->TryGetField(Field.Key);Edits.Add(Key(Field),ValueText(V));}
+    }
+    AllocationEdits.Reset();
+    for(const auto& A:Spec.Performance.Allocations)AllocationEdits.Add({A.Name,A.Nodes.IsSet()?LexToString(*A.Nodes):FString(),LexToString(A.Components),LexToString(A.BytesPerComponent),LexToString(A.Buffers)});
+}
+
+bool FStudioHome4Session::Replace(const FStudioHome4Spec& Spec,FString& Error)
+{
+    if(bConflict){Error=TEXT("Resolve the applied-configuration conflict before replacing this draft.");return false;}
+    if(!StudioHome4Config::Validate(Spec,Error))return false;
+    Saved=Spec;LoadValues(Spec);bExtraDirty=true;Status.Empty();return true;
+}
+bool FStudioHome4Session::DeriveFrom(const FStudioHome4Spec& Spec,const FString& ParentRun,FString& Error)
+{
+    if(IsDirty()){Error=TEXT("Apply or revert edits before deriving a branch.");return false;}
+    FStudioHome4Spec Copy=Spec;Copy.ParentRunId=ParentRun;Copy.BranchId=FGuid::NewGuid().ToString();
+    const FTCHARToUTF8 Bytes(*StudioHome4Config::Serialize(Spec));uint8 Hash[32];SHA256(reinterpret_cast<const unsigned char*>(Bytes.Get()),Bytes.Length(),Hash);Copy.ParentSpecSHA256=BytesToHex(Hash,32).ToLower();
+    if(Copy.LineageId.IsEmpty())Copy.LineageId=FGuid::NewGuid().ToString();
+    return Replace(Copy,Error);
+}
+FString FStudioHome4Session::DisplayText(const FStudioHome4Field& F,EStudioHome4UnitDisplay Display)const
+{
+    const FString Raw=Get(Key(F));if(!F.bQuantity||Display==EStudioHome4UnitDisplay::Lattice||Raw.IsEmpty())return Raw;
+    FStudioHome4Spec Map;FString Error;if(!Build(Map,Error))return Raw;
+    TArray<FString> Parts;Raw.ParseIntoArray(Parts,TEXT(","),false);TArray<FString> Converted;
+    for(const auto& P:Parts)
+    {
+        double V;if(!Number(P,V))return Raw;
+        const auto C=StudioHome4Config::FieldConversion(V,F,EStudioHome4UnitDisplay::Lattice,Display,Map);
+        if(!C)return Raw;
+        Converted.Add(FString::Printf(TEXT("%.12g"),*C));
+    }
+    return FString::Join(Converted,TEXT(", "));
+}
+bool FStudioHome4Session::SetDisplayText(const FStudioHome4Field& F,const FString& Text,EStudioHome4UnitDisplay Display,FString& Error)
+{
+    if(!F.bQuantity||Display==EStudioHome4UnitDisplay::Lattice||Text.TrimStartAndEnd().IsEmpty()){Set(Key(F),Text);return true;}
+    FStudioHome4Spec Map;if(!Build(Map,Error))return false;
+    TArray<FString> Parts;Text.ParseIntoArray(Parts,TEXT(","),false);TArray<FString> Converted;
+    for(const auto& P:Parts)
+    {
+        double V;if(!Number(P,V)){Error=TEXT("Keep a finite converted value before committing; the pending text is retained.");return false;}
+        const auto C=StudioHome4Config::FieldConversion(V,F,Display,EStudioHome4UnitDisplay::Lattice,Map);
+        if(!C){Error=TEXT("The requested unit form requires this draft's declared unit/reference map.");return false;}
+        Converted.Add(FString::Printf(TEXT("%.17g"),*C));
+    }
+    Set(Key(F),FString::Join(Converted,TEXT(", ")));return true;
+}
+FString FStudioHome4Session::FieldTooltip(const FStudioHome4Field& F)const
+{
+    const FString Raw=Get(Key(F));FStudioHome4Spec Map;FString Error;if(!Build(Map,Error))return F.Help+TEXT("\nCorrect the draft to inspect conversions.");
+    if(!F.bQuantity)return F.Help+TEXT("\nLattice / physical / nondimensional: ")+Raw+TEXT(" ")+F.Unit;
+    TArray<FString> Parts;Raw.ParseIntoArray(Parts,TEXT(","),false);FString Out=F.Help;
+    for(const auto& P:Parts)
+    {
+        double V;if(!Number(P,V))continue;
+        for(int32 I=0;I<3;++I)
+        {
+            const auto D=EStudioHome4UnitDisplay(I);const auto C=StudioHome4Config::FieldConversion(V,F,EStudioHome4UnitDisplay::Lattice,D,Map);
+            const TCHAR* Name=I==0?TEXT("Lattice"):I==1?TEXT("Physical"):TEXT("Nondimensional");
+            Out+=FString::Printf(TEXT("\n%s: %s %s"),Name,C?*FString::Printf(TEXT("%.9g"),*C):TEXT("map required"),I==0?*F.Unit:*StudioHome4Readouts::Unit(F.Quantity,D));
+        }
+    }
+    return Out;
 }

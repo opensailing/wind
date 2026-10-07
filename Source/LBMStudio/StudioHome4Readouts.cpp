@@ -18,6 +18,15 @@ FString StudioHome4Readouts::Unit(EStudioHome4Quantity Q,EStudioHome4UnitDisplay
     case EStudioHome4Quantity::Moment:case EStudioHome4Quantity::Energy:return SI?TEXT("N m"):TEXT("lu");
     case EStudioHome4Quantity::StrainRate:return SI?TEXT("1/s"):TEXT("1/step");
     case EStudioHome4Quantity::SquaredRate:return SI?TEXT("1/s²"):TEXT("1/step²");
+    case EStudioHome4Quantity::Mass:return SI?TEXT("kg"):TEXT("lu mass");
+    case EStudioHome4Quantity::Inertia:return SI?TEXT("kg m²"):TEXT("lu inertia");
+    case EStudioHome4Quantity::Frequency:return SI?TEXT("Hz"):TEXT("cycles/step");
+    case EStudioHome4Quantity::AngularRate:return SI?TEXT("rad/s"):TEXT("rad/step");
+    case EStudioHome4Quantity::StiffnessTranslation:return SI?TEXT("N/m"):TEXT("lu force/cell");
+    case EStudioHome4Quantity::StiffnessCoupling:return SI?TEXT("N or N m/m"):TEXT("lu coupling");
+    case EStudioHome4Quantity::StiffnessRotation:return SI?TEXT("N m/rad"):TEXT("lu moment/rad");
+    case EStudioHome4Quantity::Gradient:return SI?TEXT("1/m"):TEXT("1/cell");
+    case EStudioHome4Quantity::ForceDensity:return SI?TEXT("N/m³"):TEXT("lu force/cell³");
     case EStudioHome4Quantity::SpecificDissipation:return SI?TEXT("m²/s³"):TEXT("cells²/step³");
     default:return TEXT("1");
     }
@@ -45,6 +54,8 @@ FString StudioHome4Readouts::Scalar(double V,const FString& SourceUnit,EStudioHo
     using Q=EStudioHome4Quantity;using D=EStudioHome4UnitDisplay;
     static const FUnit Units[]={
         {TEXT("1"),Q::Dimensionless,D::Lattice},{TEXT(""),Q::Dimensionless,D::Lattice},
+        {TEXT("1/m"),Q::Gradient,D::Physical},{TEXT("1/cell"),Q::Gradient,D::Lattice},{TEXT("1/cells"),Q::Gradient,D::Lattice},
+        {TEXT("N/m3"),Q::ForceDensity,D::Physical},{TEXT("N/m³"),Q::ForceDensity,D::Physical},{TEXT("lu_force_density"),Q::ForceDensity,D::Lattice},
         {TEXT("m/s"),Q::Velocity,D::Physical},{TEXT("lu_velocity"),Q::Velocity,D::Lattice},
         {TEXT("m"),Q::Length,D::Physical},{TEXT("lu_length"),Q::Length,D::Lattice},{TEXT("cells"),Q::Length,D::Lattice},
         {TEXT("Pa"),Q::Pressure,D::Physical},{TEXT("lu_pressure"),Q::Pressure,D::Lattice},

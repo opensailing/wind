@@ -12,6 +12,12 @@ namespace
         for (auto& Asset : Draft.Geometry)
             if (!Map(Asset.SourcePath, Error))
             { Error = Asset.Name + TEXT(": ") + Error; return false; }
+        if(Draft.Home4)
+        {
+            auto& H=*Draft.Home4;
+            for(auto* Path:{&H.Geometry.SourcePath,&H.Geometry.CptPath,&H.Run.InitState})
+                if(!Path->IsEmpty()&&!Map(*Path,Error))return false;
+        }
         return true;
     }
 

@@ -74,9 +74,7 @@ bool SStudioHome4Sizing::Adjust(int32 Axis,double Value)
     const auto D=StudioHome4Config::Derive(S);const double Re=S.Reference.Reynolds.Get(D.Reynolds.Get(0));
     double L=S.Reference.LengthCells.GetValue(),Ma=D.Mach.GetValue();
     if(Axis==0)L=Value;else if(Axis==1)Ma=Value;else L=Re*(Value-.5)/(FMath::Sqrt(3.)*Ma);
-    const double U=Ma/FMath::Sqrt(3.),Nu=U*L/Re;
-    if(L<=0||L>1.e12||Ma<=0||Ma>.3||Nu<=0||!FMath::IsFinite(Nu)){Notice=TEXT("Sizing adjustment exceeds supported positive lattice bounds.");return false;}
-    auto Set=[&](const TCHAR* K,double V){Session->Set(K,FString::Printf(TEXT("%.17g"),V));};
-    Set(TEXT("reference.lengthCells"),L);Set(TEXT("reference.speedCellsPerStep"),U);Set(TEXT("reference.mach"),Ma);Set(TEXT("reference.reynolds"),Re);Set(TEXT("fluids.nuHeavy"),Nu);
+    if(!StudioHome4Config::Resize(S,L,Ma,Re,E)){Notice=E;return false;}
+    if(!Session->Replace(S,E)){Notice=E;return false;}
     Notice=TEXT("Sizing draft updated; review dependent groups and Apply when ready.");return true;
 }

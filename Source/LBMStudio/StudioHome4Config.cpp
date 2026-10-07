@@ -114,7 +114,17 @@ namespace
             N("run","travel",Run.Travel,"Run","L",0,1.e12),
             N("run","rampLength",Run.RampLength,"Run","L",0,1.e12),
             N("run","averageLength",Run.AverageLength,"Run","L",0,1.e12),
-            N("performance","measuredMLUPS",Performance.MeasuredMLUPS,"Run","MLUPS",0,1.e12)
+            N("performance","measuredMLUPS",Performance.MeasuredMLUPS,"Run","MLUPS",0,1.e12),
+            N("authoring","metersPerSourceUnit",Authoring.MetersPerSourceUnit,"Geometry","m/source unit",0,1.e12),
+            N("authoring","waterlineCells",Authoring.WaterlineCells,"Lattice","cells",-1.e12,1.e12),
+            N("authoring","surfaceTolerance",Authoring.SurfaceTolerance,"Geometry","source units",0,1.e12),
+            N("authoring","domainLengthRatio",Authoring.DomainLengthRatio,"Lattice","L",0,1.e12),
+            N("authoring","domainWidthRatio",Authoring.DomainWidthRatio,"Lattice","L",0,1.e12),
+            N("authoring","domainHeightRatio",Authoring.DomainHeightRatio,"Lattice","L",0,1.e12),
+            N("authoring","spongeLengthRatio",Authoring.SpongeLengthRatio,"Boundaries & Zones","L",0,1.e12),
+            N("authoring","waveLengthCells",Authoring.WaveLengthCells,"Boundaries & Zones","cells",0,1.e12),
+            N("authoring","wavePeriodSteps",Authoring.WavePeriodSteps,"Boundaries & Zones","steps",0,1.e12),
+            N("authoring","waveDepthCells",Authoring.WaveDepthCells,"Boundaries & Zones","cells",0,1.e12)
         }; return V;
     }
 #undef N
@@ -150,7 +160,7 @@ namespace
             B("multidomain","fixedCahnRefinement",Multidomain.FixedCahnRefinement,"Lattice"),
             B("run","bodyOnCpu",Run.BodyOnCpu,"Run"), B("run","noGpuKernels",Run.NoGpuKernels,"Run"),
             B("run","smoke",Run.Smoke,"Run"), B("run","noFrameAcceleration",Run.NoFrameAcceleration,"Run"),
-            B("run","extensionImported",Run.ExtensionImported,"Run"), B("run","fallbackConfirmed",Run.FallbackConfirmed,"Run")
+            B("authoring","preserveCahn",Authoring.PreserveCahn,"Lattice"), B("run","extensionImported",Run.ExtensionImported,"Run"), B("run","fallbackConfirmed",Run.FallbackConfirmed,"Run")
         }; return V;
     }
 #undef B
@@ -159,6 +169,14 @@ namespace
     {
         static const TArray<Home4FStringField> V = {
             S("","recipeId",RecipeId,"Projects"), S("","lineageId",LineageId,"Projects"),
+            S("","parentRunId",ParentRunId,"Projects"), S("","parentSpecSHA256",ParentSpecSHA256,"Projects"), S("","branchId",BranchId,"Projects"),
+            S("authoring","bodyId",Authoring.BodyId,"Bodies"), S("authoring","geometryAssetId",Authoring.GeometryAssetId,"Geometry"),
+            S("authoring","sourceSHA256",Authoring.SourceSHA256,"Geometry"), S("authoring","primitive",Authoring.Primitive,"Geometry"),
+            S("authoring","tessellatorPython",Authoring.TessellatorPython,"Geometry"), S("authoring","tessellatorLibrary",Authoring.TessellatorLibrary,"Geometry"),
+            S("authoring","preparationMethod",Authoring.PreparationMethod,"Geometry"), S("authoring","zoneUnits",Authoring.ZoneUnits,"Boundaries & Zones"),
+            S("authoring","boundaryWall",Authoring.BoundaryWall,"Boundaries & Zones"), S("authoring","inletMode",Authoring.InletMode,"Boundaries & Zones"),
+            S("authoring","outletMode",Authoring.OutletMode,"Boundaries & Zones"), S("authoring","pierceMode",Authoring.PierceMode,"Boundaries & Zones"),
+            S("authoring","waveModel",Authoring.WaveModel,"Boundaries & Zones"), S("authoring","deviceProfile",Authoring.DeviceProfile,"Run"),
             S("fluids","tauMethod",Fluids.TauMethod,"Fluids & Interface"), S("fluids","surfaceTensionForm",Fluids.SurfaceTensionForm,"Fluids & Interface"),
             S("geometry","sourcePath",Geometry.SourcePath,"Geometry"), S("geometry","patchClassification",Geometry.PatchClassification,"Geometry"),
             S("geometry","sdfBackend",Geometry.SdfBackend,"Geometry"), S("geometry","cptPath",Geometry.CptPath,"Geometry"),
@@ -173,7 +191,7 @@ namespace
         }; return V;
     }
 #undef S
-    const TCHAR* Home4Sections[] = {TEXT("units"),TEXT("reference"),TEXT("fluids"),TEXT("geometry"),TEXT("lattice"),TEXT("zones"),TEXT("multidomain"),TEXT("run"),TEXT("performance")};
+    const TCHAR* Home4Sections[] = {TEXT("units"),TEXT("reference"),TEXT("fluids"),TEXT("geometry"),TEXT("lattice"),TEXT("zones"),TEXT("multidomain"),TEXT("run"),TEXT("performance"),TEXT("authoring")};
     Home4FObject Home4Section(const Home4FObject& O, const FString& Name)
     {
         if(Name.IsEmpty()) return O;
@@ -257,6 +275,10 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
         Backend.Choices={TEXT("unknown"),TEXT("metal"),TEXT("cuda"),TEXT("pytorch")};A.Add(Backend);
         A.Add(Home4Field(TEXT("lattice"),TEXT("extents"),TEXT("Lattice"),EStudioHome4FieldType::IntegerVector,TEXT("cells"),1,1048576));
         A.Add(Home4Field(TEXT("run"),TEXT("blockShape"),TEXT("Run"),EStudioHome4FieldType::IntegerVector,TEXT("threads"),1,1024));
+        A.Add(Home4Field(TEXT("authoring"),TEXT("primitiveSizeCells"),TEXT("Geometry"),EStudioHome4FieldType::NumberVector,TEXT("cells"),0,1.e12));
+        A.Add(Home4Field(TEXT("authoring"),TEXT("sourceAxes"),TEXT("Geometry"),EStudioHome4FieldType::IntegerArray,TEXT("up, forward axis (0=X, 1=Y, 2=Z)"),0,2,false));
+        A.Add(Home4Field(TEXT("geometry"),TEXT("inertiaDiagonal"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("lu"),0,1.e12));
+        A.Add(Home4Field(TEXT("geometry"),TEXT("inertiaProducts"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("lu")));
         A.Add(Home4Field(TEXT("geometry"),TEXT("centerOfGravity"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("cells")));
         A.Add(Home4Field(TEXT("geometry"),TEXT("initialPositionCells"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("cells")));
         A.Add(Home4Field(TEXT("geometry"),TEXT("initialAttitudeDegrees"),TEXT("Bodies"),EStudioHome4FieldType::NumberVector,TEXT("degrees"),-360,360));
@@ -267,12 +289,38 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
         for(auto& F:A)
         {
             F.Label=Home4ReadableLabel(F.Key);
+            using Q=EStudioHome4Quantity;
+            const FString Path=F.Section+TEXT(".")+F.Key;
+            if(F.Unit==TEXT("cells")||F.Unit==TEXT("root cells")){F.bQuantity=true;F.Quantity=Q::Length;}
+            if(F.Unit==TEXT("steps")){F.bQuantity=true;F.Quantity=Q::Time;}
+            if(F.Unit==TEXT("cells/step")){F.bQuantity=true;F.Quantity=Q::Velocity;}
+            if(F.Unit==TEXT("cells2/step")){F.bQuantity=true;F.Quantity=Q::KinematicViscosity;}
+            if(F.Unit==TEXT("cells/step2")){F.bQuantity=true;F.Quantity=Q::Acceleration;}
+            if(F.Unit==TEXT("radians/step")){F.bQuantity=true;F.Quantity=Q::AngularRate;}
+            if(F.Unit==TEXT("cycles/step")){F.bQuantity=true;F.Quantity=Q::Frequency;}
+            if(F.Unit==TEXT("L")){F.bQuantity=true;F.bBodyLengths=true;F.Quantity=Q::Length;}
+            if(F.Key==TEXT("rhoHeavy")||F.Key==TEXT("rhoLight")){F.bQuantity=true;F.Quantity=Q::Density;}
+            if(F.Key==TEXT("sigma")){F.bQuantity=true;F.Quantity=Q::SurfaceTension;}
+            if(F.Key==TEXT("bodyMass")){F.bQuantity=true;F.Quantity=Q::Mass;}
+            if(F.Key.StartsWith(TEXT("inertia"))){F.bQuantity=true;F.Quantity=Q::Inertia;}
+            if(F.Key==TEXT("stiffness")){F.bQuantity=true;F.Quantity=Q::StiffnessTranslation;}
+            if(F.Key==TEXT("retabulateEvery")||F.Key==TEXT("measureEvery")||F.Key==TEXT("printEvery")||F.Key==TEXT("vizEvery")||F.Key==TEXT("restartEvery")||F.Key==TEXT("saveEvery")||F.Key==TEXT("steps")){F.bQuantity=true;F.Quantity=Q::Time;}
+            if(F.Key==TEXT("extents")||F.Key==TEXT("levelCells")||F.Key==TEXT("streamwiseCells"))F.bQuantity=false;
+            if(F.Key==TEXT("primitive"))F.Choices={TEXT(""),TEXT("box"),TEXT("cylinder"),TEXT("sphere")};
+            if(F.Key==TEXT("zoneUnits"))F.Choices={TEXT(""),TEXT("root-cells"),TEXT("body-lengths"),TEXT("physical-metres")};
+            if(F.Key==TEXT("boundaryWall"))F.Choices={TEXT("no-slip"),TEXT("free-slip")};
+            if(F.Key==TEXT("inletMode"))F.Choices={TEXT("stream"),TEXT("cubic-ramp"),TEXT("wave")};
+            if(F.Key==TEXT("outletMode"))F.Choices={TEXT("open"),TEXT("stream"),TEXT("periodic")};
+            if(F.Key==TEXT("pierceMode"))F.Choices={TEXT("off"),TEXT("phase-pinned"),TEXT("free-interface")};
+            if(F.Key==TEXT("waveModel"))F.Choices={TEXT("none"),TEXT("linear-gravity"),TEXT("declared-profile")};
+            if(F.Key==TEXT("retabulationPolicy"))F.Choices={TEXT(""),TEXT("static"),TEXT("every-step"),TEXT("cadence")};
+            if(F.Key==TEXT("deviceProfile"))F.Choices={TEXT(""),TEXT("M4-Pro-MPS-79.5M"),TEXT("declared-memory")};
             F.Help=F.Label+TEXT(" request. Unset stays unknown; the command preview reports any unverified driver encoding.");
             if(F.Key==TEXT("patchClassification"))F.Choices={TEXT(""),TEXT("CB"),TEXT("HKR"),TEXT("HKr"),TEXT("full")};
             if(F.Key==TEXT("sdfBackend"))F.Choices={TEXT(""),TEXT("libigl"),TEXT("CPT")};
             if(F.Key==TEXT("massCorrection"))F.Choices={TEXT(""),TEXT("beach"),TEXT("global"),TEXT("off")};
             if(F.Key==TEXT("sneqMode"))F.Choices={TEXT(""),TEXT("dorschner"),TEXT("derived")};
-            if(F.Key==TEXT("bodyMotion"))F.Choices={TEXT(""),TEXT("fixed"),TEXT("forced-heave"),TEXT("forced-pitch"),TEXT("forced-spin"),TEXT("free")};
+            if(F.Key==TEXT("bodyMotion"))F.Choices={TEXT(""),TEXT("fixed"),TEXT("forced-heave"),TEXT("forced-pitch"),TEXT("forced-roll"),TEXT("forced-spin"),TEXT("free")};
             if(F.Key==TEXT("surfaceTensionForm"))F.Help=TEXT("Force form request (the feedback identifies muphi). Exact driver support is unverified.");
             if(F.Key==TEXT("mobility"))F.Help=TEXT("Root-level mobility. For MD, finest mobility is root mobility times 2^(levels-1).");
             if(F.Key==TEXT("finestMobility"))F.Help=TEXT("Recipe mobility at the finest level; root mobility is this value divided by 2^(levels-1).");
@@ -330,6 +378,9 @@ const TArray<FStudioHome4Field>& StudioHome4Config::Fields()
             if(F.Key==TEXT("massCorrection"))F.Help=TEXT("Phase-mass correction mode: beach, global or off; hull --mass_correct.");
             if(F.Key==TEXT("pierceBoundary"))F.Help=TEXT("Hull --pierce_bc mode request. The appendix omits accepted values and argument arity; preserved but not encoded yet.");
             if(F.Key==TEXT("phiTop")||F.Key==TEXT("phiBottom")||F.Key==TEXT("pinPhaseWalls"))F.Help=TEXT("Phase-wall pinning request (φtop/φbot and pin_phase_walls). Not an appendix-supported hull flag.");
+            if(F.Section==TEXT("authoring"))F.Help=F.Label+TEXT(" frontend preview contract; coordinates and units are explicit. HOME4 driver encoding is separately verified.");
+            if(F.Key==TEXT("preserveCahn"))F.Help=TEXT("Scale interface width with reference resolution during sizing to retain the supplied Cahn number.");
+            if(F.Key==TEXT("pierceMode"))F.Help=TEXT("Frontend boundary contract: off leaves the interface unchanged; phase-pinned fixes wall phase; free-interface permits an intersecting interface. This is not an assertion of --pierce_bc driver values.");
             if(F.Key==TEXT("levels"))F.Help=TEXT("Total MD levels including root; finest depth is levels−1 and each refinement factor is 2. Hull appendix has no MD flags.");
             if(F.Key==TEXT("tauFloor"))F.Help=TEXT("Explicit minimum τ for per-level physics. Raises viscosity where active and changes local Reynolds number; driver semantics need verification.");
             if(F.Key==TEXT("evenWrap"))F.Help=TEXT("Even-wrap request for periodic MD axes. Odd extents on selected periodic axes block.");
@@ -403,6 +454,24 @@ bool StudioHome4Config::Validate(const FStudioHome4Spec& Spec,FString& Error)
            (A.Nodes.IsSet()&&(*A.Nodes<1||*A.Nodes>Home4MaxCount))||A.Components<1||A.Components>1024||
            A.BytesPerComponent<1||A.BytesPerComponent>16||A.Buffers<1||A.Buffers>16)
             return Fail(TEXT("Allocation entries need a bounded name, optional positive node count, and bounded component/byte/buffer counts."));
+    if(Spec.Authoring.SourceUpAxis<0||Spec.Authoring.SourceUpAxis>2||Spec.Authoring.SourceForwardAxis<0||Spec.Authoring.SourceForwardAxis>2||Spec.Authoring.SourceUpAxis==Spec.Authoring.SourceForwardAxis)return Fail(TEXT("Source up and forward axes must be distinct XYZ axes."));
+    if(Spec.Authoring.PrimitiveSizeCells&&(Spec.Authoring.PrimitiveSizeCells->ContainsNaN()||Spec.Authoring.PrimitiveSizeCells->GetMin()<=0||Spec.Authoring.PrimitiveSizeCells->GetMax()>1.e9))return Fail(TEXT("Primitive sizes must be finite positive root-cell dimensions."));
+    if(Spec.Geometry.InertiaDiagonal&&(Spec.Geometry.InertiaDiagonal->ContainsNaN()||Spec.Geometry.InertiaDiagonal->GetMin()<=0))return Fail(TEXT("Principal body inertia components must be positive and finite."));
+    if(Spec.Geometry.InertiaProducts&&(Spec.Geometry.InertiaProducts->ContainsNaN()||Spec.Geometry.InertiaProducts->GetAbsMax()>1.e12))return Fail(TEXT("Inertia products must be bounded and finite."));
+    if(Spec.Authoring.Zones.Num()>128||Spec.Authoring.Patches.Num()>32)return Fail(TEXT("Authoring region count exceeds the bounded preview contract."));
+    TSet<FString> ZoneIds,PatchIds;
+    for(const auto& Z:Spec.Authoring.Zones)
+    {
+        if(Z.Id.IsEmpty()||!Home4TextValid(Z.Id)||ZoneIds.Contains(Z.Id)||Z.Minimum.ContainsNaN()||Z.Maximum.ContainsNaN()||Z.Minimum.GetAbsMax()>1.e9||Z.Maximum.GetAbsMax()>1.e9||
+            Z.Maximum.X<=Z.Minimum.X||Z.Maximum.Y<=Z.Minimum.Y||Z.Maximum.Z<=Z.Minimum.Z||!FMath::IsFinite(Z.Strength)||Z.Strength<0||Z.Strength>1||!FMath::IsFinite(Z.LevelExponent)||FMath::Abs(Z.LevelExponent)>16||
+            !TSet<FString>{TEXT("sponge"),TEXT("beach"),TEXT("floor"),TEXT("wave-absorption")}.Contains(Z.Kind)||!TSet<FString>{TEXT("linear"),TEXT("cubic"),TEXT("constant")}.Contains(Z.Profile)||!TSet<FString>{TEXT("x"),TEXT("y"),TEXT("z")}.Contains(Z.Axis))return Fail(TEXT("Authored zones need unique IDs, valid bounds, declared profiles and strength in [0,1]."));
+        ZoneIds.Add(Z.Id);
+    }
+    for(const auto& P:Spec.Authoring.Patches)
+    {
+        if(P.Id.IsEmpty()||!Home4TextValid(P.Id)||!Home4TextValid(P.BodyId)||PatchIds.Contains(P.Id)||P.Level<0||P.Level>15||P.Extents.GetMin()<2||P.Extents.GetMax()>1048576||P.Origin.ContainsNaN()||P.Origin.GetAbsMax()>1.e9)return Fail(TEXT("Authored MD patches need unique IDs, bounded origin/extents and level 0–15."));
+        PatchIds.Add(P.Id);
+    }
     Error.Empty();return true;
 }
 
@@ -425,22 +494,42 @@ TSharedRef<FJsonObject> StudioHome4Config::ToJSON(const FStudioHome4Spec& Spec)
     Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("initialVelocityCellsPerStep"),V.Geometry.InitialVelocityCellsPerStep);
     Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("initialAngularVelocityRadiansPerStep"),V.Geometry.InitialAngularVelocityRadiansPerStep);
     Home4Array(Home4Section(O,TEXT("geometry")),TEXT("stiffness"),V.Geometry.Stiffness);
+    Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("inertiaDiagonal"),V.Geometry.InertiaDiagonal);
+    Home4Vector(Home4Section(O,TEXT("geometry")),TEXT("inertiaProducts"),V.Geometry.InertiaProducts);
+    const auto Auth=Home4Section(O,TEXT("authoring"));
+    Home4Vector(Auth,TEXT("primitiveSizeCells"),V.Authoring.PrimitiveSizeCells);
+    Home4Array(Auth,TEXT("sourceAxes"),TArray<int32>{V.Authoring.SourceUpAxis,V.Authoring.SourceForwardAxis});
+    Home4FValues Zones,Patches;
+    for(const auto& Z:V.Authoring.Zones)
+    {
+        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("id"),Z.Id);J->SetStringField(TEXT("kind"),Z.Kind);J->SetStringField(TEXT("profile"),Z.Profile);J->SetStringField(TEXT("axis"),Z.Axis);
+        J->SetArrayField(TEXT("minimum"),Home4Components(Z.Minimum));J->SetArrayField(TEXT("maximum"),Home4Components(Z.Maximum));
+        J->SetNumberField(TEXT("strength"),Z.Strength);J->SetNumberField(TEXT("levelExponent"),Z.LevelExponent);Zones.Add(MakeShared<FJsonValueObject>(J));
+    }
+    for(const auto& P:V.Authoring.Patches)
+    {
+        auto J=MakeShared<FJsonObject>();J->SetStringField(TEXT("id"),P.Id);J->SetStringField(TEXT("bodyId"),P.BodyId);J->SetNumberField(TEXT("level"),P.Level);
+        J->SetArrayField(TEXT("origin"),Home4Components(P.Origin));J->SetArrayField(TEXT("extents"),Home4Components(P.Extents));J->SetBoolField(TEXT("followBody"),P.bFollowBody);Patches.Add(MakeShared<FJsonValueObject>(J));
+    }
+    Auth->SetArrayField(TEXT("zones"),Zones);Auth->SetArrayField(TEXT("patches"),Patches);
     Home4Array(Home4Section(O,TEXT("multidomain")),TEXT("levelCells"),V.Multidomain.LevelCells);
     Home4FValues Allocations;
     for(const auto& A:V.Performance.Allocations)
     {
         auto Item=MakeShared<FJsonObject>();Item->SetStringField(TEXT("name"),A.Name);Home4Optional(Item,TEXT("nodes"),A.Nodes);
-        Item->SetNumberField(TEXT("components"),double(A.Components));Item->SetNumberField(TEXT("bytesPerComponent"),double(A.BytesPerComponent));Item->SetNumberField(TEXT("buffers"),double(A.Buffers));
+        Item->SetStringField(TEXT("nodeScope"),A.NodeScope);Item->SetNumberField(TEXT("components"),double(A.Components));Item->SetNumberField(TEXT("bytesPerComponent"),double(A.BytesPerComponent));Item->SetNumberField(TEXT("buffers"),double(A.Buffers));
         Allocations.Add(MakeShared<FJsonValueObject>(Item));
     }
     Home4Section(O,TEXT("performance"))->SetArrayField(TEXT("allocations"),Allocations);
     return O;
 }
 
-bool StudioHome4Config::FromJSON(const Home4FObject& O,FStudioHome4Spec& Out,FString& Error)
+bool StudioHome4Config::FromJSON(const Home4FObject& Input,FStudioHome4Spec& Out,FString& Error)
 {
     Error=TEXT("Invalid HOME4 run spec. The existing request was kept.");
-    if(!O)return false;
+    if(!Input)return false;
+    const auto O=MakeShared<FJsonObject>();O->Values=Input->Values;
+    if(!O->HasField(TEXT("authoring")))O->SetObjectField(TEXT("authoring"),MakeShared<FJsonObject>());
     FStudioHome4Spec V;double Version;
     if(!O->TryGetNumberField(TEXT("version"),Version)||Version!=1)return false;
     if(O->TryGetField(TEXT("version"))->Type!=EJson::Number)return false;
@@ -449,6 +538,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& O,FStudioHome4Spec& Out,FSt
     for(const TCHAR* Name:Home4Sections){Allowed.FindOrAdd(TEXT("")).Add(Name);if(!Home4Section(O,Name))return false;}
     for(const auto& F:Fields())Allowed.FindOrAdd(F.Section).Add(F.Key);
     Allowed.FindOrAdd(TEXT("performance")).Add(TEXT("allocations"));
+    Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("zones"));Allowed.FindOrAdd(TEXT("authoring")).Add(TEXT("patches"));
     for(const auto& Pair:Allowed)
     {
         const auto Obj=Home4Section(O,Pair.Key);
@@ -473,7 +563,7 @@ bool StudioHome4Config::FromJSON(const Home4FObject& O,FStudioHome4Spec& Out,FSt
         bool B;if(J->Type!=EJson::Boolean||!J->TryGetBool(B))return false;F.Access(V)=B;
     }
     for(const auto& F:Home4Strings())
-    {const auto J=Home4Section(O,F.Field.Section)->TryGetField(F.Field.Key);if(!J||J->Type!=EJson::String||!J->TryGetString(F.Access(V)))return false;}
+    {const auto J=Home4Section(O,F.Field.Section)->TryGetField(F.Field.Key);if(!J){if(F.Field.Section==TEXT("authoring")||F.Field.Key==TEXT("parentRunId")||F.Field.Key==TEXT("parentSpecSHA256")||F.Field.Key==TEXT("branchId"))continue;return false;}if(J->Type!=EJson::String||!J->TryGetString(F.Access(V)))return false;}
     FString Display,Backend;
     if(Home4Section(O,TEXT("units"))->TryGetField(TEXT("display"))==nullptr||Home4Section(O,TEXT("run"))->TryGetField(TEXT("backend"))==nullptr)return false;
     if(Home4Section(O,TEXT("units"))->TryGetField(TEXT("display"))->Type!=EJson::String||Home4Section(O,TEXT("run"))->TryGetField(TEXT("backend"))->Type!=EJson::String)return false;
@@ -496,10 +586,48 @@ bool StudioHome4Config::FromJSON(const Home4FObject& O,FStudioHome4Spec& Out,FSt
     if(bSet)V.Geometry.CenterOfGravity=FVector(C[0],C[1],C[2]);
     for(const auto& Pair:{TPair<const TCHAR*,TOptional<FVector>*>(TEXT("initialPositionCells"),&V.Geometry.InitialPositionCells),
         {TEXT("initialAttitudeDegrees"),&V.Geometry.InitialAttitudeDegrees},{TEXT("initialVelocityCellsPerStep"),&V.Geometry.InitialVelocityCellsPerStep},
-        {TEXT("initialAngularVelocityRadiansPerStep"),&V.Geometry.InitialAngularVelocityRadiansPerStep}})
+        {TEXT("initialAngularVelocityRadiansPerStep"),&V.Geometry.InitialAngularVelocityRadiansPerStep},
+        {TEXT("inertiaDiagonal"),&V.Geometry.InertiaDiagonal},{TEXT("inertiaProducts"),&V.Geometry.InertiaProducts}})
     {if(!Home4ReadVector(Home4Section(O,TEXT("geometry")),Pair.Key,C,bSet))return false;if(bSet)*Pair.Value=FVector(C[0],C[1],C[2]);}
     if(!Home4ReadArray(Home4Section(O,TEXT("geometry")),TEXT("stiffness"),V.Geometry.Stiffness,36,false)||
        !Home4ReadArray(Home4Section(O,TEXT("multidomain")),TEXT("levelCells"),V.Multidomain.LevelCells,Home4MaxLevels,true))return false;
+    const auto Auth=Home4Section(O,TEXT("authoring"));
+    if(!Home4ReadVector(Auth,TEXT("primitiveSizeCells"),C,bSet))return false;
+    if(bSet)V.Authoring.PrimitiveSizeCells=FVector(C[0],C[1],C[2]);
+    if(Auth->HasField(TEXT("sourceAxes")))
+    {
+        TArray<int32> Axes;if(!Home4ReadArray(Auth,TEXT("sourceAxes"),Axes,2,true)||Axes.Num()!=2)return false;
+        V.Authoring.SourceUpAxis=Axes[0];V.Authoring.SourceForwardAxis=Axes[1];
+    }
+    const Home4FValues* Items=nullptr;
+    auto Strict=[&](const Home4FObject& J,const TSet<FString>& Keys){for(const auto& E:J->Values)if(!Keys.Contains(FString(*E.Key)))return false;return true;};
+    if(Auth->HasField(TEXT("zones")))
+    {
+        if(!Auth->TryGetArrayField(TEXT("zones"),Items)||Items->Num()>128)return false;
+        for(const auto& Item:*Items)
+        {
+            if(!Item||Item->Type!=EJson::Object)return false;const auto J=Item->AsObject();FStudioHome4AuthoredZone Z;
+            if(!Strict(J,{TEXT("id"),TEXT("kind"),TEXT("profile"),TEXT("axis"),TEXT("minimum"),TEXT("maximum"),TEXT("strength"),TEXT("levelExponent")})||
+                !J->TryGetStringField(TEXT("id"),Z.Id)||!J->TryGetStringField(TEXT("kind"),Z.Kind)||!J->TryGetStringField(TEXT("profile"),Z.Profile)||!J->TryGetStringField(TEXT("axis"),Z.Axis)||
+                !J->TryGetNumberField(TEXT("strength"),Z.Strength)||!J->TryGetNumberField(TEXT("levelExponent"),Z.LevelExponent))return false;
+            if(!Home4ReadVector(J,TEXT("minimum"),C,bSet)||!bSet)return false;Z.Minimum=FVector(C[0],C[1],C[2]);
+            if(!Home4ReadVector(J,TEXT("maximum"),C,bSet)||!bSet)return false;Z.Maximum=FVector(C[0],C[1],C[2]);V.Authoring.Zones.Add(MoveTemp(Z));
+        }
+    }
+    if(Auth->HasField(TEXT("patches")))
+    {
+        if(!Auth->TryGetArrayField(TEXT("patches"),Items)||Items->Num()>32)return false;
+        for(const auto& Item:*Items)
+        {
+            if(!Item||Item->Type!=EJson::Object)return false;const auto J=Item->AsObject();FStudioHome4AuthoredPatch P;double Level;
+            if(!Strict(J,{TEXT("id"),TEXT("bodyId"),TEXT("level"),TEXT("origin"),TEXT("extents"),TEXT("followBody")})||
+                !J->TryGetStringField(TEXT("id"),P.Id)||!J->TryGetStringField(TEXT("bodyId"),P.BodyId)||!J->TryGetNumberField(TEXT("level"),Level)||!Home4Integer(Level,0,15)||!J->TryGetBoolField(TEXT("followBody"),P.bFollowBody))return false;
+            P.Level=int32(Level);
+            if(!Home4ReadVector(J,TEXT("origin"),C,bSet)||!bSet)return false;P.Origin=FVector(C[0],C[1],C[2]);
+            if(!Home4ReadVector(J,TEXT("extents"),C,bSet)||!bSet)return false;for(double N:C)if(!Home4Integer(N,2,1048576))return false;
+            P.Extents=FIntVector(int32(C[0]),int32(C[1]),int32(C[2]));V.Authoring.Patches.Add(MoveTemp(P));
+        }
+    }
     const Home4FValues* Allocations=nullptr;
     if(!Home4Section(O,TEXT("performance"))->TryGetArrayField(TEXT("allocations"),Allocations)||Allocations->Num()>256)return false;
     for(const auto& J:*Allocations)
@@ -507,8 +635,9 @@ bool StudioHome4Config::FromJSON(const Home4FObject& O,FStudioHome4Spec& Out,FSt
         const Home4FObject* Item=nullptr;FStudioHome4Allocation A;
         if(!J||!J->TryGetObject(Item)||!Item||!Item->IsValid())return false;
         const auto Name=(*Item)->TryGetField(TEXT("name"));if(!Name||Name->Type!=EJson::String||!Name->TryGetString(A.Name))return false;
-        const TSet<FString> Keys={TEXT("name"),TEXT("nodes"),TEXT("components"),TEXT("bytesPerComponent"),TEXT("buffers")};
+        const TSet<FString> Keys={TEXT("name"),TEXT("nodes"),TEXT("components"),TEXT("bytesPerComponent"),TEXT("buffers"),TEXT("nodeScope")};
         for(const auto& Pair:(*Item)->Values)if(!Keys.Contains(FString(*Pair.Key)))return false;
+        if((*Item)->HasField(TEXT("nodeScope"))&&!(*Item)->TryGetStringField(TEXT("nodeScope"),A.NodeScope))return false;
         const auto Nodes=(*Item)->TryGetField(TEXT("nodes"));
         if(Nodes&&Nodes->Type!=EJson::Null){double N;if(Nodes->Type!=EJson::Number||!Nodes->TryGetNumber(N)||!Home4Integer(N,1,Home4MaxCount))return false;A.Nodes=int64(N);}
         for(const TCHAR* Key:{TEXT("components"),TEXT("bytesPerComponent"),TEXT("buffers")})
@@ -734,6 +863,8 @@ FStudioHome4Derived StudioHome4Config::Derive(const FStudioHome4Spec& S)
     if(Count>1&&S.Zones.ZoneStrength.IsSet())Home4Issue(D,EStudioHome4IssueSeverity::Information,TEXT("zones.zoneStrength"),TEXT("Per-level sponge exponent rescaling is identified by the feedback, but its driver formula must be verified before reporting values."));
     if(D.WakeWavelength.IsSet()&&S.Zones.Sponge.IsSet()&&*S.Zones.Sponge<*D.WakeWavelength)
         Home4Issue(D,EStudioHome4IssueSeverity::Information,TEXT("zones.sponge"),TEXT("Expected wake wavelength is available; verify driver sponge units before comparing width against 2*pi*Fr^2*L."));
+    if(S.Authoring.DeviceProfile==TEXT("M4-Pro-MPS-79.5M")&&S.Run.Backend==EStudioHome4Backend::Metal&&D.TotalCells&&*D.TotalCells>79500000ULL)
+        Home4Issue(D,EStudioHome4IssueSeverity::Blocking,TEXT("authoring.deviceProfile"),TEXT("The explicitly selected M4 Pro MPS workload profile exceeds its documented 79.5M-cell ceiling."));
     if(S.Zones.BeachGap.IsSet())Home4Issue(D,EStudioHome4IssueSeverity::Information,TEXT("zones.beachGap"),TEXT("Compare beach gap against the derived wake wavelength after the driver's beach-gap units are verified."));
     auto Required=[&](bool bKnown,const TCHAR* FieldName)
     {if(!bKnown)Home4Issue(D,EStudioHome4IssueSeverity::Blocking,FieldName,TEXT("A core numerical input is unknown; supply it before numerical launch."));};
@@ -772,6 +903,14 @@ TOptional<double> StudioHome4Config::ConvertUnits(double Value,EStudioHome4Quant
         case EStudioHome4Quantity::StrainRate:Time=-1;break;
         case EStudioHome4Quantity::SquaredRate:Time=-2;break;
         case EStudioHome4Quantity::SpecificDissipation:Length=2;Time=-3;break;
+        case EStudioHome4Quantity::Mass:Mass=1;break;
+        case EStudioHome4Quantity::Inertia:Mass=1;Length=2;break;
+        case EStudioHome4Quantity::Frequency:case EStudioHome4Quantity::AngularRate:Time=-1;break;
+        case EStudioHome4Quantity::StiffnessTranslation:Mass=1;Time=-2;break;
+        case EStudioHome4Quantity::StiffnessCoupling:Mass=1;Length=1;Time=-2;break;
+        case EStudioHome4Quantity::StiffnessRotation:Mass=1;Length=2;Time=-2;break;
+        case EStudioHome4Quantity::Gradient:Length=-1;break;
+        case EStudioHome4Quantity::ForceDensity:Mass=1;Length=-2;Time=-2;break;
         default:return {};
     }
     if(From==To)return Value;
@@ -877,12 +1016,12 @@ bool StudioHome4Config::BuildHullDriverArgv(const FStudioHome4Spec& S,const FStr
     StringFlag(TEXT("run"),TEXT("outDirectory"),TEXT("--outdir"),S.Run.OutDirectory);
     Switch(TEXT("run"),TEXT("smoke"),TEXT("--smoke"),S.Run.Smoke);
     // UI/provenance fields never become executable flags.
-    const TSet<FString> Metadata={TEXT("units.display"),TEXT("run.backend"),TEXT("run.queueTarget"),TEXT("run.extensionImported"),TEXT("run.fallbackConfirmed"),TEXT(".recipeId"),TEXT(".lineageId")};
+    const TSet<FString> Metadata={TEXT(".parentRunId"),TEXT(".parentSpecSHA256"),TEXT(".branchId"),TEXT("units.display"),TEXT("run.backend"),TEXT("run.queueTarget"),TEXT("run.extensionImported"),TEXT("run.fallbackConfirmed"),TEXT(".recipeId"),TEXT(".lineageId")};
     const auto O=ToJSON(S);
     for(const auto& F:Fields())
     {
         const FString Path=F.Section+TEXT(".")+F.Key;
-        if(Handled.Contains(Path)||Metadata.Contains(Path)||F.Section==TEXT("units")||F.Section==TEXT("performance"))continue;
+        if(Handled.Contains(Path)||Metadata.Contains(Path)||F.Section==TEXT("units")||F.Section==TEXT("performance")||F.Section==TEXT("authoring"))continue;
         const auto V=Home4Section(O,F.Section)->TryGetField(F.Key);
         if(!V||V->Type==EJson::Null||(V->Type==EJson::String&&V->AsString().IsEmpty())||(V->Type==EJson::Array&&V->AsArray().IsEmpty()))continue;
         // Dimensionless requests already encoded by their derived lattice/driver counterparts.
@@ -898,4 +1037,95 @@ bool StudioHome4Config::BuildHullDriverArgv(const FStudioHome4Spec& S,const FStr
     }
     C.MissingContracts.Add(TEXT("Driver parser, revision and default values must be verified against the actual HOME4 solver before launch; this is a command preview."));
     C.Display=ShellDisplay(C.Argv);Out=MoveTemp(C);Error.Empty();return true;
+}
+
+TOptional<double> StudioHome4Config::FieldConversion(double Value,const FStudioHome4Field& F,
+    EStudioHome4UnitDisplay From,EStudioHome4UnitDisplay To,const FStudioHome4Spec& S)
+{
+    if(!F.bQuantity)return FMath::IsFinite(Value)?TOptional<double>(Value):TOptional<double>();
+    if(F.bBodyLengths)
+    {
+        if(!S.Reference.LengthCells||*S.Reference.LengthCells<=0)return {};
+        if(From==EStudioHome4UnitDisplay::Lattice)Value*=*S.Reference.LengthCells;
+        auto Converted=ConvertUnits(Value,F.Quantity,From,To,S);
+        if(Converted&&To==EStudioHome4UnitDisplay::Lattice)*Converted/=*S.Reference.LengthCells;
+        return Converted;
+    }
+    return ConvertUnits(Value,F.Quantity,From,To,S);
+}
+
+bool StudioHome4Config::Resize(FStudioHome4Spec& Out,double Length,double Mach,double Reynolds,FString& Error)
+{
+    if(!FMath::IsFinite(Length)||!FMath::IsFinite(Mach)||!FMath::IsFinite(Reynolds)||Length<=0||Length>1.e9||Mach<=0||Mach>.3||Reynolds<=0)
+    {Error=TEXT("Sizing requires positive reference resolution and Reynolds number, with Mach in (0,0.3].");return false;}
+    FStudioHome4Spec S=Out;const auto D=Derive(S);
+    const double PreviousLength=S.Reference.LengthCells.Get(0),PreviousSpeed=D.Speed.Get(0);
+    if(PreviousLength<=0||PreviousSpeed<=0){Error=TEXT("Supply reference length and Mach/speed before coupled sizing.");return false;}
+    const double Scale=Length/PreviousLength,Speed=Mach*Home4Cs,VelocityScale=Speed/PreviousSpeed,TimeScale=Scale/VelocityScale;
+    auto NumberScale=[](TOptional<double>& V,double K){if(V)V=*V*K;};
+    auto GridScale=[&](FIntVector& N)
+    {
+        for(int32 Axis=0;Axis<3;++Axis)
+        {
+            const double Count=FMath::CeilToDouble(N[Axis]*Scale);
+            if(!FMath::IsFinite(Count)||Count<1||Count>1048576){Error=TEXT("Sizing exceeds the supported actual lattice axis counts.");return false;}
+            N[Axis]=int32(Count);
+        }
+        return true;
+    };
+    if(S.Lattice.Extents&&!GridScale(*S.Lattice.Extents))return false;
+    if(S.Lattice.StreamwiseCells)
+    {
+        const double Count=FMath::CeilToDouble(*S.Lattice.StreamwiseCells*Scale);
+        if(Count>1048576){Error=TEXT("Sizing exceeds the streamwise count limit.");return false;}
+        S.Lattice.StreamwiseCells=int64(Count);
+        if(S.Lattice.Extents)S.Lattice.StreamwiseCells=S.Lattice.Extents->X;
+    }
+    S.Reference.LengthCells=Length;S.Reference.Mach=Mach;S.Reference.SpeedCellsPerStep=Speed;S.Reference.Reynolds=Reynolds;
+    S.Fluids.NuHeavy=Speed*Length/Reynolds;
+    if(D.NuLight&&D.NuHeavy&&*D.NuHeavy>0)S.Fluids.NuLight=*D.NuLight* *S.Fluids.NuHeavy/ *D.NuHeavy;
+    if(D.Gravity)S.Fluids.Gravity=*D.Gravity*VelocityScale*VelocityScale/Scale;
+    if(D.Sigma)S.Fluids.Sigma=*D.Sigma*VelocityScale*VelocityScale*Scale;
+    if(D.Mobility)S.Fluids.Mobility=*D.Mobility*VelocityScale*Scale;
+    NumberScale(S.Multidomain.FinestMobility,VelocityScale*Scale);
+    if(S.Authoring.PreserveCahn.Get(true)&&D.Xi)S.Fluids.Xi=*D.Xi*Scale;
+    NumberScale(S.Units.DxMeters,1/Scale);NumberScale(S.Units.DtSeconds,1/TimeScale);
+    NumberScale(S.Reference.TimeSteps,TimeScale);NumberScale(S.Geometry.SinkCells,Scale);NumberScale(S.Geometry.BandCells,Scale);
+    NumberScale(S.Geometry.HeaveAmplitudeCells,Scale);NumberScale(S.Geometry.MotionFrequencyCyclesPerStep,1/TimeScale);NumberScale(S.Geometry.SpinRadiansPerStep,1/TimeScale);
+    NumberScale(S.Geometry.BodyMass,Scale*Scale*Scale);
+    for(auto* V:{&S.Geometry.CenterOfGravity,&S.Geometry.InitialPositionCells,&S.Authoring.PrimitiveSizeCells})if(*V)**V=**V*Scale;
+    if(S.Geometry.InitialVelocityCellsPerStep)S.Geometry.InitialVelocityCellsPerStep=*S.Geometry.InitialVelocityCellsPerStep*VelocityScale;
+    if(S.Geometry.InitialAngularVelocityRadiansPerStep)S.Geometry.InitialAngularVelocityRadiansPerStep=*S.Geometry.InitialAngularVelocityRadiansPerStep/TimeScale;
+    for(auto* V:{&S.Geometry.InertiaDiagonal,&S.Geometry.InertiaProducts})if(*V)**V=**V*FMath::Pow(Scale,5.);
+    for(int32 I=0;I<S.Geometry.Stiffness.Num();++I)
+    {
+        const int32 R=I/6,C=I%6;const int32 Power=3+(R>=3?1:0)+(C>=3?1:0);
+        S.Geometry.Stiffness[I]*=FMath::Pow(Scale,Power)/(TimeScale*TimeScale);
+    }
+    for(auto* V:{&S.Multidomain.Z1,&S.Multidomain.Z2,&S.Multidomain.Margin,&S.Multidomain.BandDepth,&S.Multidomain.Overlap,&S.Multidomain.RestrictionMargin,&S.Authoring.WaterlineCells,&S.Authoring.WaveLengthCells,&S.Authoring.WaveDepthCells})NumberScale(*V,Scale);
+    NumberScale(S.Authoring.WavePeriodSteps,TimeScale);
+    if(S.Authoring.ZoneUnits==TEXT("root-cells"))
+    {
+        for(auto* V:{&S.Zones.Sponge,&S.Zones.XBeach,&S.Zones.BeachY,&S.Zones.BeachGap})NumberScale(*V,Scale);
+        for(auto& Z:S.Authoring.Zones){Z.Minimum*=Scale;Z.Maximum*=Scale;}
+    }
+    for(auto& P:S.Authoring.Patches){P.Origin*=Scale;if(!GridScale(P.Extents))return false;}
+    for(auto& N:S.Multidomain.LevelCells)
+    {
+        const double Cells=FMath::CeilToDouble(double(N)*Scale*Scale*Scale);
+        if(Cells>1.e12){Error=TEXT("Sizing exceeds the MD cell budget.");return false;}N=int64(Cells);
+    }
+    if(S.Lattice.Extents&&!S.Multidomain.LevelCells.IsEmpty())S.Multidomain.LevelCells[0]=int64(S.Lattice.Extents->X)*S.Lattice.Extents->Y*S.Lattice.Extents->Z;
+    for(auto& A:S.Performance.Allocations)
+    {
+        if(A.NodeScope==TEXT("root")&&S.Lattice.Extents)A.Nodes=int64(S.Lattice.Extents->X)*S.Lattice.Extents->Y*S.Lattice.Extents->Z;
+        else if(A.NodeScope.StartsWith(TEXT("level:")))
+        {
+            const int32 I=FCString::Atoi(*A.NodeScope.Mid(6));
+            if(!S.Multidomain.LevelCells.IsValidIndex(I)){Error=TEXT("Allocation node scope references an absent MD level.");return false;}
+            A.Nodes=S.Multidomain.LevelCells[I];
+        }
+    }
+    if(!Validate(S,Error))return false;
+    Out=MoveTemp(S);Error.Empty();return true;
 }

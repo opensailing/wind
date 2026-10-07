@@ -364,7 +364,7 @@ FStudioRunRecord FStudioRunRecord::WithProvenance(const FStudioRecordedRunProven
 }
 FStudioRunRecord FStudioRunRecord::Capture(const FString& InName, const FStudioCaseDraft& Draft, EStudioRunOrigin InOrigin)
 {
-    FStudioRunRecord R; R.Name = InName; R.Origin = InOrigin; R.BackendId = Draft.Setup.BackendId;
+    FStudioRunRecord R; R.Name = InName; R.Origin = InOrigin; R.BackendId = Draft.Home4.IsSet()?StudioHome4Config::ToJSON(*Draft.Home4)->GetObjectField(TEXT("run"))->GetStringField(TEXT("backend")):Draft.Setup.BackendId;
     R.Configuration = MakeShared<const FStudioCaseDraft>(Draft); return R;
 }
 TSharedRef<FJsonObject> FStudioRunRecord::ToJSON() const
