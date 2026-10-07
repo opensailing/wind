@@ -526,7 +526,7 @@ bool FStudioModel::ApplyAssetLocation(const FStudioAssetReference& Source,const 
 
 bool FStudioModel::IsWorkspaceAvailable(EStudioWorkspace Destination)
 {
-    return Destination==EStudioWorkspace::Dashboard || Destination==EStudioWorkspace::Projects || Destination==EStudioWorkspace::Solve || Destination==EStudioWorkspace::Geometry || Destination==EStudioWorkspace::Materials || Destination==EStudioWorkspace::Domain || Destination==EStudioWorkspace::BoundaryConditions || Destination==EStudioWorkspace::Meshing || Destination==EStudioWorkspace::Monitors || Destination==EStudioWorkspace::Results || Destination==EStudioWorkspace::PostProcessing;
+    return Destination==EStudioWorkspace::Dashboard || Destination==EStudioWorkspace::Projects || Destination==EStudioWorkspace::Solve || Destination==EStudioWorkspace::Geometry || Destination==EStudioWorkspace::Materials || Destination==EStudioWorkspace::Domain || Destination==EStudioWorkspace::BoundaryConditions || Destination==EStudioWorkspace::Meshing || Destination==EStudioWorkspace::Monitors || Destination==EStudioWorkspace::Results || Destination==EStudioWorkspace::PostProcessing || Destination==EStudioWorkspace::Bodies || Destination==EStudioWorkspace::Run || Destination==EStudioWorkspace::Validation || Destination==EStudioWorkspace::Reports || Destination==EStudioWorkspace::Settings;
 }
 bool FStudioModel::Navigate(EStudioWorkspace Destination)
 {
@@ -545,10 +545,11 @@ bool FStudioModel::RenameProject(const FString& Name)
     Project.Name=Clean; bDirty=true; ++CatalogRevision;
     Notice=TEXT("Project renamed. Save to keep the new name."); return true;
 }
-bool FStudioModel::CreateProject(const FString& Path,const FString& Name)
+bool FStudioModel::CreateProject(const FString& Path,const FString& Name,const FStudioHome4Spec* Home4Spec)
 {
     if(!CanReplaceProject())return false;
     FStudioProject Candidate; Candidate.Name=Name.TrimStartAndEnd(); FString Error;
+    if(Home4Spec){Candidate.Draft.Home4=*Home4Spec;Candidate.Draft.Name=Candidate.Name;}
     const auto Source=PrepareRecording(Candidate,0); if(!Source) return false;
     // Commit the file before replacing any live state, including unsaved work.
     if(!StudioProjectIO::Save(Path,Candidate,Error)) { Notice=Error; return false; }

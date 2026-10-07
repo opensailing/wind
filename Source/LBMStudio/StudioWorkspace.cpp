@@ -8,6 +8,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 */
 #include "StudioWorkspace.h"
 #include "StudioTheme.h"
+#include "SStudioHome4Panel.h"
+#include "StudioHome4Recipes.h"
 #include "SStudioFlowConditions.h"
 #include "SStudioHelpPanel.h"
 #include "SStudioNotifications.h"
@@ -1099,6 +1101,7 @@ struct FStudioLogWorkspaceState
 void SStudioWorkspace::Construct(const FArguments& A)
 {
     M=A._Model;Scene=A._Scene; SetCanTick(true);
+    Home4=MakeShared<FStudioHome4Session>(M);
     PerformanceHistory=MakeShared<FStudioPerformanceHistory>();PerformanceProject=M->Project.Id;
     InspectionMarkers=MakeShared<FStudioProbeMarkerScheduler>();
     InspectionExport=MakeShared<FStudioProbeExportTask>();
@@ -1160,22 +1163,27 @@ void SStudioWorkspace::Construct(const FArguments& A)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Navigation()]
             +SHorizontalBox::Slot().FillWidth(1).Padding(7,0,7,0)[SNew(SWidgetSwitcher)
-                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:M->Workspace==EStudioWorkspace::Monitors?8:M->Workspace==EStudioWorkspace::Results?9:M->Workspace==EStudioWorkspace::PostProcessing?10:0;})
+                .WidgetIndex_Lambda([this]{return M->Workspace==EStudioWorkspace::Projects?1:M->Workspace==EStudioWorkspace::Dashboard?2:M->Workspace==EStudioWorkspace::Geometry?3:M->Workspace==EStudioWorkspace::Materials?4:M->Workspace==EStudioWorkspace::Domain?5:M->Workspace==EStudioWorkspace::BoundaryConditions?6:M->Workspace==EStudioWorkspace::Meshing?7:M->Workspace==EStudioWorkspace::Monitors?8:M->Workspace==EStudioWorkspace::Results?9:M->Workspace==EStudioWorkspace::PostProcessing?10:M->Workspace==EStudioWorkspace::Bodies?11:M->Workspace==EStudioWorkspace::Run?12:M->Workspace==EStudioWorkspace::Validation?13:M->Workspace==EStudioWorkspace::Reports?14:M->Workspace==EStudioWorkspace::Settings?15:0;})
                 +SWidgetSwitcher::Slot()[SolveSurface]
                 +SWidgetSwitcher::Slot()[ProjectsSurface]
                 +SWidgetSwitcher::Slot()[DashboardSurface]
                 +SWidgetSwitcher::Slot()[GeometryWorkspace()]
-                +SWidgetSwitcher::Slot()[MaterialsWorkspace()]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Fluids & Interface"))]
                 +SWidgetSwitcher::Slot()[DomainWorkspace()]
-                +SWidgetSwitcher::Slot()[BoundaryWorkspace()]
-                +SWidgetSwitcher::Slot()[LatticeWorkspace()]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Boundaries & Zones"))]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Lattice"))]
                 +SWidgetSwitcher::Slot()[MonitorWorkspace()]
                 +SWidgetSwitcher::Slot()[SAssignNew(Results,SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
                     .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]
                 +SWidgetSwitcher::Slot()[SAssignNew(Pipelines,SStudioPipelineWorkspace).Tag(TEXT("PipelineWorkspace")).Model(M).World(Scene->GetWorld())
-                    .OnResults_Lambda([this]{Navigate(EStudioWorkspace::Results);})]]]
+                    .OnResults_Lambda([this]{Navigate(EStudioWorkspace::Results);})]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Bodies"))]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Run"))]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Validation"))]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Reports"))]
+                +SWidgetSwitcher::Slot()[Home4Page(TEXT("Settings"))]]]
         +SVerticalBox::Slot().AutoHeight().Padding(12,6)
         [SNew(SHorizontalBox)
             +SHorizontalBox::Slot().AutoWidth()[Live([this]{return M->Workspace==EStudioWorkspace::Geometry?TEXT("CASE GEOMETRY"):M->Workspace==EStudioWorkspace::Materials?TEXT("CASE MATERIALS"):M->Workspace==EStudioWorkspace::Domain?TEXT("CASE DOMAIN"):M->Workspace==EStudioWorkspace::BoundaryConditions?TEXT("CASE BOUNDARIES"):M->Workspace==EStudioWorkspace::Meshing?TEXT("CASE LATTICE"):TEXT("RECORDED CFD");},8,Amber)]
@@ -1194,6 +1202,32 @@ void SStudioWorkspace::Construct(const FArguments& A)
                         [Label(TEXT("Cancel recording"),9)]]]
             +SHorizontalBox::Slot().AutoWidth()[Label(TEXT("LBM Solver Studio  0.1"),9,Muted)]]]];
     RefreshProjectLists();
+}
+TSharedRef<SWidget> SStudioWorkspace::Home4Page(const FString& Page)
+{
+    return SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page)
+        .OnRecipe_Lambda([this](const FString& Id){ChooseHome4Recipe(Id);});
+}
+bool SStudioWorkspace::EnsureHome4Resolved()
+{
+    if(!Home4)return true;Home4->Refresh();if(!Home4->IsDirty())return true;
+    Home4->Status=TEXT("Apply or revert HOME4 configuration edits before saving, replacing the project or submitting a run.");
+    Navigate(EStudioWorkspace::Run);M->Notice=Home4->Status;return false;
+}
+void SStudioWorkspace::ChooseHome4Recipe(const FString& Id)
+{
+    const auto* Recipe=StudioHome4Recipes::Find(Id);if(!Recipe||!EnsureHome4Resolved())return;
+    if(bNewHome4Project)
+    {
+        if(!ConfirmReplace())return;
+        FString Path;if(!StudioFileDialog::Project(true,M->ProjectPath,Recipe->Name,Path))return;
+        auto Spec=Recipe->Template;Spec.LineageId=FGuid::NewGuid().ToString();
+        if(!M->CreateProject(Path,FPaths::GetBaseFilename(Path),&Spec))return;
+        bNewHome4Project=false;Home4->Revert();Scene->ApplyCamera(M->Project.Camera);M->AcceptLoadedView();
+        M->Notice=TEXT("HOME4 recipe project created. Fields retains a separately identified published recording until HOME4 output is imported.");
+    }
+    else if(!Home4->ApplyRecipe(Id))return;
+    Navigate(EStudioWorkspace::Materials);
 }
 TSharedRef<SWidget> SStudioWorkspace::Header()
 {
@@ -1283,25 +1317,41 @@ bool SStudioWorkspace::RevealNotification(uint64 Id)
 TSharedRef<SWidget> SStudioWorkspace::Navigation()
 {
     auto List=SNew(SVerticalBox);
-    const TCHAR* Names[]={TEXT("Dashboard"),TEXT("Projects"),TEXT("Geometry"),TEXT("Domain"),TEXT("Materials"),TEXT("Boundary Conditions"),TEXT("Meshing"),TEXT("Solver"),TEXT("Monitors"),TEXT("Results"),TEXT("Post-Processing"),TEXT("Settings")};
-    const TCHAR* Icons[]={TEXT("box"),TEXT("folder"),TEXT("box"),TEXT("box"),TEXT("box"),TEXT("settings"),TEXT("box"),TEXT("run"),TEXT("chart"),TEXT("chart"),TEXT("chart"),TEXT("settings")};
-    for(int I=0;I<12;++I)
+    struct FDestination { const TCHAR* Name; const TCHAR* Icon; EStudioWorkspace Page; };
+    const FDestination Items[]={
+        {TEXT("Dashboard"),TEXT("box"),EStudioWorkspace::Dashboard},
+        {TEXT("Projects"),TEXT("folder"),EStudioWorkspace::Projects},
+        {TEXT("Geometry"),TEXT("box"),EStudioWorkspace::Geometry},
+        {TEXT("Lattice"),TEXT("box"),EStudioWorkspace::Meshing},
+        {TEXT("Fluids & Interface"),TEXT("box"),EStudioWorkspace::Materials},
+        {TEXT("Boundaries & Zones"),TEXT("settings"),EStudioWorkspace::BoundaryConditions},
+        {TEXT("Bodies"),TEXT("box"),EStudioWorkspace::Bodies},
+        {TEXT("Run"),TEXT("run"),EStudioWorkspace::Run},
+        {TEXT("Monitors"),TEXT("chart"),EStudioWorkspace::Monitors},
+        {TEXT("Fields"),TEXT("chart"),EStudioWorkspace::Solve},
+        {TEXT("Validation"),TEXT("chart"),EStudioWorkspace::Validation},
+        {TEXT("Reports"),TEXT("chart"),EStudioWorkspace::Reports},
+        {TEXT("Settings"),TEXT("settings"),EStudioWorkspace::Settings}};
+    auto Selected=[this](EStudioWorkspace Destination)
+    {return M->Workspace==Destination||(Destination==EStudioWorkspace::Solve&&(M->Workspace==EStudioWorkspace::Results||M->Workspace==EStudioWorkspace::PostProcessing))||
+        (Destination==EStudioWorkspace::Meshing&&M->Workspace==EStudioWorkspace::Domain);};
+    for(const auto& Item:Items)
     {
-        const auto Destination=EStudioWorkspace(I); const FString Name=Names[I];
+        const auto Destination=Item.Page; const FString Name=Item.Name;const int32 I=int32(Destination);
         const bool bAvailable=FStudioModel::IsWorkspaceAvailable(Destination);
         List->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(45)
-            [SNew(SBorder).BorderImage_Lambda([this,Destination]{return M->Workspace==Destination?&RaisedBrush:&Background;}).Padding(0)
+            [SNew(SBorder).BorderImage_Lambda([this,Destination,Selected]{return Selected(Destination)?&RaisedBrush:&Background;}).Padding(0)
             [SAssignNew(NavigationButtons.FindOrAdd(Destination),SButton).Tag(FName(*FString::Printf(TEXT("Workspace%d"),I))).ButtonStyle(&NavigationStyle()).ContentPadding(FMargin(14,0)).IsEnabled(bAvailable)
                 .ToolTipText(FText::FromString(bAvailable?Name:Name+TEXT(" — being implemented")))
                 .OnClicked_Lambda([this,Destination]{Navigate(Destination);return FReply::Handled();})
                 [SNew(SHorizontalBox)
-                    +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Icon(Icons[I],Muted,15)]
+                    +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Icon(Item.Icon,Muted,15)]
                     +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(8,0,0,0)
                     [SNew(STextBlock).Text(FText::FromString(Name)).Font(Font(9))
                         .Visibility_Lambda([this]{return M->bSidebarCollapsed?EVisibility::Collapsed:EVisibility::Visible;})
-                        .ColorAndOpacity_Lambda([this,Destination]{return M->Workspace==Destination?Cyan:Muted;})]]]]];
+                        .ColorAndOpacity_Lambda([this,Destination,Selected]{return Selected(Destination)?Cyan:Muted;})]]]]];
     }
-    return SNew(SBox).WidthOverride_Lambda([this]{return M->bSidebarCollapsed?52.f:172.f;})
+    return SNew(SBox).WidthOverride_Lambda([this]{return M->bSidebarCollapsed?52.f:196.f;})
     [SNew(SBorder).BorderImage(&Background).Padding(0,8)
     [SNew(SVerticalBox)
         +SVerticalBox::Slot().FillHeight(1)[SNew(SScrollBox).ScrollWhenFocusChanges(EScrollWhenFocusChanges::InstantScroll).NavigationScrollPadding(12.f)+SScrollBox::Slot()[List]]
@@ -1341,7 +1391,7 @@ TSharedRef<SWidget> SStudioWorkspace::Projects()
     Details->AddSlot().AutoHeight().Padding(0,0,0,6)[Button(TEXT("Save project"),TEXT("save"),[this]{Execute(ECommand::Save);})];
     Details->AddSlot().AutoHeight().Padding(0,0,0,6)[Button(TEXT("Save As…"),TEXT("save"),[this]{Execute(ECommand::SaveAs);})];
     Details->AddSlot().AutoHeight().Padding(0,0,0,6)[Button(TEXT("Duplicate project…"),TEXT("folder"),[this]{Execute(ECommand::DuplicateProject);})];
-    Details->AddSlot().AutoHeight().Padding(0,0,0,6)[Button(TEXT("Open Solve"),TEXT("run"),[this]{Navigate(EStudioWorkspace::Solve);},Cyan)];
+    Details->AddSlot().AutoHeight().Padding(0,0,0,6)[Button(TEXT("Open Fields"),TEXT("run"),[this]{Navigate(EStudioWorkspace::Solve);},Cyan)];
     Details->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SStudioMenuButton).ButtonStyle(&ButtonStyle())
         .OnGetMenuContent(this,&SStudioWorkspace::AssetMenu)
         .ToolTipText(FText::FromString(TEXT("Check geometry source files and locate missing originals, including older runs")))
@@ -1380,7 +1430,7 @@ TSharedRef<SWidget> SStudioWorkspace::Dashboard()
     +SScrollBox::Slot()[SNew(SVerticalBox)
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,18)[SNew(SHorizontalBox)
             +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(TEXT("Dashboard"),18,Text,true)]
-            +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Open Solve"),TEXT("run"),[this]{Navigate(EStudioWorkspace::Solve);},Cyan)]]
+            +SHorizontalBox::Slot().AutoWidth()[Button(TEXT("Open Fields"),TEXT("run"),[this]{Navigate(EStudioWorkspace::Solve);},Cyan)]]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,8)[Live([this]{return M->Project.Name+(M->bDirty?TEXT(" · Unsaved changes"):TEXT(""));},14,Text)]
         +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,18)[Live([this]{return M->ProjectPath.IsEmpty()?TEXT("This project has not been saved to a file."):M->ProjectPath;},9,Muted,true)]
         +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
@@ -1415,7 +1465,7 @@ TSharedRef<SWidget> SStudioWorkspace::RecentProjectRow(const FStudioProjectSumma
         ProjectActionTargets.Add(FocusPrefix+TEXT("/favorite"),Favorite);
         Actions->AddSlot().AutoWidth().Padding(0,0,6,0)[Favorite];
     }
-    auto Open=Button(bActive?TEXT("Open Solve"):Item.Error.IsEmpty()?TEXT("Open"):TEXT("Locate…"),TEXT("folder"),[this,Path,bActive,Missing=!Item.Error.IsEmpty()]{
+    auto Open=Button(bActive?TEXT("Open Fields"):Item.Error.IsEmpty()?TEXT("Open"):TEXT("Locate…"),TEXT("folder"),[this,Path,bActive,Missing=!Item.Error.IsEmpty()]{
         if(bActive) Navigate(EStudioWorkspace::Solve); else if(Missing) LocateProject(Path); else OpenProject(Path);});
     ProjectActionTargets.Add(FocusPrefix+TEXT("/open"),Open);
     Actions->AddSlot().AutoWidth().Padding(0,0,6,0)[Open];
@@ -3357,7 +3407,7 @@ TSharedRef<SWidget> SStudioWorkspace::ViewHistoryControls()
 bool SStudioWorkspace::Save(bool bSaveAs)
 {
     if(Pipelines){Pipelines->SaveCamera();if(!Pipelines->EnsureResolved())return false;}
-    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved()||!EnsureHome4Resolved())return false;
     FString Path=M->ProjectPath;
     if((bSaveAs||Path.IsEmpty()) && !StudioFileDialog::Project(true,Path,M->Project.Name,Path)) return false;
     M->Project.Camera=Scene->SavedCameraState(); return M->SaveProject(Path);
@@ -3365,7 +3415,7 @@ bool SStudioWorkspace::Save(bool bSaveAs)
 bool SStudioWorkspace::DispatchControl(EStudioJobCommand Command)
 {
     if(Command==EStudioJobCommand::Submit&&M->Project.bControlHarness&&
-        !M->Job().Can(EStudioJobCommand::Resume)&&(!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved()))return false;
+        !M->Job().Can(EStudioJobCommand::Resume)&&(!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved()||!EnsureHome4Resolved()))return false;
     return M->Control(Command);
 }
 bool SStudioWorkspace::ExecuteApplicationCommand(EStudioCommand Command,FString& Response)
@@ -3394,7 +3444,7 @@ bool SStudioWorkspace::ExecuteApplicationCommand(EStudioCommand Command,FString&
 bool SStudioWorkspace::ConfirmReplace(bool bAllowRecovery)
 {
     if(Pipelines){Pipelines->SaveCamera();if(!Pipelines->EnsureResolved())return false;}
-    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved())return false;
+    if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved()||!EnsureHome4Resolved())return false;
     if(!M->CanReplaceProject())return false;
     if(!bAllowRecovery&&!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before switching projects.");return false;}
     M->Project.Camera=Scene->SavedCameraState();
@@ -3445,7 +3495,7 @@ void SStudioWorkspace::Execute(ECommand Command)
     case ECommand::DuplicateProject:
     {
         if(Pipelines&&!Pipelines->EnsureResolved())break;
-        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved())break;
+        if(!EnsurePlacementResolved()||!EnsureGeometryResolved()||!EnsureMaterialsResolved()||!EnsureDomainResolved()||!EnsureBoundariesResolved()||!EnsureLatticeResolved()||!EnsureRunSettingsResolved()||!EnsureFlowConditionsResolved()||!EnsureHome4Resolved())break;
         if(!M->PendingRecovery.IsEmpty()) {M->Notice=TEXT("Restore or discard the pending recovery before duplicating a project.");break;}
         FString Path;
         if(!StudioFileDialog::Project(true,M->ProjectPath,M->Project.Name+TEXT(" copy"),Path)) break;
@@ -3460,10 +3510,8 @@ void SStudioWorkspace::Execute(ECommand Command)
     case ECommand::NewProject:
     {
         if(!ConfirmReplace()) break;
-        FString Path;
-        if(!StudioFileDialog::Project(true,M->ProjectPath,TEXT("Untitled airfoil"),Path)) break;
-        if(M->CreateProject(Path,FPaths::GetBaseFilename(Path)))
-        { Scene->ApplyCamera(M->Project.Camera);M->AcceptLoadedView();Navigate(EStudioWorkspace::Solve); }
+        bNewHome4Project=true;Navigate(EStudioWorkspace::Validation);
+        M->Notice=TEXT("Choose a documented recipe to create a HOME4 project.");
         break;
     }
     case ECommand::FitCamera: Scene->FitCamera(); break;

@@ -17,7 +17,8 @@
 #include "Async/Future.h"
 
 enum class EStudioWorkspace : uint8
-{ Dashboard, Projects, Geometry, Domain, Materials, BoundaryConditions, Meshing, Solve, Monitors, Results, PostProcessing, Settings, Setup };
+{ Dashboard, Projects, Geometry, Domain, Materials, BoundaryConditions, Meshing, Solve, Monitors, Results, PostProcessing, Settings, Setup,
+  Bodies, Run, Validation, Reports };
 
 struct FStudioProjectSummary
 {
@@ -454,7 +455,7 @@ public:
     void DismissRecordingRepair() { RecordingRepair.Reset(); }
     static bool IsWorkspaceAvailable(EStudioWorkspace Destination);
     bool Navigate(EStudioWorkspace Destination);
-    bool CreateProject(const FString& Path, const FString& Name);
+    bool CreateProject(const FString& Path, const FString& Name, const FStudioHome4Spec* Home4Spec=nullptr);
     bool DuplicateProject(const FString& Path, const FString& Name);
     void RefreshProjectCatalog();
     void ForgetRecentProject(const FString& Path);

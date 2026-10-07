@@ -10,8 +10,9 @@
 
 FString StudioHelp::WorkspaceName(EStudioWorkspace Workspace)
 {
-    const TCHAR* Names[]={TEXT("Dashboard"),TEXT("Projects"),TEXT("Geometry"),TEXT("Domain"),TEXT("Materials"),
-        TEXT("Boundary Conditions"),TEXT("Meshing"),TEXT("Solve"),TEXT("Monitors"),TEXT("Results"),TEXT("Post-Processing"),TEXT("Settings"),TEXT("Setup")};
+    const TCHAR* Names[]={TEXT("Dashboard"),TEXT("Projects"),TEXT("Geometry"),TEXT("Lattice domain"),TEXT("Fluids & Interface"),
+        TEXT("Boundaries & Zones"),TEXT("Lattice"),TEXT("Fields"),TEXT("Monitors"),TEXT("Field recordings"),TEXT("Field analysis"),TEXT("Settings"),TEXT("Setup"),
+        TEXT("Bodies"),TEXT("Run"),TEXT("Validation"),TEXT("Reports")};
     const int32 Index=int32(Workspace);return Index>=0&&Index<UE_ARRAY_COUNT(Names)?Names[Index]:TEXT("Workspace");
 }
 FString StudioHelp::Guidance(EStudioWorkspace Workspace,bool Harness)
@@ -31,7 +32,11 @@ FString StudioHelp::Guidance(EStudioWorkspace Workspace,bool Harness)
     case EStudioWorkspace::Monitors:return TEXT("Choose a published force history, an original OpenFOAM residual log, or generate a history from a saved probe. Their physical times and source identities remain separate from field playback. Select a sample to inspect its original frame when that link is available. Export CSV preserves original rows.");
     case EStudioWorkspace::Results:return TEXT("Browse recordings and saved runs here. Recording details own original source provenance, units, topology, hashes and exact-frame inspection. Comparisons retain independent sources, time alignment and cameras. Toolbar playback continues to control the Solve recording.");
     case EStudioWorkspace::PostProcessing:return TEXT("Choose an original source and frame, then edit an ordered recipe. Apply commits recipe edits; Evaluate builds its output. Cancel or a failed evaluation retains the previous result. The header Export saves the current completed evaluation, with its original and derived identities.");
-    case EStudioWorkspace::Settings:return TEXT("Application preferences are being implemented. Camera and display controls currently belong to Solve; material units belong to Materials. Help does not change those settings.");
+    case EStudioWorkspace::Settings:return TEXT("Choose the HOME4 unit display convention. Unit conversion requires the case unit map; replay fields always retain their own source units. Apply commits the settings, and project Save persists them.");
+    case EStudioWorkspace::Bodies:return TEXT("Describe fixed, forced or free motion, mass, centre of gravity, stiffness and retabulation policy. These are retained requests; the development adapter does not integrate body motion or fabricate loads.");
+    case EStudioWorkspace::Run:return TEXT("Set backend, device, local/rack target, output cadences, warm start and naming. Review feasibility and the equivalent command line. The development adapter exercises control acknowledgements without computing CFD; unconnected numerical capabilities remain unavailable.");
+    case EStudioWorkspace::Validation:return TEXT("Choose one of the ten documented HOME4 recipes, inspect its source and gate, then build a fixed-Cn refinement ladder. A recipe is a template; gates need actual measured and reference data before a pass can be reported.");
+    case EStudioWorkspace::Reports:return TEXT("Export the applied HOME4 run specification and its provenance. Field and image exports retain their exact source identity. Missing solver measurements cannot become reported results.");
     case EStudioWorkspace::Setup:return TEXT("Use Solve's Setup inspector for next-run flow and run requests. Apply retained edits before saving or submitting a new control run. These requests do not recalculate the published recording.");
     }
     return TEXT("Choose a workspace from the sidebar. Help describes the current workspace without changing the case or view.");
