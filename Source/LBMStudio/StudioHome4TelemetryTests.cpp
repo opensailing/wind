@@ -1,4 +1,5 @@
 #include "StudioHome4Telemetry.h"
+#include "StudioHome4SciencePresentation.h"
 #include "Misc/AutomationTest.h"
 #include <limits>
 
@@ -290,5 +291,85 @@ bool FStudioHome4PerformanceTest::RunTest(const FString&)
     TestFalse(TEXT("No known restart means no invented restart path"), Action.RestartPath.IsSet());
     TestEqual(TEXT("Hotspot recovery uses prior measured good state"), Action.LastGoodStep.Get(-1), int64(1));
     return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4SourceConventionTest,"Studio.Home4.Telemetry.ImmutableOriginalUnitsAndNormalization",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4SourceConventionTest::RunTest(const FString&)
+{
+    using namespace StudioHome4TelemetryTestFixtures;using namespace StudioHome4SciencePresentation;
+    FStudioHome4TelemetryStream Stream;const auto Owner=UnitTestSource();Stream.BeginRun(Owner);
+    const FString Metadata=TEXT("{\"kind\":\"source_metadata\",\"source_metadata\":{\"force_units\":\"lattice\",\"energy_units\":\"lattice\",\"velocity_units\":\"lattice\",\"length_units\":\"lattice\",")
+        TEXT("\"unit_map\":{\"dx_m\":0.01,\"dt_s\":0.001,\"rho_kg_m3\":1000,\"rho_lattice\":3,\"length_cells\":100,\"time_steps\":5000},\"normalization\":{\"force_divisor\":2,\"force_label\":\"F/mg\",\"moment_divisor\":4,\"moment_label\":\"My/mgL\"}}}\n");
+    TestEqual(TEXT("Standalone source metadata accepted"),Feed(Stream,Metadata).Accepted,1);
+    TestTrue(TEXT("Metadata never invents numerical sample"),Stream.History().IsEmpty());
+    Feed(Stream,TEXT("{\"step\":1,\"forces\":{\"Fx\":2,\"mea_Fx\":1,\"Fx_p\":1.5,\"Fx_nu\":0.5,\"My\":4}}\n"));
+    const auto Frozen=Stream.Latest()->Metadata;
+    TestTrue(TEXT("Source map attached immutably"),Frozen.IsValid());
+    TestEqual(TEXT("SI uses original source map"),Quantity(2.,*Stream.Latest(),EStudioHome4Quantity::Force,EStudioHome4UnitDisplay::Physical).Number.Get(-1),20.);
+    const auto Nondimensional=Quantity(2.,*Stream.Latest(),EStudioHome4Quantity::Force,EStudioHome4UnitDisplay::Nondimensional);
+    TestTrue(TEXT("Complete immutable reference map supplies nondimensional force"),Nondimensional.Number&&FMath::IsNearlyEqual(*Nondimensional.Number,1./6.,1e-12));
+    TestEqual(TEXT("Explicit force benchmark divisor"),Quantity(2.,*Stream.Latest(),EStudioHome4Quantity::Force,EStudioHome4UnitDisplay::Physical,true).Number.Get(-1),1.);
+    TestEqual(TEXT("Explicit moment benchmark divisor"),Quantity(4.,*Stream.Latest(),EStudioHome4Quantity::Moment,EStudioHome4UnitDisplay::Lattice,true).Number.Get(-1),1.);
+    TestEqual(TEXT("Repeated equivalent metadata accepted"),Feed(Stream,Metadata).Accepted,1);
+    FString Changed=Metadata;Changed.ReplaceInline(TEXT("force_divisor\":2"),TEXT("force_divisor\":3"));
+    TestEqual(TEXT("Changing source normalization rejected"),Feed(Stream,Changed).Malformed,1);
+    TestTrue(TEXT("Rejected metadata preserves immutable original map"),Stream.Latest()->Metadata==Frozen);
+    TestTrue(TEXT("Owner run identity cannot change through metadata"),Stream.Latest()->Source.RunId==Owner.RunId);
+    FStudioHome4Sample Raw;const auto V=Quantity(2.,Raw,EStudioHome4Quantity::Force,EStudioHome4UnitDisplay::Physical);
+    TestEqual(TEXT("Absent source map keeps usable raw force"),V.Number.Get(-1),2.);TestTrue(TEXT("Unknown source units labeled"),V.Unit.Contains(TEXT("raw source")));
+    TestFalse(TEXT("Missing body divisor cannot borrow global benchmark"),CanNormalize(&*Stream.Latest(),0,TEXT("unidentified-body")));
+    Stream.BeginRun(UnitTestSource());Feed(Stream,TEXT("{\"step\":1}\n"));TestFalse(TEXT("New owner run clears source map"),Stream.Latest()->Metadata.IsValid());
+    const TCHAR* Bad[]={TEXT("{\"source_metadata\":{\"force_units\":\"unknown\"}}"),TEXT("{\"source_metadata\":{\"unit_map\":{\"dt_s\":0}}}"),
+        TEXT("{\"source_metadata\":{\"normalization\":{\"force_divisor\":0,\"force_label\":\"C\"}}}"),TEXT("{\"source_metadata\":{\"normalization\":{\"force_divisor\":1}}}")};
+    for(const auto* B:Bad)TestEqual(TEXT("Malformed normalization/unit contracts reject transactionally"),Feed(Stream,FString(B)+TEXT("\n")).Malformed,1);
+    return !HasAnyErrors();
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4SecondaryScienceTest,"Studio.Home4.Telemetry.BoundedInterfaceLevelAndBodyMeasurements",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4SecondaryScienceTest::RunTest(const FString&)
+{
+    using namespace StudioHome4TelemetryTestFixtures;FStudioHome4TelemetryStream Stream;Stream.BeginRun(UnitTestSource());
+    const FString Record=TEXT("{\"step\":1,\"interface\":{\"thickness_histogram\":{\"edges\":[3,4,5,7],\"counts\":[0,8,2]},\"spurious_speed\":0.0001,\"spurious_mask\":\"far from forcing\"},")
+        TEXT("\"phase_energies\":{\"heavy\":{\"ke\":2,\"pe\":-1,\"surface\":0.5}},\"levels\":[{\"level\":2,\"mass_drift\":0.000001,\"injected\":0,\"performance\":{\"elapsed_seconds\":2,\"node_updates\":4000000}}],")
+        TEXT("\"bodies\":[{\"id\":\"hull-1\",\"forces\":{\"My\":0.2,\"My_p\":0.15,\"My_nu\":0.05,\"mea_My\":0.21},\"window\":{\"My\":0.2,\"My_prev\":0.19,\"average_length\":5},")
+        TEXT("\"state\":{\"position\":[1,2,3],\"attitude_deg\":[4,5,6],\"velocity\":[0,0.01,0.02],\"angular_velocity\":[0,0.001,0],\"angular_velocity_unit\":\"rad/step\",\"integrator_status\":\"accepted\"},")
+        TEXT("\"attitude\":{\"k33\":1,\"k35\":0,\"k55\":2,\"equilibrium_deg\":[0,1,0]},\"fit\":{\"added_mass\":3,\"damping\":4},\"retabulation\":{\"every\":5,\"performance\":{\"elapsed_seconds\":0.1,\"node_updates\":1000}}}]}\n");
+    TestEqual(TEXT("Optional secondary measurements accepted"),Feed(Stream,Record).Accepted,1);
+    const auto& S=*Stream.Latest();TestEqual(TEXT("Histogram counts retain real zero"),S.InterfaceThickness.Counts[0],int64(0));
+    TestEqual(TEXT("Histogram bin extent retained"),S.InterfaceThickness.BinEdges.Last(),7.);TestEqual(TEXT("Spurious sampling mask attributed"),S.SpuriousMask,FString(TEXT("far from forcing")));
+    TestEqual(TEXT("Phase PE can be signed"),S.PhaseEnergies[TEXT("heavy")].PE.Get(0),-1.);TestEqual(TEXT("Explicit level identity preserved"),S.Levels[0].Level,2);
+    TestEqual(TEXT("Body pressure moment retained"),S.Bodies[0].Forces.PressureMy.Get(0),.15);TestEqual(TEXT("Body attitude uses explicit source degrees"),S.Bodies[0].AttitudeDegrees->Y,5.);
+    TestFalse(TEXT("Missing fitted reference remains unavailable"),S.Bodies[0].ReferenceAddedMass.IsSet());
+    const auto Index=S.RecordIndex;
+    const TCHAR* Bad[]={TEXT("{\"interface\":{\"thickness_histogram\":{\"edges\":[4,3],\"counts\":[1]}}}"),TEXT("{\"interface\":{\"thickness_histogram\":{\"edges\":[3,4],\"counts\":[0.5]}}}"),
+        TEXT("{\"levels\":[{\"level\":1},{\"level\":1}]}"),TEXT("{\"levels\":[{\"level\":64}]}"),TEXT("{\"bodies\":[{\"id\":\"x\",\"state\":{\"position\":[]}}]}"),
+        TEXT("{\"bodies\":[{\"id\":\"x\"},{\"id\":\"x\"}]}"),TEXT("{\"bodies\":[{\"id\":\"x\",\"fit\":{\"reference_added_mass\":1}}]}")};
+    for(const auto* B:Bad)TestEqual(TEXT("Invalid optional contract rejected"),Feed(Stream,FString(B)+TEXT("\n")).Malformed,1);
+    TestEqual(TEXT("Malformed optional measurement cannot replace previous"),Stream.Latest()->RecordIndex,Index);
+    FString Many=TEXT("{\"bodies\":[");for(int32 I=0;I<17;++I)Many+=(I?TEXT(","):TEXT(""))+FString::Printf(TEXT("{\"id\":\"b%d\"}"),I);Many+=TEXT("]}\n");
+    TestEqual(TEXT("Body array bounded"),Feed(Stream,Many).Malformed,1);
+    Feed(Stream,TEXT("{\"step\":2}\n"));TestTrue(TEXT("Missing secondary fields do not inherit"),Stream.Latest()->Bodies.IsEmpty()&&Stream.Latest()->PhaseEnergies.IsEmpty()&&Stream.Latest()->InterfaceThickness.Counts.IsEmpty());
+    Feed(Stream,TEXT("{\"step\":3,\"mass_ledger\":{\"phi\":0},\"levels\":[{\"level\":2,\"mass_drift\":0,\"injected\":0,\"performance\":{\"cumulative_elapsed_seconds\":2,\"cumulative_node_updates\":100}}]}\n"));
+    TestEqual(TEXT("Level cumulative work cannot regress"),Feed(Stream,TEXT("{\"step\":4,\"levels\":[{\"level\":2,\"performance\":{\"cumulative_node_updates\":99}}]}\n")).Regressing,1);
+    Feed(Stream,TEXT("{\"step\":4,\"mass_ledger\":{\"phi\":0},\"levels\":[{\"level\":2,\"mass_drift\":0,\"injected\":0.1}]}\n"));
+    TestTrue(TEXT("Per-level injection growth informs original mass health"),FStudioHome4Diagnostics::Evaluate(*Stream.Latest(),UnitTestPolicy())[0].Status==EStudioHome4Health::Warning);
+    return !HasAnyErrors();
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioHome4ScienceHistoryTest,"Studio.Home4.Telemetry.ScienceHistoryGapsAxesAndBudgetBars",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter)
+bool FStudioHome4ScienceHistoryTest::RunTest(const FString&)
+{
+    using namespace StudioHome4TelemetryTestFixtures;using namespace StudioHome4SciencePresentation;
+    FStudioHome4TelemetryStream Stream;Stream.BeginRun(UnitTestSource());
+    Feed(Stream,TEXT("{\"step\":10,\"t_star\":2,\"forces\":{\"Fx\":2,\"mea_Fx\":1,\"Fx_p\":1.5,\"Fx_nu\":0.5}}\n{\"step\":11,\"t_star\":2.1}\n{\"step\":12,\"t_star\":2.2,\"forces\":{\"Fx\":3,\"mea_Fx\":2}}\n"));
+    auto H=History(&Stream,EMetric::Forces,EStudioHome4UnitDisplay::Physical);
+    TestEqual(TEXT("Complete original dimensionless time takes priority"),H.Axis,FString(TEXT("original t*")));TestEqual(TEXT("Original time not recomputed"),H.X[0],2.);
+    TestEqual(TEXT("Both channels/parts and difference available"),H.Series.Num(),5);TestEqual(TEXT("Signed channel difference computed"),H.Series[4].Values[0].Get(0),1.);
+    TestFalse(TEXT("Missing force leaves an explicit gap"),H.Series[0].Values[1].IsSet());TestFalse(TEXT("Pressure does not inherit across absent sample"),H.Series[2].Values[2].IsSet());
+    Feed(Stream,TEXT("{\"step\":13,\"forces\":{\"Fx\":4}}\n"));TestEqual(TEXT("Incomplete t* uses labeled original steps"),History(&Stream,EMetric::Forces,EStudioHome4UnitDisplay::Lattice).Axis,FString(TEXT("solver step")));
+    Feed(Stream,TEXT("{\"ma_inst\":0.1}\n"));TestEqual(TEXT("Missing step uses explicitly labeled original order"),History(&Stream,EMetric::Mach,EStudioHome4UnitDisplay::Lattice).Axis,FString(TEXT("original record order")));
+    FStudioHome4Sample S;S.Budget.Work=1;S.Budget.DissipationNear=.5;S.Budget.DissipationFar=.1;S.Budget.DissipationAir=.1;S.Budget.BeachLoss=.1;S.Budget.FloorLoss=.1;S.Budget.DeltaKE=.2;S.Budget.DeltaPE=-.1;S.Budget.Residual=0;
+    const auto Bars=Budget(&S,EStudioHome4UnitDisplay::Physical);TestEqual(TEXT("All decomposition bars including residual"),Bars.Num(),9);TestEqual(TEXT("Signed PE bar retained"),Bars[7].Value.Number.Get(0),-.1);
+    TestTrue(TEXT("Complete reported budget gives finite computed closure"),BudgetImbalance(S.Budget).IsSet());S.Budget.FloorLoss.Reset();TestFalse(TEXT("Missing loss cannot imply zero closure"),BudgetImbalance(S.Budget).IsSet());
+    TestFalse(TEXT("Missing bar retained as missing, not zero"),Budget(&S,EStudioHome4UnitDisplay::Physical)[5].Value.Number.IsSet());return !HasAnyErrors();
 }
 #endif

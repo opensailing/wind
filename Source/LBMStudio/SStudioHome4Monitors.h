@@ -1,6 +1,7 @@
 #pragma once
 #include "Widgets/SCompoundWidget.h"
 #include "StudioHome4Telemetry.h"
+#include "StudioHome4SciencePresentation.h"
 #include "Async/Future.h"
 #include <atomic>
 
@@ -14,9 +15,10 @@ DECLARE_DELEGATE_OneParam(FStudioHome4LocateCell, const FStudioHome4CellFacts&);
 class SStudioHome4Monitors final : public SCompoundWidget
 {
 public:
-    SLATE_BEGIN_ARGS(SStudioHome4Monitors) {}
+    SLATE_BEGIN_ARGS(SStudioHome4Monitors) : _UnitDisplay(EStudioHome4UnitDisplay::Lattice) {}
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>, Model)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4TelemetryStream>, Stream)
+        SLATE_ATTRIBUTE(EStudioHome4UnitDisplay, UnitDisplay)
         SLATE_EVENT(FStudioHome4LocateCell, OnLocateCell)
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
@@ -38,6 +40,10 @@ public:
     TOptional<FGuid> OriginalRunIdentity() const;
     FString StatusText() const { return Status; }
     const FStudioHome4DiagnosticPolicy& DiagnosticPolicy() const { return Policy; }
+    StudioHome4SciencePresentation::FHistory PresentedHistory() const;
+    StudioHome4SciencePresentation::FHistory PresentedForces() const;
+    FString SelectedBodyIdentity() const { return SelectedBody; }
+
 private:
     struct FImportResult
     {
@@ -54,6 +60,11 @@ private:
     FString SourceText() const;
     FString DetailText(FName Key) const;
     void ImportDialog();
+    void CycleBody();
+    void CycleLevel();
+    void CyclePhase();
+    FString HistoryCaption(bool Forces) const;
+
     void ApplyPolicy();
     void RefreshOutputs();
     void ScopeProject();
@@ -66,6 +77,13 @@ private:
     FStudioHome4LocateCell OnLocate;
     FStudioHome4DiagnosticPolicy Policy;
     TArray<FString> PolicyDraft;
+    TAttribute<EStudioHome4UnitDisplay> UnitDisplay;
+    StudioHome4SciencePresentation::EMetric SelectedMetric = StudioHome4SciencePresentation::EMetric::Mass;
+    int32 PlotComponent = 0, SelectedLevel = 0;
+    FString SelectedBody, SelectedPhase;
+    bool bNormalizeForces = false;
+    TMap<FName, bool> Sections;
+
     FString Status, ImportPath, OriginalRunIdDraft;
     bool bShowImported = true;
     bool bImportedOriginalRunIdentity = false;

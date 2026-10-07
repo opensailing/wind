@@ -38,13 +38,6 @@ namespace StudioHome4MonitorPrivate
         }
         return TEXT("Unknown");
     }
-    FString BudgetText(const FStudioHome4EnergyBudget& B)
-    {
-        return TEXT("W ") + Number(B.Work) + TEXT(" · D near/far/air ") + Number(B.DissipationNear) + TEXT(" / ") +
-            Number(B.DissipationFar) + TEXT(" / ") + Number(B.DissipationAir) + TEXT("\nBeach/floor ") +
-            Number(B.BeachLoss) + TEXT(" / ") + Number(B.FloorLoss) + TEXT(" · ΔKE/ΔPE ") + Number(B.DeltaKE) +
-            TEXT(" / ") + Number(B.DeltaPE) + TEXT(" · reported residual ") + Number(B.Residual);
-    }
     bool PolicyNumber(const FString& Text, TOptional<double>& Out)
     {
         const FString Trimmed = Text.TrimStartAndEnd();
@@ -75,76 +68,121 @@ namespace StudioHome4MonitorPrivate
     class SHome4HistoryPlot final : public SLeafWidget
     {
     public:
-        SLATE_BEGIN_ARGS(SHome4HistoryPlot) : _Metric(0) {}
-            SLATE_ARGUMENT(TFunction<const FStudioHome4TelemetryStream*()>, Stream)
-            SLATE_ARGUMENT(int32, Metric)
+        SLATE_BEGIN_ARGS(SHome4HistoryPlot) {}
+            SLATE_ARGUMENT(TFunction<StudioHome4SciencePresentation::FHistory()>, Read)
         SLATE_END_ARGS()
-        void Construct(const FArguments& A) { Read = A._Stream; Metric = A._Metric; }
-        FVector2D ComputeDesiredSize(float) const override { return FVector2D(300, 90); }
-        int32 OnPaint(const FPaintArgs&, const FGeometry& G, const FSlateRect&, FSlateWindowElementList& Out,
-            int32 Layer, const FWidgetStyle&, bool) const override
+        void Construct(const FArguments& A) { Read = A._Read; }
+        FVector2D ComputeDesiredSize(float) const override { return FVector2D(300, 125); }
+        int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool) const override
         {
             using namespace StudioUI;
-            auto TextAt = [&](const FString& Value, FVector2D At)
-            { FSlateDrawElement::MakeText(Out, Layer + 1, G.ToPaintGeometry(FVector2D(1, 1), FSlateLayoutTransform(At)), Value, Font(8), ESlateDrawEffect::None, Muted); };
-            const auto* Stream = Read();
-            if (!Stream || Stream->History().Num() < 2)
-            { TextAt(TEXT("History unavailable · at least two original samples required"), FVector2D(0, 20)); return Layer + 2; }
-            const auto& H = Stream->History();
-            auto Value = [&](const FStudioHome4Sample& S) -> TOptional<double>
-            { if (S.bNonfinite) return {}; return Metric == 0 ? S.Mass.PhiDrift : Metric == 1 ? S.Budget.Residual : S.Forces.Fx; };
-            bool bSteps = true;
-            double Low = TNumericLimits<double>::Max(), High = -TNumericLimits<double>::Max();
-            for (const auto& S : H)
+            const auto H=Read();
+            auto TextAt=[&](const FString& Value,FVector2D At){FSlateDrawElement::MakeText(Out,Layer+1,G.ToPaintGeometry(FVector2D(1,1),FSlateLayoutTransform(At)),Value,Font(8),ESlateDrawEffect::None,Muted);};
+            if(H.X.Num()<2){TextAt(TEXT("History unavailable · two original samples required"),FVector2D(0,20));return Layer+2;}
+            double Low=TNumericLimits<double>::Max(),High=-TNumericLimits<double>::Max();
+            for(const auto& Series:H.Series)for(const auto& V:Series.Values)if(V){Low=FMath::Min(Low,*V);High=FMath::Max(High,*V);}
+            if(Low==TNumericLimits<double>::Max()){TextAt(TEXT("Selected measured history unavailable"),FVector2D(0,20));return Layer+2;}
+            const double Range=High-Low,XRange=H.X.Last()-H.X[0];
+            if(!FMath::IsFinite(Range)||!FMath::IsFinite(XRange)){TextAt(TEXT("Source range exceeds finite chart scale"),FVector2D(0,20));return Layer+2;}
+            const double Pad=FMath::Max(FMath::Max(FMath::Abs(Low),FMath::Abs(High))*.05,1e-12);
+            if(!FMath::IsFinite(Low-Pad)||!FMath::IsFinite(High+Pad)){TextAt(TEXT("Source range exceeds finite chart scale"),FVector2D(0,20));return Layer+2;}
+            Low-=Pad;High+=Pad;
+            const auto Size=G.GetLocalSize();const double Left=55,Right=FMath::Max(Left+1,Size.X-3),Top=6,Bottom=FMath::Max(Top+1,Size.Y-22);
+            for(int32 I=0;I<2;++I)
             {
-                bSteps &= S.Step.IsSet();
-                if (const auto V = Value(S)) { Low = FMath::Min(Low, *V); High = FMath::Max(High, *V); }
+                const double Y=I?Bottom:Top;TArray<FVector2D> Points{{Left,Y},{Right,Y}};
+                FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Muted.CopyWithNewOpacity(.25),true,1);
+                TextAt(FString::Printf(TEXT("%.3g"),I?Low:High),FVector2D(0,FMath::Max(0.,Y-5)));
             }
-            if (Low == TNumericLimits<double>::Max())
-            { TextAt(TEXT("Measured history unavailable"), FVector2D(0, 20)); return Layer + 2; }
-            const double Range = High - Low;
-            if (!FMath::IsFinite(Range))
-            { TextAt(TEXT("Source range exceeds finite chart scale"), FVector2D(0, 20)); return Layer + 2; }
-            const double Pad = FMath::Max(FMath::Max(FMath::Abs(Low), FMath::Abs(High)) * .05, 1e-12);
-            Low -= Pad; High += Pad;
-            auto X = [&](const FStudioHome4Sample& S) { return bSteps ? double(*S.Step) : double(S.RecordIndex); };
-            const double Start = X(H[0]), End = X(H.Last());
-            const auto Size = G.GetLocalSize();
-            const double Left = 52, Right = FMath::Max(Left + 1, Size.X - 3), Top = 4, Bottom = Size.Y - 19;
-            for (int32 I = 0; I < 2; ++I)
+            TextAt(FString::Printf(TEXT("%.4g"),H.X[0]),FVector2D(Left,Bottom+4));
+            TextAt(H.Axis,FVector2D(FMath::Max(Left,Right-115),Bottom+4));
+            for(const auto& Series:H.Series)
             {
-                const double Y = I ? Bottom : Top;
-                TArray<FVector2D> Points{{Left, Y}, {Right, Y}};
-                FSlateDrawElement::MakeLines(Out, Layer, G.ToPaintGeometry(), Points, ESlateDrawEffect::None, Muted.CopyWithNewOpacity(.2), true, 1);
-                TextAt(FString::Printf(TEXT("%.3g"), I ? Low : High), FVector2D(0, FMath::Max(0., Y - 5)));
+                TArray<FVector2D> Points;
+                auto Flush=[&]{if(Points.Num()>1)FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Series.Color,true,1.5);
+                    else if(Points.Num()==1)FSlateDrawElement::MakeBox(Out,Layer+1,G.ToPaintGeometry(FVector2D(3,3),FSlateLayoutTransform(Points[0]-FVector2D(1.5,1.5))),&PanelBrush,ESlateDrawEffect::None,Series.Color);Points.Reset();};
+                for(int32 I=0;I<Series.Values.Num();++I)
+                {
+                    if(!Series.Values[I]){Flush();continue;}
+                    Points.Add(FVector2D(Left+(Right-Left)*(H.X[I]-H.X[0])/FMath::Max(1e-12,XRange),Bottom-(Bottom-Top)*(*Series.Values[I]-Low)/(High-Low)));
+                }
+                Flush();
             }
-            TextAt(FString::Printf(TEXT("%.0f"), Start), FVector2D(Left, Bottom + 3));
-            TextAt(bSteps ? TEXT("solver step") : TEXT("original record order"), FVector2D(FMath::Max(Left, Right - 110), Bottom + 3));
-            TArray<FVector2D> Points;
-            auto Flush = [&]
-            { if (Points.Num() > 1) FSlateDrawElement::MakeLines(Out, Layer + 1, G.ToPaintGeometry(), Points, ESlateDrawEffect::None, Cyan, true, 1.5); Points.Reset(); };
-            for (const auto& S : H)
-            {
-                const auto V = Value(S);
-                if (!V) { Flush(); continue; }
-                Points.Add(FVector2D(Left + (Right - Left) * (X(S) - Start) / FMath::Max(1., End - Start),
-                    Bottom - (Bottom - Top) * (*V - Low) / (High - Low)));
-            }
-            Flush(); return Layer + 2;
+            return Layer+2;
         }
     private:
-        TFunction<const FStudioHome4TelemetryStream*()> Read;
-        int32 Metric = 0;
+        TFunction<StudioHome4SciencePresentation::FHistory()> Read;
     };
+    class SHome4BudgetBars final : public SLeafWidget
+    {
+    public:
+        SLATE_BEGIN_ARGS(SHome4BudgetBars) {}
+            SLATE_ARGUMENT(TFunction<TArray<StudioHome4SciencePresentation::FBar>()>, Read)
+        SLATE_END_ARGS()
+        void Construct(const FArguments& A){Read=A._Read;}
+        FVector2D ComputeDesiredSize(float) const override{return FVector2D(300,180);}
+        int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool)const override
+        {
+            using namespace StudioUI;const auto Bars=Read();double Max=0;
+            for(const auto& B:Bars)if(B.Value.Number)Max=FMath::Max(Max,FMath::Abs(*B.Value.Number));
+            auto TextAt=[&](const FString& Value,FVector2D At,FLinearColor Color){FSlateDrawElement::MakeText(Out,Layer+1,G.ToPaintGeometry(FVector2D(1,1),FSlateLayoutTransform(At)),Value,Font(8),ESlateDrawEffect::None,Color);};
+            if(Bars.IsEmpty()){TextAt(TEXT("Budget terms unavailable"),FVector2D(0,15),Muted);return Layer+2;}
+            const double Width=G.GetLocalSize().X,Center=Width*.55,Span=FMath::Max(5.,Width*.20);
+            TArray<FVector2D> Zero{{Center,0},{Center,180}};FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),Zero,ESlateDrawEffect::None,Muted.CopyWithNewOpacity(.3),true,1);
+            for(int32 I=0;I<Bars.Num();++I)
+            {
+                const auto& B=Bars[I];const double Y=I*20.;TextAt(B.Label,FVector2D(0,Y),B.Color);
+                if(B.Value.Number)
+                {
+                    const double Length=Max>0?Span*(*B.Value.Number/Max):0;
+                    FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2D(FMath::Max(1.,FMath::Abs(Length)),9),FSlateLayoutTransform(FVector2D(Center+FMath::Min(0.,Length),Y+3))),&PanelBrush,ESlateDrawEffect::None,B.Color.CopyWithNewOpacity(.65));
+                    TextAt(FString::Printf(TEXT("%.4g"),*B.Value.Number),FVector2D(Width-58,Y),Text);
+                }
+                else TextAt(TEXT("Unavailable"),FVector2D(Width-85,Y),Muted);
+            }
+            return Layer+2;
+        }
+    private:TFunction<TArray<StudioHome4SciencePresentation::FBar>()> Read;
+    };
+    class SHome4ThicknessHistogram final : public SLeafWidget
+    {
+    public:
+        SLATE_BEGIN_ARGS(SHome4ThicknessHistogram) : _UnitDisplay(EStudioHome4UnitDisplay::Lattice) {}
+            SLATE_ARGUMENT(TFunction<const FStudioHome4Sample*()>, Read)
+            SLATE_ATTRIBUTE(EStudioHome4UnitDisplay, UnitDisplay)
+        SLATE_END_ARGS()
+        void Construct(const FArguments& A){Read=A._Read;Display=A._UnitDisplay;}
+        FVector2D ComputeDesiredSize(float) const override{return FVector2D(300,100);}
+        int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& Out,int32 Layer,const FWidgetStyle&,bool)const override
+        {
+            using namespace StudioUI;const auto* S=Read();
+            auto TextAt=[&](const FString& Value,FVector2D At){FSlateDrawElement::MakeText(Out,Layer+1,G.ToPaintGeometry(FVector2D(1,1),FSlateLayoutTransform(At)),Value,Font(8),ESlateDrawEffect::None,Muted);};
+            if(!S||S->bNonfinite||S->InterfaceThickness.Counts.IsEmpty()){TextAt(TEXT("Thickness histogram unavailable"),FVector2D(0,20));return Layer+2;}
+            const auto& H=S->InterfaceThickness;int64 Max=0;for(int64 N:H.Counts)Max=FMath::Max(Max,N);
+            const double Width=G.GetLocalSize().X,Range=H.BinEdges.Last()-H.BinEdges[0];
+            if(!FMath::IsFinite(Range)||Range<=0){TextAt(TEXT("Histogram range unavailable"),FVector2D(0,20));return Layer+2;}
+            for(int32 I=0;I<H.Counts.Num();++I)
+            {
+                const double Height=Max?65.*double(H.Counts[I])/double(Max):0;
+                FSlateDrawElement::MakeBox(Out,Layer,G.ToPaintGeometry(FVector2D(FMath::Max(1.,Width*(H.BinEdges[I+1]-H.BinEdges[I])/Range-2),FMath::Max(1.,Height)),FSlateLayoutTransform(FVector2D(Width*(H.BinEdges[I]-H.BinEdges[0])/Range,70-Height))),&PanelBrush,ESlateDrawEffect::None,Cyan.CopyWithNewOpacity(.65));
+            }
+            const auto First=StudioHome4SciencePresentation::Quantity(H.BinEdges[0],*S,EStudioHome4Quantity::Length,Display.Get());
+            const auto Last=StudioHome4SciencePresentation::Quantity(H.BinEdges.Last(),*S,EStudioHome4Quantity::Length,Display.Get());
+            TextAt(StudioHome4SciencePresentation::Text(First),FVector2D(0,78));TextAt(StudioHome4SciencePresentation::Text(Last),FVector2D(FMath::Max(0.,Width-180),78));
+            return Layer+2;
+        }
+    private:TFunction<const FStudioHome4Sample*()> Read;TAttribute<EStudioHome4UnitDisplay> Display;
+    };
+
 }
 
 void SStudioHome4Monitors::Construct(const FArguments& A)
 {
     using namespace StudioUI;
     using namespace StudioHome4MonitorPrivate;
-    Model = A._Model; SessionStream = A._Stream; OnLocate = A._OnLocateCell;
+    Model = A._Model; SessionStream = A._Stream; OnLocate = A._OnLocateCell; UnitDisplay = A._UnitDisplay;
     if (const auto M = Model.Pin()) ScopedProjectId = M->Project.Id;
-    PolicyDraft.SetNum(8);
+    PolicyDraft.SetNum(9);
     Status = TEXT("Choose an original HOME4 JSONL log, or connect a session science stream.");
     auto Rows = SNew(SVerticalBox);
     Rows->AddSlot().AutoHeight().Padding(0, 0, 0, 8)[SNew(STextBlock).Tag(TEXT("Home4MonitorSource")).Font(Font(9)).ColorAndOpacity(Muted).AutoWrapText(true)
@@ -162,52 +200,78 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
             + SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(Font(8)).ColorAndOpacity(Muted).AutoWrapText(true)
                 .Text_Lambda([this, I] { return FText::FromString(Health(I).Remedy); })]];
     }
-    auto Heading = [&](const TCHAR* TextValue) { Rows->AddSlot().AutoHeight().Padding(0, 14, 0, 5)[Label(TextValue, 11, Text, true)]; };
-    auto Detail = [&](const TCHAR* Title, FName Key)
+    auto Section=[&](const TCHAR* Title,FName Key,bool Open)
     {
-        Heading(Title);
-        Rows->AddSlot().AutoHeight()[SNew(STextBlock).Tag(FName(*(TEXT("Home4Detail_") + Key.ToString()))).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true)
-            .Text_Lambda([this, Key] { return FText::FromString(DetailText(Key)); })];
+        Sections.Add(Key,Open);auto Content=SNew(SVerticalBox);
+        Rows->AddSlot().AutoHeight().Padding(0,12,0,4)[SNew(SButton).Tag(FName(*(TEXT("Home4Section_")+Key.ToString()))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(7,5))
+            .OnClicked_Lambda([this,Key]{Sections[Key]=!Sections[Key];return FReply::Handled();})
+            [SNew(STextBlock).Font(Font(11,true)).ColorAndOpacity(Text).Text_Lambda([this,Key,Title]{return FText::FromString(FString(Sections[Key]?TEXT("▾ "):TEXT("▸ "))+Title);})]];
+        Rows->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([this,Key]{return Sections[Key]?EVisibility::Visible:EVisibility::Collapsed;})[Content]];
+        return Content;
     };
-    Detail(TEXT("Mass ledgers and correction injections"), TEXT("Mass"));
-    Rows->AddSlot().AutoHeight().Padding(0, 5)[SNew(SHome4HistoryPlot).Stream([this] { return DisplayStream(); }).Metric(0)];
-    Detail(TEXT("Energy terms · reported units and interval"), TEXT("Budget"));
-    Rows->AddSlot().AutoHeight().Padding(0, 5)[SNew(SHome4HistoryPlot).Stream([this] { return DisplayStream(); }).Metric(1)];
-    Detail(TEXT("Independent force channels"), TEXT("Forces"));
-    Rows->AddSlot().AutoHeight().Padding(0, 5)[SNew(SHome4HistoryPlot).Stream([this] { return DisplayStream(); }).Metric(2)];
-    Detail(TEXT("Current [previous] averaging window"), TEXT("Window"));
-    Detail(TEXT("Measured work and bandwidth"), TEXT("Performance"));
-    Detail(TEXT("Safeguards and extrema"), TEXT("Safeguards"));
-    Detail(TEXT("Trouble locator · original cell facts"), TEXT("Trouble"));
-    Rows->AddSlot().AutoHeight().Padding(0, 6)[SNew(SButton).Tag(TEXT("Home4LocateCell")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8, 5))
-        .IsEnabled_Lambda([this] { return CanLocate(); }).OnClicked_Lambda([this] { Locate(); return FReply::Handled(); })[Label(TEXT("Locate reported cell"), 9)]];
-    Heading(TEXT("Four output kinds · driver reported paths"));
-    Rows->AddSlot().AutoHeight()[SAssignNew(OutputRows, SVerticalBox).Tag(TEXT("Home4OutputTimeline"))];
-    Heading(TEXT("Health thresholds · enter explicit reference and tolerance"));
-    Rows->AddSlot().AutoHeight().Padding(0, 0, 0, 5)[SNew(STextBlock).Font(Font(8)).ColorAndOpacity(Muted).AutoWrapText(true).Text(FText::FromString(TEXT("Mass: |drift| < 1e-4. Other gates remain unavailable until you supply their limits.")))];
-    const TCHAR* Captions[] = {TEXT("Budget absolute tolerance"), TEXT("Force relative tolerance"), TEXT("Force absolute tolerance"),
-        TEXT("Force reference magnitude"), TEXT("Window relative tolerance"), TEXT("Window absolute tolerance"), TEXT("Window reference magnitude"), TEXT("WB rest pressure tolerance")};
-    for (int32 I = 0; I < UE_ARRAY_COUNT(Captions); ++I)
-        Rows->AddSlot().AutoHeight().Padding(0, 3)[SNew(SHorizontalBox)
-            + SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(Captions[I], 9, Muted)]
-            + SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(120)[SNew(SEditableTextBox).Tag(FName(*FString::Printf(TEXT("Home4Policy%d"), I)))
-                .Style(&InputStyle()).Font(Font(9)).HintText(FText::FromString(TEXT("Unavailable")))
-                .Text_Lambda([this, I] { return FText::FromString(PolicyDraft[I]); }).OnTextChanged_Lambda([this, I](const FText& T) { PolicyDraft[I] = T.ToString(); })]]];
-    for (bool bForce : {true, false})
+    auto Detail=[&](const TSharedRef<SVerticalBox>& Content,FName Key)
+    {Content->AddSlot().AutoHeight()[SNew(STextBlock).Tag(FName(*(TEXT("Home4Detail_")+Key.ToString()))).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true).Text_Lambda([this,Key]{return FText::FromString(DetailText(Key));})];};
+    auto Budget=Section(TEXT("Energy budget and residual"),TEXT("Budget"),true);Detail(Budget,TEXT("Budget"));
+    Budget->AddSlot().AutoHeight().Padding(0,6)[SNew(SHome4BudgetBars).Read([this]{return StudioHome4SciencePresentation::Budget(Sample(),UnitDisplay.Get(),SelectedPhase);})];
+    auto Forces=Section(TEXT("Independent force channels"),TEXT("Forces"),true);
+    auto Components=SNew(SHorizontalBox);const TCHAR* Names[]={TEXT("Fx"),TEXT("Fy"),TEXT("Fz"),TEXT("My")};
+    for(int32 I=0;I<4;++I)Components->AddSlot().FillWidth(1).Padding(0,0,4,0)[SNew(SButton).Tag(FName(*FString::Printf(TEXT("Home4PlotComponent%d"),I))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(5,4))
+        .OnClicked_Lambda([this,I]{PlotComponent=I;return FReply::Handled();})[SNew(STextBlock).Font(Font(9)).Text(FText::FromString(Names[I]))
+            .ColorAndOpacity_Lambda([this,I]{return FSlateColor(PlotComponent==I?Cyan:Muted);})]];
+    Forces->AddSlot().AutoHeight()[Components];
+    Forces->AddSlot().AutoHeight().Padding(0,5)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1)[SNew(SButton).Tag(TEXT("Home4SelectBody")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{CycleBody();return FReply::Handled();})
+            [SNew(STextBlock).Font(Font(9)).Text_Lambda([this]{return FText::FromString(SelectedBody.IsEmpty()?TEXT("All-body source forces · choose body"):TEXT("Body: ")+SelectedBody);})]]
+        +SHorizontalBox::Slot().AutoWidth().Padding(5,0)[SNew(SButton).Tag(TEXT("Home4NormalizeForces")).ButtonStyle(&ButtonStyle())
+            .IsEnabled_Lambda([this]{return bNormalizeForces||StudioHome4SciencePresentation::CanNormalize(Sample(),PlotComponent,SelectedBody);})
+            .OnClicked_Lambda([this]{bNormalizeForces=!bNormalizeForces;return FReply::Handled();})
+            [SNew(STextBlock).Font(Font(9)).Text_Lambda([this]{return FText::FromString(bNormalizeForces?TEXT("Benchmark normalization"):TEXT("Source units"));})]]];
+    Detail(Forces,TEXT("Forces"));
+    Forces->AddSlot().AutoHeight().Padding(0,5)[SNew(STextBlock).Tag(TEXT("Home4ForceCaption")).Font(Font(8)).ColorAndOpacity(Muted).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(HistoryCaption(true));})];
+    auto Legend=SNew(SHorizontalBox);const TCHAR* Channels[]={TEXT("Stress"),TEXT("Momentum"),TEXT("Pressure"),TEXT("Viscous"),TEXT("Difference")};
+    const FLinearColor Colors[]={Cyan,Amber,FLinearColor(.63,.54,.95),FLinearColor(.4,.8,.52),Text};
+    for(int32 I=0;I<5;++I)Legend->AddSlot().FillWidth(1)[SNew(STextBlock).Font(Font(8)).ColorAndOpacity(Colors[I]).Text(FText::FromString(Channels[I]))];
+    Forces->AddSlot().AutoHeight()[Legend];Forces->AddSlot().AutoHeight()[SNew(SHome4HistoryPlot).Read([this]{return PresentedForces();})];
+    auto History=Section(TEXT("Measured history"),TEXT("History"),true);
+    History->AddSlot().AutoHeight()[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("Home4PreviousMetric")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{SelectedMetric=StudioHome4SciencePresentation::EMetric((int32(SelectedMetric)+int32(StudioHome4SciencePresentation::EMetric::Count)-1)%int32(StudioHome4SciencePresentation::EMetric::Count));return FReply::Handled();})[Label(TEXT("Previous"),8)]]
+        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(6,0)[SNew(STextBlock).Tag(TEXT("Home4SelectedMetric")).Font(Font(10,true)).Text_Lambda([this]{return FText::FromString(StudioHome4SciencePresentation::Name(SelectedMetric));})]
+        +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("Home4NextMetric")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{SelectedMetric=StudioHome4SciencePresentation::EMetric((int32(SelectedMetric)+1)%int32(StudioHome4SciencePresentation::EMetric::Count));return FReply::Handled();})[Label(TEXT("Next"),8)]]];
+    History->AddSlot().AutoHeight().Padding(0,5)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1)[SNew(SButton).Tag(TEXT("Home4SelectLevel")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{CycleLevel();return FReply::Handled();})[SNew(STextBlock).Font(Font(9)).Text_Lambda([this]{return FText::FromString(FString::Printf(TEXT("Level %d"),SelectedLevel));})]]
+        +SHorizontalBox::Slot().FillWidth(1).Padding(5,0)[SNew(SButton).Tag(TEXT("Home4SelectPhase")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{CyclePhase();return FReply::Handled();})[SNew(STextBlock).Font(Font(9)).Text_Lambda([this]{return FText::FromString(SelectedPhase.IsEmpty()?TEXT("Root energy · choose phase"):TEXT("Phase: ")+SelectedPhase);})]]];
+    History->AddSlot().AutoHeight()[SNew(STextBlock).Tag(TEXT("Home4HistoryCaption")).Font(Font(8)).ColorAndOpacity(Muted).AutoWrapText(true).Text_Lambda([this]{return FText::FromString(HistoryCaption(false));})];
+    History->AddSlot().AutoHeight()[SNew(SHome4HistoryPlot).Read([this]{return PresentedHistory();})];
+    Detail(Section(TEXT("Mass ledgers and per-level work"),TEXT("Mass"),false),TEXT("Mass"));
+    Detail(Section(TEXT("Interface and phase energies"),TEXT("Interface"),false),TEXT("Interface"));
+    Rows->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([this]{return Sections[TEXT("Interface")]?EVisibility::Visible:EVisibility::Collapsed;})[SNew(SHome4ThicknessHistogram).Read([this]{return Sample();}).UnitDisplay_Lambda([this]{return UnitDisplay.Get();})]];
+    Detail(Section(TEXT("Body state, attitude and fitted coefficients"),TEXT("Bodies"),false),TEXT("Bodies"));
+    Detail(Section(TEXT("Current [previous] averaging window"),TEXT("Window"),false),TEXT("Window"));
+    Detail(Section(TEXT("Measured work and bandwidth"),TEXT("Performance"),false),TEXT("Performance"));
+    Detail(Section(TEXT("Safeguards and extrema"),TEXT("Safeguards"),false),TEXT("Safeguards"));
+    auto Trouble=Section(TEXT("Trouble locator"),TEXT("Trouble"),false);Detail(Trouble,TEXT("Trouble"));
+    Trouble->AddSlot().AutoHeight().Padding(0,6)[SNew(SButton).Tag(TEXT("Home4LocateCell")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,5))
+        .IsEnabled_Lambda([this]{return CanLocate();}).OnClicked_Lambda([this]{Locate();return FReply::Handled();})[Label(TEXT("Locate reported cell"),9)]];
+    auto Outputs=Section(TEXT("Four output kinds"),TEXT("Outputs"),false);Outputs->AddSlot().AutoHeight()[SAssignNew(OutputRows,SVerticalBox).Tag(TEXT("Home4OutputTimeline"))];
+    auto Thresholds=Section(TEXT("Health thresholds"),TEXT("Thresholds"),false);
+    Thresholds->AddSlot().AutoHeight().Padding(0,0,0,5)[Label(TEXT("Mass: |drift| < 1e-4. Other gates need explicit limits."),8,Muted)];
+    const TCHAR* Captions[]={TEXT("Budget absolute tolerance"),TEXT("Force relative tolerance"),TEXT("Force absolute tolerance"),TEXT("Force reference magnitude"),
+        TEXT("Window relative tolerance"),TEXT("Window absolute tolerance"),TEXT("Window reference magnitude"),TEXT("WB rest pressure tolerance"),TEXT("Maximum speed trouble trigger")};
+    for(int32 I=0;I<UE_ARRAY_COUNT(Captions);++I)Thresholds->AddSlot().AutoHeight().Padding(0,3)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Label(Captions[I],9,Muted)]
+        +SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(120)[SNew(SEditableTextBox).Tag(FName(*FString::Printf(TEXT("Home4Policy%d"),I))).Style(&InputStyle()).Font(Font(9)).HintText(FText::FromString(TEXT("Unavailable")))
+            .Text_Lambda([this,I]{return FText::FromString(PolicyDraft[I]);}).OnTextChanged_Lambda([this,I](const FText& T){PolicyDraft[I]=T.ToString();})]]];
+    for(bool Force:{true,false})
     {
-        Rows->AddSlot().AutoHeight().Padding(0, 7, 0, 3)[Label(bForce ? TEXT("Force comparison component") : TEXT("Window comparison component"), 9, Muted)];
-        auto Components = SNew(SHorizontalBox);
-        const TCHAR* Names[] = {TEXT("Fx"), TEXT("Fy"), TEXT("Fz"), TEXT("My")};
-        for (int32 I = 0; I < 4; ++I)
-            Components->AddSlot().FillWidth(1).Padding(0, 0, 5, 0)[SNew(SButton).Tag(FName(*FString::Printf(TEXT("Home4%sComponent%d"), bForce ? TEXT("Force") : TEXT("Window"), I)))
-                .ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(6, 4)).OnClicked_Lambda([this, bForce, I] {
-                    (bForce ? Policy.ForceComponent : Policy.WindowComponent) = FStudioHome4DiagnosticPolicy::EComponent(I); return FReply::Handled(); })
-                [SNew(STextBlock).Font(Font(9)).Text(FText::FromString(Names[I])).ColorAndOpacity_Lambda([this, bForce, I] {
-                    return FSlateColor(int32(bForce ? Policy.ForceComponent : Policy.WindowComponent) == I ? Cyan : Muted); })]];
-        Rows->AddSlot().AutoHeight()[Components];
+        Thresholds->AddSlot().AutoHeight().Padding(0,7,0,3)[Label(Force?TEXT("Force comparison component"):TEXT("Window comparison component"),9,Muted)];auto Buttons=SNew(SHorizontalBox);
+        for(int32 I=0;I<4;++I)Buttons->AddSlot().FillWidth(1).Padding(0,0,5,0)[SNew(SButton).Tag(FName(*FString::Printf(TEXT("Home4%sComponent%d"),Force?TEXT("Force"):TEXT("Window"),I))).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(6,4))
+            .OnClicked_Lambda([this,Force,I]{(Force?Policy.ForceComponent:Policy.WindowComponent)=FStudioHome4DiagnosticPolicy::EComponent(I);return FReply::Handled();})
+            [SNew(STextBlock).Font(Font(9)).Text(FText::FromString(Names[I]))
+                .ColorAndOpacity_Lambda([this,Force,I]{return FSlateColor(int32(Force?Policy.ForceComponent:Policy.WindowComponent)==I?Cyan:Muted);})]];
+        Thresholds->AddSlot().AutoHeight()[Buttons];
     }
-    Rows->AddSlot().AutoHeight().Padding(0, 7, 0, 12)[SNew(SButton).Tag(TEXT("Home4ApplyPolicy")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8, 5))
-        .OnClicked_Lambda([this] { ApplyPolicy(); return FReply::Handled(); })[Label(TEXT("Apply health thresholds"), 9)]];
+    Thresholds->AddSlot().AutoHeight().Padding(0,7,0,12)[SNew(SButton).Tag(TEXT("Home4ApplyPolicy")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,5))
+        .OnClicked_Lambda([this]{ApplyPolicy();return FReply::Handled();})[Label(TEXT("Apply health thresholds"),9)]];
     ChildSlot[SNew(SBorder).BorderImage(&PanelBrush).Padding(14)[SNew(SVerticalBox)
         + SVerticalBox::Slot().AutoHeight()[Label(TEXT("HOME4 Monitors"), 17, Text, true)]
         + SVerticalBox::Slot().AutoHeight().Padding(0, 8, 0, 0)[SNew(SHorizontalBox)
@@ -287,25 +351,66 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
             Text += FString::Printf(TEXT("\nLevel %d · drift %s · injected %s"), I,
                 *Number(S->Mass.LevelDrifts.IsValidIndex(I) ? S->Mass.LevelDrifts[I] : TOptional<double>()),
                 *Number(S->Mass.LevelInjections.IsValidIndex(I) ? S->Mass.LevelInjections[I] : TOptional<double>()));
+        for(const auto& L:S->Levels)
+        {
+            FStudioHome4Sample Work;Work.Work=L.Work;const auto P=FStudioHome4Diagnostics::Performance(Work);
+            Text+=FString::Printf(TEXT("\nLevel %d · drift %s · injected %s · measured %s MLUPS · reported %s MLUPS"),L.Level,*Number(L.MassDrift),*Number(L.Injection),*Number(P.MLUPSInstant),*Number(L.ReportedMLUPS));
+        }
         return Text;
     }
+    auto Value=[&](const TOptional<double>& V,EStudioHome4Quantity Q,bool Normalize=false)
+    {return StudioHome4SciencePresentation::Text(StudioHome4SciencePresentation::Quantity(V,*S,Q,UnitDisplay.Get(),Normalize,SelectedBody));};
+    const auto* Body=SelectedBody.IsEmpty()?nullptr:S->Bodies.FindByPredicate([this](const auto& B){return B.Id==SelectedBody;});
     if (Key == TEXT("Budget"))
     {
-        FString Text = BudgetText(S->Budget);
-        TArray<FString> Phases; S->PhaseBudgets.GetKeys(Phases); Phases.Sort();
-        for (const auto& Phase : Phases) Text += TEXT("\n") + Phase + TEXT("\n") + BudgetText(S->PhaseBudgets[Phase]);
-        return Text + TEXT("\nKE water/air ") + Number(S->WaterKE) + TEXT(" / ") + Number(S->AirKE) + TEXT(" · surface energy ") + Number(S->SurfaceEnergy);
+        const auto* B=SelectedPhase.IsEmpty()?&S->Budget:S->PhaseBudgets.Find(SelectedPhase);
+        if(!B)return TEXT("Selected phase budget unavailable at this original sample.");
+        return (SelectedPhase.IsEmpty()?TEXT("Root budget"):TEXT("Phase ")+SelectedPhase)+TEXT(" · ")+Value(B->Work,EStudioHome4Quantity::Energy)+TEXT(" work")+
+            TEXT("\nReported residual ")+Value(B->Residual,EStudioHome4Quantity::Energy)+TEXT(" · computed W − losses − ΔE ")+Value(StudioHome4SciencePresentation::BudgetImbalance(*B),EStudioHome4Quantity::Energy);
     }
     if (Key == TEXT("Forces"))
-        return TEXT("Stress Fx/Fy/Fz: ") + Number(S->Forces.Fx) + TEXT(" / ") + Number(S->Forces.Fy) + TEXT(" / ") + Number(S->Forces.Fz) +
-            TEXT(" · My ") + Number(S->Forces.My) + TEXT("\nMomentum Fx/Fy/Fz: ") + Number(S->Forces.MomentumFx) + TEXT(" / ") +
-            Number(S->Forces.MomentumFy) + TEXT(" / ") + Number(S->Forces.MomentumFz) + TEXT(" · My ") + Number(S->Forces.MomentumMy) +
-            TEXT("\nPressure Fx/Fy/Fz: ") + Number(S->Forces.PressureFx) + TEXT(" / ") + Number(S->Forces.PressureFy) + TEXT(" / ") + Number(S->Forces.PressureFz) +
-            TEXT("\nViscous Fx/Fy/Fz: ") + Number(S->Forces.ViscousFx) + TEXT(" / ") + Number(S->Forces.ViscousFy) + TEXT(" / ") + Number(S->Forces.ViscousFz);
+    {
+        if(!SelectedBody.IsEmpty()&&!Body)return TEXT("Selected body forces unavailable at this original sample.");
+        const auto& F=Body?Body->Forces:S->Forces;
+        const TOptional<double> Stress[]={F.Fx,F.Fy,F.Fz,F.My},Momentum[]={F.MomentumFx,F.MomentumFy,F.MomentumFz,F.MomentumMy};
+        const TCHAR* Names[]={TEXT("Fx"),TEXT("Fy"),TEXT("Fz"),TEXT("My")};FString Result;
+        for(int32 I=0;I<4;++I)
+        {
+            const auto Q=I==3?EStudioHome4Quantity::Moment:EStudioHome4Quantity::Force;
+            Result+=(I?TEXT("\n"):TEXT(""))+FString(Names[I])+TEXT(" stress ")+Value(Stress[I],Q,bNormalizeForces)+TEXT(" · momentum ")+Value(Momentum[I],Q,bNormalizeForces);
+        }
+        return Result;
+    }
     if (Key == TEXT("Window"))
-        return TEXT("Fx ") + Number(S->Window.Fx) + TEXT(" [") + Number(S->Window.PreviousFx) + TEXT("] · Fy ") + Number(S->Window.Fy) + TEXT(" [") + Number(S->Window.PreviousFy) +
-            TEXT("]\nFz ") + Number(S->Window.Fz) + TEXT(" [") + Number(S->Window.PreviousFz) + TEXT("] · My ") + Number(S->Window.My) + TEXT(" [") + Number(S->Window.PreviousMy) +
-            TEXT("]\nInterval ") + Number(S->Window.Start) + TEXT("–") + Number(S->Window.End) + TEXT(" [") + Number(S->Window.PreviousStart) + TEXT("–") + Number(S->Window.PreviousEnd) + TEXT("]");
+    {
+        if(!SelectedBody.IsEmpty()&&!Body)return TEXT("Selected body window unavailable.");const auto& W=Body?Body->Window:S->Window;
+        return TEXT("Fx ")+Value(W.Fx,EStudioHome4Quantity::Force)+TEXT(" [")+Value(W.PreviousFx,EStudioHome4Quantity::Force)+TEXT("]\nFy ")+Value(W.Fy,EStudioHome4Quantity::Force)+TEXT(" [")+Value(W.PreviousFy,EStudioHome4Quantity::Force)+
+            TEXT("]\nFz ")+Value(W.Fz,EStudioHome4Quantity::Force)+TEXT(" [")+Value(W.PreviousFz,EStudioHome4Quantity::Force)+TEXT("]\nMy ")+Value(W.My,EStudioHome4Quantity::Moment)+TEXT(" [")+Value(W.PreviousMy,EStudioHome4Quantity::Moment)+
+            TEXT("]\nInterval ")+Number(W.Start)+TEXT("–")+Number(W.End)+TEXT(" [")+Number(W.PreviousStart)+TEXT("–")+Number(W.PreviousEnd)+TEXT("] · averaging length ")+Number(W.AverageLength,TEXT("body lengths"));
+    }
+    if(Key==TEXT("Interface"))
+    {
+        FString Result=TEXT("Thickness histogram: ")+(S->InterfaceThickness.Counts.IsEmpty()?TEXT("Unavailable"):FString::Printf(TEXT("%d original bins"),S->InterfaceThickness.Counts.Num()));
+        Result+=TEXT("\nSpurious speed ")+Value(S->SpuriousSpeed,EStudioHome4Quantity::Velocity)+TEXT(" · sampling mask: ")+(S->SpuriousMask.IsEmpty()?TEXT("Unavailable"):S->SpuriousMask);
+        Result+=TEXT("\nWater KE ")+Value(S->WaterKE,EStudioHome4Quantity::Energy)+TEXT(" · air KE ")+Value(S->AirKE,EStudioHome4Quantity::Energy)+TEXT(" · surface ")+Value(S->SurfaceEnergy,EStudioHome4Quantity::Energy);
+        TArray<FString> Names;S->PhaseEnergies.GetKeys(Names);Names.Sort();for(const auto& Name:Names){const auto& P=S->PhaseEnergies[Name];Result+=TEXT("\n")+Name+TEXT(" · KE ")+Value(P.KE,EStudioHome4Quantity::Energy)+TEXT(" · PE ")+Value(P.PE,EStudioHome4Quantity::Energy)+TEXT(" · surface ")+Value(P.Surface,EStudioHome4Quantity::Energy);}
+        return Result;
+    }
+    if(Key==TEXT("Bodies"))
+    {
+        if(S->Bodies.IsEmpty())return TEXT("Per-body measurements unavailable.");
+        if(!Body)return TEXT("Choose an original body above to inspect its state and fitted coefficients.");
+        auto Vector=[&](const TOptional<FVector>& V,EStudioHome4Quantity Q){return V?TEXT("[")+Value(V->X,Q)+TEXT(", ")+Value(V->Y,Q)+TEXT(", ")+Value(V->Z,Q)+TEXT("]"):FString(TEXT("Unavailable"));};
+        auto RawVector=[](const TOptional<FVector>& V,const FString& Unit){return V?FString::Printf(TEXT("[%.6g, %.6g, %.6g] %s"),V->X,V->Y,V->Z,*Unit):FString(TEXT("Unavailable"));};
+        const auto& B=*Body;FStudioHome4Sample Retab;Retab.Work=B.RetabulationWork;const auto Cost=FStudioHome4Diagnostics::Performance(Retab);
+        return B.Id+(B.Name.IsEmpty()?TEXT(""):TEXT(" · ")+B.Name)+TEXT("\nPosition ")+Vector(B.Position,EStudioHome4Quantity::Length)+TEXT("\nVelocity ")+Vector(B.Velocity,EStudioHome4Quantity::Velocity)+
+            TEXT("\nRoll/pitch/yaw ")+RawVector(B.AttitudeDegrees,TEXT("degrees"))+TEXT(" · angular velocity ")+RawVector(B.AngularVelocity,B.AngularVelocityUnit.IsEmpty()?TEXT("raw source units"):B.AngularVelocityUnit)+
+            TEXT("\nVirtual-mass integrator: ")+(B.IntegratorStatus.IsEmpty()?TEXT("Unavailable"):B.IntegratorStatus)+TEXT(" · retabulation every ")+Count(B.RetabulationEvery)+TEXT(" steps · measured cost ")+Number(Cost.MLUPSInstant,TEXT("MLUPS"))+TEXT(" / ")+Number(B.RetabulationWork.ElapsedSeconds,TEXT("s"))+
+            TEXT("\nHydrostatic k33/k35/k55 ")+Number(B.K33)+TEXT(" / ")+Number(B.K35)+TEXT(" / ")+Number(B.K55)+TEXT(" ")+(B.StiffnessUnit.IsEmpty()?TEXT("raw source units"):B.StiffnessUnit)+
+            TEXT("\nHeld heave ")+Value(B.EquilibriumHeave,EStudioHome4Quantity::Length)+TEXT(" · running heave ")+Value(B.RunningHeave,EStudioHome4Quantity::Length)+TEXT(" · reference heave ")+Value(B.ReferenceHeave,EStudioHome4Quantity::Length)+TEXT("\nHeld attitude ")+RawVector(B.EquilibriumAttitudeDegrees,TEXT("degrees"))+TEXT(" · running ")+RawVector(B.RunningAttitudeDegrees,TEXT("degrees"))+TEXT("\nReference attitude ")+RawVector(B.ReferenceAttitudeDegrees,TEXT("degrees"))+TEXT(" · source ")+(B.ReferenceSource.IsEmpty()?TEXT("Unavailable"):B.ReferenceSource)+
+            TEXT("\nAdded mass ")+Number(B.AddedMass)+TEXT(" [reference ")+Number(B.ReferenceAddedMass)+TEXT("] ")+(B.AddedMassUnit.IsEmpty()?TEXT("raw source units"):B.AddedMassUnit)+
+            TEXT("\nDamping ")+Number(B.Damping)+TEXT(" [reference ")+Number(B.ReferenceDamping)+TEXT("] ")+(B.DampingUnit.IsEmpty()?TEXT("raw source units"):B.DampingUnit)+TEXT(" · source ")+(B.FitReferenceSource.IsEmpty()?TEXT("Unavailable"):B.FitReferenceSource)+TEXT("\nReference comparison not evaluated; tolerances and complete recipe evidence are required.");
+    }
     if (Key == TEXT("Performance"))
     {
         const auto P = FStudioHome4Diagnostics::Performance(*S);
@@ -315,7 +420,7 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
     }
     if (Key == TEXT("Safeguards"))
         return TEXT("Limiter/threshold cells: ") + Count(S->LimiterCells) + TEXT(" / ") + Count(S->ThresholdCells) + TEXT("\nMax speed ") + Number(S->MaximumSpeed) +
-            TEXT(" at ") + Cell(S->MaximumSpeedCell) + TEXT(" · Mach ") + Number(S->Mach) + TEXT(" · minimum τ ") + Number(S->TauMinimum) + TEXT("\nDivergence norm ") + Number(S->DivergenceNorm);
+            TEXT(" at ") + Cell(S->MaximumSpeedCell) + TEXT(" · Mach ") + Number(S->Mach) + TEXT(" · minimum τ ") + Number(S->TauMinimum) + TEXT("\nDivergence norm ") + Number(S->DivergenceNorm)+TEXT(" · trouble trigger ")+Number(Policy.MaximumSpeedTrigger)+TEXT(" (original speed units)");
     if (Key == TEXT("Trouble"))
     {
         const auto* Stream = DisplayStream();
@@ -332,12 +437,58 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
     }
     return TEXT("Unavailable");
 }
+StudioHome4SciencePresentation::FHistory SStudioHome4Monitors::PresentedHistory() const
+{return StudioHome4SciencePresentation::History(DisplayStream(),SelectedMetric,UnitDisplay.Get(),PlotComponent,bNormalizeForces,SelectedBody,SelectedLevel,SelectedPhase);}
+StudioHome4SciencePresentation::FHistory SStudioHome4Monitors::PresentedForces() const
+{return StudioHome4SciencePresentation::History(DisplayStream(),StudioHome4SciencePresentation::EMetric::Forces,UnitDisplay.Get(),PlotComponent,bNormalizeForces,SelectedBody);}
+FString SStudioHome4Monitors::HistoryCaption(bool Forces) const
+{
+    using namespace StudioHome4SciencePresentation;const auto H=Forces?PresentedForces():PresentedHistory();
+    FString Text=H.Axis+TEXT(" · ")+H.Unit;
+    if(Forces)
+    {
+        const TCHAR* Components[]={TEXT("Fx"),TEXT("Fy"),TEXT("Fz"),TEXT("My")};
+        Text=FString(Components[PlotComponent])+TEXT(" · ")+Text;
+    }
+    for(const auto& Series:H.Series)Text+=TEXT(" · ")+Series.Label+TEXT(": ")+StudioHome4MonitorPrivate::Number(Series.Values.IsEmpty()?TOptional<double>():Series.Values.Last());
+    return Text+(H.Note.IsEmpty()?TEXT(""):TEXT("\n")+H.Note);
+}
+void SStudioHome4Monitors::CycleBody()
+{
+    TArray<FString> Ids;Ids.Add(FString());
+    if(const auto* Stream=DisplayStream())
+    {
+        for(const auto& S:Stream->History())for(const auto& B:S.Bodies)Ids.AddUnique(B.Id);
+    }
+    SelectedBody=Ids[(Ids.Find(SelectedBody)+1)%Ids.Num()];bNormalizeForces=false;
+}
+void SStudioHome4Monitors::CycleLevel()
+{
+    TArray<int32> Ids{0};
+    if(const auto* Stream=DisplayStream())
+    {
+        for(const auto& S:Stream->History())
+        {for(const auto& L:S.Levels)Ids.AddUnique(L.Level);for(int32 I=0;I<S.Mass.LevelDrifts.Num();++I)Ids.AddUnique(I);}
+    }
+    Ids.Sort();
+    SelectedLevel=Ids[(Ids.Find(SelectedLevel)+1)%Ids.Num()];
+}
+void SStudioHome4Monitors::CyclePhase()
+{
+    TArray<FString> Ids;Ids.Add(FString());
+    if(const auto* Stream=DisplayStream())
+    {
+        for(const auto& S:Stream->History())
+        {for(const auto& P:S.PhaseEnergies)Ids.AddUnique(P.Key);for(const auto& P:S.PhaseBudgets)Ids.AddUnique(P.Key);}
+    }
+    SelectedPhase=Ids[(Ids.Find(SelectedPhase)+1)%Ids.Num()];
+}
 void SStudioHome4Monitors::ApplyPolicy()
 {
     using namespace StudioHome4MonitorPrivate;
     FStudioHome4DiagnosticPolicy Candidate = Policy;
     TOptional<double>* Fields[] = {&Candidate.BudgetAbsoluteTolerance, &Candidate.ForceRelativeTolerance, &Candidate.ForceAbsoluteTolerance,
-        &Candidate.ForceReferenceMagnitude, &Candidate.WindowRelativeTolerance, &Candidate.WindowAbsoluteTolerance, &Candidate.WindowReferenceMagnitude, &Candidate.RestPressureTolerance};
+        &Candidate.ForceReferenceMagnitude, &Candidate.WindowRelativeTolerance, &Candidate.WindowAbsoluteTolerance, &Candidate.WindowReferenceMagnitude, &Candidate.RestPressureTolerance, &Candidate.MaximumSpeedTrigger};
     for (int32 I = 0; I < UE_ARRAY_COUNT(Fields); ++I)
         if (!PolicyNumber(PolicyDraft[I], *Fields[I]))
         { Status = FString::Printf(TEXT("Threshold field %d must be a finite nonnegative number or empty. Previous limits retained."), I + 1); return; }
@@ -437,7 +588,7 @@ void SStudioHome4Monitors::ScopeProject()
 {
     const auto M = Model.Pin(); if (!M || M->Project.Id == ScopedProjectId) return;
     ScopedProjectId = M->Project.Id; SessionStream.Reset(); ImportedStream.Reset(); ImportPath.Empty(); bImportedOriginalRunIdentity = false;
-    OriginalRunIdDraft.Empty(); bShowImported = false; CancelImport();
+    OriginalRunIdDraft.Empty(); bShowImported = false; SelectedBody.Empty(); SelectedPhase.Empty(); SelectedLevel=0; bNormalizeForces=false; CancelImport();
     Status = TEXT("Project changed; imported replay cleared. Supply this project's explicitly identified original log.");
     RefreshOutputs();
 }

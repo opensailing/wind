@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "StudioHome4Config.h"
 
 /** HOME4 science records, independent of job command/state acknowledgements.
  * The owning session supplies identity; the proposed driver JSONL has no run,
@@ -44,6 +45,7 @@ struct FStudioHome4Forces
     TOptional<double> PressureFx, PressureFy, PressureFz;
     TOptional<double> ViscousFx, ViscousFy, ViscousFz;
     TOptional<double> MomentumFx, MomentumFy, MomentumFz, MomentumMy;
+    TOptional<double> PressureMy, ViscousMy;
 };
 
 struct FStudioHome4Window
@@ -51,6 +53,7 @@ struct FStudioHome4Window
     TOptional<double> Fx, Fy, Fz, My;
     TOptional<double> PreviousFx, PreviousFy, PreviousFz, PreviousMy;
     TOptional<double> Start, End, PreviousStart, PreviousEnd;
+    TOptional<double> AverageLength;
 };
 
 /** Optional measured work extension. Counts include actual level substeps.
@@ -63,10 +66,65 @@ struct FStudioHome4Work
     TOptional<double> CumulativeElapsedSeconds, CumulativeNodeUpdates;
 };
 
+/** Divisors already expressed in the original force/moment units. No benchmark
+ * formula, body mass, projected area or draft is substituted for missing data. */
+struct FStudioHome4Normalization
+{
+    TOptional<double> ForceDivisor, MomentDivisor;
+    FString ForceLabel, MomentLabel;
+};
+/** Optional immutable original measurement conventions, independent of current case.
+ * JSON source_metadata: force_units/energy_units/velocity_units/length_units are
+ * lattice|physical|nondimensional. unit_map holds dx_m, dt_s, rho_kg_m3, rho_lattice,
+ * length_cells, time_steps, speed_cells_step; conversions require their actual
+ * dimensions. normalization/body_normalizations hold positive divisors and labels.
+ * A kind:source_metadata record supplies conventions without a numerical sample. */
+struct FStudioHome4SourceMetadata
+{
+    TOptional<EStudioHome4UnitDisplay> ForceUnits, EnergyUnits, VelocityUnits, LengthUnits;
+    FStudioHome4Spec UnitMap;
+    FStudioHome4Normalization Normalization;
+    TMap<FString, FStudioHome4Normalization> BodyNormalizations;
+    bool Equivalent(const FStudioHome4SourceMetadata& Other) const;
+};
+struct FStudioHome4Histogram
+{
+    TArray<double> BinEdges;
+    TArray<int64> Counts;
+};
+struct FStudioHome4PhaseEnergy
+{
+    TOptional<double> KE, PE, Surface;
+};
+struct FStudioHome4LevelMeasurement
+{
+    int32 Level = 0;
+    TOptional<double> MassDrift, Injection, InjectionMagnitudeChange, ReportedMLUPS;
+    FStudioHome4Work Work;
+};
+/** Optional bodies[] extension. state vectors use the source axes; attitude_deg
+ * is roll/pitch/yaw in degrees. attitude heave values use declared length units.
+ * Fits and stiffness retain explicit raw units and identified reference source;
+ * neither their presence nor a reference value establishes agreement. */
+struct FStudioHome4BodyMeasurement
+{
+    FString Id, Name, IntegratorStatus, ReferenceSource, AngularVelocityUnit;
+    FStudioHome4Forces Forces;
+    FStudioHome4Window Window;
+    TOptional<FVector> Position, Velocity, AngularVelocity;
+    TOptional<FVector> AttitudeDegrees, EquilibriumAttitudeDegrees, RunningAttitudeDegrees, ReferenceAttitudeDegrees;
+    TOptional<double> EquilibriumHeave, RunningHeave, ReferenceHeave;
+    TOptional<double> K33, K35, K55, AddedMass, Damping, ReferenceAddedMass, ReferenceDamping;
+    FString StiffnessUnit, AddedMassUnit, DampingUnit, FitReferenceSource;
+    TOptional<int64> RetabulationEvery;
+    FStudioHome4Work RetabulationWork;
+};
+
 struct FStudioHome4Sample
 {
     FStudioHome4Source Source;
     uint64 RecordIndex = 0; // Local ingestion order, not a solver/state sequence.
+    TSharedPtr<const FStudioHome4SourceMetadata> Metadata;
     TOptional<int64> Step;
     TOptional<double> LatticeTime, PhysicalTime, DimensionlessTime;
     FString Backend;
@@ -80,6 +138,12 @@ struct FStudioHome4Sample
     TOptional<int64> LimiterCells, ThresholdCells;
     FStudioHome4EnergyBudget Budget;
     TMap<FString, FStudioHome4EnergyBudget> PhaseBudgets;
+    TMap<FString, FStudioHome4PhaseEnergy> PhaseEnergies;
+    FStudioHome4Histogram InterfaceThickness;
+    TOptional<double> SpuriousSpeed;
+    FString SpuriousMask;
+    TArray<FStudioHome4LevelMeasurement> Levels;
+    TArray<FStudioHome4BodyMeasurement> Bodies;
     FStudioHome4Work Work;
     TOptional<bool> RestCondition; // Only explicit wb_rest.at_rest enables the gate.
     TOptional<double> RestMaxDynamicPressure;
@@ -199,4 +263,6 @@ private:
     TOptional<int64> LastStep;
     TOptional<double> LastLatticeTime, LastPhysicalTime, LastDimensionlessTime;
     TOptional<double> LastCumulativeElapsed, LastCumulativeUpdates;
+    TMap<int32, FStudioHome4Work> LastLevelWork;
+    TSharedPtr<const FStudioHome4SourceMetadata> SourceMetadata;
 };
