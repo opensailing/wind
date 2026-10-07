@@ -3,6 +3,8 @@
 
 namespace StudioFileDialog
 {
+    /** Purpose-specific structured data picker; reader validates the selected contents. */
+    bool DataFile(bool bSave,const FString& Title,const FString& SuggestedName,const FString& Extension,FString& OutPath);
     bool Project(bool bSave, const FString& CurrentPath, const FString& SuggestedName, FString& OutPath);
     bool Geometry(const FString& CurrentPath, FString& OutPath);
     bool ImportGeometry(FString& OutPath);

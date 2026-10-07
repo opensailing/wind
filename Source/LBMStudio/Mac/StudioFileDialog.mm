@@ -328,6 +328,35 @@ bool StudioFileDialog::ImportGeometry(FString& OutPath)
     return Accepted;
 }
 
+bool StudioFileDialog::DataFile(bool bSave,const FString& Title,const FString& SuggestedName,const FString& Extension,FString& OutPath)
+{
+    MacApplication->SetCapture(nullptr);
+#if WITH_EDITOR
+    FCoreDelegates::PreModal.Broadcast();
+#endif
+    MacApplication->SystemModalMode(true);
+    const bool Accepted=MainThreadReturn(^{
+        SCOPED_AUTORELEASE_POOL;
+        NSSavePanel* Panel=bSave?[NSSavePanel savePanel]:[NSOpenPanel openPanel];
+        Panel.title=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*Title)];
+        if(!Extension.IsEmpty())
+        {
+            UTType* Type=[UTType typeWithFilenameExtension:[NSString stringWithUTF8String:TCHAR_TO_UTF8(*Extension)]];
+            if(Type)Panel.allowedContentTypes=@[Type];
+        }
+        if(bSave)Panel.nameFieldStringValue=[NSString stringWithUTF8String:TCHAR_TO_UTF8(*SuggestedName)];
+        else {NSOpenPanel* Open=(NSOpenPanel*)Panel;Open.canChooseFiles=YES;Open.canChooseDirectories=NO;Open.allowsMultipleSelection=NO;}
+        const bool OK=[Panel runModal]==NSModalResponseOK;
+        if(OK){OutPath=UTF8_TO_TCHAR(Panel.URL.path.UTF8String);RememberAccess(OutPath);}
+        [Panel close];return OK;
+    });
+    MacApplication->SystemModalMode(false);MacApplication->ResetModifierKeys();
+#if WITH_EDITOR
+    FCoreDelegates::PostModal.Broadcast();
+#endif
+    return Accepted;
+}
+
 bool StudioFileDialog::ResidualLog(const FString& CurrentPath,FString& OutPath)
 {
 #if WITH_DEV_AUTOMATION_TESTS

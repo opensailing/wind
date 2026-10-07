@@ -84,6 +84,7 @@ bool StudioFileDialog::ConsumeReconstructionFolderForAutomation(FString& Out,boo
 }
 #endif
 #if !PLATFORM_MAC
+bool StudioFileDialog::DataFile(bool,const FString&,const FString&,const FString&,FString&){return false;}
 bool StudioFileDialog::ExportFolder(FString&,bool){return false;}
 bool StudioFileDialog::CreateExportStage(const FString&,FString&,FString& Error)
 {Error=TEXT("Frame sequence publication is not available on this platform.");return false;}
