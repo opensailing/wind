@@ -14,6 +14,11 @@ public:
     FString Get(const FString& Key) const;
     bool Build(FStudioHome4Spec& Out,FString& Error) const;
     bool Apply();
+    int32 AllocationCount() const {return AllocationEdits.Num();}
+    FString AllocationValue(int32 Row,int32 Column) const;
+    void SetAllocation(int32 Row,int32 Column,const FString& Value);
+    void AddAllocation();
+    void RemoveAllocation(int32 Row);
     bool IsDirty() const;
     bool HasConflict() const { return bConflict; }
     bool HasSpec() const;
@@ -27,5 +32,6 @@ private:
     FString Baseline;
     FStudioHome4Spec Saved;
     TMap<FString,FString> Edits,Original;
+    TArray<TArray<FString>> AllocationEdits,OriginalAllocations;
     bool bConflict=false;
 };

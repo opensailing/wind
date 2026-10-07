@@ -2,6 +2,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "StudioHome4Session.h"
 #include "StudioHome4Telemetry.h"
+#include "SStudioHome4SpatialDiagnostics.h"
 class FStudioModel;
 class SEditableTextBox;
 class SVerticalBox;
@@ -16,9 +17,12 @@ public:
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>,Model)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4Session>,Session)
         SLATE_ARGUMENT(FString,Page)
+        SLATE_ARGUMENT(TSharedPtr<FStudioHome4SpatialSession>,Spatial)
+        SLATE_EVENT(FStudioHome4SpatialLocate,OnLocateSpatial)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4ValidationState>,Validation)
         SLATE_EVENT(FSimpleDelegate,OnSubmit)
         SLATE_ATTRIBUTE(const FStudioHome4TelemetryStream*,Telemetry)
+        SLATE_ATTRIBUTE(TOptional<FStudioHome4TelemetryProvenance>,TelemetryProvenance)
         SLATE_EVENT(FStudioHome4RecipeAction,OnRecipe)
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
@@ -37,8 +41,10 @@ private:
     TSharedPtr<FStudioModel> Model;
     TSharedPtr<FStudioHome4Session> Session;
     TSharedPtr<FStudioHome4ValidationState> Validation;
+    TSharedPtr<FStudioHome4SpatialSession> Spatial;
     FStudioHome4RecipeAction OnRecipe;
     TAttribute<const FStudioHome4TelemetryStream*> Telemetry;
+    TAttribute<TOptional<FStudioHome4TelemetryProvenance>> TelemetryProvenance;
     FString Page,LadderText,ReportName=TEXT("home4_viz");
     TMap<FString,TWeakPtr<SEditableTextBox>> Inputs;
     FString LastValues;

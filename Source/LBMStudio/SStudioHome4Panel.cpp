@@ -1,4 +1,5 @@
 #include "SStudioHome4Panel.h"
+#include "SStudioHome4Allocations.h"
 #include "SStudioHome4RunControls.h"
 #include "SStudioHome4Sizing.h"
 #include "SStudioHome4Validation.h"
@@ -41,7 +42,7 @@ TSharedRef<SWidget> SStudioHome4Panel::Action(const FString& TextValue,FName Tag
 }
 void SStudioHome4Panel::Construct(const FArguments& Args)
 {
-    Model=Args._Model;Session=Args._Session;Page=Args._Page;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;Telemetry=Args._Telemetry;Sync();SetCanTick(true);
+    Model=Args._Model;Session=Args._Session;Spatial=Args._Spatial;Page=Args._Page;Validation=Args._Validation.IsValid()?Args._Validation:MakeShared<FStudioHome4ValidationState>();OnRecipe=Args._OnRecipe;Telemetry=Args._Telemetry;TelemetryProvenance=Args._TelemetryProvenance;Sync();SetCanTick(true);
     auto Body=SNew(SVerticalBox);
     if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Sizing).Session(Session)];
     if(Page==TEXT("Validation")||Page==TEXT("Projects"))
@@ -60,6 +61,11 @@ void SStudioHome4Panel::Construct(const FArguments& Args)
             Body->AddSlot().AutoHeight().Padding(0,0,0,9)[Editor(F)];
         }
     }
+    if(Page==TEXT("Lattice"))Body->AddSlot().AutoHeight()[SNew(SStudioHome4Allocations).Session(Session)];
+    if(Spatial&&(Page==TEXT("Lattice")||Page==TEXT("Boundaries & Zones")||Page==TEXT("Geometry")))
+        Body->AddSlot().AutoHeight().Padding(0,20)[SNew(SBox).HeightOverride(580)[SNew(SStudioHome4SpatialDiagnostics).Model(Model).Session(Spatial)
+            .View(Page==TEXT("Lattice")?EStudioHome4SpatialView::Multidomain:Page==TEXT("Geometry")?EStudioHome4SpatialView::Geometry:EStudioHome4SpatialView::Zones)
+            .OnLocate(Args._OnLocateSpatial)]];
     if(Page==TEXT("Geometry"))
     {
         auto Formats=SNew(SHorizontalBox);
@@ -232,6 +238,8 @@ void SStudioHome4Panel::Tick(const FGeometry& G,double T,float D)
 {
     SCompoundWidget::Tick(G,T,D);Session->Refresh();
     FString Values;for(const auto& F:StudioHome4Config::Fields())Values+=Session->Get(FStudioHome4Session::Key(F))+TEXT("\x1e");
+    for(int32 Row=0;Row<Session->AllocationCount();++Row)
+        for(int32 Column=0;Column<5;++Column)Values+=Session->AllocationValue(Row,Column)+TEXT("\x1e");
     if(Values!=LastValues){LastValues=Values;Sync();}
 }
 void SStudioHome4Panel::ExportSpec()
@@ -257,5 +265,8 @@ void SStudioHome4Panel::ExportReport()
     FString Parent;if(!StudioFileDialog::ExportFolder(Parent))return;
     const auto* Evidence=Validation&&Validation->ProjectId==Model->Project.Id&&Validation->CaseId==Model->Project.Draft.Id&&
         Model->Project.Draft.Home4.IsSet()&&Validation->RecipeId==Model->Project.Draft.Home4->RecipeId?Validation->Evidence.Get():nullptr;
-    FString Destination,Error;Session->Status=StudioHome4Reports::Export(Parent,ReportName,Model->SnapshotProject(),Telemetry.Get(nullptr),Destination,Error,Evidence)?TEXT("Report saved to ")+Destination:Error;
+    if(Spatial)Spatial->Poll();
+    const auto SpatialEvidence=Spatial?Spatial->Evidence():TSharedPtr<const FStudioHome4SpatialEvidence,ESPMode::ThreadSafe>();
+    const auto ScienceProvenance=TelemetryProvenance.Get(TOptional<FStudioHome4TelemetryProvenance>());
+    FString Destination,Error;Session->Status=StudioHome4Reports::Export(Parent,ReportName,Model->SnapshotProject(),Telemetry.Get(nullptr),Destination,Error,Evidence,SpatialEvidence.Get(),ScienceProvenance?&ScienceProvenance.GetValue():nullptr)?TEXT("Report saved to ")+Destination:Error;
 }

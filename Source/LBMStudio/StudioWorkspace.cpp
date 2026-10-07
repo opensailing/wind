@@ -11,6 +11,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 #include "SStudioHome4Panel.h"
 #include "SStudioHome4Monitors.h"
 #include "SStudioHome4Lineage.h"
+#include "SStudioHome4ArchivePanel.h"
+#include "SStudioHome4Timeline.h"
+#include "SStudioHome4SpatialOverlay.h"
 #include "StudioHome4Validation.h"
 #include "StudioHome4Readouts.h"
 #include "StudioHome4Recipes.h"
@@ -1105,7 +1108,7 @@ struct FStudioLogWorkspaceState
 void SStudioWorkspace::Construct(const FArguments& A)
 {
     M=A._Model;Scene=A._Scene; SetCanTick(true);
-    Home4=MakeShared<FStudioHome4Session>(M);Home4Validation=MakeShared<FStudioHome4ValidationState>();
+    Home4=MakeShared<FStudioHome4Session>(M);Home4Spatial=MakeShared<FStudioHome4SpatialSession>(M);Home4Validation=MakeShared<FStudioHome4ValidationState>();
     bNewHome4Project=M->Workspace==EStudioWorkspace::Validation&&M->ProjectPath.IsEmpty()&&!M->Project.Draft.Home4.IsSet();
     PerformanceHistory=MakeShared<FStudioPerformanceHistory>();PerformanceProject=M->Project.Id;
     InspectionMarkers=MakeShared<FStudioProbeMarkerScheduler>();
@@ -1188,10 +1191,16 @@ void SStudioWorkspace::Construct(const FArguments& A)
                     +SWidgetSwitcher::Slot()[SAssignNew(Home4Monitors,SStudioHome4Monitors).Model(M)
                         .UnitDisplay_Lambda([this]{return M->UnitDisplay;})
                         .OnLocateCell_Lambda([this](const FStudioHome4CellFacts& Facts){LocateHome4Cell(Facts);})]]
-                +SWidgetSwitcher::Slot()[SAssignNew(Results,SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
+                +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
+                    +SVerticalBox::Slot().AutoHeight().Padding(12,6)[SNew(SButton).Tag(TEXT("Home4ArchivePanelToggle")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(10,6))
+                        .OnClicked_Lambda([this]{bHome4Archive=!bHome4Archive;return FReply::Handled();})
+                        [Live([this]{return bHome4Archive?TEXT("Back to recordings"):TEXT("HOME4 NPZ import / VTI export");},10,Cyan)]]
+                    +SVerticalBox::Slot().FillHeight(1)[SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return bHome4Archive?1:0;})
+                        +SWidgetSwitcher::Slot()[SAssignNew(Results,SStudioResultsWorkspace).Model(M).Scene(Scene.Get())
                     .OnInspect_Lambda([this]{Navigate(EStudioWorkspace::Solve);})
                     .OnImport_Lambda([this]{ImportRecording();})
                     .Locate([this](const FString& Id,const FString& Path){LocateRecording(Id,Path);})]
+                        +SWidgetSwitcher::Slot()[SNew(SScrollBox)+SScrollBox::Slot()[SNew(SStudioHome4ArchivePanel).Model(M)]]]]
                 +SWidgetSwitcher::Slot()[SAssignNew(Pipelines,SStudioPipelineWorkspace).Tag(TEXT("PipelineWorkspace")).Model(M).World(Scene->GetWorld())
                     .OnResults_Lambda([this]{Navigate(EStudioWorkspace::Results);})]
                 +SWidgetSwitcher::Slot()[Home4Page(TEXT("Bodies"))]
@@ -1220,10 +1229,12 @@ void SStudioWorkspace::Construct(const FArguments& A)
 }
 TSharedRef<SWidget> SStudioWorkspace::Home4Page(const FString& Page)
 {
-    return SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page).Validation(Home4Validation)
+    return SNew(SStudioHome4Panel).Model(M).Session(Home4).Page(Page).Validation(Home4Validation).Spatial(Home4Spatial)
+        .OnLocateSpatial_Lambda([this](const FStudioHome4SpatialLocation& Location){LocateHome4Spatial(Location);})
         .OnRecipe_Lambda([this](const FString& Id){ChooseHome4Recipe(Id);})
         .OnSubmit_Lambda([this]{DispatchControl(EStudioJobCommand::Submit);})
-        .Telemetry_Lambda([this]{return Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;});
+        .Telemetry_Lambda([this]{return Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;})
+        .TelemetryProvenance_Lambda([this]{return Home4Monitors?Home4Monitors->ReportProvenance():TOptional<FStudioHome4TelemetryProvenance>();});
 }
 bool SStudioWorkspace::EnsureHome4Resolved()
 {
@@ -1245,6 +1256,30 @@ void SStudioWorkspace::ChooseHome4Recipe(const FString& Id)
     }
     else if(!Home4->ApplyRecipe(Id))return;
     Navigate(EStudioWorkspace::Materials);
+}
+void SStudioWorkspace::LocateHome4Spatial(const FStudioHome4SpatialLocation& Location)
+{
+    Home4Spatial->Poll();const auto Evidence=Home4Spatial->Evidence();
+    const auto Field=Scene->PresentedField();const auto Volume=Field?Field->VolumeReconstruction():nullptr;
+    if(!Evidence||!Volume||!Volume->OriginalGrid||Evidence->RunId!=Location.RunId||Evidence->SourceSHA256!=Location.SourceSHA256)
+    {M->Notice=TEXT("Load the matching original source grid before locating this diagnostic cell.");return;}
+    const auto& Grid=*Volume->OriginalGrid;FGuid Run;
+    const auto* Patch=Evidence->Patches.FindByPredicate([&](const auto& P){return P.Id==Location.PatchId;});
+    if(Location.Level!=0||!Patch||!Patch->Extents||!Patch->Origin||!Patch->Spacing||!FGuid::Parse(Grid.SourceRunId,Run)||Run!=Location.RunId||
+        *Patch->Extents!=Grid.OriginalDimensions||!Patch->Origin->Equals(Grid.OriginalOrigin,1e-12)||!Patch->Spacing->Equals(Grid.OriginalSpacing,1e-12)||
+        Evidence->CoordinateUnit!=Grid.CoordinateUnits)
+    {M->Notice=TEXT("The selected patch needs a matching original grid and coordinate map. Fine patches are not mapped onto the root grid.");return;}
+    const auto Cell=Location.OriginalCell;FIntVector Selected;
+    for(int32 Axis=0;Axis<3;++Axis)
+    {const int32 Delta=Cell[Axis]-Grid.CropMinimum[Axis];if(Delta<0||Cell[Axis]>=Grid.CropMaximum[Axis]||Delta%Grid.PreviewStride!=0)
+        {M->Notice=TEXT("This original cell is outside the loaded crop or preview stride.");return;}Selected[Axis]=Delta/Grid.PreviewStride;}
+    const FVector Source=Grid.OriginMeters+Grid.SpacingMeters*FVector(Selected),Position(Source.X,Source.Z,Source.Y);
+    auto Camera=M->Project.Camera;Camera.Position+=Position-Camera.Focus;Camera.Focus=Position;
+    M->EditView(TEXT("Locate original spatial diagnostic"),[&](auto& View){View.Camera=Camera;});Scene->ApplyCamera(Camera);Navigate(EStudioWorkspace::Solve);
+    FStudioProbeObject Probe;Probe.Name=TEXT("Diagnostic cell ")+Location.PatchId;Probe.A=Position;Probe.Method=EStudioProbeMethod::OriginalPoint;
+    Probe.PointId=int64(Cell.X)+int64(Grid.OriginalDimensions.X)*(int64(Cell.Y)+int64(Grid.OriginalDimensions.Y)*Cell.Z);Probe.Field=Grid.PhaseField;
+    const auto Id=Probe.Id;if(M->AddProbe(Probe))M->SelectInspectionObject(Id);
+    M->Notice=TEXT("Focused the original diagnostic cell. The recorded time is unchanged.");
 }
 void SStudioWorkspace::LocateHome4Cell(const FStudioHome4CellFacts& Facts)
 {
@@ -1336,6 +1371,13 @@ TSharedRef<SWidget> SStudioWorkspace::Home4Inspector()
         Layers->AddSlot().AutoHeight().Padding(0,5)[Toggle];
     }
     Layers->AddSlot().AutoHeight()[Row(TEXT("Surface φ"),Number([this]{return M->Home4InterfaceIsovalue;},[this](double V){M->EditView(TEXT("Interface isovalue"),[&](auto& View){View.Display.Home4InterfaceIsovalue=V;});},.001,.999,TEXT(""),.05))];
+    Layers->AddSlot().AutoHeight().Padding(0,8)[Check(TEXT("Original patch & zone regions"),[this]{return bHome4SpatialOverlay;},[this](bool V){bHome4SpatialOverlay=V;})];
+    Layers->AddSlot().AutoHeight()[Live([this]{
+        const auto Evidence=Home4Spatial->Evidence();if(!Evidence)return FString(TEXT("Import spatial diagnostics in Lattice or Boundaries & Zones to show original regions."));
+        const auto Field=Scene->PresentedField();const auto V=Field?Field->VolumeReconstruction():nullptr;TArray<FStudioHome4SpatialRegion> Regions;FString Error;
+        if(!V||!V->OriginalGrid)return FString(TEXT("Regions need the matching original structured recording."));
+        if(!StudioHome4SpatialView::Regions(*Evidence,*V->OriginalGrid,Regions,Error))return Error;
+        return FString::Printf(TEXT("%d original regions · transparent annotations, patches are not stitched. Image exports retain the field view without these session annotations."),Regions.Num());},9,Muted,true)];
     Layers->AddSlot().AutoHeight().Padding(0,8)[Check(TEXT("Mask air in diagnostic fields"),[this]{return M->bHome4AirMask;},[this](bool V){M->EditView(TEXT("HOME4 air mask"),[&](auto& View){View.Display.bHome4AirMask=V;});})];
     Layers->AddSlot().AutoHeight().Padding(0,0,0,12)[Label(TEXT("Derivative fields retain their supplied validity mask and exclude one-node stencils touching air, solid or grid edges. Multidomain patches keep their own origin and spacing."),9,Muted,true)];
 
@@ -1759,6 +1801,8 @@ TSharedRef<SWidget> SStudioWorkspace::Center()
                 .SnapshotSize_Lambda([this]{return SnapshotButton&&SnapshotButton->IsOpen()&&!SnapshotUI->IsBusy()?SnapshotOutputSize():FIntPoint::ZeroValue;})
                 .InspectionHover(this,&SStudioWorkspace::InspectionHover)
                 .InspectionClick(this,&SStudioWorkspace::InspectionClick).CancelInspection(this,&SStudioWorkspace::CancelInspectionPlacement)]
+            +SOverlay::Slot()[SNew(SBox).Visibility_Lambda([this]{return bHome4SpatialOverlay&&M->Project.Draft.Home4.IsSet()?EVisibility::HitTestInvisible:EVisibility::Collapsed;})
+                [SNew(SStudioHome4SpatialOverlay).Scene(Scene.Get()).Session(Home4Spatial)]]
             +SOverlay::Slot()[Floating]
         ]]
     +SVerticalBox::Slot().AutoHeight().Padding(0,6)[Timeline()]
@@ -2265,6 +2309,12 @@ TSharedRef<SWidget> SStudioWorkspace::ScalarMenu()
     }
     return SNew(SBox).WidthOverride(248).MaxDesiredHeight(320)[SNew(SScrollBox)+SScrollBox::Slot()[Items]];
 }
+FString SStudioWorkspace::SourceReadout(double Value,const FString& Unit,bool Tooltip) const
+{
+    const auto Field=Scene.IsValid()?Scene->PresentedField():nullptr;const auto V=Field?Field->VolumeReconstruction():nullptr;
+    if(V&&V->OriginalGrid){const auto Map=V->OriginalGrid->UnitContext();return StudioHome4Readouts::Scalar(Value,Unit,M->UnitDisplay,&Map,Tooltip);}
+    return FString::Printf(TEXT("%.10g %s"),Value,*Unit);
+}
 FString SStudioWorkspace::FieldReadout(double Value,bool Tooltip) const
 {
     const auto Field=Scene.IsValid()?Scene->PresentedField():nullptr;const auto Volume=Field?Field->VolumeReconstruction():nullptr;
@@ -2430,16 +2480,52 @@ TSharedRef<SWidget> SStudioWorkspace::ColorMenu()
 TSharedRef<SWidget> SStudioWorkspace::Timeline()
 {
     return SNew(SBorder).BorderImage(&PanelBrush).Padding(10,8)
-    [SNew(SHorizontalBox)
+    [SNew(SVerticalBox)
+    +SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
         +SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,12,0)[Live([this]{return FString::Printf(TEXT("Snapshot %d / %d"),M->SelectedFrame+1,M->Solver->FrameCount());},10)]
         +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Slider([this]{return M->Frames.Num()<2?0.:static_cast<double>(M->SelectedFrame)/(M->Frames.Num()-1);},[this](double V){M->Scrub(V);})]
         +SHorizontalBox::Slot().AutoWidth().Padding(12,0,0,0)[Button(TEXT("Follow replay"),TEXT("run"),[this]{M->ReturnToLive();},Cyan)]
         +SHorizontalBox::Slot().AutoWidth().Padding(8,0,0,0)[SAssignNew(SnapshotButton,SStudioMenuButton).Tag(TEXT("SnapshotOptions"))
             .ButtonStyle(&ButtonStyle()).OnGetMenuContent(this,&SStudioWorkspace::SnapshotMenu)
             .ButtonContent()[SNew(SHorizontalBox)+SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Icon(TEXT("camera"))]
-                +SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)[Live([this]{return SnapshotUI->ButtonLabel();},10)]]]];
+                +SHorizontalBox::Slot().AutoWidth().Padding(6,0,0,0)[Live([this]{return SnapshotUI->ButtonLabel();},10)]]]]
+    +SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)
+        [SNew(SBox).Visibility_Lambda([this]{return M->Project.Draft.Home4.IsSet()?EVisibility::Visible:EVisibility::Collapsed;})
+            [SNew(SStudioHome4Timeline).Telemetry([this]{return Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;})
+                .SourceRun([this]() -> TOptional<FGuid>{const auto V=M->Solver->VolumeReconstruction();FGuid Id;
+                    if(V&&V->OriginalGrid&&FGuid::Parse(V->OriginalGrid->SourceRunId,Id)&&Home4Monitors&&Home4Monitors->OriginalRunIdentity()==TOptional<FGuid>(Id))return Id;return {};})
+                .Frames([this]{return &M->Frames;}).Review([this](int32 Ordinal){M->ReviewRecordedFrame(Ordinal);})
+                .WarmStart([this](const FStudioHome4OutputEvent& Event){
+                    const auto Source=Home4Monitors?Home4Monitors->ReportProvenance():TOptional<FStudioHome4TelemetryProvenance>();
+                    if(!Source||Source->OriginalRunId!=TOptional<FGuid>(Event.Source.RunId)||Source->SourcePath.IsEmpty()){M->Notice=TEXT("The original checkpoint path needs an identified log source.");return;}
+                    const auto Path=FPaths::IsRelative(Event.Path)?FPaths::ConvertRelativePathToFull(FPaths::GetPath(Source->SourcePath),Event.Path):Event.Path;
+                    Home4->Set(TEXT("run.initState"),Path);Home4->Status=TEXT("Checkpoint selected as a pending warm start. Apply configuration; the solver adapter must verify grid and full moment-state compatibility before launch.");Navigate(EStudioWorkspace::Run);})]]];
 }
 TSharedRef<SWidget> SStudioWorkspace::Monitors()
+{
+    auto Science=SNew(SHorizontalBox);
+    for(int32 I=0;I<5;++I)
+    {
+        auto Signal=[this,I]{const auto T=Home4Monitors?Home4Monitors->DisplayedTelemetry():nullptr;
+            return FStudioHome4Diagnostics::Evaluate(T&&T->Latest()?T->Latest().GetValue():FStudioHome4Sample(),Home4Monitors?Home4Monitors->DiagnosticPolicy():FStudioHome4DiagnosticPolicy())[I];};
+        Science->AddSlot().FillWidth(1).Padding(0,0,I==4?0:6,0)
+            [SNew(SBorder).BorderImage(&PanelBrush).Padding(9).ToolTipText_Lambda([Signal]{const auto S=Signal();return FText::FromString(S.Reason+TEXT("\n")+S.Remedy);})
+                [SNew(SVerticalBox)
+                    +SVerticalBox::Slot().AutoHeight()[Live([Signal]{return Signal().Label;},9,Text,true)]
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,10)[SNew(STextBlock).Font(Font(12,true)).AutoWrapText(true)
+                        .ColorAndOpacity_Lambda([Signal]{const auto Status=Signal().Status;return Status==EStudioHome4Health::Healthy?Green:Status==EStudioHome4Health::Warning?Amber:Muted;})
+                        .Text_Lambda([Signal]{const auto Status=Signal().Status;return FText::FromString(Status==EStudioHome4Health::Healthy?TEXT("Healthy"):Status==EStudioHome4Health::Warning?TEXT("Check"):TEXT("Unavailable"));})]
+                    +SVerticalBox::Slot().AutoHeight()[Live([Signal]{const auto S=Signal();return S.Value?FString::Printf(TEXT("Value %.4g"),*S.Value):TEXT("No original value");},9,Muted,true)]
+                    +SVerticalBox::Slot().AutoHeight().Padding(0,5)[Live([Signal]{const auto S=Signal();return S.Threshold?FString::Printf(TEXT("Threshold %.4g"),*S.Threshold):TEXT("Details in Monitors");},8,Muted,true)]]];
+    }
+    return SNew(SWidgetSwitcher).WidgetIndex_Lambda([this]{return M->Project.Draft.Home4.IsSet()?1:0;})
+        +SWidgetSwitcher::Slot()[RecordingMonitors()]
+        +SWidgetSwitcher::Slot()[SNew(SVerticalBox)
+            +SVerticalBox::Slot().AutoHeight().Padding(0,0,0,5)[Live([this]{return Home4Monitors&&Home4Monitors->IsImportedReplay()?TEXT("IMPORTED REPLAY · retained science measurements"):TEXT("SCIENCE · waiting for original solver telemetry");},9,Muted)]
+            +SVerticalBox::Slot().FillHeight(1)[Science]
+            +SVerticalBox::Slot().AutoHeight().Padding(0,5)[Button(TEXT("Inspect ledgers & budgets"),TEXT("chart"),[this]{Navigate(EStudioWorkspace::Monitors);},Cyan)]];
+}
+TSharedRef<SWidget> SStudioWorkspace::RecordingMonitors()
 {
     auto Card=[&](const FString& Title,TSharedRef<SWidget> Content)
     { return SNew(SBorder).BorderImage(&LineBrush).Padding(1)[SNew(SVerticalBox)
@@ -5373,6 +5459,9 @@ TSharedRef<SWidget> SStudioWorkspace::InspectionObjectControls(const FGuid& Id)
         if(Probe->Kind==EStudioProbeKind::Line)
         {
             Items->AddSlot().AutoHeight().Padding(0,0,0,8)[SNew(SStudioProbeProfile).Tag(TEXT("InspectionProfile"))
+                .Format([this](double V,const FString& Unit){return SourceReadout(V,Unit);})
+                .FormatTooltip([this](double V,const FString& Unit){return SourceReadout(V,Unit,true);})
+                .FormatRevision_Lambda([this]{return uint64(M->UnitDisplay);})
                 .Background(Panel).Accent(Cyan).TextColor(Text).MutedColor(Muted).GridColor(Line)
                 .Profile_Lambda([this,Id]() -> TSharedPtr<const FStudioProbeProfile>
                 {const auto* R=CurrentInspectionProbeResult(Id);return R&&InspectionProfile&&InspectionProfile->Matches(*R)?InspectionProfile:TSharedPtr<const FStudioProbeProfile>();})];
@@ -5563,7 +5652,7 @@ TSharedRef<SWidget> SStudioWorkspace::InspectionObjectControls(const FGuid& Id)
             for(int32 I=0;I<R->Samples.Num();++I)
             {
                 const auto& S=R->Samples[I];FString Value;
-                if(S.Value.IsSet())Value=FString::Printf(TEXT("%.10g %s"),S.Value.GetValue(),*R->Unit);
+                if(S.Value.IsSet())Value=SourceReadout(S.Value.GetValue(),R->Unit);
                 else if(S.Status==EStudioProbeSampleStatus::OffPlane)Value=TEXT("No value · outside source plane");
                 else if(S.Status==EStudioProbeSampleStatus::NoInterpolation)Value=TEXT("No interpolation mesh supplied");
                 else if(S.Status==EStudioProbeSampleStatus::MissingPoint)Value=TEXT("No value · original point ID not found");
@@ -5726,13 +5815,13 @@ FString SStudioWorkspace::InspectionSummary() const
     for(const auto& S:R->Samples)if(S.Value.IsSet()){++Valid;Low=FMath::Min(Low,S.Value.GetValue());High=FMath::Max(High,S.Value.GetValue());}
     if(R->Samples.Num()==1)
     {
-        if(Valid)return FString::Printf(TEXT("%.10g %s\n%s"),Low,*R->Unit,*Stamp);
+        if(Valid)return SourceReadout(Low,R->Unit)+TEXT("\n")+Stamp;
         const auto Status=R->Samples[0].Status;
         return (Status==EStudioProbeSampleStatus::OffPlane?FString(TEXT("No value · outside source plane\n")):
             Status==EStudioProbeSampleStatus::NoInterpolation?FString(TEXT("No interpolation mesh supplied\n")):
             Status==EStudioProbeSampleStatus::MissingPoint?FString(TEXT("No value · original point ID not found\n")):FString(TEXT("No value · outside source coverage\n")))+Stamp;
     }
-    return Valid?FString::Printf(TEXT("%.6g to %.6g %s · %d/%d samples\n%s"),Low,High,*R->Unit,Valid,R->Samples.Num(),*Stamp):TEXT("No supported samples\n")+Stamp;
+    return Valid?SourceReadout(Low,R->Unit)+TEXT(" to ")+SourceReadout(High,R->Unit)+FString::Printf(TEXT(" · %d/%d samples\n%s"),Valid,R->Samples.Num(),*Stamp):TEXT("No supported samples\n")+Stamp;
 }
 
 const FStudioProbeResult* SStudioWorkspace::CurrentInspectionProbeResult(const FGuid& Id) const

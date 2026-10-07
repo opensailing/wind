@@ -52,7 +52,9 @@ void FStudioHome4Session::Revert()
         if(JSON->TryGetObjectField(Field.Section,Section))
         {const auto V=(*Section)->TryGetField(Field.Key);Edits.Add(Key(Field),ValueText(V));}
     }
-    Original=Edits;bConflict=false;Status.Empty();
+    AllocationEdits.Reset();
+    for(const auto& A:Saved.Performance.Allocations)AllocationEdits.Add({A.Name,A.Nodes.IsSet()?LexToString(*A.Nodes):FString(),LexToString(A.Components),LexToString(A.BytesPerComponent),LexToString(A.Buffers)});
+    OriginalAllocations=AllocationEdits;Original=Edits;bConflict=false;Status.Empty();
 }
 void FStudioHome4Session::Refresh()
 {
@@ -68,7 +70,24 @@ void FStudioHome4Session::Refresh()
 void FStudioHome4Session::Set(const FString& Key,const FString& Value){if(Edits.Contains(Key)){Edits[Key]=Value;Status.Empty();}}
 FString FStudioHome4Session::Get(const FString& Key) const {const auto* V=Edits.Find(Key);return V?*V:FString();}
 bool FStudioHome4Session::IsDirty() const
-{for(const auto& E:Edits){const auto* O=Original.Find(E.Key);if(!O||*O!=E.Value)return true;}return false;}
+{if(AllocationEdits!=OriginalAllocations)return true;for(const auto& E:Edits){const auto* O=Original.Find(E.Key);if(!O||*O!=E.Value)return true;}return false;}
+FString FStudioHome4Session::AllocationValue(int32 Row,int32 Column) const
+{return AllocationEdits.IsValidIndex(Row)&&AllocationEdits[Row].IsValidIndex(Column)?AllocationEdits[Row][Column]:FString();}
+void FStudioHome4Session::SetAllocation(int32 Row,int32 Column,const FString& Value)
+{if(AllocationEdits.IsValidIndex(Row)&&AllocationEdits[Row].IsValidIndex(Column)){AllocationEdits[Row][Column]=Value;Status.Empty();}}
+void FStudioHome4Session::AddAllocation()
+{
+    if(AllocationEdits.Num()>=256)return;
+    FString Nodes,Error;FStudioHome4Spec Preview;
+    if(Build(Preview,Error))
+    {
+        const auto Cells=StudioHome4Config::Derive(Preview).RootCells;
+        if(Cells.IsSet()&&*Cells<=9007199254740991ULL)Nodes=LexToString(*Cells);
+    }
+    AllocationEdits.Add({TEXT("New array"),Nodes,TEXT("1"),TEXT("4"),TEXT("1")});
+}
+void FStudioHome4Session::RemoveAllocation(int32 Row)
+{if(AllocationEdits.IsValidIndex(Row))AllocationEdits.RemoveAt(Row);}
 bool FStudioHome4Session::Build(FStudioHome4Spec& Out,FString& Error) const
 {
     auto JSON=StudioHome4Config::ToJSON(Saved);
@@ -100,6 +119,21 @@ bool FStudioHome4Session::Build(FStudioHome4Spec& Out,FString& Error) const
         }
         Section->SetArrayField(F.Key,Values);
     }
+    TArray<TSharedPtr<FJsonValue>> Allocations;
+    for(const auto& Draft:AllocationEdits)
+    {
+        auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("name"),Draft[0]);
+        const TCHAR* Keys[]={TEXT("nodes"),TEXT("components"),TEXT("bytesPerComponent"),TEXT("buffers")};
+        for(int32 I=1;I<5;++I)
+        {
+            if(I==1&&Draft[I].TrimStartAndEnd().IsEmpty()){A->SetField(Keys[I-1],MakeShared<FJsonValueNull>());continue;}
+            double N;if(!Number(Draft[I],N)||N<1||N>9007199254740991.||N!=FMath::FloorToDouble(N))
+            {Error=TEXT("Allocation ")+Draft[0]+TEXT(": enter positive whole counts; blank nodes leaves the memory estimate unknown.");return false;}
+            A->SetNumberField(Keys[I-1],N);
+        }
+        Allocations.Add(MakeShared<FJsonValueObject>(A));
+    }
+    JSON->GetObjectField(TEXT("performance"))->SetArrayField(TEXT("allocations"),Allocations);
     return StudioHome4Config::FromJSON(JSON,Out,Error);
 }
 bool FStudioHome4Session::Apply()

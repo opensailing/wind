@@ -8,6 +8,9 @@ class SStudioProbeProfile final : public SLeafWidget
 public:
     SLATE_BEGIN_ARGS(SStudioProbeProfile){}
         SLATE_ATTRIBUTE(TSharedPtr<const FStudioProbeProfile>,Profile)
+        SLATE_ARGUMENT(TFunction<FString(double,const FString&)>,Format)
+        SLATE_ARGUMENT(TFunction<FString(double,const FString&)>,FormatTooltip)
+        SLATE_ATTRIBUTE(uint64,FormatRevision)
         SLATE_ARGUMENT(FLinearColor,Background)
         SLATE_ARGUMENT(FLinearColor,Accent)
         SLATE_ARGUMENT(FLinearColor,TextColor)
@@ -29,6 +32,11 @@ private:
     friend class FStudioSurfaceSequenceCommand;
 #endif
     void SelectAt(const FGeometry&,const FVector2D&);
+    TFunction<FString(double,const FString&)> Format,FormatTooltip;
+    TAttribute<uint64> FormatRevision;
+    uint64 LastFormatRevision=MAX_uint64;
+    FString Readout(double Value,const FString& Unit) const;
+    double Left(const FStudioProbeProfile& P) const;
     TAttribute<TSharedPtr<const FStudioProbeProfile>> Profile;
     TSharedPtr<const FStudioProbeProfile> PaintedProfile;
     FLinearColor Background,Accent,TextColor,MutedColor,GridColor;
