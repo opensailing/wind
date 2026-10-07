@@ -142,6 +142,7 @@ namespace StudioProjectIO
     bool CameraFromJSON(const TSharedPtr<FJsonObject>& Object,FStudioCameraState& Camera);
     /** The same versioned display settings stored in project documents. */
     TSharedRef<FJsonObject> ViewToJSON(const FStudioViewSettings& View);
+    bool ViewFromJSON(const TSharedPtr<FJsonObject>& Object,FStudioViewSettings& View);
     FString Serialize(const FStudioProject& Project);
     bool Parse(const FString& Text, FStudioProject& Out, FString& Error);
     bool Load(const FString& Path, FStudioProject& Out, FString& Error);

@@ -1,4 +1,5 @@
 #include "StudioModel.h"
+#include "StudioHome4ViewerDefaults.h"
 #include "StudioVolume.h"
 #include "StudioFlowPresentation.h"
 #include "StudioSnapshotSource.h"
@@ -563,6 +564,7 @@ bool FStudioModel::CreateProject(const FString& Path,const FString& Name,const F
     if(!CanReplaceProject())return false;
     FStudioProject Candidate; Candidate.Name=Name.TrimStartAndEnd(); FString Error;
     if(Home4Spec){Candidate.Draft.Home4=*Home4Spec;Candidate.Draft.Name=Candidate.Name;Candidate.Dataset.Empty();Candidate.Runs.Reset();Candidate.Recordings.Reset();}
+    if(Home4Spec&&!StudioHome4ViewerDefaults::ApplyToNewProject(Candidate,Error,StorageDirectory/TEXT("Home4ViewerDefaults.json"))){Notice=Error;return false;}
     const auto Source=PrepareRecording(Candidate,0); if(!Source) return false;
     // Commit the file before replacing any live state, including unsaved work.
     if(!StudioProjectIO::Save(Path,Candidate,Error)) { Notice=Error; return false; }

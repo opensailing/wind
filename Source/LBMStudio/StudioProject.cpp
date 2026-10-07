@@ -217,6 +217,9 @@ namespace
 TSharedRef<FJsonObject> StudioProjectIO::ViewToJSON(const FStudioViewSettings& View)
 {return ViewJSON(View).ToSharedRef();}
 
+bool StudioProjectIO::ViewFromJSON(const TSharedPtr<FJsonObject>& Object,FStudioViewSettings& View)
+{FStudioViewSettings Candidate;if(!Object||!ReadView(Object,Candidate,false,true,true,true,true,true,true,true))return false;View=MoveTemp(Candidate);return true;}
+
 TSharedRef<FJsonObject> StudioProjectIO::CameraToJSON(const FStudioCameraState& Camera)
 {return CameraJSON(Camera).ToSharedRef();}
 bool StudioProjectIO::CameraFromJSON(const TSharedPtr<FJsonObject>& Object,FStudioCameraState& Camera)

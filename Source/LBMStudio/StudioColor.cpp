@@ -17,7 +17,7 @@ bool StudioColor::IsValid(const FStudioScalarStyle& S)
     };
     auto Color=[](const FLinearColor& C){return FMath::IsFinite(C.R)&&FMath::IsFinite(C.G)&&FMath::IsFinite(C.B)&&
         C.R>=0&&C.R<=1&&C.G>=0&&C.G<=1&&C.B>=0&&C.B<=1&&C.A==1;};
-    return Id(S.Dataset)&&Id(S.Field)&&S.Palette>=0&&S.Palette<=3&&Color(S.LowColor)&&Color(S.MiddleColor)&&Color(S.HighColor)&&
+    return ((S.Dataset!=TEXT("*")&&S.Field!=TEXT("*"))||(S.Dataset==TEXT("*")&&S.Field==TEXT("*")&&!S.bManualRange))&&Id(S.Dataset)&&Id(S.Field)&&S.Palette>=0&&S.Palette<=3&&Color(S.LowColor)&&Color(S.MiddleColor)&&Color(S.HighColor)&&
         FMath::IsFinite(S.Minimum)&&FMath::IsFinite(S.Maximum)&&S.Minimum<=S.Maximum&&(!S.bManualRange||S.Minimum<S.Maximum)&&
         FMath::IsFinite(S.Maximum-S.Minimum);
 }
@@ -40,6 +40,8 @@ FStudioColorMapping StudioColor::Resolve(const FString& Dataset,const FStudioSca
         M.LowColor=S->LowColor;M.MiddleColor=S->MiddleColor;M.HighColor=S->HighColor;
         if(S->bManualRange){M.Minimum=S->Minimum;M.Maximum=S->Maximum;}
     }
+    else if(const auto* DefaultStyle=Styles.FindByPredicate([](const auto& V){return V.Dataset==TEXT("*")&&V.Field==TEXT("*")&&!V.bManualRange;}))
+    {M.Palette=DefaultStyle->Palette;M.LowColor=DefaultStyle->LowColor;M.MiddleColor=DefaultStyle->MiddleColor;M.HighColor=DefaultStyle->HighColor;}
     return M;
 }
 FString StudioColor::PaletteName(int32 Palette)
