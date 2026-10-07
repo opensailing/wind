@@ -64,8 +64,13 @@ namespace StudioHome4ReportTelemetryPrivate
         }
         if(P->bImportedReplay&&(P->SourcePath.IsEmpty()||P->SourceSHA256.IsEmpty()))
         {Error=TEXT("Imported telemetry requires its verified original file path and SHA256.");return false;}
+        if(P->SelectedStepStart.IsSet()!=P->SelectedStepEnd.IsSet()||
+            (P->SelectedStepStart&&(*P->SelectedStepStart<0||*P->SelectedStepEnd<*P->SelectedStepStart)))
+        {Error=TEXT("Original replay selection requires paired nonnegative increasing step bounds.");return false;}
         for(const auto& S:Stream.History())if(S.Source.RunId!=P->StreamRunId||S.Source.SourceId!=P->SourceId)
         {Error=TEXT("Telemetry provenance does not match the retained original measurements.");return false;}
+        for(const auto& S:Stream.History())if(P->SelectedStepStart&&(!S.Step||*S.Step<*P->SelectedStepStart||*S.Step>*P->SelectedStepEnd))
+        {Error=TEXT("Replay selection does not contain every retained original measurement step.");return false;}
         for(const auto& O:Stream.OutputEvents())if(O.Source.RunId!=P->StreamRunId||O.Source.SourceId!=P->SourceId)
         {Error=TEXT("Telemetry provenance does not match retained original output events.");return false;}
         Error.Empty();return true;
@@ -223,6 +228,7 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
         Provenance->SetBoolField(TEXT("imported_replay"),TelemetryProvenance->bImportedReplay);
         Provenance->SetBoolField(TEXT("captured_prefix"),TelemetryProvenance->bCapturedPrefix);Provenance->SetBoolField(TEXT("capture_covers_displayed_data"),TelemetryProvenance->bCaptureCoversDisplayedData);
         Provenance->SetNumberField(TEXT("captured_byte_count"),TelemetryProvenance->CapturedByteCount);
+        if(TelemetryProvenance->SelectedStepStart){Provenance->SetNumberField(TEXT("selected_original_step_start"),*TelemetryProvenance->SelectedStepStart);Provenance->SetNumberField(TEXT("selected_original_step_end"),*TelemetryProvenance->SelectedStepEnd);Provenance->SetStringField(TEXT("selection"),TEXT("Exact original step interval; every selected measurement retained. Entire verified log bundled independently."));}
         if(Inputs&&Inputs->OriginalTelemetryBytes&&!Inputs->OriginalTelemetryBytes->IsEmpty())
         {
             const TCHAR* File=TelemetryProvenance->bCapturedPrefix?TEXT("original-live-prefix.jsonl"):TEXT("original-telemetry.jsonl");
@@ -322,6 +328,7 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
             auto Provenance=MakeShared<FJsonObject>();Provenance->SetStringField(TEXT("kind"),TEXT("reference_overlay"));Provenance->SetStringField(TEXT("metric_id"),V.Id);Provenance->SetStringField(TEXT("unit"),V.Unit);
             Provenance->SetStringField(TEXT("x_name"),V.AbscissaName);Provenance->SetStringField(TEXT("x_unit"),V.AbscissaUnit);Provenance->SetStringField(TEXT("original_epoch"),V.AbscissaEpoch.IsEmpty()?TEXT("unknown"):V.AbscissaEpoch);Provenance->SetNumberField(TEXT("window_start"),V.Abscissae[0]);Provenance->SetNumberField(TEXT("window_end"),V.Abscissae.Last());Provenance->SetBoolField(TEXT("window_inclusive"),true);
             Provenance->SetNumberField(TEXT("absolute_tolerance"),V.AbsoluteTolerance);Provenance->SetNumberField(TEXT("relative_tolerance"),V.RelativeTolerance);
+            Provenance->SetObjectField(TEXT("metric_context"),StudioHome4Validation::MetricContext(V));
             const FString Caption=V.Name+TEXT(" [")+V.Unit+TEXT("] · evidence run ")+Evidence->RunId.ToString()+FString::Printf(TEXT(" · inclusive %s window %.17g to %.17g %s · absolute tolerance %.17g, relative %.17g. Display preview; complete data in its CSV."),*V.AbscissaName,V.Abscissae[0],V.Abscissae.Last(),*V.AbscissaUnit,V.AbsoluteTolerance,V.RelativeTolerance);
             if(!Figure(FString::Printf(TEXT("reference-%02d"),I+1),Plot,Caption,Provenance,{}))return Abort();
         }
@@ -358,6 +365,7 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
             if(TelemetryProvenance->OriginalRunId)Sidecar->SetStringField(TEXT("original_run_id"),TelemetryProvenance->OriginalRunId->ToString());
             Sidecar->SetStringField(TEXT("body_id"),Body);Sidecar->SetStringField(TEXT("phase"),Phase);Sidecar->SetNumberField(TEXT("level"),Level);Sidecar->SetNumberField(TEXT("component"),Component);
             Sidecar->SetStringField(TEXT("axis"),History.Axis);Sidecar->SetStringField(TEXT("unit"),History.Unit);Sidecar->SetStringField(TEXT("conversion_note"),History.Note);
+            if(TelemetryProvenance->SelectedStepStart){Sidecar->SetNumberField(TEXT("selected_original_step_start"),*TelemetryProvenance->SelectedStepStart);Sidecar->SetNumberField(TEXT("selected_original_step_end"),*TelemetryProvenance->SelectedStepEnd);}
             Sidecar->SetNumberField(TEXT("window_start"),Plot.XMin);Sidecar->SetNumberField(TEXT("window_end"),Plot.XMax);Sidecar->SetNumberField(TEXT("retained_original_samples"),Plot.X.Num());
             Sidecar->SetBoolField(TEXT("source_is_captured_prefix"),TelemetryProvenance->bCapturedPrefix);Sidecar->SetBoolField(TEXT("capture_covers_displayed_data"),TelemetryProvenance->bCaptureCoversDisplayedData);
             Sidecar->SetStringField(TEXT("missing_values"),TEXT("Blank CSV values and visible disconnected plot segments; no filling or interpolation."));Sidecar->SetStringField(TEXT("gate_status"),TEXT("not_evaluated"));
@@ -397,6 +405,11 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
         Manifest->SetArrayField(TEXT("original_results"),Results);Metadata->SetObjectField(TEXT("ladder_evidence"),Manifest);
         if(State.ConvergenceEvidence)
         {
+            if(State.ConvergenceEvidence->OrderRuns.Num()!=3||!State.ExtractionPolicy){Error=TEXT("Convergence export needs a selected original triplet and its declared extraction policy.");return Abort();}
+            auto CheckedState=State;const int32 First=State.Ladder.IndexOfByPredicate([&](const auto& R){return R.PlannedRunId==State.ConvergenceEvidence->OrderRuns[0].RunId;});
+            if(!StudioHome4Validation::ApplyExtraction(CheckedState,*State.ExtractionPolicy,Error)||!StudioHome4Validation::AssembleConvergence(CheckedState,First,Error)||
+                StudioHome4Validation::SerializeEvidence(*CheckedState.ConvergenceEvidence)!=StudioHome4Validation::SerializeEvidence(*State.ConvergenceEvidence))
+            {if(Error.IsEmpty())Error=TEXT("Convergence scalars or selected triplet no longer match exact original evidence/extraction.");return Abort();}
             FStudioHome4ReportPlot Plot;if(!StudioHome4ReportPlots::Convergence(*State.ConvergenceEvidence,Plot,Error))return Abort();
             const auto Provenance=StudioHome4Validation::EvidenceMetadata(*State.ConvergenceEvidence);FString JSON;FJsonSerializer::Serialize(Provenance,TJsonWriterFactory<>::Create(&JSON));
             TArray<FGuid> Runs;for(const auto& V:State.ConvergenceEvidence->OrderRuns)Runs.Add(V.RunId);

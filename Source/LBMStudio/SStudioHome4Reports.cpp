@@ -14,6 +14,7 @@
 #include "Widgets/Text/STextBlock.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
+#include "Async/Async.h"
 
 void SStudioHome4Reports::Construct(const FArguments& A)
 {
@@ -37,6 +38,8 @@ void SStudioHome4Reports::Construct(const FArguments& A)
     Rows->AddSlot().AutoHeight()[SNew(SCheckBox).Tag(TEXT("Home4ReportPublication")).IsChecked_Lambda([this]{return bFigurePublication?ECheckBoxState::Checked:ECheckBoxState::Unchecked;})
         .OnCheckStateChanged_Lambda([this](ECheckBoxState V){bFigurePublication=V==ECheckBoxState::Checked;})[Label(TEXT("Publish figure run only after original coefficient agreement"),9)]];
     Button(TEXT("Import independently identified published coefficient evidence…"),TEXT("Home4ReportImportPublished"),[this]{ImportPublished();});
+    Rows->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("Home4ReportCancelPublished")).ButtonStyle(&ButtonStyle()).IsEnabled_Lambda([this]{return IsImporting();})
+        .OnClicked_Lambda([this]{CancelImport();return FReply::Handled();})[Label(TEXT("Cancel original published evidence read"),9)]];
     Input(TEXT("Publication absolute tolerance (explicit)"),TEXT("Home4ReportAbsolute"),&AbsoluteDraft);
     Input(TEXT("Publication relative tolerance (explicit)"),TEXT("Home4ReportRelative"),&RelativeDraft);
     Button(TEXT("Export original science report bundle…"),TEXT("Home4ReportExport"),[this]{ExportDialog();});
@@ -49,6 +52,8 @@ void SStudioHome4Reports::Scope()
     if(ProjectId==P&&CaseId==C)return;ProjectId=P;CaseId=C;Published.Reset();
     Status=TEXT("Select original science/reference evidence for this project/case; missing source inputs stay unavailable.");
 }
+void SStudioHome4Reports::Tick(const FGeometry& G,double Time,float Delta)
+{SCompoundWidget::Tick(G,Time,Delta);Scope();PollImport();}
 bool SStudioHome4Reports::QueueFigureRun()
 {
     Scope();const auto M=Model.Pin();if(!M||!M->Project.Draft.Home4||!Runtime){Status=TEXT("Apply a HOME4 request and review a shared runtime target first.");return false;}
@@ -91,8 +96,23 @@ void SStudioHome4Reports::ImportPublished()
 {
     Scope();const auto M=Model.Pin();if(!M||!M->Project.Draft.Home4){Status=TEXT("Apply a recipe before selecting published evidence.");return;}
     FString Path;if(!StudioFileDialog::DataFile(false,TEXT("Import original published coefficient reference"),TEXT(""),TEXT("json"),Path))return;
-    FStudioHome4ReferenceExpectation Expected;Expected.RecipeId=M->Project.Draft.Home4->RecipeId;FStudioHome4ReferenceEvidence E;
-    if(!StudioHome4Validation::Load(Path,Expected,E,Status))return;
-    E.AttachedProjectId=ProjectId;E.AttachedCaseId=CaseId;
-    Published=MakeShared<FStudioHome4ReferenceEvidence>(MoveTemp(E));Status=TEXT("Original published coefficient evidence selected; comparison remains pending explicit tolerances and current original figure evidence.");
+    ImportPublishedPath(Path);
+}
+bool SStudioHome4Reports::ImportPublishedPath(const FString& Path)
+{
+    Scope();const auto M=Model.Pin();if(IsImporting()||!M||!M->Project.Draft.Home4||Path.IsEmpty()){Status=TEXT("Select a recipe and original published evidence path; prior reference retained.");return false;}
+    const auto Recipe=M->Project.Draft.Home4->RecipeId;const auto Project=ProjectId,Case=CaseId;bCancelImport=false;
+    PendingPublished=Async(EAsyncExecution::ThreadPool,[Path,Recipe,Project,Case]
+    {FPublishedResult R;R.Recipe=Recipe;R.Project=Project;R.Case=Case;FStudioHome4ReferenceExpectation X;X.RecipeId=Recipe;FStudioHome4ReferenceEvidence E;if(StudioHome4Validation::Load(Path,X,E,R.Error))R.Evidence=MakeShared<FStudioHome4ReferenceEvidence>(MoveTemp(E));return R;});
+    Status=TEXT("Reading original published evidence in the background; prior reference retained.");return true;
+}
+void SStudioHome4Reports::PollImport()
+{
+    Scope();if(!PendingPublished.IsValid()||!PendingPublished.IsReady())return;
+    auto R=MoveTemp(PendingPublished.GetMutable());PendingPublished={};const auto M=Model.Pin();
+    if(bCancelImport){bCancelImport=false;Status=TEXT("Published evidence read cancelled; prior reference retained.");return;}
+    if(!M||R.Project!=ProjectId||R.Case!=CaseId||!M->Project.Draft.Home4||M->Project.Draft.Home4->RecipeId!=R.Recipe){Status=TEXT("Project/case/recipe changed during import; evidence not attached.");return;}
+    if(!R.Evidence){Status=R.Error+TEXT(" Prior published reference retained.");return;}
+    R.Evidence->AttachedProjectId=ProjectId;R.Evidence->AttachedCaseId=CaseId;Published=MoveTemp(R.Evidence);
+    Status=TEXT("Original published coefficient evidence selected; comparison awaits explicit tolerances and original figure evidence.");
 }

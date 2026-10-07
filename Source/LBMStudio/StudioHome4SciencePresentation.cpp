@@ -1,5 +1,6 @@
 #include "StudioHome4SciencePresentation.h"
 #include "StudioTheme.h"
+#include "StudioHome4BodyDiagnostics.h"
 
 namespace StudioHome4SciencePresentation
 {
@@ -8,7 +9,7 @@ namespace StudioHome4SciencePresentation
         static const TCHAR* Names[]={TEXT("Mass drift"),TEXT("Budget residual"),TEXT("Force channels"),TEXT("Water KE"),TEXT("Air KE"),TEXT("Surface energy"),
             TEXT("Selected phase KE"),TEXT("Selected phase PE"),TEXT("Mach number"),TEXT("Minimum tau"),TEXT("Maximum speed"),TEXT("Divergence norm"),TEXT("Spurious speed"),
             TEXT("Limiter cells"),TEXT("Threshold cells"),TEXT("Measured MLUPS"),TEXT("Cumulative MLUPS"),TEXT("Achieved GB/s"),TEXT("Selected level mass drift"),
-            TEXT("Selected level injection"),TEXT("Selected level measured MLUPS"),TEXT("Body position Z"),TEXT("Body velocity Z"),TEXT("Body roll"),TEXT("Body pitch"),TEXT("Body yaw"),TEXT("Fitted added mass"),TEXT("Fitted damping"),TEXT("Driver reported MLUPS"),TEXT("Driver reported cumulative MLUPS"),TEXT("Measured tau margin to 1/2"),TEXT("Budget terms")};
+            TEXT("Selected level injection"),TEXT("Selected level measured MLUPS"),TEXT("Body position Z"),TEXT("Body velocity Z"),TEXT("Body roll"),TEXT("Body pitch"),TEXT("Body yaw"),TEXT("Fitted added mass"),TEXT("Fitted damping"),TEXT("Driver reported MLUPS"),TEXT("Driver reported cumulative MLUPS"),TEXT("Measured tau margin to 1/2"),TEXT("Budget terms"),TEXT("Held/running/quasi-static/reference heave"),TEXT("Held/running/quasi-static/reference pitch")};
         return int32(M)<UE_ARRAY_COUNT(Names)?Names[int32(M)]:TEXT("Unavailable metric");
     }
     const FStudioHome4Normalization* Normalization(const FStudioHome4Sample* S,const FString& Body)
@@ -85,7 +86,11 @@ namespace StudioHome4SciencePresentation
         const TCHAR* Channels[]={TEXT("Stress"),TEXT("Momentum"),TEXT("Pressure"),TEXT("Viscous"),TEXT("Stress - momentum")};
         const FLinearColor Colors[]={StudioUI::Cyan,StudioUI::Amber,FLinearColor(.63,.54,.95),FLinearColor(.4,.8,.52),StudioUI::Text};
         const TCHAR* BudgetNames[]={TEXT("Work"),TEXT("D near"),TEXT("D far"),TEXT("D air"),TEXT("Beach"),TEXT("Floor"),TEXT("Delta KE"),TEXT("Delta PE"),TEXT("Residual")};
-        for(int32 I=0;I<(M==EMetric::Forces?5:M==EMetric::BudgetTerms?9:1);++I){FSeries Series;Series.Label=M==EMetric::Forces?Channels[I]:M==EMetric::BudgetTerms?BudgetNames[I]:Name(M);Series.Color=Colors[I%5];Out.Series.Add(MoveTemp(Series));}
+        const bool BodyComparison=M==EMetric::BodyHeaveComparison||M==EMetric::BodyPitchComparison;
+        const bool FitComparison=M==EMetric::AddedMass||M==EMetric::Damping;
+        const TCHAR* BodyNames[]={TEXT("Held"),TEXT("Running"),TEXT("Source quasi-static"),TEXT("Identified reference"),TEXT("Calculated K inverse")};
+        const int32 ChannelCount=M==EMetric::Forces?5:M==EMetric::BudgetTerms?9:BodyComparison?5:FitComparison?2:1;
+        for(int32 I=0;I<ChannelCount;++I){FSeries Series;Series.Label=M==EMetric::Forces?Channels[I]:M==EMetric::BudgetTerms?BudgetNames[I]:BodyComparison?BodyNames[I]:FitComparison?(I?TEXT("Identified fit reference"):Name(M)):Name(M);Series.Color=Colors[I%5];Out.Series.Add(MoveTemp(Series));}
         bool Raw=false;FString ExpectedUnit;
         for(const auto& S:H)
         {
@@ -93,7 +98,29 @@ namespace StudioHome4SciencePresentation
             const auto* B=Body(S,BodyId);const auto* L=S.Levels.FindByPredicate([&](const auto& V){return V.Level==Level;});
             const auto* P=S.PhaseEnergies.Find(Phase);EStudioHome4Quantity Q=EStudioHome4Quantity::Dimensionless;
             TArray<TOptional<double>> Values;FString ExplicitUnit;
-            if(M==EMetric::BudgetTerms)
+            TOptional<double> CalculatedSI;
+            if(BodyComparison)
+            {
+                Values.SetNum(5);
+                if(B)
+                {
+                    const auto Quasi=StudioHome4BodyDiagnostics::QuasiStatic(S,*B);
+                    if(M==EMetric::BodyHeaveComparison)
+                    {Values={B->EquilibriumHeave,B->RunningHeave,B->QuasiStaticHeave,B->ReferenceSource.IsEmpty()?TOptional<double>():B->ReferenceHeave,TOptional<double>()};Q=EStudioHome4Quantity::Length;CalculatedSI=Quasi.HeaveMeters;}
+                    else
+                    {Values={B->EquilibriumAttitudeDegrees?TOptional<double>(B->EquilibriumAttitudeDegrees->Y):TOptional<double>(),B->RunningAttitudeDegrees?TOptional<double>(B->RunningAttitudeDegrees->Y):TOptional<double>(),B->QuasiStaticPitchDegrees,B->ReferenceSource.IsEmpty()?TOptional<double>():B->ReferenceAttitudeDegrees?TOptional<double>(B->ReferenceAttitudeDegrees->Y):TOptional<double>(),Quasi.PitchDegrees};ExplicitUnit=TEXT("degrees");}
+                }
+                Out.Note=TEXT("Original supplied body comparisons; reference identity and missing conventions remain explicit. No tank gate is inferred. Calculated K inverse requires declared compatible SI components/loads.");
+            }
+            else if(FitComparison)
+            {
+                Values.SetNum(2);
+                if(B)
+                {Values={M==EMetric::AddedMass?B->AddedMass:B->Damping,B->FitReferenceSource.IsEmpty()?TOptional<double>():M==EMetric::AddedMass?B->ReferenceAddedMass:B->ReferenceDamping};ExplicitUnit=M==EMetric::AddedMass?B->AddedMassUnit:B->DampingUnit;}
+                if(ExplicitUnit.IsEmpty())ExplicitUnit=TEXT("raw source units");
+                Out.Note=TEXT("Original fitted/reference coefficients on original log time; supplied fit frequency/window/method retained in the source. Use Validation's separate original reference selector for frequency curves and explicit tolerance gates.");
+            }
+            else if(M==EMetric::BudgetTerms)
             {
                 const auto* Budget=Phase.IsEmpty()?&S.Budget:S.PhaseBudgets.Find(Phase);
                 if(Budget)Values={Budget->Work,Budget->DissipationNear,Budget->DissipationFar,Budget->DissipationAir,Budget->BeachLoss,Budget->FloorLoss,Budget->DeltaKE,Budget->DeltaPE,Budget->Residual};
@@ -147,6 +174,11 @@ namespace StudioHome4SciencePresentation
             for(int32 I=0;I<Values.Num();++I)
             {
                 auto V=Quantity(Values[I],S,Q,Display,M==EMetric::Forces&&Normalize,BodyId);
+                if(M==EMetric::BodyHeaveComparison&&I==4&&CalculatedSI)
+                {
+                    if(Display==EStudioHome4UnitDisplay::Physical){V.Number=CalculatedSI;V.Unit=TEXT("m");}
+                    else if(S.Metadata){V.Number=StudioHome4Config::ConvertUnits(*CalculatedSI,EStudioHome4Quantity::Length,EStudioHome4UnitDisplay::Physical,Display,S.Metadata->UnitMap);V.Unit=Display==EStudioHome4UnitDisplay::Lattice?TEXT("cells"):TEXT("1");}
+                }
                 if(!ExplicitUnit.IsEmpty())V.Unit=ExplicitUnit;
                 if(S.bNonfinite)V.Number.Reset();
                 if(V.Number)

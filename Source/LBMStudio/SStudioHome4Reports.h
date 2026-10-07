@@ -1,6 +1,7 @@
 #pragma once
 #include "Widgets/SCompoundWidget.h"
 #include "StudioHome4Reports.h"
+#include "Async/Future.h"
 class FStudioModel;
 class FStudioHome4RuntimeSession;
 class FStudioHome4SpatialSession;
@@ -18,6 +19,11 @@ public:
         SLATE_ARGUMENT(TSharedPtr<SStudioHome4Monitors>,Monitors)
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
+    void Tick(const FGeometry& Geometry,double Time,float Delta)override;
+    bool ImportPublishedPath(const FString& Path);
+    void PollImport();
+    bool IsImporting()const{return PendingPublished.IsValid();}
+    void CancelImport(){bCancelImport=true;}
     bool QueueFigureRun();
     bool ExportTo(const FString& Parent,const FString& Folder);
     FString StatusText()const{return Status;}
@@ -35,4 +41,7 @@ private:
     FString FolderDraft=TEXT("home4-report"),BodyDraft,PhaseDraft,LevelDraft=TEXT("0"),StartDraft,EndDraft,AxisDraft;
     FString AbsoluteDraft,RelativeDraft,Status;
     bool bFigurePublication=false;
+    struct FPublishedResult { TSharedPtr<FStudioHome4ReferenceEvidence> Evidence;FString Error,Recipe;FGuid Project,Case; };
+    TFuture<FPublishedResult> PendingPublished;
+    bool bCancelImport=false;
 };

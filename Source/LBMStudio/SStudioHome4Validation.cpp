@@ -116,6 +116,8 @@ void SStudioHome4Validation::Construct(const FArguments& A)
                 FString::Printf(TEXT("\nSupplied tolerances: absolute %.6g, relative %.6g\nActual source: %s\nReference source: %s\nSHA256 %s"), S.AbsoluteTolerance, S.RelativeTolerance, *E.ActualSource, *E.ReferenceSource, *E.SourceSHA256)+TEXT("\nReference method ")+(E.ReferenceMethod.IsEmpty()?TEXT("not supplied"):E.ReferenceMethod);
             if (E.ObservedOrder) Description += TEXT("\nObserved order ") + OptionalNumber(E.ObservedOrder) + TEXT(" · ") + E.OrderMetric;
             else if (!E.OrderRuns.IsEmpty()) Description += TEXT("\nObserved order unavailable: scalar sequence does not show monotone convergence.");
+            auto Known=[](const FString& V){return V.IsEmpty()?FString(TEXT("unknown")):V;};
+            Description+=TEXT("\nOriginal metric context · motion ")+Known(S.MotionMode)+TEXT(" · normalization ")+Known(S.Normalization)+TEXT(" · sampling ")+Known(S.SamplingConvention)+TEXT("\nOriginal extraction ")+Known(S.ExtractionMethod)+TEXT(" · window ")+OptionalNumber(S.ExtractionWindowStart)+TEXT(" to ")+OptionalNumber(S.ExtractionWindowEnd)+TEXT(" ")+Known(S.ExtractionWindowUnit)+TEXT(" · epoch ")+Known(S.ExtractionEpoch);
             return FText::FromString(Description);
         })];
     Rows->AddSlot().AutoHeight()[SNew(StudioHome4ValidationUIPrivate::SReferenceOverlay).Tag(TEXT("Home4ConvergencePlot")).State(State).Convergence(true)

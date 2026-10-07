@@ -11,6 +11,10 @@ struct FStudioHome4ReferenceExpectation
 struct FStudioHome4ReferenceSeries
 {
     FString Id, Name, AbscissaName, AbscissaUnit, Unit, AbscissaEpoch;
+    // Explicit original metric qualification. Absent metadata stays unknown;
+    // current authoring choices never qualify an imported measurement.
+    FString MotionMode,Normalization,SamplingConvention,ExtractionMethod,ExtractionWindowUnit,ExtractionEpoch;
+    TOptional<double> ExtractionWindowStart,ExtractionWindowEnd;
     TArray<double> Abscissae, Actual, Reference;
     double AbsoluteTolerance = 0, RelativeTolerance = 0;
     FStudioHome4GateResult Gate;
@@ -97,6 +101,7 @@ namespace StudioHome4Validation
         FStudioHome4ReferenceEvidence& Out, FString& Error);
     bool VerifyOriginalBytes(const FStudioHome4ReferenceEvidence& Evidence,FString& Error);
     TSharedRef<FJsonObject> EvidenceMetadata(const FStudioHome4ReferenceEvidence& Evidence);
+    TSharedRef<FJsonObject> MetricContext(const FStudioHome4ReferenceSeries& Series);
     FString SerializeEvidence(const FStudioHome4ReferenceEvidence& Evidence);
     TSharedRef<FJsonObject> ScalarRunMetadata(const FStudioHome4ScalarRun& Run);
     FString ScalarRunDescription(const FStudioHome4ScalarRun& Run);

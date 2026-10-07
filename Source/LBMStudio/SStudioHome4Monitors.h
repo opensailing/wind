@@ -52,6 +52,9 @@ public:
     StudioHome4SciencePresentation::FHistory PresentedForces() const;
     FString SelectedBodyIdentity() const { return SelectedBody; }
     bool QueueRestTest();
+    /** Exact original step selection; selected intervals exceeding 4096
+     * measurements are rejected, preserving the prior replay. */
+    bool LoadReplayInterval();
 
 private:
     struct FImportResult
@@ -59,11 +62,13 @@ private:
         TUniquePtr<FStudioHome4TelemetryStream> Stream;
         FString Path, Error, SHA256;
         bool bOriginalRunIdentity = false;
+        TOptional<int64> SelectedStepStart,SelectedStepEnd;
         TArray<uint8> OriginalBytes;
         int64 Bytes = 0, Lines = 0, Malformed = 0, Unknown = 0, Oversized = 0, Regressing = 0;
     };
     static FImportResult ReadImport(const FString& Path, const FStudioHome4Source& Source, bool bOriginalRunIdentity,
-        const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel, const TFunction<void()>& BeforeVerify);
+        const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel, const TFunction<void()>& BeforeVerify,
+        TOptional<int64> Start,TOptional<int64> End,const FString& ExpectedSHA);
     FStudioHome4TelemetryStream* DisplayStream() const;
     const FStudioHome4Sample* Sample() const;
     FStudioHome4HealthSignal Health(int32 Index) const;
@@ -97,6 +102,9 @@ private:
     TMap<FName, bool> Sections;
 
     FString Status, ImportPath, OriginalRunIdDraft, ImportSHA256;
+    FString ReplayStartDraft,ReplayEndDraft;
+    TOptional<int64> ReplayStart,ReplayEnd;
+    bool bLoadingReplayInterval=false;
     TArray<uint8> ImportedOriginalBytes;
 #if WITH_DEV_AUTOMATION_TESTS
     TFunction<void()> BeforeImportVerify;

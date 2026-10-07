@@ -589,7 +589,9 @@ bool FStudioHome4TelemetryStream::BeginRun(const FStudioHome4Source& InSource)
 {
     if (!InSource.RunId.IsValid() || InSource.SourceId.TrimStartAndEnd().IsEmpty() || InSource.SourceId.Len() > 256 ||
         InSource.SourceId.Contains(TEXT("\n")) || InSource.SourceId.Contains(TEXT("\r"))) return false;
-    Source = InSource; bActive = true; RecordIndex = 0;
+    if (Limits.SelectedStepStart.IsSet()!=Limits.SelectedStepEnd.IsSet() ||
+        (Limits.SelectedStepStart && (*Limits.SelectedStepStart<0 || *Limits.SelectedStepEnd<*Limits.SelectedStepStart))) return false;
+    Source = InSource; bActive = true; RecordIndex = 0; SelectedMeasurements=0; PreviousMeasurement.Reset();
     ResetTail(); Samples.Reset(); Outputs.Reset(); Actions.Reset(); LatestSample.Reset(); GoodSample.Reset(); Restart.Reset();
     LastStep.Reset(); LastLatticeTime.Reset(); LastPhysicalTime.Reset(); LastDimensionlessTime.Reset();
     LastCumulativeElapsed.Reset(); LastCumulativeUpdates.Reset(); LastLevelWork.Reset(); SourceMetadata.Reset();
@@ -704,17 +706,19 @@ FStudioHome4TelemetryStream::ELineResult FStudioHome4TelemetryStream::ParseLine(
         RetainKnown(L.Work.CumulativeElapsedSeconds, Previous.CumulativeElapsedSeconds);
         RetainKnown(L.Work.CumulativeNodeUpdates, Previous.CumulativeNodeUpdates);
     }
+    auto Selected=[&](const TOptional<int64>& Step){return !Limits.SelectedStepStart || (Step && *Step>=*Limits.SelectedStepStart && *Step<=*Limits.SelectedStepEnd);};
     for (auto& E : Events)
     {
+        if(!Selected(E.Step))continue;
         E.RecordIndex = RecordIndex;
         if (E.Kind == EStudioHome4OutputKind::Restart) Restart = E;
         AddBounded(Outputs, MoveTemp(E), Limits.MaxOutputEvents);
     }
     if (!bStandalone && !bMetadataOnly)
     {
-        if (LatestSample)
+        if (PreviousMeasurement)
         {
-            const auto& Previous = LatestSample->Mass;
+            const auto& Previous = PreviousMeasurement->Mass;
             auto Change = [](const TOptional<double>& Now, const TOptional<double>& Before) -> TOptional<double>
             {
                 if (!Now || !Before) return {};
@@ -723,12 +727,15 @@ FStudioHome4TelemetryStream::ELineResult FStudioHome4TelemetryStream::ParseLine(
             };
             S.Mass.InjectionMagnitudeChange = Change(S.Mass.Injected, Previous.Injected);
             for (auto& Level : S.Levels)
-                if (const auto* Before = LatestSample->Levels.FindByPredicate([&Level](const auto& L) { return L.Level == Level.Level; }))
+                if (const auto* Before = PreviousMeasurement->Levels.FindByPredicate([&Level](const auto& L) { return L.Level == Level.Level; }))
                     Level.InjectionMagnitudeChange = Change(Level.Injection, Before->Injection);
             for (int32 I = 0; I < S.Mass.LevelInjections.Num(); ++I)
                 S.Mass.LevelInjectionMagnitudeChanges.Add(Previous.LevelInjections.IsValidIndex(I) ?
                     Change(S.Mass.LevelInjections[I], Previous.LevelInjections[I]) : TOptional<double>());
         }
+        PreviousMeasurement=S;
+        if(!Selected(S.Step))return ELineResult::Accepted;
+        ++SelectedMeasurements;
         auto Action = FStudioHome4Diagnostics::TroubleAction(S, Policy);
         if (Action)
         {

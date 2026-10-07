@@ -52,6 +52,7 @@ void SStudioHome4Runtime::Construct(const FArguments& A)
     Rows->AddSlot().AutoHeight().Padding(0, 4)[SNew(SHorizontalBox)
         + SHorizontalBox::Slot().FillWidth(1).Padding(0, 0, 4, 0)[Button(TEXT("Import original target status…"), TEXT("Home4RuntimeImportStatus"), [this] { Import(false); })]
         + SHorizontalBox::Slot().FillWidth(1)[Button(TEXT("Confirm this fallback"), TEXT("Home4RuntimeConfirmFallback"), [this] { const auto B = Runtime->BackendVerification(); Notice = B && Runtime->ConfirmFallback(B->Id) ? TEXT("Fallback confirmed for this exact response. Changed backend response requires new confirmation.") : TEXT("Select an effective fallback response first."); })]];
+    Rows->AddSlot().AutoHeight()[SNew(SButton).Tag(TEXT("Home4RuntimeCancelImport")).ButtonStyle(&ButtonStyle()).IsEnabled_Lambda([this]{return IsImporting();}).OnClicked_Lambda([this]{CancelImport();return FReply::Handled();})[Label(TEXT("Cancel original status/history read"),9)]];
     Input(TEXT("Queue owner"), TEXT("Home4RuntimeOwner"), &OwnerDraft);
     Rows->AddSlot().AutoHeight().Padding(0, 4)[Button(TEXT("Queue immutable current request"), TEXT("Home4RuntimeSubmit"), [this] { SubmitCurrent(); })];
     Input(TEXT("Step N (development counter)"), TEXT("Home4RuntimeStepCount"), &StepDraft);
@@ -113,7 +114,7 @@ FString SStudioHome4Runtime::Summary() const
     if (!B) return TEXT("No reviewed target/backend response. Choose explicit development protocol or import original target status. HOME4 engine execution is stubbed.");
     FString S = (B->bDevelopmentResponse ? TEXT("DEVELOPMENT response · ") : TEXT("IMPORTED original target response · ")) + FString(Backend(B->EffectiveBackend)) + TEXT(" · ") + B->Target + TEXT(" / ") + B->Host + TEXT(" / ") + B->Device + TEXT("\nSource: ") + B->Source;
     if (const auto R = Runtime->ResourceStatus())
-        S += TEXT("\nGPU ") + Number(R->UtilizationPercent, TEXT("%")) + TEXT(" · memory ") + Number(R->MemoryUsedBytes, TEXT("bytes")) + TEXT(" / ") + Number(R->MemoryTotalBytes, TEXT("bytes")) +
+        S += FString::Printf(TEXT("\nOriginal status age %.3g s; %s. Missing ownership/utilization never certifies a free device.\nGPU "),FMath::Max(0.,FPlatformTime::Seconds()-R->ObservedAt),FPlatformTime::Seconds()-R->ObservedAt>5?TEXT("stale snapshot — refresh the source response"):TEXT("recent supplied snapshot")) + Number(R->UtilizationPercent, TEXT("%")) + TEXT(" · memory ") + Number(R->MemoryUsedBytes, TEXT("bytes")) + TEXT(" / ") + Number(R->MemoryTotalBytes, TEXT("bytes")) +
             TEXT(" · power ") + Number(R->PowerWatts, TEXT("W")) + TEXT(" · temperature ") + Number(R->TemperatureC, TEXT("C")) + TEXT(" · clock ") + Number(R->ClockMHz, TEXT("MHz")) + TEXT("\nOwner ") + (R->Owner.IsEmpty() ? TEXT("unknown") : R->Owner) + TEXT(" · job ") + (R->JobId.IsEmpty() ? TEXT("unknown") : R->JobId) + TEXT(" · disk free ") + Number(R->DiskFreeBytes, TEXT("bytes"));
     return S;
 }
@@ -193,7 +194,7 @@ void SStudioHome4Runtime::AttachLog()
     FGuid Run; if (!FGuid::Parse(RunDraft, Run) || !Run.IsValid()) { Notice = TEXT("Supply the original run GUID before live attachment."); return; }
     Runtime->AttachLiveLog(LogPathDraft, Run, Notice);
 }
-SStudioHome4Runtime::FOriginalImport SStudioHome4Runtime::ReadOriginal(const FString& Path,bool History,FGuid Project,FGuid Case)
+SStudioHome4Runtime::FOriginalImport SStudioHome4Runtime::ReadOriginal(const FString& Path,bool History,FGuid Project,FGuid Case,const TFunction<void()>& BeforeVerify)
 {
     FOriginalImport R;R.Path=Path;R.ProjectId=Project;R.CaseId=Case;R.bHistory=History;FStudioFileAccess Access(Path);
     const int64 Size=IFileManager::Get().FileSize(*Path);const auto Stamp=IFileManager::Get().GetTimeStamp(*Path);
@@ -207,6 +208,7 @@ SStudioHome4Runtime::FOriginalImport SStudioHome4Runtime::ReadOriginal(const FSt
     if(!Read(Bytes)||!StudioHome4JSON::UTF8(Bytes.GetData(),Bytes.Num())){R.Error=TEXT("Original response could not be read as strict UTF-8.");return R;}
     const int32 Offset=Bytes.Num()>=3&&Bytes[0]==0xef&&Bytes[1]==0xbb&&Bytes[2]==0xbf?3:0;
     const FUTF8ToTCHAR Converted(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()+Offset),Bytes.Num()-Offset);R.JSON=FString(Converted.Length(),Converted.Get());
+    if(BeforeVerify)BeforeVerify();
     if(!Read(Checked)||Checked!=Bytes||IFileManager::Get().FileSize(*Path)!=Size||IFileManager::Get().GetTimeStamp(*Path)!=Stamp)
     {R.JSON.Empty();R.Error=TEXT("Original response changed during import; prior target/history retained.");return R;}
     uint8 Digest[32];unsigned int Count=0;
@@ -219,13 +221,18 @@ bool SStudioHome4Runtime::ImportPath(const FString& Path,bool History)
     if(IsImporting()){Notice=TEXT("An original target/history import is already running.");return false;}
     if(Path.IsEmpty()){Notice=TEXT("Import cancelled; prior target/history retained.");return false;}
     const auto M=Model.Pin();if(!M)return false;const FGuid Project=M->Project.Id,Case=M->Project.Draft.Id;
-    PendingImport=Async(EAsyncExecution::ThreadPool,[Path,History,Project,Case]{return ReadOriginal(Path,History,Project,Case);});
+    TFunction<void()> BeforeVerify;
+#if WITH_DEV_AUTOMATION_TESTS
+    BeforeVerify=BeforeImportVerify;
+#endif
+    bCancelImport=false;PendingImport=Async(EAsyncExecution::ThreadPool,[Path,History,Project,Case,BeforeVerify]{return ReadOriginal(Path,History,Project,Case,BeforeVerify);});
     Notice=TEXT("Reading identified original target/history response in the background; prior data retained.");return true;
 }
 void SStudioHome4Runtime::PollImport()
 {
     if(!PendingImport.IsValid()||!PendingImport.IsReady())return;
     auto R=MoveTemp(PendingImport.GetMutable());PendingImport={};const auto M=Model.Pin();
+    if(bCancelImport){Notice=TEXT("Original response import cancelled; prior target/history retained.");bCancelImport=false;return;}
     if(!M||M->Project.Id!=R.ProjectId||M->Project.Draft.Id!=R.CaseId){Notice=TEXT("Project/case changed while importing; original response was not attached.");return;}
     if(!R.Error.IsEmpty()){Notice=R.Error;return;}
     const bool Good=R.bHistory?Runtime->ParsePerformanceHistory(R.JSON,Notice):Runtime->ImportTargetStatus(R.JSON,FPlatformTime::Seconds(),Notice);

@@ -142,6 +142,8 @@ private:
     FStudioHome4QueueJob* FindJob(const FGuid& RunId);
     void Transition(FStudioHome4QueueJob& Job, EStudioHome4QueueState State, double Now, const FString& Notice);
     void SyncHistory(const FStudioHome4QueueJob& Job, double Now);
+    void AttachMeasuredProvenance(const FStudioHome4MeasuredRun& Run);
+    bool bParsingHistory=false;
     TWeakPtr<FStudioModel> Model;
     FGuid ProjectId, CaseId, FallbackAcknowledged, SelectedRunId;
     TSharedPtr<FStudioHome4TelemetryStream> Stream;

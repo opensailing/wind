@@ -256,6 +256,13 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
     for(int32 I=0;I<5;++I)Legend->AddSlot().FillWidth(1)[SNew(STextBlock).Font(Font(8)).ColorAndOpacity(Colors[I]).Text(FText::FromString(Channels[I]))];
     Forces->AddSlot().AutoHeight()[Legend];Forces->AddSlot().AutoHeight()[SNew(SHome4HistoryPlot).Read([this]{return PresentedForces();})];
     auto History=Section(TEXT("Measured history"),TEXT("History"),true);
+    History->AddSlot().AutoHeight().Padding(0,4)[Label(TEXT("Replay interval in original solver steps; empty bounds load the latest preview. Exact original log remains bundled in reports."),8,Muted)];
+    for(bool Start:{true,false})History->AddSlot().AutoHeight().Padding(0,3)[SNew(SHorizontalBox)
+        +SHorizontalBox::Slot().FillWidth(1)[Label(Start?TEXT("First original step"):TEXT("Last original step"),8,Muted)]
+        +SHorizontalBox::Slot().FillWidth(1)[SNew(SEditableTextBox).Tag(Start?TEXT("Home4ReplayStepStart"):TEXT("Home4ReplayStepEnd")).Style(&InputStyle()).Font(Font(9))
+            .Text_Lambda([this,Start]{return FText::FromString(Start?ReplayStartDraft:ReplayEndDraft);}).OnTextChanged_Lambda([this,Start](const FText& T){(Start?ReplayStartDraft:ReplayEndDraft)=T.ToString();})]];
+    History->AddSlot().AutoHeight().Padding(0,4)[SNew(SButton).Tag(TEXT("Home4LoadReplayInterval")).ButtonStyle(&ButtonStyle()).IsEnabled_Lambda([this]{return ImportedStream.IsValid()&&!IsImporting();})
+        .OnClicked_Lambda([this]{LoadReplayInterval();return FReply::Handled();})[Label(TEXT("Load verified original replay interval"),9)]];
     History->AddSlot().AutoHeight()[SNew(SHorizontalBox)
         +SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Tag(TEXT("Home4PreviousMetric")).ButtonStyle(&ButtonStyle()).OnClicked_Lambda([this]{SelectedMetric=StudioHome4SciencePresentation::EMetric((int32(SelectedMetric)+int32(StudioHome4SciencePresentation::EMetric::Count)-1)%int32(StudioHome4SciencePresentation::EMetric::Count));return FReply::Handled();})[Label(TEXT("Previous"),8)]]
         +SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(6,0)[SNew(STextBlock).Tag(TEXT("Home4SelectedMetric")).Font(Font(10,true)).Text_Lambda([this]{return FText::FromString(StudioHome4SciencePresentation::Name(SelectedMetric));})]
@@ -268,7 +275,13 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
     Detail(Section(TEXT("Mass ledgers and per-level work"),TEXT("Mass"),false),TEXT("Mass"));
     Detail(Section(TEXT("Interface and phase energies"),TEXT("Interface"),false),TEXT("Interface"));
     Rows->AddSlot().AutoHeight()[SNew(SBox).Visibility_Lambda([this]{return Sections[TEXT("Interface")]?EVisibility::Visible:EVisibility::Collapsed;})[SNew(SHome4ThicknessHistogram).Read([this]{return Sample();}).UnitDisplay_Lambda([this]{return UnitDisplay.Get();})]];
-    Detail(Section(TEXT("Body state, attitude and fitted coefficients"),TEXT("Bodies"),false),TEXT("Bodies"));
+    auto Bodies=Section(TEXT("Body state, attitude and fitted coefficients"),TEXT("Bodies"),false);Detail(Bodies,TEXT("Bodies"));
+    for(const auto Metric:{StudioHome4SciencePresentation::EMetric::BodyHeaveComparison,StudioHome4SciencePresentation::EMetric::BodyPitchComparison,StudioHome4SciencePresentation::EMetric::AddedMass,StudioHome4SciencePresentation::EMetric::Damping})
+    {
+        Bodies->AddSlot().AutoHeight().Padding(0,6,0,2)[Label(StudioHome4SciencePresentation::Name(Metric),9,Muted)];
+        Bodies->AddSlot().AutoHeight()[SNew(SHome4HistoryPlot).Tag(FName(*FString::Printf(TEXT("Home4BodyComparison%d"),int32(Metric))))
+            .Read([this,Metric]{return StudioHome4SciencePresentation::History(DisplayStream(),Metric,UnitDisplay.Get(),0,false,SelectedBody);})];
+    }
     Detail(Section(TEXT("Current [previous] averaging window"),TEXT("Window"),false),TEXT("Window"));
     Detail(Section(TEXT("Measured work and bandwidth"),TEXT("Performance"),false),TEXT("Performance"));
     Detail(Section(TEXT("Safeguards and extrema"),TEXT("Safeguards"),false),TEXT("Safeguards"));
@@ -355,7 +368,7 @@ TOptional<FStudioHome4TelemetryProvenance> SStudioHome4Monitors::ReportProvenanc
     if(!Source)return {};
     FStudioHome4TelemetryProvenance P;P.StreamRunId=Source->RunId;P.SourceId=Source->SourceId;
     P.bImportedReplay=IsImportedReplay();P.OriginalRunId=OriginalRunIdentity();
-    if(P.bImportedReplay){P.SourcePath=ImportPath;P.SourceSHA256=ImportSHA256;}
+    if(P.bImportedReplay){P.SourcePath=ImportPath;P.SourceSHA256=ImportSHA256;P.CapturedByteCount=ImportedOriginalBytes.Num();P.SelectedStepStart=ReplayStart;P.SelectedStepEnd=ReplayEnd;}
     P.AttachedProjectId=ScopedProjectId;P.AttachedCaseId=ScopedCaseId;return P;
 }
 const TArray<uint8>& SStudioHome4Monitors::ReportOriginalBytes()
@@ -371,6 +384,8 @@ bool SStudioHome4Monitors::QueueRestTest()
     if(!Rest.Fluids.Gravity||*Rest.Fluids.Gravity<=0){Status=TEXT("Rest test requires explicit positive full gravity; no gravity value is guessed.");return false;}
     Rest.Run.InitState.Empty();Rest.Reference.SpeedCellsPerStep=0;Rest.Reference.Mach=0;Rest.Geometry.BodyMotion=TEXT("fixed");Rest.Geometry.InitialVelocityCellsPerStep=FVector::ZeroVector;
     Rest.Geometry.InitialAngularVelocityRadiansPerStep=FVector::ZeroVector;Rest.Run.Tag=Rest.Run.Tag.Left(90)+TEXT("_wb_rest");
+    Rest.Run.OutDirectory=(Rest.Run.OutDirectory.IsEmpty()?FString(TEXT("home4")):Rest.Run.OutDirectory)+TEXT("_wb_rest_")+FGuid::NewGuid().ToString(EGuidFormats::Digits);
+    Rest.Run.VizDirectory=Rest.Run.OutDirectory/TEXT("viz");Rest.Run.SaveState.Empty();
     if(!Runtime->Submit(Rest,FGuid::NewGuid(),FPlatformProcess::UserName(),FPlatformTime::Seconds(),Status))return false;
     Status=TEXT("Immutable U=0/full-gravity WB rest development request queued. Exact-zero pressure gate awaits original at_rest measurement; no numerical result generated.");return true;
 }
@@ -688,7 +703,18 @@ bool SStudioHome4Monitors::BeginImportPath(const FString& Path, const FString& O
     const FString Identity = OriginalRunId.TrimStartAndEnd(); FGuid Run = FGuid::NewGuid();
     if (!Identity.IsEmpty() && (!FGuid::Parse(Identity, Run) || !Run.IsValid()))
     { Status = TEXT("Original run ID must be a valid GUID or empty. Previous science source retained."); return false; }
-    const FStudioHome4Source Source{Run, FPaths::ConvertRelativePathToFull(Path)};
+    TOptional<int64> Start,End;
+    auto Bound=[](const FString& Draft,TOptional<int64>& Value)
+    {
+        const auto Trimmed=Draft.TrimStartAndEnd();if(Trimmed.IsEmpty())return true;
+        if(Trimmed.Len()>13)return false;int64 N=0;for(TCHAR C:Trimmed){if(C<'0'||C>'9'||N>(1000000000000LL-(C-'0'))/10)return false;N=N*10+(C-'0');}Value=N;return true;
+    };
+    if(!Bound(ReplayStartDraft,Start)||!Bound(ReplayEndDraft,End)||Start.IsSet()!=End.IsSet()||(Start&&*End<*Start))
+    {Status=TEXT("Replay selection needs two original nonnegative integer step bounds in increasing order, or both empty. Previous replay retained.");return false;}
+    const FString FullPath=FPaths::ConvertRelativePathToFull(Path);
+    const FString ExpectedSHA=bLoadingReplayInterval&&FullPath==ImportPath?ImportSHA256:FString();
+    if(bLoadingReplayInterval&&Identity.IsEmpty()&&FullPath==ImportPath&&ImportedStream&&ImportedStream->Latest())Run=ImportedStream->Latest()->Source.RunId;
+    const FStudioHome4Source Source{Run, FullPath};
     const bool bOriginalIdentity = !Identity.IsEmpty();
     const auto M = Model.Pin(); ImportProjectId = M ? M->Project.Id : FGuid(); ImportCaseId = M ? M->Project.Draft.Id : FGuid();
     Cancellation = MakeShared<std::atomic<bool>, ESPMode::ThreadSafe>(false);
@@ -697,9 +723,16 @@ bool SStudioHome4Monitors::BeginImportPath(const FString& Path, const FString& O
 #if WITH_DEV_AUTOMATION_TESTS
     BeforeVerify = BeforeImportVerify;
 #endif
-    Pending = Async(EAsyncExecution::ThreadPool, [Path, Source, bOriginalIdentity, Cancel = Cancellation, BeforeVerify]
-        { return ReadImport(Path, Source, bOriginalIdentity, Cancel, BeforeVerify); });
+    Pending = Async(EAsyncExecution::ThreadPool, [Path, Source, bOriginalIdentity, Cancel = Cancellation, BeforeVerify,Start,End,ExpectedSHA]
+        { return ReadImport(Path, Source, bOriginalIdentity, Cancel, BeforeVerify,Start,End,ExpectedSHA); });
     return true;
+}
+bool SStudioHome4Monitors::LoadReplayInterval()
+{
+    ScopeProject();if(!ImportedStream||ImportPath.IsEmpty()){Status=TEXT("Import a completed original replay before selecting its interval.");return false;}
+    TGuardValue<bool> Selecting(bLoadingReplayInterval,true);
+    const auto Identity=bImportedOriginalRunIdentity&&ImportedStream->Latest()?TOptional<FGuid>(ImportedStream->Latest()->Source.RunId):TOptional<FGuid>();
+    return BeginImportPath(ImportPath,Identity?Identity->ToString():FString());
 }
 void SStudioHome4Monitors::CancelImport()
 { if (Cancellation) Cancellation->store(true, std::memory_order_relaxed); }
@@ -717,7 +750,9 @@ void SStudioHome4Monitors::PollImport()
     bImportedOriginalRunIdentity = Result.bOriginalRunIdentity;
     ImportPath = Result.Path; ImportSHA256 = Result.SHA256; bShowImported = true;
     ImportedOriginalBytes=MoveTemp(Result.OriginalBytes);
-    Status = FString::Printf(TEXT("Imported replay · %lld original bytes, %lld lines; %lld unknown records skipped. Last %d measurements retained."), Result.Bytes, Result.Lines, Result.Unknown, ImportedStream->History().Num());
+    ReplayStart=Result.SelectedStepStart;ReplayEnd=Result.SelectedStepEnd;
+    Status = FString::Printf(TEXT("Imported replay · %lld original bytes, %lld lines; %lld unknown records skipped. %d measurements retained."), Result.Bytes, Result.Lines, Result.Unknown, ImportedStream->History().Num());
+    Status+=ReplayStart?FString::Printf(TEXT(" Exact original step interval %lld to %lld; every selected measurement retained."),*ReplayStart,*ReplayEnd):TEXT(" Latest preview only; full verified original log retained for replay/report.");
     RefreshOutputs();
 }
 void SStudioHome4Monitors::ScopeProject()
@@ -727,11 +762,13 @@ void SStudioHome4Monitors::ScopeProject()
     ScopedProjectId=M?M->Project.Id:FGuid();ScopedCaseId=M?M->Project.Draft.Id:FGuid();
     SessionStream.Reset(); ImportedStream.Reset(); ImportedOriginalBytes.Reset(); ImportPath.Empty(); ImportSHA256.Empty(); bImportedOriginalRunIdentity = false;
     OriginalRunIdDraft.Empty(); bShowImported = false; SelectedBody.Empty(); SelectedPhase.Empty(); SelectedLevel=0; bNormalizeForces=false; CancelImport();
+    ReplayStart.Reset();ReplayEnd.Reset();ReplayStartDraft.Empty();ReplayEndDraft.Empty();
     Status = TEXT("Project or case changed; imported replay cleared. Supply explicitly identified original science for this scope.");
     RefreshOutputs();
 }
 SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FString& Path,
-    const FStudioHome4Source& Source, bool bOriginalRunIdentity, const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel, const TFunction<void()>& BeforeVerify)
+    const FStudioHome4Source& Source, bool bOriginalRunIdentity, const TSharedPtr<std::atomic<bool>, ESPMode::ThreadSafe>& Cancel, const TFunction<void()>& BeforeVerify,
+    TOptional<int64> Start,TOptional<int64> End,const FString& ExpectedSHA)
 {
     FImportResult R;
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> FirstHash(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
@@ -747,8 +784,10 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
     if (!File) return Fail(TEXT("Original science log is missing or inaccessible."));
     const int64 Size = File->TotalSize();
     if (Size <= 0 || Size > 64LL * 1024 * 1024) return Fail(TEXT("Science log must contain between 1 byte and 64 MiB."));
-    R.Stream = MakeUnique<FStudioHome4TelemetryStream>();
-    R.Stream->BeginRun(Source); R.bOriginalRunIdentity = bOriginalRunIdentity;
+    FStudioHome4TailLimits Limits;Limits.SelectedStepStart=Start;Limits.SelectedStepEnd=End;if(Start)Limits.MaxHistory=4096;
+    R.Stream = MakeUnique<FStudioHome4TelemetryStream>(Limits);
+    if(!R.Stream->BeginRun(Source))return Fail(TEXT("Original replay source identity or interval is invalid."));
+    R.bOriginalRunIdentity = bOriginalRunIdentity;R.SelectedStepStart=Start;R.SelectedStepEnd=End;
     TArray<uint8> Chunk; Chunk.SetNumUninitialized(65536);
     uint8 LastByte = '\n';
     auto Consume = [&](const uint8* Bytes, int32 N)
@@ -761,6 +800,7 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
             if (Batch.ConsumedBytes <= 0) { R.Error = TEXT("Science parser could not advance."); return false; }
             Offset += Batch.ConsumedBytes; R.Lines += Batch.CompleteLines; R.Malformed += Batch.Malformed;
             R.Unknown += Batch.Unknown; R.Oversized += Batch.Oversized; R.Regressing += Batch.Regressing;
+            if(Start&&R.Stream->SelectedMeasurementCount()>4096){R.Error=TEXT("Selected replay interval exceeds 4096 measurements; choose a narrower original interval. Full log and prior replay retained.");return false;}
             if (R.Malformed || R.Oversized || R.Regressing) { R.Error = FString::Printf(TEXT("Science import rejected invalid or regressing data near original line %lld."), R.Lines); return false; }
             if (R.Lines > 1000000) { R.Error = TEXT("Science log exceeds the one-million-line import budget."); return false; }
         }
@@ -813,6 +853,7 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
     if (FMemory::Memcmp(OriginalDigest, VerifiedDigest, 32) != 0 || Verify->TotalSize() != Size || IFileManager::Get().GetTimeStamp(*Path) != Before || IFileManager::Get().FileSize(*Path) != Size)
         return Fail(TEXT("Original science log changed during import. Select a completed log."));
     R.SHA256=BytesToHex(OriginalDigest, 32).ToLower();
+    if(!ExpectedSHA.IsEmpty()&&R.SHA256!=ExpectedSHA)return Fail(TEXT("Original replay bytes differ from the imported source; previous interval retained. Choose the changed source separately."));
     if (R.Stream->History().IsEmpty() && R.Stream->OutputEvents().IsEmpty()) return Fail(TEXT("No recognized HOME4 science measurements or outputs were found."));
     R.Path = FPaths::ConvertRelativePathToFull(Path); return R;
 }

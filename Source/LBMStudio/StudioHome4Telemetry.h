@@ -20,6 +20,7 @@ struct FStudioHome4TelemetryProvenance
     FString SourceId, SourcePath, SourceSHA256;
     bool bCapturedPrefix=false, bCaptureCoversDisplayedData=true;
     int64 CapturedByteCount=0;
+    TOptional<int64> SelectedStepStart,SelectedStepEnd;
     TOptional<FGuid> AttachedProjectId, AttachedCaseId;
 };
 
@@ -248,6 +249,9 @@ struct FStudioHome4TailLimits
 {
     int32 MaxBytesPerAppend = 65536, MaxLinesPerAppend = 64, MaxLineBytes = 16384;
     int32 MaxHistory = 240, MaxOutputEvents = 240, MaxActionRequests = 64;
+    // Owner-selected historical replay interval. Raw source validation and record
+    // indices cover every line; only retained presentation samples are selected.
+    TOptional<int64> SelectedStepStart,SelectedStepEnd;
 };
 
 struct FStudioHome4TailResult
@@ -277,6 +281,7 @@ public:
     const TOptional<FStudioHome4Sample>& LastGoodSample() const { return GoodSample; }
     const TOptional<FStudioHome4OutputEvent>& LastRestart() const { return Restart; }
     const TSharedPtr<const FStudioHome4SourceMetadata>& OriginalMetadata() const { return SourceMetadata; }
+    int64 SelectedMeasurementCount() const { return SelectedMeasurements; }
     int32 BufferedBytes() const { return Pending.Num(); }
     void SetDiagnosticPolicy(const FStudioHome4DiagnosticPolicy& InPolicy) { Policy = InPolicy; }
 private:
@@ -287,6 +292,8 @@ private:
     FStudioHome4DiagnosticPolicy Policy;
     bool bActive = false, bDiscardLine = false;
     uint64 RecordIndex = 0;
+    int64 SelectedMeasurements=0;
+    TOptional<FStudioHome4Sample> PreviousMeasurement;
     TArray<uint8> Pending;
     TArray<FStudioHome4Sample> Samples;
     TArray<FStudioHome4OutputEvent> Outputs;

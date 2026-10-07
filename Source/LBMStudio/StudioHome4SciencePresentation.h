@@ -10,7 +10,8 @@ namespace StudioHome4SciencePresentation
         Mass, Residual, Forces, WaterKE, AirKE, SurfaceEnergy, PhaseKE, PhasePE,
         Mach, Tau, Speed, Divergence, Spurious, Limiter, Threshold, MLUPS, CumulativeMLUPS,
         Bandwidth, LevelMass, LevelInjection, LevelMLUPS, BodyPositionZ, BodyVelocityZ,
-        BodyRoll, BodyPitch, BodyYaw, AddedMass, Damping, ReportedMLUPS, ReportedCumulativeMLUPS, TauMargin, BudgetTerms, Count
+        BodyRoll, BodyPitch, BodyYaw, AddedMass, Damping, ReportedMLUPS, ReportedCumulativeMLUPS, TauMargin, BudgetTerms,
+        BodyHeaveComparison,BodyPitchComparison, Count
     };
     struct FValue { TOptional<double> Number; FString Unit; bool bRawFallback = false; };
     struct FSeries { FString Label; FLinearColor Color; TArray<TOptional<double>> Values; };

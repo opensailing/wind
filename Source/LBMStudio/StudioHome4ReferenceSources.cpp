@@ -111,7 +111,9 @@ bool StudioHome4ReferenceSources::AlignExact(const FStudioHome4SeriesSource& Act
     {
         const auto* R=Reference.Data.Series.FindByPredicate([&](const auto& V){return V.Id==A.Id;});if(!R)continue;
         if(A.Unit!=R->Unit||A.AbscissaUnit!=R->AbscissaUnit||A.AbscissaName!=R->AbscissaName){Error=TEXT("Original named metric/value/time conventions differ; explicit conversion is required before alignment.");return false;}
-        FStudioHome4ReferenceSeries S;S.Id=A.Id;S.Name=A.Name;S.Unit=A.Unit;S.AbscissaName=A.AbscissaName;S.AbscissaUnit=A.AbscissaUnit;S.AbscissaEpoch=Actual.Epoch;S.AbsoluteTolerance=Absolute;S.RelativeTolerance=Relative;
+        if(A.MotionMode!=R->MotionMode||A.Normalization!=R->Normalization||A.SamplingConvention!=R->SamplingConvention)
+        {Error=TEXT("Original metric motion/normalization/sampling conventions differ; their equivalence cannot be inferred. Extraction methods/windows remain independently identified in each original source.");return false;}
+        FStudioHome4ReferenceSeries S=A;S.Abscissae.Reset();S.Actual.Reset();S.Reference.Reset();S.AbscissaEpoch=Actual.Epoch;S.AbsoluteTolerance=Absolute;S.RelativeTolerance=Relative;
         int32 J=0;
         for(int32 I=0;I<A.Abscissae.Num();++I)
         {

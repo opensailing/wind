@@ -194,6 +194,18 @@ bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4Referen
             return Fail(TEXT("Every series requires exact names/units, finite aligned arrays and explicit nonnegative tolerances."));
         const auto Epoch=Field(Item,TEXT("epoch"));
         if(Epoch&&Epoch->Type!=EJson::Null&&!Text(Item,TEXT("epoch"),S.AbscissaEpoch,256))return Fail(TEXT("Optional original series epoch must be an explicit bounded identity."));
+        const auto Context=Field(Item,TEXT("metric_context"));
+        if(Context&&Context->Type!=EJson::Null)
+        {
+            if(Context->Type!=EJson::Object)return Fail(TEXT("Original metric context must be an object."));
+            const auto C=Context->AsObject();const TSet<FString> Known={TEXT("motion_mode"),TEXT("normalization"),TEXT("sampling_convention"),TEXT("extraction_method"),TEXT("window_start"),TEXT("window_end"),TEXT("window_unit"),TEXT("window_epoch")};
+            for(const auto& Pair:C->Values)if(!Known.Contains(FString(*Pair.Key)))return Fail(TEXT("Unknown original metric qualification field."));
+            auto OptionalText=[&](const TCHAR* K,FString& Value){const auto F=Field(C,K);return !F||F->Type==EJson::Null||Text(C,K,Value,1024);};
+            if(!OptionalText(TEXT("motion_mode"),S.MotionMode)||!OptionalText(TEXT("normalization"),S.Normalization)||!OptionalText(TEXT("sampling_convention"),S.SamplingConvention)||!OptionalText(TEXT("extraction_method"),S.ExtractionMethod)||!OptionalText(TEXT("window_unit"),S.ExtractionWindowUnit)||!OptionalText(TEXT("window_epoch"),S.ExtractionEpoch))return Fail(TEXT("Metric qualification needs explicit bounded original text."));
+            for(bool Start:{true,false})
+            {const TCHAR* K=Start?TEXT("window_start"):TEXT("window_end");const auto F=Field(C,K);if(F&&F->Type!=EJson::Null){double N=0;if(!Number(C,K,N))return Fail(TEXT("Original metric extraction bounds must be finite."));(Start?S.ExtractionWindowStart:S.ExtractionWindowEnd)=N;}}
+            if(S.ExtractionWindowStart.IsSet()!=S.ExtractionWindowEnd.IsSet()||(S.ExtractionWindowStart&&(*S.ExtractionWindowEnd<=*S.ExtractionWindowStart||S.ExtractionEpoch.IsEmpty()||S.ExtractionWindowUnit.IsEmpty()||S.ExtractionMethod.IsEmpty())))return Fail(TEXT("Original metric extraction requires paired increasing bounds and explicit original window units, epoch and method."));
+        }
         if (Ids.Contains(S.Id) || S.Abscissae.Num() != S.Actual.Num() || S.Actual.Num() != S.Reference.Num())
             return Fail(TEXT("Series identities must be unique and x/actual/reference arrays must align exactly."));
         Ids.Add(S.Id); Points += S.Actual.Num();
@@ -287,6 +299,15 @@ bool StudioHome4Validation::Load(const FString& Path, const FStudioHome4Referenc
     Candidate.OriginalBytes=MoveTemp(Bytes);
     Candidate.SourcePath = FPaths::ConvertRelativePathToFull(Path); Out = MoveTemp(Candidate); return true;
 }
+TSharedRef<FJsonObject> StudioHome4Validation::MetricContext(const FStudioHome4ReferenceSeries& S)
+{
+    auto O=MakeShared<FJsonObject>();
+    for(const auto& P:TArray<TPair<FString,FString>>{{TEXT("motion_mode"),S.MotionMode},{TEXT("normalization"),S.Normalization},{TEXT("sampling_convention"),S.SamplingConvention},{TEXT("extraction_method"),S.ExtractionMethod},{TEXT("window_unit"),S.ExtractionWindowUnit},{TEXT("window_epoch"),S.ExtractionEpoch}})
+        if(!P.Value.IsEmpty())O->SetStringField(P.Key,P.Value);
+    if(S.ExtractionWindowStart)O->SetNumberField(TEXT("window_start"),*S.ExtractionWindowStart);
+    if(S.ExtractionWindowEnd)O->SetNumberField(TEXT("window_end"),*S.ExtractionWindowEnd);
+    return O;
+}
 TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHome4ReferenceEvidence& E)
 {
     auto O = MakeShared<FJsonObject>(); O->SetStringField(TEXT("recipe_id"), E.RecipeId); O->SetStringField(TEXT("run_id"), E.RunId.ToString());
@@ -316,6 +337,7 @@ TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHom
         auto Item = MakeShared<FJsonObject>(); Item->SetStringField(TEXT("id"), S.Id); Item->SetStringField(TEXT("name"), S.Name);
         Item->SetStringField(TEXT("unit"), S.Unit); Item->SetStringField(TEXT("x_name"), S.AbscissaName); Item->SetStringField(TEXT("x_unit"), S.AbscissaUnit);
         if(!S.AbscissaEpoch.IsEmpty())Item->SetStringField(TEXT("epoch"),S.AbscissaEpoch);
+        Item->SetObjectField(TEXT("metric_context"),MetricContext(S));
         Item->SetNumberField(TEXT("points"), S.Actual.Num()); Item->SetNumberField(TEXT("absolute_tolerance"), S.AbsoluteTolerance); Item->SetNumberField(TEXT("relative_tolerance"), S.RelativeTolerance);
         Item->SetStringField(TEXT("comparison_status"), !S.Gate.bEvaluated ? TEXT("not_evaluated") : S.Gate.bPassed ? TEXT("passed") : TEXT("failed"));
         Item->SetStringField(TEXT("reason"), S.Gate.Reason);
@@ -370,6 +392,7 @@ FString StudioHome4Validation::SerializeEvidence(const FStudioHome4ReferenceEvid
         auto Item = MakeShared<FJsonObject>(); Item->SetStringField(TEXT("id"), S.Id); Item->SetStringField(TEXT("name"), S.Name);
         Item->SetStringField(TEXT("x_name"), S.AbscissaName); Item->SetStringField(TEXT("x_unit"), S.AbscissaUnit); Item->SetStringField(TEXT("unit"), S.Unit);
         if(!S.AbscissaEpoch.IsEmpty())Item->SetStringField(TEXT("epoch"),S.AbscissaEpoch);
+        Item->SetObjectField(TEXT("metric_context"),MetricContext(S));
         Item->SetArrayField(TEXT("x"), JSONNumbers(S.Abscissae)); Item->SetArrayField(TEXT("actual"), JSONNumbers(S.Actual)); Item->SetArrayField(TEXT("reference"), JSONNumbers(S.Reference));
         Item->SetNumberField(TEXT("absolute_tolerance"), S.AbsoluteTolerance); Item->SetNumberField(TEXT("relative_tolerance"), S.RelativeTolerance);
         Series.Add(MakeShared<FJsonValueObject>(Item));

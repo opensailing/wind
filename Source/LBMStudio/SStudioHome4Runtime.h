@@ -21,10 +21,19 @@ public:
     bool ImportPath(const FString& Path,bool History);
     void PollImport();
     bool IsImporting() const { return PendingImport.IsValid(); }
+    void CancelImport(){bCancelImport=true;}
+    FString ImportStatus()const{return Notice;}
+#if WITH_DEV_AUTOMATION_TESTS
+    void SetImportVerificationForAutomation(TFunction<void()> BeforeVerify){BeforeImportVerify=MoveTemp(BeforeVerify);}
+#endif
 private:
     struct FOriginalImport { FString JSON,Path,SHA256,Error; FGuid ProjectId,CaseId; bool bHistory=false; };
-    static FOriginalImport ReadOriginal(const FString& Path,bool History,FGuid Project,FGuid Case);
+    static FOriginalImport ReadOriginal(const FString& Path,bool History,FGuid Project,FGuid Case,const TFunction<void()>& BeforeVerify);
     TFuture<FOriginalImport> PendingImport;
+    bool bCancelImport=false;
+#if WITH_DEV_AUTOMATION_TESTS
+    TFunction<void()> BeforeImportVerify;
+#endif
     void Refresh();
     void Import(bool History);
     void ExportHistory();

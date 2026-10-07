@@ -19,9 +19,12 @@ TArray<FString> StudioHome4RecipeGates::RequiredMetrics(const FString& Recipe)
 FString StudioHome4RecipeGates::Description(const FString& Recipe)
 {
     const auto Metrics=RequiredMetrics(Recipe);
+    FString Context;
+    if(Recipe==TEXT("sedimentation"))Context=TEXT(" terminal_velocity also needs metric_context sampling_convention=steady-terminal, original extraction_method/window_start/window_end/window_unit/window_epoch matching series x_unit/epoch.");
+    if(Recipe==TEXT("vugts-barge"))Context=TEXT(" added_mass/damping also need matching original motion_mode=heave|roll, normalization, sampling_convention=original-frequency-curve and explicit extraction_method/window_start/window_end/window_unit/window_epoch. Curves retain their original frequency axis.");
     return Metrics.IsEmpty()?TEXT("No metric coverage contract supplied for this recipe."):
         TEXT("Required original reference metrics: ")+FString::Join(Metrics,TEXT(", "))+
-        TEXT(". Each needs aligned actual/reference samples and explicit tolerances. Recipe eligibility also requires an original run specification and owner-verified source citation/hash.");
+        TEXT(". Each needs aligned actual/reference samples and explicit tolerances. Recipe eligibility also requires an original run specification and owner-verified source citation/hash.")+Context;
 }
 FStudioHome4RecipeCoverage StudioHome4RecipeGates::Evaluate(const FStudioHome4ReferenceEvidence& E)
 {
@@ -29,6 +32,27 @@ FStudioHome4RecipeCoverage StudioHome4RecipeGates::Evaluate(const FStudioHome4Re
     if(C.Required.IsEmpty()) { C.Reason=TEXT("Unknown recipe coverage contract."); return C; }
     for(const auto& Id:C.Required)
         if(!E.Series.ContainsByPredicate([&](const auto& S){return S.Id==Id&&S.Gate.bEvaluated;})) C.Missing.Add(Id);
+    for(const auto& S:E.Series)
+    {
+        const bool ValidWindow=S.ExtractionWindowStart&&S.ExtractionWindowEnd&&
+            FMath::IsFinite(*S.ExtractionWindowStart)&&FMath::IsFinite(*S.ExtractionWindowEnd)&&
+            *S.ExtractionWindowStart<*S.ExtractionWindowEnd&&!S.ExtractionMethod.IsEmpty()&&
+            !S.ExtractionWindowUnit.IsEmpty()&&!S.ExtractionEpoch.IsEmpty();
+        if(E.RecipeId==TEXT("sedimentation")&&S.Id==TEXT("terminal_velocity")&&
+            (S.SamplingConvention!=TEXT("steady-terminal")||!ValidWindow||S.ExtractionWindowUnit!=S.AbscissaUnit||S.ExtractionEpoch!=S.AbscissaEpoch||S.AbscissaEpoch.IsEmpty()||S.Abscissae.Num()<2||S.Abscissae[0]<*S.ExtractionWindowStart||S.Abscissae.Last()>*S.ExtractionWindowEnd))
+            C.Missing.AddUnique(TEXT("terminal_velocity: original steady-terminal window/unit/epoch/method"));
+        if(E.RecipeId==TEXT("vugts-barge")&&(S.Id==TEXT("added_mass")||S.Id==TEXT("damping"))&&
+            ((S.MotionMode!=TEXT("heave")&&S.MotionMode!=TEXT("roll"))||S.Normalization.IsEmpty()||!ValidWindow||S.AbscissaEpoch.IsEmpty()||S.SamplingConvention!=TEXT("original-frequency-curve")))
+            C.Missing.AddUnique(S.Id+TEXT(": original heave/roll, frequency, normalization and fit window/method"));
+        if(E.RecipeId==TEXT("vugts-barge")&&(S.Id==TEXT("added_mass")||S.Id==TEXT("damping"))&&E.OriginalRunSpec&&
+            E.OriginalRunSpec->Geometry.BodyMotion!=TEXT("forced-")+S.MotionMode)
+            C.Missing.AddUnique(S.Id+TEXT(": original motion mode does not match the original run specification"));
+    }
+    if(E.RecipeId==TEXT("vugts-barge"))
+    {
+        const auto* A=E.Series.FindByPredicate([](const auto& S){return S.Id==TEXT("added_mass");});const auto* D=E.Series.FindByPredicate([](const auto& S){return S.Id==TEXT("damping");});
+        if(A&&D&&(A->MotionMode!=D->MotionMode||A->Normalization!=D->Normalization||A->AbscissaName!=D->AbscissaName||A->AbscissaUnit!=D->AbscissaUnit||A->AbscissaEpoch!=D->AbscissaEpoch))C.Missing.AddUnique(TEXT("added_mass/damping: matching original motion/frequency/normalization scope"));
+    }
     C.bOriginalSpecKnown=E.OriginalRunSpec.IsSet();
     if(C.bOriginalSpecKnown)
     {

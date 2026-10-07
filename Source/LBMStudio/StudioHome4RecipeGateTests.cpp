@@ -15,6 +15,9 @@ namespace StudioHome4RecipeGateTestFixtures
         {
             FStudioHome4ReferenceSeries S;S.Id=Id;S.Name=Id;S.AbscissaName=TEXT("t*");S.AbscissaUnit=TEXT("dimensionless");S.Unit=TEXT("original fixture unit");
             S.Abscissae={0,1,2};S.Actual={1,1,1};S.Reference={1,1,1};S.AbsoluteTolerance=.01;S.RelativeTolerance=0;
+            if(E.RecipeId==TEXT("sedimentation")||E.RecipeId==TEXT("vugts-barge"))S.AbscissaEpoch=TEXT("explicit original fixture zero");
+            if(E.RecipeId==TEXT("sedimentation")){S.SamplingConvention=TEXT("steady-terminal");S.ExtractionMethod=TEXT("original steady arithmetic mean");S.ExtractionWindowStart=0;S.ExtractionWindowEnd=2;S.ExtractionWindowUnit=S.AbscissaUnit;S.ExtractionEpoch=S.AbscissaEpoch;}
+            if(E.RecipeId==TEXT("vugts-barge")){S.MotionMode=TEXT("heave");S.Normalization=TEXT("identified unit fixture normalization");S.SamplingConvention=TEXT("original-frequency-curve");S.ExtractionMethod=TEXT("original harmonic least-squares fit");S.ExtractionWindowStart=0;S.ExtractionWindowEnd=2;S.ExtractionWindowUnit=TEXT("s");S.ExtractionEpoch=TEXT("original fit time zero");S.AbscissaName=TEXT("frequency");S.AbscissaUnit=TEXT("Hz");}
             S.Gate=StudioHome4Recipes::Compare(S.Actual,S.Reference,S.AbsoluteTolerance,S.RelativeTolerance,E.ReferenceSource);E.Series.Add(S);
         }
         return E;

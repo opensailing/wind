@@ -434,7 +434,31 @@ bool FStudioHome4RuntimeSession::AttachOriginalEvidence(const FStudioHome4Refere
     P.MeasurementSource=E.ActualSource;P.MeasurementSHA256=E.bComposedAlignment?E.ActualOriginalSHA256:E.SourceSHA256;
     P.GateStatus=E.RecipeGateStatus();P.GateSourceSHA256=E.SourceSHA256;
     P.ParentRunId=E.OriginalRunSpec->ParentRunId;P.ParentSpecSHA256=E.OriginalRunSpec->ParentSpecSHA256;
-    *Record=Record->WithProvenance(P);Job->bScientificResultsAttached=true;++Job->Sequence;++M->CatalogRevision;M->bDirty=true;Error.Empty();return true;
+    const auto Updated=Record->WithProvenance(P);FStudioRunRecord Verified;
+    if(!FStudioRunRecord::FromJSON(Updated.ToJSON(),Verified,Error))return false;
+    auto Candidate=M->SnapshotProject();const int32 Index=Candidate.Runs.IndexOfByPredicate([&](const auto& R){return R.GetId()==E.RunId;});Candidate.Runs[Index]=Verified;
+    const FTCHARToUTF8 ProjectBytes(*StudioProjectIO::Serialize(Candidate));
+    if(ProjectBytes.Length()>4*1024*1024-8192){Error=TEXT("Original evidence provenance exceeds this project's bounded document budget; previous history retained.");return false;}
+    *Record=MoveTemp(Verified);Job->bScientificResultsAttached=true;++Job->Sequence;++M->CatalogRevision;M->bDirty=true;Error.Empty();return true;
+}
+void FStudioHome4RuntimeSession::AttachMeasuredProvenance(const FStudioHome4MeasuredRun& R)
+{
+    Scope();const auto M=Model.Pin();if(!M||!R.OriginalRunSpec)return;
+    auto* Record=M->Project.Runs.FindByPredicate([&](const auto& V){return V.GetId()==R.RunId;});if(!Record||Record->GetOrigin()==EStudioRunOrigin::PublishedRecording)return;
+    const auto* Configuration=Record->GetConfiguration();const auto Existing=Record->GetProvenance();
+    const FStudioHome4Spec* Original=Configuration&&Configuration->Home4?&*Configuration->Home4:Existing&&Existing->OriginalRunSpec?&*Existing->OriginalRunSpec:nullptr;
+    if(!Original||StudioHome4Config::Serialize(*Original)!=StudioHome4Config::Serialize(*R.OriginalRunSpec))return;
+    FStudioRecordedRunProvenance P=Existing.Get(FStudioRecordedRunProvenance());
+    P.RunId=R.RunId.ToString();P.RecipeId=R.RecipeId;P.LineageId=R.OriginalRunSpec->LineageId;P.OriginalRunSpec=R.OriginalRunSpec;
+    P.OriginalTag=R.OriginalRunSpec->Run.Tag;P.OriginalBackend=StudioHome4RuntimePrivate::BackendName(R.Backend);
+    P.MeasuredMLUPS=R.MLUPS();P.MeasurementSource=R.Source;P.MeasurementSHA256=R.SourceSHA256;
+    P.ParentRunId=R.OriginalRunSpec->ParentRunId;P.ParentSpecSHA256=R.OriginalRunSpec->ParentSpecSHA256;
+    FStudioRunRecord Verified;FString Error;
+    if(!FStudioRunRecord::FromJSON(Record->WithProvenance(P).ToJSON(),Verified,Error))return;
+    auto Candidate=M->SnapshotProject();const int32 Index=Candidate.Runs.IndexOfByPredicate([&](const auto& V){return V.GetId()==R.RunId;});Candidate.Runs[Index]=Verified;
+    const FTCHARToUTF8 ProjectBytes(*StudioProjectIO::Serialize(Candidate));
+    if(ProjectBytes.Length()>4*1024*1024-8192)return;
+    *Record=MoveTemp(Verified);++M->CatalogRevision;M->bDirty=true;
 }
 bool FStudioHome4RuntimeSession::RecordMeasuredRun(const FStudioHome4MeasuredRun& R, FString& Error)
 {
@@ -450,8 +474,12 @@ bool FStudioHome4RuntimeSession::RecordMeasuredRun(const FStudioHome4MeasuredRun
     }
     if (const auto* Existing = MeasuredRuns.FindByPredicate([&](const auto& V) { return V.RunId == R.RunId; }))
     { Error = Existing->SourceSHA256 == R.SourceSHA256 ? TEXT("Original measured run is already recorded.") : TEXT("Original run ID conflicts with a different measurement source hash."); return false; }
+    auto Previous=MeasuredRuns;
     if (MeasuredRuns.Num() >= 128) MeasuredRuns.RemoveAt(0, 1, EAllowShrinking::No);
-    MeasuredRuns.Add(R);++HistoryRevision;Error.Empty();return true;
+    MeasuredRuns.Add(R);
+    const FTCHARToUTF8 Document(*SerializePerformanceHistory());
+    if(!bParsingHistory&&Document.Length()>1024*1024){MeasuredRuns=MoveTemp(Previous);Error=TEXT("Original measured history exceeds its 1 MiB persisted source budget; prior history retained.");return false;}
+    ++HistoryRevision;if(!bParsingHistory)AttachMeasuredProvenance(R);Error.Empty();return true;
 }
 FString FStudioHome4RuntimeSession::SerializePerformanceHistory() const
 {
@@ -472,28 +500,30 @@ bool FStudioHome4RuntimeSession::ParsePerformanceHistory(const FString& JSONText
     using namespace StudioHome4RuntimePrivate; TSharedPtr<FJsonObject> O; FString Schema;
     if (!Object(JSONText, O) || !Text(O, TEXT("schema"), Schema) || Schema != TEXT("LBMStudio.Home4MeasuredHistory")) { Error = TEXT("Supply original HOME4 measured-history JSON."); return false; }
     const auto A = O->TryGetField(TEXT("records")); if (!A || A->Type != EJson::Array || A->AsArray().Num() > 128) { Error = TEXT("Measured history supports at most 128 original runs."); return false; }
+    TGuardValue<bool> ParsingGuard(bParsingHistory,true);const uint64 PreviousRevision=HistoryRevision;
     TArray<FStudioHome4MeasuredRun> Previous = MeasuredRuns; MeasuredRuns.Reset();
     for (const auto& V : A->AsArray())
     {
-        if (V->Type != EJson::Object) { Error = TEXT("Measured history records must be objects."); MeasuredRuns = MoveTemp(Previous); return false; }
+        if (V->Type != EJson::Object) { Error = TEXT("Measured history records must be objects."); MeasuredRuns = MoveTemp(Previous);HistoryRevision=PreviousRevision; return false; }
         const auto R = V->AsObject(); FStudioHome4MeasuredRun M; FString Id, B; TOptional<double> Updates, Seconds; bool Completed = false;
         const auto Flag = R->TryGetField(TEXT("completed_original_run"));
         if (!Text(R, TEXT("run_id"), Id) || !FGuid::Parse(Id, M.RunId) || !Text(R, TEXT("host"), M.Host) || !Text(R, TEXT("device"), M.Device) || !Text(R, TEXT("recipe_id"), M.RecipeId) ||
             !Text(R, TEXT("source"), M.Source) || !Text(R, TEXT("source_sha256"), M.SourceSHA256) || !Text(R, TEXT("retabulation_policy"), M.RetabulationPolicy, false) || !Text(R, TEXT("backend"), B) ||
             !Number(R, TEXT("node_updates"), Updates) || !Number(R, TEXT("elapsed_seconds"), Seconds) || !Number(R, TEXT("transferred_bytes"), M.TransferredBytes) || !Updates || !Seconds || !Flag || Flag->Type != EJson::Boolean || !Flag->TryGetBool(Completed))
-        { Error = TEXT("Original measured history record is incomplete or malformed."); MeasuredRuns = MoveTemp(Previous); return false; }
+        { Error = TEXT("Original measured history record is incomplete or malformed."); MeasuredRuns = MoveTemp(Previous);HistoryRevision=PreviousRevision; return false; }
         const auto Original=R->TryGetField(TEXT("original_run_spec"));
         if(Original&&Original->Type!=EJson::Null)
         {
             FStudioHome4Spec Spec;
             if(Original->Type!=EJson::Object||!StudioHome4Config::FromJSON(Original->AsObject(),Spec,Error)||Spec.RecipeId!=M.RecipeId)
-            {Error=TEXT("Measured history original run specification is invalid or belongs to another workload.");MeasuredRuns=MoveTemp(Previous);return false;}
+            {Error=TEXT("Measured history original run specification is invalid or belongs to another workload.");MeasuredRuns=MoveTemp(Previous);HistoryRevision=PreviousRevision;return false;}
             M.OriginalRunSpec=MoveTemp(Spec);
         }
         M.NodeUpdates = *Updates; M.ElapsedSeconds = *Seconds; M.Backend = ParseBackend(B); M.bCompletedOriginalRun = Completed;
-        if (!RecordMeasuredRun(M, Error)) { MeasuredRuns = MoveTemp(Previous); return false; }
+        if (!RecordMeasuredRun(M, Error)) { MeasuredRuns = MoveTemp(Previous);HistoryRevision=PreviousRevision; return false; }
     }
-    Error.Empty(); return true;
+    for(const auto& R:MeasuredRuns)AttachMeasuredProvenance(R);
+    HistoryRevision=PreviousRevision+1;Error.Empty(); return true;
 }
 TOptional<double> FStudioHome4RuntimeSession::EstimatedSeconds(const FStudioHome4Spec& Spec, const FStudioHome4MeasuredRun& Basis) const
 {
