@@ -18,6 +18,8 @@ struct FStudioHome4TelemetryProvenance
     TOptional<FGuid> OriginalRunId;
     bool bImportedReplay=false;
     FString SourceId, SourcePath, SourceSHA256;
+    bool bCapturedPrefix=false, bCaptureCoversDisplayedData=true;
+    int64 CapturedByteCount=0;
     TOptional<FGuid> AttachedProjectId, AttachedCaseId;
 };
 
@@ -28,6 +30,7 @@ struct FStudioHome4CellFacts
     TOptional<double> Phi, Tau;
     TOptional<bool> Limiter, ForceThreshold, InBand, InSponge, InBeach, InCutLinkShell;
     FString Zone;
+    FString PatchId; // Explicit original locator.patch_id; level alone may be ambiguous.
 };
 
 struct FStudioHome4MassLedger
@@ -64,6 +67,7 @@ struct FStudioHome4Window
     TOptional<double> PreviousFx, PreviousFy, PreviousFz, PreviousMy;
     TOptional<double> Start, End, PreviousStart, PreviousEnd;
     TOptional<double> AverageLength;
+    FString AbscissaUnit, Epoch;
 };
 
 /** Optional measured work extension. Counts include actual level substeps.
@@ -88,6 +92,8 @@ struct FStudioHome4Normalization
  * lattice|physical|nondimensional. unit_map holds dx_m, dt_s, rho_kg_m3, rho_lattice,
  * length_cells, time_steps, speed_cells_step; conversions require their actual
  * dimensions. normalization/body_normalizations hold positive divisors and labels.
+ * Optional declared_levels identifies expected root/MD ledger levels. Divergence
+ * convention/unit/domain and device_peak_gbps/source retain their original basis.
  * A kind:source_metadata record supplies conventions without a numerical sample. */
 struct FStudioHome4SourceMetadata
 {
@@ -95,12 +101,18 @@ struct FStudioHome4SourceMetadata
     FStudioHome4Spec UnitMap;
     FStudioHome4Normalization Normalization;
     TMap<FString, FStudioHome4Normalization> BodyNormalizations;
+    FString DivergenceConvention, DivergenceUnit, DivergenceDomain;
+    TOptional<double> DevicePeakGBps;
+    FString DevicePeakSource;
+    TArray<int32> DeclaredLevels;
     bool Equivalent(const FStudioHome4SourceMetadata& Other) const;
 };
 struct FStudioHome4Histogram
 {
     TArray<double> BinEdges;
     TArray<int64> Counts;
+    TOptional<double> PhiMinimum,PhiMaximum,ExpectedXi;
+    FString ThicknessUnit,SamplingSource;
 };
 struct FStudioHome4PhaseEnergy
 {
@@ -126,8 +138,13 @@ struct FStudioHome4BodyMeasurement
     TOptional<double> EquilibriumHeave, RunningHeave, ReferenceHeave;
     TOptional<double> K33, K35, K55, AddedMass, Damping, ReferenceAddedMass, ReferenceDamping;
     FString StiffnessUnit, AddedMassUnit, DampingUnit, FitReferenceSource;
+    FString K33Unit,K35Unit,K55Unit,StiffnessConvention;
     TOptional<int64> RetabulationEvery;
     FStudioHome4Work RetabulationWork;
+    TOptional<double> QuasiStaticHeave,QuasiStaticPitchDegrees,FitFrequency;
+    FString QuasiStaticMethod,QuasiStaticSource,FitMethod,FitFrequencyUnit;
+    TOptional<double> FitWindowStart,FitWindowEnd;
+    FString FitWindowUnit,FitEpoch;
 };
 
 struct FStudioHome4Sample
@@ -151,10 +168,13 @@ struct FStudioHome4Sample
     TMap<FString, FStudioHome4PhaseEnergy> PhaseEnergies;
     FStudioHome4Histogram InterfaceThickness;
     TOptional<double> SpuriousSpeed;
-    FString SpuriousMask;
+    FString SpuriousMask,SpuriousUnit,SpuriousReferenceSource;
+    TOptional<bool> SpuriousForcingFree,SpuriousAtRest;
+    TOptional<double> SpuriousReferenceSpeed,SpuriousAbsoluteTolerance;
     TArray<FStudioHome4LevelMeasurement> Levels;
     TArray<FStudioHome4BodyMeasurement> Bodies;
     FStudioHome4Work Work;
+    TOptional<bool> RestFullGravity;
     TOptional<bool> RestCondition; // Only explicit wb_rest.at_rest enables the gate.
     TOptional<double> RestMaxDynamicPressure;
     FStudioHome4CellFacts Trouble;
@@ -175,6 +195,7 @@ struct FStudioHome4OutputEvent
  * LastGoodStep and RestartPath refer only to retained original measurements/events. */
 struct FStudioHome4ActionRequest
 {
+    TOptional<int64> Step; // Exact triggering original step, retained after history eviction.
     FStudioHome4Source Source;
     uint64 RecordIndex = 0;
     bool bStop = true, bCheckpointLastGoodState = false, bLocateCell = false;
@@ -195,6 +216,7 @@ struct FStudioHome4HealthSignal
 
 struct FStudioHome4DiagnosticPolicy
 {
+    FString BodyId; // Empty selects original aggregate forces/windows, never another body.
     // The mass gate is fixed by the design note: |drift| < 1e-4.
     TOptional<double> BudgetAbsoluteTolerance;
     TOptional<double> ForceRelativeTolerance, ForceAbsoluteTolerance, ForceReferenceMagnitude;

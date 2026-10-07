@@ -6,6 +6,7 @@
 #include <atomic>
 
 class FStudioModel;
+class FStudioHome4RuntimeSession;
 class SScrollBox;
 class SVerticalBox;
 DECLARE_DELEGATE_OneParam(FStudioHome4LocateCell, const FStudioHome4CellFacts&);
@@ -18,6 +19,7 @@ public:
     SLATE_BEGIN_ARGS(SStudioHome4Monitors) : _UnitDisplay(EStudioHome4UnitDisplay::Lattice) {}
         SLATE_ARGUMENT(TSharedPtr<FStudioModel>, Model)
         SLATE_ARGUMENT(TSharedPtr<FStudioHome4TelemetryStream>, Stream)
+        SLATE_ARGUMENT(TSharedPtr<FStudioHome4RuntimeSession>, Runtime)
         SLATE_ATTRIBUTE(EStudioHome4UnitDisplay, UnitDisplay)
         SLATE_EVENT(FStudioHome4LocateCell, OnLocateCell)
     SLATE_END_ARGS()
@@ -37,6 +39,7 @@ public:
     FStudioHome4TelemetryStream* DisplayedTelemetry() { ScopeProject(); return DisplayStream(); }
     const FStudioHome4Sample* LatestDisplayedMeasurement() { ScopeProject(); return Sample(); }
     TOptional<FStudioHome4TelemetryProvenance> ReportProvenance();
+    const TArray<uint8>& ReportOriginalBytes();
     /** Imported logs bind spatially only when the owner supplied their original run GUID. */
     TOptional<FGuid> OriginalRunIdentity() const;
     FString StatusText() const { return Status; }
@@ -48,6 +51,7 @@ public:
     StudioHome4SciencePresentation::FHistory PresentedHistory() const;
     StudioHome4SciencePresentation::FHistory PresentedForces() const;
     FString SelectedBodyIdentity() const { return SelectedBody; }
+    bool QueueRestTest();
 
 private:
     struct FImportResult
@@ -55,6 +59,7 @@ private:
         TUniquePtr<FStudioHome4TelemetryStream> Stream;
         FString Path, Error, SHA256;
         bool bOriginalRunIdentity = false;
+        TArray<uint8> OriginalBytes;
         int64 Bytes = 0, Lines = 0, Malformed = 0, Unknown = 0, Oversized = 0, Regressing = 0;
     };
     static FImportResult ReadImport(const FString& Path, const FStudioHome4Source& Source, bool bOriginalRunIdentity,
@@ -69,6 +74,7 @@ private:
     void CycleLevel();
     void CyclePhase();
     FString HistoryCaption(bool Forces) const;
+    FString ScienceTooltips(FName Key) const;
 
     void ApplyPolicy();
     void RefreshOutputs();
@@ -76,6 +82,7 @@ private:
     bool CanLocate() const;
     void Locate();
     TWeakPtr<FStudioModel> Model;
+    TSharedPtr<FStudioHome4RuntimeSession> Runtime;
     TSharedPtr<FStudioHome4TelemetryStream> SessionStream, ImportedStream;
     TSharedPtr<SScrollBox> Scroll;
     TSharedPtr<SVerticalBox> OutputRows;
@@ -90,6 +97,7 @@ private:
     TMap<FName, bool> Sections;
 
     FString Status, ImportPath, OriginalRunIdDraft, ImportSHA256;
+    TArray<uint8> ImportedOriginalBytes;
 #if WITH_DEV_AUTOMATION_TESTS
     TFunction<void()> BeforeImportVerify;
 #endif

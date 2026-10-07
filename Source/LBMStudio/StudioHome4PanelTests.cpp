@@ -104,7 +104,7 @@ bool FStudioHome4TimelineTest::RunTest(const FString&)
     TestEqual(TEXT("Original output events accepted"),Stream.AppendBytes(reinterpret_cast<const uint8*>(Bytes.Get()),Bytes.Length()).Accepted,3);
     TArray<FStudioFrame> Frames;FStudioFrame First;First.Index=100;Frames.Add(First);First.Index=200;Frames.Add(First);
     TOptional<FGuid> Run=Source.RunId;int32 ReviewCount=0,Ordinal=INDEX_NONE;
-    auto Widget=SNew(SStudioHome4Timeline).Telemetry([&]{return &Stream;}).SourceRun([&]{return Run;}).Frames([&]{return &Frames;})
+    auto Widget=SNew(SStudioHome4Timeline).Telemetry([&]{return &Stream;}).SourceRun([&]{return Run;}).FieldSourceRun([&]{return Run;}).Frames([&]{return &Frames;})
         .Review([&](int32 I){++ReviewCount;Ordinal=I;});
     auto Key=[&](FKey K){return Widget->OnKeyDown(FGeometry(),FKeyEvent(K,FModifierKeysState(),0,false,0,0));};
     Key(EKeys::Home);Key(EKeys::Right);TestEqual(TEXT("Trace and slice do not change replay"),ReviewCount,0);

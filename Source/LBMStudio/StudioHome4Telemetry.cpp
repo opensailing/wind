@@ -140,6 +140,7 @@ namespace StudioHome4TelemetryPrivate
         R.Number(O, TEXT("Fx"), W.Fx); R.Number(O, TEXT("Fy"), W.Fy); R.Number(O, TEXT("Fz"), W.Fz); R.Number(O, TEXT("My"), W.My);
         R.Number(O, TEXT("Fx_prev"), W.PreviousFx); R.Number(O, TEXT("Fy_prev"), W.PreviousFy); R.Number(O, TEXT("Fz_prev"), W.PreviousFz); R.Number(O, TEXT("My_prev"), W.PreviousMy);
         R.Number(O, TEXT("start"), W.Start, 0); R.Number(O, TEXT("end"), W.End, 0);
+        R.String(O,TEXT("abscissa_unit"),W.AbscissaUnit,64);R.String(O,TEXT("epoch"),W.Epoch,256);
         R.Number(O, TEXT("prev_start"), W.PreviousStart, 0); R.Number(O, TEXT("prev_end"), W.PreviousEnd, 0);
         R.Number(O, TEXT("average_length"), W.AverageLength, 0);
         if ((W.Start && W.End && *W.Start >= *W.End) || (W.PreviousStart && W.PreviousEnd && *W.PreviousStart >= *W.PreviousEnd) ||
@@ -176,6 +177,16 @@ namespace StudioHome4TelemetryPrivate
         R.Number(U, TEXT("speed_cells_step"), M->UnitMap.Reference.SpeedCellsPerStep, 0, 1e12);
         FString Error; if (!StudioHome4Config::Validate(M->UnitMap, Error)) R.bValid = false;
         ReadNormalization(R, R.Object(O, TEXT("normalization")), M->Normalization);
+        R.String(O,TEXT("divergence_convention"),M->DivergenceConvention,256);R.String(O,TEXT("divergence_unit"),M->DivergenceUnit,64);R.String(O,TEXT("divergence_domain"),M->DivergenceDomain,256);
+        R.Number(O,TEXT("device_peak_gbps"),M->DevicePeakGBps,0);R.String(O,TEXT("device_peak_source"),M->DevicePeakSource,2048);
+        if(M->DevicePeakGBps&&(*M->DevicePeakGBps<=0||M->DevicePeakSource.IsEmpty()))R.bValid=false;
+        const auto* Declared=R.Array(O,TEXT("declared_levels"),64);TSet<int32> Seen;
+        if(Declared)for(const auto& V:*Declared)
+        {
+            double D=0;if(V->Type!=EJson::Number||!V->TryGetNumber(D)||!FMath::IsFinite(D)||D<0||D>63||FMath::FloorToDouble(D)!=D||Seen.Contains(int32(D))){R.bValid=false;break;}
+            Seen.Add(int32(D));M->DeclaredLevels.Add(int32(D));
+        }
+        M->DeclaredLevels.Sort();
         const auto Bodies = R.Object(O, TEXT("body_normalizations"));
         if (Bodies)
         {
@@ -192,9 +203,18 @@ namespace StudioHome4TelemetryPrivate
     {
         const auto Interface = R.Object(O, TEXT("interface"));
         R.Number(Interface, TEXT("spurious_speed"), S.SpuriousSpeed, 0); R.String(Interface, TEXT("spurious_mask"), S.SpuriousMask);
+        R.String(Interface,TEXT("spurious_unit"),S.SpuriousUnit,64);R.Boolean(Interface,TEXT("forcing_free"),S.SpuriousForcingFree);R.Boolean(Interface,TEXT("at_rest"),S.SpuriousAtRest);
+        const auto Spurious=R.Object(Interface,TEXT("spurious_reference"));
+        R.Number(Spurious,TEXT("speed"),S.SpuriousReferenceSpeed,0);R.Number(Spurious,TEXT("absolute_tolerance"),S.SpuriousAbsoluteTolerance,0);R.String(Spurious,TEXT("source"),S.SpuriousReferenceSource,2048);
+        if((S.SpuriousReferenceSpeed||S.SpuriousAbsoluteTolerance)&&(S.SpuriousReferenceSource.IsEmpty()||S.SpuriousUnit.IsEmpty()))R.bValid=false;
         const auto Histogram = R.Object(Interface, TEXT("thickness_histogram"));
         if (Histogram)
         {
+            R.Number(Histogram,TEXT("phi_min"),S.InterfaceThickness.PhiMinimum,0,1);R.Number(Histogram,TEXT("phi_max"),S.InterfaceThickness.PhiMaximum,0,1);
+            R.Number(Histogram,TEXT("expected_xi"),S.InterfaceThickness.ExpectedXi,0);R.String(Histogram,TEXT("thickness_unit"),S.InterfaceThickness.ThicknessUnit,64);R.String(Histogram,TEXT("sampling_source"),S.InterfaceThickness.SamplingSource,2048);
+            if(S.InterfaceThickness.PhiMinimum.IsSet()!=S.InterfaceThickness.PhiMaximum.IsSet()||
+                (S.InterfaceThickness.PhiMinimum&&*S.InterfaceThickness.PhiMinimum>=*S.InterfaceThickness.PhiMaximum)||
+                (S.InterfaceThickness.ExpectedXi&&(*S.InterfaceThickness.ExpectedXi<=0||S.InterfaceThickness.ThicknessUnit.IsEmpty())))R.bValid=false;
             const auto* Edges = R.Array(Histogram, TEXT("edges"), 65); const auto* Counts = R.Array(Histogram, TEXT("counts"), 64);
             if (!Edges || !Counts || Counts->IsEmpty() || Edges->Num() != Counts->Num() + 1) R.bValid = false;
             else
@@ -252,6 +272,7 @@ namespace StudioHome4TelemetryPrivate
             R.Number(A, TEXT("equilibrium_heave"), M.EquilibriumHeave); R.Number(A, TEXT("running_heave"), M.RunningHeave); R.Number(A, TEXT("reference_heave"), M.ReferenceHeave);
             R.Number(A, TEXT("k33"), M.K33); R.Number(A, TEXT("k35"), M.K35); R.Number(A, TEXT("k55"), M.K55);
             R.String(A, TEXT("stiffness_unit"), M.StiffnessUnit, 64);
+            R.String(A,TEXT("k33_unit"),M.K33Unit,64);R.String(A,TEXT("k35_unit"),M.K35Unit,64);R.String(A,TEXT("k55_unit"),M.K55Unit,64);R.String(A,TEXT("stiffness_convention"),M.StiffnessConvention,256);
             R.Vector(A, TEXT("equilibrium_deg"), M.EquilibriumAttitudeDegrees); R.Vector(A, TEXT("running_deg"), M.RunningAttitudeDegrees);
             R.Vector(A, TEXT("reference_deg"), M.ReferenceAttitudeDegrees); R.String(A, TEXT("reference_source"), M.ReferenceSource);
             const auto Fit = R.Object(B, TEXT("fit"));
@@ -259,6 +280,13 @@ namespace StudioHome4TelemetryPrivate
             R.Number(Fit, TEXT("reference_added_mass"), M.ReferenceAddedMass); R.Number(Fit, TEXT("reference_damping"), M.ReferenceDamping);
             R.String(Fit, TEXT("added_mass_unit"), M.AddedMassUnit, 64); R.String(Fit, TEXT("damping_unit"), M.DampingUnit, 64);
             R.String(Fit, TEXT("reference_source"), M.FitReferenceSource);
+            R.Number(Fit,TEXT("frequency"),M.FitFrequency,0);R.String(Fit,TEXT("frequency_unit"),M.FitFrequencyUnit,64);R.String(Fit,TEXT("method"),M.FitMethod,256);
+            R.Number(Fit,TEXT("window_start"),M.FitWindowStart);R.Number(Fit,TEXT("window_end"),M.FitWindowEnd);R.String(Fit,TEXT("window_unit"),M.FitWindowUnit,64);R.String(Fit,TEXT("epoch"),M.FitEpoch,256);
+            if(M.FitWindowStart.IsSet()!=M.FitWindowEnd.IsSet()||(M.FitWindowStart&&(*M.FitWindowEnd<=*M.FitWindowStart||M.FitWindowUnit.IsEmpty()))||
+                (M.FitFrequency&&M.FitFrequencyUnit.IsEmpty()))R.bValid=false;
+            const auto Quasi=R.Object(B,TEXT("quasi_static"));
+            R.Number(Quasi,TEXT("heave"),M.QuasiStaticHeave);R.Number(Quasi,TEXT("pitch_deg"),M.QuasiStaticPitchDegrees);R.String(Quasi,TEXT("method"),M.QuasiStaticMethod,256);R.String(Quasi,TEXT("source"),M.QuasiStaticSource,2048);
+            if((M.QuasiStaticHeave||M.QuasiStaticPitchDegrees)&&(M.QuasiStaticMethod.IsEmpty()||M.QuasiStaticSource.IsEmpty()))R.bValid=false;
             if (((M.ReferenceAttitudeDegrees || M.ReferenceHeave) && M.ReferenceSource.IsEmpty()) || ((M.ReferenceAddedMass || M.ReferenceDamping) && M.FitReferenceSource.IsEmpty())) R.bValid = false;
             const auto Retab = R.Object(B, TEXT("retabulation")); R.Integer(Retab, TEXT("every"), M.RetabulationEvery);
             if (M.RetabulationEvery && *M.RetabulationEvery == 0) R.bValid = false;
@@ -313,7 +341,7 @@ namespace StudioHome4TelemetryPrivate
         ReadWork(R, R.Object(O, TEXT("performance")), S.Work);
         ReadExtensions(R, O, S);
         const auto Rest = R.Object(O, TEXT("wb_rest"));
-        R.Boolean(Rest, TEXT("at_rest"), S.RestCondition);
+        R.Boolean(Rest, TEXT("at_rest"), S.RestCondition);R.Boolean(Rest,TEXT("full_gravity"),S.RestFullGravity);
         R.Number(Rest, TEXT("pd_max"), S.RestMaxDynamicPressure, 0);
         const auto Trouble = R.Object(O, TEXT("locator"));
         R.Cell(Trouble, TEXT("cell"), S.Trouble.Cell);
@@ -329,6 +357,7 @@ namespace StudioHome4TelemetryPrivate
         R.Boolean(Trouble, TEXT("beach"), S.Trouble.InBeach);
         R.Boolean(Trouble, TEXT("cut_link_shell"), S.Trouble.InCutLinkShell);
         R.String(Trouble, TEXT("zone"), S.Trouble.Zone);
+        R.String(Trouble, TEXT("patch_id"), S.Trouble.PatchId, 128);
         TOptional<bool> Nonfinite;
         R.Boolean(O, TEXT("nonfinite"), Nonfinite);
         S.bNonfinite = Nonfinite.Get(false);
@@ -390,6 +419,7 @@ bool FStudioHome4SourceMetadata::Equivalent(const FStudioHome4SourceMetadata& O)
     auto Same = [](const FStudioHome4Normalization& A, const FStudioHome4Normalization& B)
     { return A.ForceDivisor == B.ForceDivisor && A.MomentDivisor == B.MomentDivisor && A.ForceLabel == B.ForceLabel && A.MomentLabel == B.MomentLabel; };
     if (ForceUnits != O.ForceUnits || EnergyUnits != O.EnergyUnits || VelocityUnits != O.VelocityUnits || LengthUnits != O.LengthUnits ||
+        DivergenceConvention!=O.DivergenceConvention||DivergenceUnit!=O.DivergenceUnit||DivergenceDomain!=O.DivergenceDomain||DevicePeakGBps!=O.DevicePeakGBps||DevicePeakSource!=O.DevicePeakSource||DeclaredLevels!=O.DeclaredLevels||
         StudioHome4Config::Serialize(UnitMap) != StudioHome4Config::Serialize(O.UnitMap) || !Same(Normalization, O.Normalization) || BodyNormalizations.Num() != O.BodyNormalizations.Num()) return false;
     for (const auto& E : BodyNormalizations) { const auto* Other = O.BodyNormalizations.Find(E.Key); if (!Other || !Same(E.Value, *Other)) return false; }
     return true;
@@ -406,7 +436,7 @@ TArray<FStudioHome4HealthSignal> FStudioHome4Diagnostics::Evaluate(const FStudio
 {
     using namespace StudioHome4TelemetryPrivate;
     TArray<FStudioHome4HealthSignal> Out;
-    auto Mass = Signal(TEXT("mass"), TEXT("Phase mass ledger"),
+    auto Mass = Signal(TEXT("mass"), TEXT("Phase ledger drift threshold"),
         TEXT("Inspect per-level ledgers, correction injections, boundary fluxes and MD restriction."));
     Mass.Threshold = 1e-4;
     if (S.Mass.PhiDrift)
@@ -416,11 +446,31 @@ TArray<FStudioHome4HealthSignal> FStudioHome4Diagnostics::Evaluate(const FStudio
         for (const auto& Level : S.Mass.LevelDrifts)
         { if (Level) Worst = FMath::Max(Worst, FMath::Abs(*Level)); else bComplete = false; }
         for(const auto& Level:S.Levels) {if(Level.MassDrift)Worst=FMath::Max(Worst,FMath::Abs(*Level.MassDrift));else bComplete=false;}
+        if(S.Metadata)for(int32 Expected:S.Metadata->DeclaredLevels)
+        {
+            if(Expected==0)continue;
+            const bool Indexed=S.Mass.LevelDrifts.IsValidIndex(Expected)&&S.Mass.LevelDrifts[Expected].IsSet();
+            const bool Named=S.Levels.ContainsByPredicate([&](const auto& L){return L.Level==Expected&&L.MassDrift.IsSet();});
+            if(!Indexed&&!Named)bComplete=false;
+        }
         Mass.Value = Worst;
         Mass.Status = Worst >= 1e-4 ? EStudioHome4Health::Warning :
             (bComplete ? EStudioHome4Health::Healthy : EStudioHome4Health::Unavailable);
         Mass.Reason = bComplete ? TEXT("Maximum absolute root/per-level ledger drift; healthy requires strictly below 1e-4.") :
             TEXT("A per-level ledger is unavailable; measured drifts are retained.");
+        bool TrendComplete=S.Mass.InjectionMagnitudeChange.IsSet();
+        for(const auto& Change:S.Mass.LevelInjectionMagnitudeChanges)TrendComplete&=Change.IsSet();
+        for(const auto& Level:S.Levels)TrendComplete&=Level.InjectionMagnitudeChange.IsSet();
+        for(int32 I=1;I<S.Mass.LevelDrifts.Num();++I)TrendComplete&=S.Mass.LevelInjectionMagnitudeChanges.IsValidIndex(I)&&S.Mass.LevelInjectionMagnitudeChanges[I].IsSet();
+        if(S.Metadata)for(int32 Expected:S.Metadata->DeclaredLevels)
+        {
+            if(Expected==0)continue;
+            const bool Indexed=S.Mass.LevelInjectionMagnitudeChanges.IsValidIndex(Expected)&&S.Mass.LevelInjectionMagnitudeChanges[Expected].IsSet();
+            const bool Named=S.Levels.ContainsByPredicate([&](const auto& L){return L.Level==Expected&&L.InjectionMagnitudeChange.IsSet();});
+            TrendComplete&=Indexed||Named;
+        }
+        Mass.Reason+=TrendComplete?TEXT(" Original adjacent correction-injection trend supplied."):TEXT(" Correction-injection trend coverage is unknown; drift health alone does not establish a complete ledger gate.");
+        Mass.Reason+=S.Metadata&&!S.Metadata->DeclaredLevels.IsEmpty()?TEXT(" Original declared-level coverage checked."):TEXT(" Expected MD level inventory was not supplied by the original source.");
         bool bGrowing = S.Mass.InjectionMagnitudeChange && *S.Mass.InjectionMagnitudeChange > 0;
         for (const auto& Change : S.Mass.LevelInjectionMagnitudeChanges) if (Change && *Change > 0) bGrowing = true;
         for (const auto& Level : S.Levels) if (Level.InjectionMagnitudeChange && *Level.InjectionMagnitudeChange > 0) bGrowing = true;
@@ -454,34 +504,44 @@ TArray<FStudioHome4HealthSignal> FStudioHome4Diagnostics::Evaluate(const FStudio
     Out.Add(MoveTemp(Budget));
     auto Forces = Signal(TEXT("forces"), TEXT("Force channel agreement"),
         TEXT("Inspect cut links, body retabulation and stress/momentum channel normalization."));
+    const auto* Body = P.BodyId.IsEmpty() ? nullptr : S.Bodies.FindByPredicate([&](const auto& B) { return B.Id == P.BodyId; });
+    const FStudioHome4Forces EmptyForces;
+    const auto& F = P.BodyId.IsEmpty() ? S.Forces : Body ? Body->Forces : EmptyForces;
     const TArray<TPair<TOptional<double>, TOptional<double>>> ForcePairs = {
-        {S.Forces.Fx, S.Forces.MomentumFx}, {S.Forces.Fy, S.Forces.MomentumFy},
-        {S.Forces.Fz, S.Forces.MomentumFz}, {S.Forces.My, S.Forces.MomentumMy}};
+        {F.Fx, F.MomentumFx}, {F.Fy, F.MomentumFy},
+        {F.Fz, F.MomentumFz}, {F.My, F.MomentumMy}};
     const int32 ForceIndex = int32(P.ForceComponent);
     if (ForcePairs.IsValidIndex(ForceIndex)) Agreement(Forces, {ForcePairs[ForceIndex]},
         P.ForceRelativeTolerance, P.ForceAbsoluteTolerance, P.ForceReferenceMagnitude);
     const TCHAR* ComponentNames[] = {TEXT("Fx"), TEXT("Fy"), TEXT("Fz"), TEXT("My")};
     if (ForcePairs.IsValidIndex(ForceIndex)) Forces.Label += FString::Printf(TEXT(" (%s)"), ComponentNames[ForceIndex]);
+    if (!P.BodyId.IsEmpty()) Forces.Label += TEXT(" · body ") + P.BodyId;
     Out.Add(MoveTemp(Forces));
     auto Window = Signal(TEXT("window"), TEXT("Steady-window bracket"),
         TEXT("Extend the run or averaging window and inspect transient forcing."));
+    const FStudioHome4Window EmptyWindow;
+    const auto& W = P.BodyId.IsEmpty() ? S.Window : Body ? Body->Window : EmptyWindow;
     const TArray<TPair<TOptional<double>, TOptional<double>>> WindowPairs = {
-        {S.Window.Fx, S.Window.PreviousFx}, {S.Window.Fy, S.Window.PreviousFy},
-        {S.Window.Fz, S.Window.PreviousFz}, {S.Window.My, S.Window.PreviousMy}};
+        {W.Fx, W.PreviousFx}, {W.Fy, W.PreviousFy},
+        {W.Fz, W.PreviousFz}, {W.My, W.PreviousMy}};
     const int32 WindowIndex = int32(P.WindowComponent);
     if (WindowPairs.IsValidIndex(WindowIndex)) Agreement(Window, {WindowPairs[WindowIndex]},
         P.WindowRelativeTolerance, P.WindowAbsoluteTolerance, P.WindowReferenceMagnitude);
     if (WindowPairs.IsValidIndex(WindowIndex)) Window.Label += FString::Printf(TEXT(" (%s)"), ComponentNames[WindowIndex]);
+    if (!P.BodyId.IsEmpty()) Window.Label += TEXT(" · body ") + P.BodyId;
     Out.Add(MoveTemp(Window));
     auto Rest = Signal(TEXT("wb-rest"), TEXT("WB rest test"), TEXT("Inspect boundary conditions, full gravity and MD transfer."));
     if (!S.RestCondition || !*S.RestCondition) Rest.Reason = TEXT("An explicit well-balanced rest condition is required.");
+    else if(S.RestFullGravity&&!*S.RestFullGravity)Rest.Reason=TEXT("Original rest measurement explicitly reports full gravity disabled; full-gravity WB gate is unavailable.");
     else if (!S.RestMaxDynamicPressure) Rest.Reason = TEXT("Maximum absolute dynamic pressure is unavailable.");
     else if (!Home4TelemetryNonnegative(P.RestPressureTolerance)) Rest.Reason = TEXT("An explicit rest-pressure tolerance is required.");
     else
     {
         Rest.Value = S.RestMaxDynamicPressure; Rest.Threshold = P.RestPressureTolerance;
         Rest.Status = *Rest.Value <= *Rest.Threshold ? EStudioHome4Health::Healthy : EStudioHome4Health::Warning;
+        Rest.Label+=*P.RestPressureTolerance==0?TEXT(" · exact zero"):TEXT(" · relaxed explicit pressure tolerance");
         Rest.Reason = TEXT("Maximum absolute dynamic pressure under the explicitly reported rest condition.");
+        Rest.Reason+=S.RestFullGravity&&*S.RestFullGravity?TEXT(" Full-gravity original condition supplied."):TEXT(" Original full-gravity condition was not supplied; this is a rest-pressure comparison, not a complete full-gravity WB attestation.");
     }
     Out.Add(MoveTemp(Rest));
     if (S.bNonfinite) for (auto& Signal : Out)
@@ -507,7 +567,7 @@ TOptional<FStudioHome4ActionRequest> FStudioHome4Diagnostics::TroubleAction(cons
     const bool bHot = Home4TelemetryNonnegative(P.MaximumSpeedTrigger) && S.MaximumSpeed && *S.MaximumSpeed > *P.MaximumSpeedTrigger;
     if (!S.bNonfinite && !bHot) return {};
     FStudioHome4ActionRequest A;
-    A.Source = S.Source; A.RecordIndex = S.RecordIndex; A.Facts = S.Trouble;
+    A.Source = S.Source; A.RecordIndex = S.RecordIndex; A.Step = S.Step; A.Facts = S.Trouble;
     if (!A.Facts.Cell) A.Facts.Cell = S.MaximumSpeedCell;
     A.bLocateCell = A.Facts.Cell.IsSet();
     A.Reason = S.bNonfinite ? TEXT("Driver non-finite guard requested stop and last-good-state recovery.") :
@@ -677,7 +737,7 @@ FStudioHome4TelemetryStream::ELineResult FStudioHome4TelemetryStream::ParseLine(
             AddBounded(Actions, MoveTemp(*Action), Limits.MaxActionRequests);
         }
         // A guard/metadata-only record cannot replace a numerical recovery sample.
-        if (!S.bNonfinite && (S.Step || S.LatticeTime || S.PhysicalTime || S.DimensionlessTime ||
+        if (!Action && !S.bNonfinite && (S.Step || S.LatticeTime || S.PhysicalTime || S.DimensionlessTime ||
             S.Mass.PhiDrift || S.MaximumSpeed || S.Forces.Fx || S.Forces.Fy || S.Forces.Fz)) GoodSample = S;
         LatestSample = S;
         AddBounded(Samples, MoveTemp(S), Limits.MaxHistory);

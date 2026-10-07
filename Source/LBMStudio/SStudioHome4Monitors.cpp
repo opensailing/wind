@@ -1,9 +1,13 @@
 #include "SStudioHome4Monitors.h"
+#include "StudioHome4Runtime.h"
+#include "StudioHome4BodyDiagnostics.h"
 #include "StudioModel.h"
 #include "StudioFileDialog.h"
 #include "StudioTheme.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformTime.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SBorder.h"
@@ -187,7 +191,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
 {
     using namespace StudioUI;
     using namespace StudioHome4MonitorPrivate;
-    Model = A._Model; SessionStream = A._Stream; OnLocate = A._OnLocateCell; UnitDisplay = A._UnitDisplay;
+    Model = A._Model; Runtime = A._Runtime; SessionStream = Runtime ? Runtime->ScienceStream() : A._Stream; OnLocate = A._OnLocateCell; UnitDisplay = A._UnitDisplay;
     if (const auto M = Model.Pin()) { ScopedProjectId = M->Project.Id; ScopedCaseId = M->Project.Draft.Id; }
     PolicyDraft.SetNum(9);
     Status = TEXT("Choose an original HOME4 JSONL log, or connect a session science stream.");
@@ -207,6 +211,14 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
             + SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Font(Font(8)).ColorAndOpacity(Muted).AutoWrapText(true)
                 .Text_Lambda([this, I] { return FText::FromString(Health(I).Remedy); })]];
     }
+    Rows->AddSlot().AutoHeight().Padding(0, 0, 0, 6)[SNew(SButton).Tag(TEXT("Home4TailTelemetry")).ButtonStyle(&ButtonStyle()).IsEnabled_Lambda([this] { return Runtime.IsValid(); })
+        .OnClicked_Lambda([this]
+        {
+            FGuid Run; if (!Runtime || !FGuid::Parse(OriginalRunIdDraft, Run) || !Run.IsValid()) { Status = TEXT("Live tail requires an explicit original run GUID and owning runtime."); return FReply::Handled(); }
+            FString Path; if (StudioFileDialog::DataFile(false, TEXT("Attach original growing HOME4 JSONL"), TEXT(""), TEXT("jsonl"), Path))
+                if (Runtime->AttachLiveLog(Path, Run, Status)) { SessionStream = Runtime->ScienceStream(); bShowImported = false; RefreshOutputs(); }
+            return FReply::Handled();
+        })[Label(TEXT("Tail original live JSONL…"), 9)]];
     auto Section=[&](const TCHAR* Title,FName Key,bool Open)
     {
         Sections.Add(Key,Open);auto Content=SNew(SVerticalBox);
@@ -221,7 +233,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
         return Content;
     };
     auto Detail=[&](const TSharedRef<SVerticalBox>& Content,FName Key)
-    {Content->AddSlot().AutoHeight()[SNew(STextBlock).Tag(FName(*(TEXT("Home4Detail_")+Key.ToString()))).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true).Text_Lambda([this,Key]{return FText::FromString(DetailText(Key));})];};
+    {Content->AddSlot().AutoHeight()[SNew(STextBlock).Tag(FName(*(TEXT("Home4Detail_")+Key.ToString()))).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true).Text_Lambda([this,Key]{return FText::FromString(DetailText(Key));}).ToolTipText_Lambda([this,Key]{return FText::FromString(ScienceTooltips(Key));})];};
     auto Budget=Section(TEXT("Energy budget and residual"),TEXT("Budget"),true);Detail(Budget,TEXT("Budget"));
     Budget->AddSlot().AutoHeight().Padding(0,6)[SNew(SHome4BudgetBars).Read([this]{return StudioHome4SciencePresentation::Budget(Sample(),UnitDisplay.Get(),SelectedPhase);})];
     auto Forces=Section(TEXT("Independent force channels"),TEXT("Forces"),true);
@@ -260,6 +272,8 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
     Detail(Section(TEXT("Current [previous] averaging window"),TEXT("Window"),false),TEXT("Window"));
     Detail(Section(TEXT("Measured work and bandwidth"),TEXT("Performance"),false),TEXT("Performance"));
     Detail(Section(TEXT("Safeguards and extrema"),TEXT("Safeguards"),false),TEXT("Safeguards"));
+    Rows->AddSlot().AutoHeight().Padding(0,6)[SNew(SButton).Tag(TEXT("Home4QueueRestTest")).ButtonStyle(&ButtonStyle()).IsEnabled_Lambda([this]{return Runtime.IsValid()&&Model.IsValid();})
+        .OnClicked_Lambda([this]{QueueRestTest();return FReply::Handled();})[Label(TEXT("Queue U=0 / full-gravity WB rest request"),9)]];
     auto Trouble=Section(TEXT("Trouble locator"),TEXT("Trouble"),false);Detail(Trouble,TEXT("Trouble"));
     Trouble->AddSlot().AutoHeight().Padding(0,6)[SNew(SButton).Tag(TEXT("Home4LocateCell")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,5))
         .IsEnabled_Lambda([this]{return CanLocate();}).OnClicked_Lambda([this]{Locate();return FReply::Handled();})[Label(TEXT("Locate reported cell"),9)]];
@@ -309,7 +323,7 @@ void SStudioHome4Monitors::Construct(const FArguments& A)
 
 SStudioHome4Monitors::~SStudioHome4Monitors() { CancelImport(); }
 void SStudioHome4Monitors::Tick(const FGeometry& G, double At, float Delta)
-{ SCompoundWidget::Tick(G, At, Delta); ScopeProject(); PollImport(); RefreshOutputs(); }
+{ SCompoundWidget::Tick(G, At, Delta); ScopeProject(); if (Runtime) { Runtime->Scope(); SessionStream = Runtime->ScienceStream(); } PollImport(); RefreshOutputs(); }
 FReply SStudioHome4Monitors::OnKeyDown(const FGeometry& G, const FKeyEvent& E)
 {
     if (E.GetKey() == EKeys::Home) { Scroll->ScrollToStart(); return FReply::Handled(); }
@@ -334,6 +348,7 @@ TOptional<FStudioHome4TelemetryProvenance> SStudioHome4Monitors::ReportProvenanc
 {
     ScopeProject();const auto* Stream=DisplayStream();const auto M=Model.Pin();
     if(!Stream||!M)return {};
+    if (Runtime && !IsImportedReplay()) return Runtime->ScienceProvenance();
     const FStudioHome4Source* Source=nullptr;
     if(Stream->Latest())Source=&Stream->Latest()->Source;
     else if(!Stream->OutputEvents().IsEmpty())Source=&Stream->OutputEvents().Last().Source;
@@ -343,10 +358,57 @@ TOptional<FStudioHome4TelemetryProvenance> SStudioHome4Monitors::ReportProvenanc
     if(P.bImportedReplay){P.SourcePath=ImportPath;P.SourceSHA256=ImportSHA256;}
     P.AttachedProjectId=ScopedProjectId;P.AttachedCaseId=ScopedCaseId;return P;
 }
+const TArray<uint8>& SStudioHome4Monitors::ReportOriginalBytes()
+{
+    ScopeProject();
+    if(!IsImportedReplay()&&Runtime)return Runtime->CapturedScienceBytes();
+    return ImportedOriginalBytes;
+}
+bool SStudioHome4Monitors::QueueRestTest()
+{
+    const auto M=Model.Pin();if(!M||!M->Project.Draft.Home4||!Runtime){Status=TEXT("Apply a HOME4 request and review a shared runtime target before the rest test.");return false;}
+    FStudioHome4Spec Rest=*M->Project.Draft.Home4;
+    if(!Rest.Fluids.Gravity||*Rest.Fluids.Gravity<=0){Status=TEXT("Rest test requires explicit positive full gravity; no gravity value is guessed.");return false;}
+    Rest.Run.InitState.Empty();Rest.Reference.SpeedCellsPerStep=0;Rest.Reference.Mach=0;Rest.Geometry.BodyMotion=TEXT("fixed");Rest.Geometry.InitialVelocityCellsPerStep=FVector::ZeroVector;
+    Rest.Geometry.InitialAngularVelocityRadiansPerStep=FVector::ZeroVector;Rest.Run.Tag=Rest.Run.Tag.Left(90)+TEXT("_wb_rest");
+    if(!Runtime->Submit(Rest,FGuid::NewGuid(),FPlatformProcess::UserName(),FPlatformTime::Seconds(),Status))return false;
+    Status=TEXT("Immutable U=0/full-gravity WB rest development request queued. Exact-zero pressure gate awaits original at_rest measurement; no numerical result generated.");return true;
+}
+FString SStudioHome4Monitors::ScienceTooltips(FName Key)const
+{
+    const auto* S=Sample();if(!S)return TEXT("Original science unavailable; no current request units are borrowed.");
+    using namespace StudioHome4SciencePresentation;FString Result;
+    auto Forms=[&](const TCHAR* Name,const TOptional<double>& Value,EStudioHome4Quantity Quantity)
+    {
+        Result+=FString(Name)+TEXT("\nLU: ")+Text(StudioHome4SciencePresentation::Quantity(Value,*S,Quantity,EStudioHome4UnitDisplay::Lattice,false,SelectedBody))+
+            TEXT("\nSI: ")+Text(StudioHome4SciencePresentation::Quantity(Value,*S,Quantity,EStudioHome4UnitDisplay::Physical,false,SelectedBody))+
+            TEXT("\nNondimensional: ")+Text(StudioHome4SciencePresentation::Quantity(Value,*S,Quantity,EStudioHome4UnitDisplay::Nondimensional,false,SelectedBody))+TEXT("\n");
+    };
+    if(Key==TEXT("Safeguards")||Key==TEXT("Interface")){Forms(TEXT("Maximum speed"),S->MaximumSpeed,EStudioHome4Quantity::Velocity);Forms(TEXT("Spurious speed"),S->SpuriousSpeed,EStudioHome4Quantity::Velocity);}
+    if(Key==TEXT("Budget")||Key==TEXT("Interface"))
+    {
+        const auto* Budget=SelectedPhase.IsEmpty()?&S->Budget:S->PhaseBudgets.Find(SelectedPhase);
+        if(Budget){Forms(TEXT("Selected original work"),Budget->Work,EStudioHome4Quantity::Energy);Forms(TEXT("Selected original residual"),Budget->Residual,EStudioHome4Quantity::Energy);}
+        Forms(TEXT("Water KE"),S->WaterKE,EStudioHome4Quantity::Energy);
+    }
+    if(Key==TEXT("Forces")||Key==TEXT("Window")||Key==TEXT("Bodies"))
+    {
+        const auto* Body=S->Bodies.FindByPredicate([this](const auto& B){return B.Id==SelectedBody;});
+        const auto* F=SelectedBody.IsEmpty()?&S->Forces:Body?&Body->Forces:nullptr;
+        if(Key==TEXT("Window"))
+        {
+            const auto* W=SelectedBody.IsEmpty()?&S->Window:Body?&Body->Window:nullptr;
+            if(W){Forms(TEXT("Current window Fx"),W->Fx,EStudioHome4Quantity::Force);Forms(TEXT("Previous window Fx"),W->PreviousFx,EStudioHome4Quantity::Force);Forms(TEXT("Current window Fz"),W->Fz,EStudioHome4Quantity::Force);Forms(TEXT("Current window My"),W->My,EStudioHome4Quantity::Moment);}
+        }
+        if(Body&&Key==TEXT("Bodies")){Forms(TEXT("Held heave"),Body->EquilibriumHeave,EStudioHome4Quantity::Length);Forms(TEXT("Running heave"),Body->RunningHeave,EStudioHome4Quantity::Length);Forms(TEXT("Reference heave"),Body->ReferenceHeave,EStudioHome4Quantity::Length);}
+        if(F){Forms(TEXT("Fx"),F->Fx,EStudioHome4Quantity::Force);Forms(TEXT("Fy"),F->Fy,EStudioHome4Quantity::Force);Forms(TEXT("Fz"),F->Fz,EStudioHome4Quantity::Force);Forms(TEXT("My"),F->My,EStudioHome4Quantity::Moment);}
+    }
+    return Result+TEXT("Conversions use immutable original source metadata; unavailable maps remain raw source values explicitly labeled.");
+}
 const FStudioHome4Sample* SStudioHome4Monitors::Sample() const
 { const auto* Stream = DisplayStream(); return Stream && Stream->Latest() ? &*Stream->Latest() : nullptr; }
 FStudioHome4HealthSignal SStudioHome4Monitors::Health(int32 Index) const
-{ const auto* S = Sample(); const auto H = FStudioHome4Diagnostics::Evaluate(S ? *S : FStudioHome4Sample(), Policy); return H[Index]; }
+{ const auto* S = Sample(); auto SelectedPolicy = Policy; SelectedPolicy.BodyId = SelectedBody; const auto H = FStudioHome4Diagnostics::Evaluate(S ? *S : FStudioHome4Sample(), SelectedPolicy); return H[Index]; }
 FString SStudioHome4Monitors::SourceText() const
 {
     using namespace StudioHome4MonitorPrivate;
@@ -382,6 +444,8 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
             FStudioHome4Sample Work;Work.Work=L.Work;const auto P=FStudioHome4Diagnostics::Performance(Work);
             Text+=FString::Printf(TEXT("\nLevel %d · drift %s · injected %s · measured %s MLUPS · reported %s MLUPS"),L.Level,*Number(L.MassDrift),*Number(L.Injection),*Number(P.MLUPSInstant),*Number(L.ReportedMLUPS));
         }
+        Text+=FString(TEXT("\nCorrection-injection coverage "))+(S->Mass.InjectionMagnitudeChange?TEXT("root adjacent trend supplied"):TEXT("root trend unavailable"));
+        if(S->Metadata&&!S->Metadata->DeclaredLevels.IsEmpty()){Text+=TEXT(" · declared original levels");for(int32 L:S->Metadata->DeclaredLevels)Text+=TEXT(" ")+LexToString(L);}else Text+=TEXT(" · expected original MD level inventory unknown");
         return Text;
     }
     auto Value=[&](const TOptional<double>& V,EStudioHome4Quantity Q,bool Normalize=false)
@@ -412,12 +476,31 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
         if(!SelectedBody.IsEmpty()&&!Body)return TEXT("Selected body window unavailable.");const auto& W=Body?Body->Window:S->Window;
         return TEXT("Fx ")+Value(W.Fx,EStudioHome4Quantity::Force)+TEXT(" [")+Value(W.PreviousFx,EStudioHome4Quantity::Force)+TEXT("]\nFy ")+Value(W.Fy,EStudioHome4Quantity::Force)+TEXT(" [")+Value(W.PreviousFy,EStudioHome4Quantity::Force)+
             TEXT("]\nFz ")+Value(W.Fz,EStudioHome4Quantity::Force)+TEXT(" [")+Value(W.PreviousFz,EStudioHome4Quantity::Force)+TEXT("]\nMy ")+Value(W.My,EStudioHome4Quantity::Moment)+TEXT(" [")+Value(W.PreviousMy,EStudioHome4Quantity::Moment)+
-            TEXT("]\nInterval ")+Number(W.Start)+TEXT("–")+Number(W.End)+TEXT(" [")+Number(W.PreviousStart)+TEXT("–")+Number(W.PreviousEnd)+TEXT("] · averaging length ")+Number(W.AverageLength,TEXT("body lengths"));
+            TEXT("]\nInterval ")+Number(W.Start)+TEXT("–")+Number(W.End)+TEXT(" [")+Number(W.PreviousStart)+TEXT("–")+Number(W.PreviousEnd)+TEXT("] · averaging length ")+Number(W.AverageLength,TEXT("body lengths"))+
+            TEXT("\nAbscissa convention ")+(W.AbscissaUnit.IsEmpty()?TEXT("unknown"):W.AbscissaUnit)+TEXT(" · epoch ")+(W.Epoch.IsEmpty()?TEXT("unknown"):W.Epoch);
     }
     if(Key==TEXT("Interface"))
     {
         FString Result=TEXT("Thickness histogram: ")+(S->InterfaceThickness.Counts.IsEmpty()?TEXT("Unavailable"):FString::Printf(TEXT("%d original bins"),S->InterfaceThickness.Counts.Num()));
+        const auto& H=S->InterfaceThickness;
+        Result+=TEXT("\nOriginal sampling φ interval: ")+Number(H.PhiMinimum)+TEXT(" to ")+Number(H.PhiMaximum)+TEXT(" · expected ξ ")+Number(H.ExpectedXi)+TEXT(" ")+(H.ThicknessUnit.IsEmpty()?TEXT("unknown units"):H.ThicknessUnit)+TEXT(" · source ")+(H.SamplingSource.IsEmpty()?TEXT("unknown"):H.SamplingSource);
+        if(!H.Counts.IsEmpty())
+        {
+            int32 Peak=0;for(int32 I=1;I<H.Counts.Num();++I)if(H.Counts[I]>H.Counts[Peak])Peak=I;
+            Result+=FString::Printf(TEXT("\nLargest supplied bin %.6g to %.6g; no inferred smooth peak."),H.BinEdges[Peak],H.BinEdges[Peak+1]);
+            if(H.ExpectedXi)
+            {
+                int64 Tail=0,Total=0;for(int32 I=0;I<H.Counts.Num();++I){Total+=H.Counts[I];if(H.BinEdges[I]>=*H.ExpectedXi)Tail+=H.Counts[I];}
+                Result+=TEXT(" · complete-bin count above expected ξ ")+LexToString(Tail)+TEXT(" / ")+LexToString(Total);
+            }
+        }
         Result+=TEXT("\nSpurious speed ")+Value(S->SpuriousSpeed,EStudioHome4Quantity::Velocity)+TEXT(" · sampling mask: ")+(S->SpuriousMask.IsEmpty()?TEXT("Unavailable"):S->SpuriousMask);
+        Result+=FString(TEXT("\nOriginal forcing-free/rest condition "))+(S->SpuriousForcingFree?(*S->SpuriousForcingFree?TEXT("forcing-free"):TEXT("forcing present")):TEXT("forcing unknown"))+TEXT(" / ")+(S->SpuriousAtRest?(*S->SpuriousAtRest?TEXT("at rest"):TEXT("not at rest")):TEXT("rest unknown"));
+        if(S->SpuriousForcingFree&&*S->SpuriousForcingFree&&S->SpuriousAtRest&&*S->SpuriousAtRest&&S->SpuriousSpeed&&S->SpuriousReferenceSpeed&&S->SpuriousAbsoluteTolerance)
+        {
+            const double Difference=FMath::Abs(*S->SpuriousSpeed-*S->SpuriousReferenceSpeed);
+            Result+=FString(TEXT("\nOriginal supplied spurious-reference comparison "))+(FMath::IsFinite(Difference)&&Difference<=*S->SpuriousAbsoluteTolerance?TEXT("passed"):TEXT("failed"))+TEXT(" · difference ")+Number(Difference)+TEXT(" · tolerance ")+Number(S->SpuriousAbsoluteTolerance)+TEXT(" ")+S->SpuriousUnit+TEXT(" · source ")+S->SpuriousReferenceSource+TEXT(". Recipe gate remains independent.");
+        }else Result+=TEXT("\nSpurious-reference comparison not_evaluated: identified reference, original forcing-free/rest condition, units and explicit source tolerance required.");
         Result+=TEXT("\nWater KE ")+Value(S->WaterKE,EStudioHome4Quantity::Energy)+TEXT(" · air KE ")+Value(S->AirKE,EStudioHome4Quantity::Energy)+TEXT(" · surface ")+Value(S->SurfaceEnergy,EStudioHome4Quantity::Energy);
         TArray<FString> Names;S->PhaseEnergies.GetKeys(Names);Names.Sort();for(const auto& Name:Names){const auto& P=S->PhaseEnergies[Name];Result+=TEXT("\n")+Name+TEXT(" · KE ")+Value(P.KE,EStudioHome4Quantity::Energy)+TEXT(" · PE ")+Value(P.PE,EStudioHome4Quantity::Energy)+TEXT(" · surface ")+Value(P.Surface,EStudioHome4Quantity::Energy);}
         return Result;
@@ -428,30 +511,50 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
         if(!Body)return TEXT("Choose an original body above to inspect its state and fitted coefficients.");
         auto Vector=[&](const TOptional<FVector>& V,EStudioHome4Quantity Q){return V?TEXT("[")+Value(V->X,Q)+TEXT(", ")+Value(V->Y,Q)+TEXT(", ")+Value(V->Z,Q)+TEXT("]"):FString(TEXT("Unavailable"));};
         auto RawVector=[](const TOptional<FVector>& V,const FString& Unit){return V?FString::Printf(TEXT("[%.6g, %.6g, %.6g] %s"),V->X,V->Y,V->Z,*Unit):FString(TEXT("Unavailable"));};
-        const auto& B=*Body;FStudioHome4Sample Retab;Retab.Work=B.RetabulationWork;const auto Cost=FStudioHome4Diagnostics::Performance(Retab);
+        const auto& B=*Body;FStudioHome4Sample Retab;Retab.Work=B.RetabulationWork;const auto Cost=FStudioHome4Diagnostics::Performance(Retab);const auto Quasi=StudioHome4BodyDiagnostics::QuasiStatic(*S,B);
         return B.Id+(B.Name.IsEmpty()?TEXT(""):TEXT(" · ")+B.Name)+TEXT("\nPosition ")+Vector(B.Position,EStudioHome4Quantity::Length)+TEXT("\nVelocity ")+Vector(B.Velocity,EStudioHome4Quantity::Velocity)+
             TEXT("\nRoll/pitch/yaw ")+RawVector(B.AttitudeDegrees,TEXT("degrees"))+TEXT(" · angular velocity ")+RawVector(B.AngularVelocity,B.AngularVelocityUnit.IsEmpty()?TEXT("raw source units"):B.AngularVelocityUnit)+
             TEXT("\nVirtual-mass integrator: ")+(B.IntegratorStatus.IsEmpty()?TEXT("Unavailable"):B.IntegratorStatus)+TEXT(" · retabulation every ")+Count(B.RetabulationEvery)+TEXT(" steps · measured cost ")+Number(Cost.MLUPSInstant,TEXT("MLUPS"))+TEXT(" / ")+Number(B.RetabulationWork.ElapsedSeconds,TEXT("s"))+
             TEXT("\nHydrostatic k33/k35/k55 ")+Number(B.K33)+TEXT(" / ")+Number(B.K35)+TEXT(" / ")+Number(B.K55)+TEXT(" ")+(B.StiffnessUnit.IsEmpty()?TEXT("raw source units"):B.StiffnessUnit)+
             TEXT("\nHeld heave ")+Value(B.EquilibriumHeave,EStudioHome4Quantity::Length)+TEXT(" · running heave ")+Value(B.RunningHeave,EStudioHome4Quantity::Length)+TEXT(" · reference heave ")+Value(B.ReferenceHeave,EStudioHome4Quantity::Length)+TEXT("\nHeld attitude ")+RawVector(B.EquilibriumAttitudeDegrees,TEXT("degrees"))+TEXT(" · running ")+RawVector(B.RunningAttitudeDegrees,TEXT("degrees"))+TEXT("\nReference attitude ")+RawVector(B.ReferenceAttitudeDegrees,TEXT("degrees"))+TEXT(" · source ")+(B.ReferenceSource.IsEmpty()?TEXT("Unavailable"):B.ReferenceSource)+
+            TEXT("\nCalculated quasi-static heave ")+Number(Quasi.HeaveMeters,TEXT("m"))+TEXT(" · pitch ")+Number(Quasi.PitchDegrees,TEXT("degrees"))+TEXT(" · ")+Quasi.Method+TEXT(" · ")+Quasi.Reason+
+            TEXT("\nStiffness component units ")+B.K33Unit+TEXT(" / ")+B.K35Unit+TEXT(" / ")+B.K55Unit+TEXT(" · convention ")+B.StiffnessConvention+
+            TEXT("\nSource-computed quasi-static heave ")+Value(B.QuasiStaticHeave,EStudioHome4Quantity::Length)+TEXT(" · pitch ")+Number(B.QuasiStaticPitchDegrees,TEXT("degrees"))+TEXT(" · method ")+(B.QuasiStaticMethod.IsEmpty()?TEXT("unknown"):B.QuasiStaticMethod)+TEXT(" · source ")+(B.QuasiStaticSource.IsEmpty()?TEXT("unknown"):B.QuasiStaticSource)+
             TEXT("\nAdded mass ")+Number(B.AddedMass)+TEXT(" [reference ")+Number(B.ReferenceAddedMass)+TEXT("] ")+(B.AddedMassUnit.IsEmpty()?TEXT("raw source units"):B.AddedMassUnit)+
-            TEXT("\nDamping ")+Number(B.Damping)+TEXT(" [reference ")+Number(B.ReferenceDamping)+TEXT("] ")+(B.DampingUnit.IsEmpty()?TEXT("raw source units"):B.DampingUnit)+TEXT(" · source ")+(B.FitReferenceSource.IsEmpty()?TEXT("Unavailable"):B.FitReferenceSource)+TEXT("\nReference comparison not evaluated; tolerances and complete recipe evidence are required.");
+            TEXT("\nDamping ")+Number(B.Damping)+TEXT(" [reference ")+Number(B.ReferenceDamping)+TEXT("] ")+(B.DampingUnit.IsEmpty()?TEXT("raw source units"):B.DampingUnit)+TEXT(" · source ")+(B.FitReferenceSource.IsEmpty()?TEXT("Unavailable"):B.FitReferenceSource)+
+            TEXT("\nOriginal fit method ")+(B.FitMethod.IsEmpty()?TEXT("unknown"):B.FitMethod)+TEXT(" · frequency ")+Number(B.FitFrequency)+TEXT(" ")+(B.FitFrequencyUnit.IsEmpty()?TEXT("unknown units"):B.FitFrequencyUnit)+TEXT(" · window ")+Number(B.FitWindowStart)+TEXT(" to ")+Number(B.FitWindowEnd)+TEXT(" ")+B.FitWindowUnit+TEXT(" · epoch ")+(B.FitEpoch.IsEmpty()?TEXT("unknown"):B.FitEpoch)+TEXT("\nReference comparison not evaluated; explicit Validation source/metric/tolerance controls evaluate original BEM/tank evidence.");
     }
     if (Key == TEXT("Performance"))
     {
-        const auto P = FStudioHome4Diagnostics::Performance(*S);
+        const auto P = FStudioHome4Diagnostics::Performance(*S);TOptional<double> PeakRatio;
+        if(P.GigabytesPerSecond&&S->Metadata&&S->Metadata->DevicePeakGBps){const double R=*P.GigabytesPerSecond/ *S->Metadata->DevicePeakGBps;if(FMath::IsFinite(R))PeakRatio=R;}
         return TEXT("Measured instant/cumulative MLUPS: ") + Number(P.MLUPSInstant) + TEXT(" / ") + Number(P.MLUPSCumulative) + TEXT("\nAchieved bandwidth: ") + Number(P.GigabytesPerSecond, TEXT("GB/s")) +
             TEXT("\nDriver reported instant/cumulative MLUPS: ") + Number(S->ReportedMLUPSInstant) + TEXT(" / ") + Number(S->ReportedMLUPSCumulative) +
-            TEXT("\nElapsed window ") + Number(S->Work.ElapsedSeconds, TEXT("s")) + TEXT(" · node updates ") + Number(S->Work.NodeUpdates) + TEXT(" · transfer bytes ") + Number(S->Work.TransferredBytes);
+            TEXT("\nElapsed window ") + Number(S->Work.ElapsedSeconds, TEXT("s")) + TEXT(" · node updates ") + Number(S->Work.NodeUpdates) + TEXT(" · transfer bytes ") + Number(S->Work.TransferredBytes)+
+            TEXT("\nOriginal device peak ")+Number(S->Metadata?S->Metadata->DevicePeakGBps:TOptional<double>(),TEXT("GB/s"))+TEXT(" · achieved/peak ")+Number(PeakRatio)+TEXT(" · source ")+(S->Metadata&&!S->Metadata->DevicePeakSource.IsEmpty()?S->Metadata->DevicePeakSource:TEXT("unknown"));
     }
     if (Key == TEXT("Safeguards"))
-        return TEXT("Limiter/threshold cells: ") + Count(S->LimiterCells) + TEXT(" / ") + Count(S->ThresholdCells) + TEXT("\nMax speed ") + Number(S->MaximumSpeed) +
-            TEXT(" at ") + Cell(S->MaximumSpeedCell) + TEXT(" · Mach ") + Number(S->Mach) + TEXT(" · minimum τ ") + Number(S->TauMinimum) + TEXT("\nDivergence norm ") + Number(S->DivergenceNorm)+TEXT(" · trouble trigger ")+Number(Policy.MaximumSpeedTrigger)+TEXT(" (original speed units)");
+    {
+        auto Trend = [&](bool Limiter)
+        {
+            const auto* Stream = DisplayStream(); if (!Stream || Stream->History().Num() < 2) return FString(TEXT("trend unknown"));
+            const auto& Previous = Stream->History()[Stream->History().Num() - 2];
+            const auto A = Limiter ? Previous.LimiterCells : Previous.ThresholdCells, B = Limiter ? S->LimiterCells : S->ThresholdCells;
+            if (!A || !B || !Previous.Step || !S->Step || *S->Step <= *Previous.Step) return FString(TEXT("trend unknown"));
+            return *B > *A ? FString(TEXT("rising · inspect active cells and limiter/threshold settings")) : *B == *A ? FString(TEXT("flat")) : FString(TEXT("decreasing"));
+        };
+        return TEXT("Limiter/threshold cells: ") + Count(S->LimiterCells) + TEXT(" / ") + Count(S->ThresholdCells) + TEXT("\nLimiter ") + Trend(true) + TEXT(" · threshold ") + Trend(false) +
+            TEXT("\nMax speed ") + Value(S->MaximumSpeed, EStudioHome4Quantity::Velocity) + TEXT(" at ") + Cell(S->MaximumSpeedCell) + TEXT(" · Mach ") + Number(S->Mach) +
+            TEXT(" · minimum τ ") + Number(S->TauMinimum) + TEXT(" · τ−½ margin ") + Number(S->TauMinimum ? TOptional<double>(*S->TauMinimum - .5) : TOptional<double>()) +
+            TEXT("\nDivergence norm ") + Number(S->DivergenceNorm) + TEXT(" · acoustic scale Ma² ") + Number(S->Mach ? TOptional<double>(*S->Mach * *S->Mach) : TOptional<double>()) +
+            TEXT("\nNorm convention ")+(S->Metadata&&!S->Metadata->DivergenceConvention.IsEmpty()?S->Metadata->DivergenceConvention:TEXT("unknown"))+TEXT(" · units ")+(S->Metadata&&!S->Metadata->DivergenceUnit.IsEmpty()?S->Metadata->DivergenceUnit:TEXT("unknown"))+TEXT(" · domain ")+(S->Metadata&&!S->Metadata->DivergenceDomain.IsEmpty()?S->Metadata->DivergenceDomain:TEXT("unknown"))+
+            TEXT(" (norm units must be compatible before comparing; bulk relaxation s_bulk controls acoustic ringing)") + TEXT(" · trouble trigger ") + Number(Policy.MaximumSpeedTrigger) + TEXT(" (original speed units)");
+    }
     if (Key == TEXT("Trouble"))
     {
         const auto* Stream = DisplayStream();
         const auto& F = !Stream->ActionRequests().IsEmpty() ? Stream->ActionRequests().Last().Facts : S->Trouble;
-        FString Text = TEXT("Cell ") + Cell(F.Cell ? F.Cell : S->MaximumSpeedCell) + TEXT(" · level ") + (F.Level ? FString::FromInt(*F.Level) : TEXT("Unavailable")) + TEXT(" · φ ") + Number(F.Phi) + TEXT(" · τ ") + Number(F.Tau) +
+        FString Text = TEXT("Cell ") + Cell(F.Cell ? F.Cell : S->MaximumSpeedCell) + TEXT(" · level ") + (F.Level ? FString::FromInt(*F.Level) : TEXT("Unavailable")) + TEXT(" · original patch ") + (F.PatchId.IsEmpty() ? TEXT("Unavailable") : F.PatchId) + TEXT(" · φ ") + Number(F.Phi) + TEXT(" · τ ") + Number(F.Tau) +
             TEXT("\nLimiter ") + Fact(F.Limiter) + TEXT(" · force threshold ") + Fact(F.ForceThreshold) + TEXT("\nBand ") + Fact(F.InBand) + TEXT(" · sponge ") + Fact(F.InSponge) + TEXT(" · beach ") + Fact(F.InBeach) +
             TEXT(" · cut-link shell ") + Fact(F.InCutLinkShell) + TEXT("\nZone: ") + (F.Zone.IsEmpty() ? TEXT("Unavailable") : F.Zone);
         if (!Stream->ActionRequests().IsEmpty())
@@ -459,6 +562,8 @@ FString SStudioHome4Monitors::DetailText(FName Key) const
             const auto& A = Stream->ActionRequests().Last();
             Text += TEXT("\n") + A.Reason + TEXT(" Last good step: ") + Count(A.LastGoodStep) + TEXT(". Reported restart: ") + A.RestartPath.Get(TEXT("Unavailable"));
         }
+        if (Runtime && !IsImportedReplay() && !Runtime->GuardOutcomes().IsEmpty())
+        { const auto& O = Runtime->GuardOutcomes().Last(); Text += TEXT("\nLive guard outcome: ") + O.Recovery + TEXT("\n") + O.Stop + TEXT("\n") + O.Locate; }
         return Text;
     }
     return TEXT("Unavailable");
@@ -486,7 +591,7 @@ void SStudioHome4Monitors::CycleBody()
     {
         for(const auto& S:Stream->History())for(const auto& B:S.Bodies)Ids.AddUnique(B.Id);
     }
-    SelectedBody=Ids[(Ids.Find(SelectedBody)+1)%Ids.Num()];bNormalizeForces=false;
+    SelectedBody=Ids[(Ids.Find(SelectedBody)+1)%Ids.Num()];Policy.BodyId=SelectedBody;bNormalizeForces=false;
 }
 void SStudioHome4Monitors::CycleLevel()
 {
@@ -520,6 +625,7 @@ void SStudioHome4Monitors::ApplyPolicy()
         { Status = FString::Printf(TEXT("Threshold field %d must be a finite nonnegative number or empty. Previous limits retained."), I + 1); return; }
     Policy = Candidate;
     if (SessionStream) SessionStream->SetDiagnosticPolicy(Policy);
+    if (Runtime) Runtime->SetDiagnosticPolicy(Policy);
     if (ImportedStream) ImportedStream->SetDiagnosticPolicy(Policy);
     Status = TEXT("Explicit health thresholds applied. Empty limits keep their gate unavailable.");
 }
@@ -610,6 +716,7 @@ void SStudioHome4Monitors::PollImport()
     ImportedStream = MakeShared<FStudioHome4TelemetryStream>(MoveTemp(*Result.Stream)); ImportedStream->SetDiagnosticPolicy(Policy);
     bImportedOriginalRunIdentity = Result.bOriginalRunIdentity;
     ImportPath = Result.Path; ImportSHA256 = Result.SHA256; bShowImported = true;
+    ImportedOriginalBytes=MoveTemp(Result.OriginalBytes);
     Status = FString::Printf(TEXT("Imported replay · %lld original bytes, %lld lines; %lld unknown records skipped. Last %d measurements retained."), Result.Bytes, Result.Lines, Result.Unknown, ImportedStream->History().Num());
     RefreshOutputs();
 }
@@ -618,7 +725,7 @@ void SStudioHome4Monitors::ScopeProject()
     const auto M = Model.Pin();
     if(M ? M->Project.Id == ScopedProjectId && M->Project.Draft.Id == ScopedCaseId : !ScopedProjectId.IsValid() && !ScopedCaseId.IsValid())return;
     ScopedProjectId=M?M->Project.Id:FGuid();ScopedCaseId=M?M->Project.Draft.Id:FGuid();
-    SessionStream.Reset(); ImportedStream.Reset(); ImportPath.Empty(); ImportSHA256.Empty(); bImportedOriginalRunIdentity = false;
+    SessionStream.Reset(); ImportedStream.Reset(); ImportedOriginalBytes.Reset(); ImportPath.Empty(); ImportSHA256.Empty(); bImportedOriginalRunIdentity = false;
     OriginalRunIdDraft.Empty(); bShowImported = false; SelectedBody.Empty(); SelectedPhase.Empty(); SelectedLevel=0; bNormalizeForces=false; CancelImport();
     Status = TEXT("Project or case changed; imported replay cleared. Supply explicitly identified original science for this scope.");
     RefreshOutputs();
@@ -666,6 +773,7 @@ SStudioHome4Monitors::FImportResult SStudioHome4Monitors::ReadImport(const FStri
         File->Serialize(Chunk.GetData(), N);
         if (File->IsError()) return Fail(TEXT("Original science log could not be read completely."));
         if (EVP_DigestUpdate(FirstHash.get(), Chunk.GetData(), N) != 1) return Fail(TEXT("Science source identity could not be measured."));
+        R.OriginalBytes.Append(Chunk.GetData(),N);
         R.Bytes += N; LastByte = Chunk[N - 1];
         if (!Consume(Chunk.GetData(), N))
         { if (Cancelled()) return Fail(TEXT("Science import cancelled.")); R.Stream.Reset(); return R; }

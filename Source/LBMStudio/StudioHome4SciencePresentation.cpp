@@ -8,7 +8,7 @@ namespace StudioHome4SciencePresentation
         static const TCHAR* Names[]={TEXT("Mass drift"),TEXT("Budget residual"),TEXT("Force channels"),TEXT("Water KE"),TEXT("Air KE"),TEXT("Surface energy"),
             TEXT("Selected phase KE"),TEXT("Selected phase PE"),TEXT("Mach number"),TEXT("Minimum tau"),TEXT("Maximum speed"),TEXT("Divergence norm"),TEXT("Spurious speed"),
             TEXT("Limiter cells"),TEXT("Threshold cells"),TEXT("Measured MLUPS"),TEXT("Cumulative MLUPS"),TEXT("Achieved GB/s"),TEXT("Selected level mass drift"),
-            TEXT("Selected level injection"),TEXT("Selected level measured MLUPS"),TEXT("Body position Z"),TEXT("Body velocity Z"),TEXT("Body roll"),TEXT("Body pitch"),TEXT("Body yaw"),TEXT("Fitted added mass"),TEXT("Fitted damping")};
+            TEXT("Selected level injection"),TEXT("Selected level measured MLUPS"),TEXT("Body position Z"),TEXT("Body velocity Z"),TEXT("Body roll"),TEXT("Body pitch"),TEXT("Body yaw"),TEXT("Fitted added mass"),TEXT("Fitted damping"),TEXT("Driver reported MLUPS"),TEXT("Driver reported cumulative MLUPS"),TEXT("Measured tau margin to 1/2"),TEXT("Budget terms")};
         return int32(M)<UE_ARRAY_COUNT(Names)?Names[int32(M)]:TEXT("Unavailable metric");
     }
     const FStudioHome4Normalization* Normalization(const FStudioHome4Sample* S,const FString& Body)
@@ -84,7 +84,8 @@ namespace StudioHome4SciencePresentation
         Out.Axis=Star?TEXT("original t*"):Step?TEXT("solver step"):TEXT("original record order");
         const TCHAR* Channels[]={TEXT("Stress"),TEXT("Momentum"),TEXT("Pressure"),TEXT("Viscous"),TEXT("Stress - momentum")};
         const FLinearColor Colors[]={StudioUI::Cyan,StudioUI::Amber,FLinearColor(.63,.54,.95),FLinearColor(.4,.8,.52),StudioUI::Text};
-        for(int32 I=0;I<(M==EMetric::Forces?5:1);++I){FSeries Series;Series.Label=M==EMetric::Forces?Channels[I]:Name(M);Series.Color=Colors[I];Out.Series.Add(MoveTemp(Series));}
+        const TCHAR* BudgetNames[]={TEXT("Work"),TEXT("D near"),TEXT("D far"),TEXT("D air"),TEXT("Beach"),TEXT("Floor"),TEXT("Delta KE"),TEXT("Delta PE"),TEXT("Residual")};
+        for(int32 I=0;I<(M==EMetric::Forces?5:M==EMetric::BudgetTerms?9:1);++I){FSeries Series;Series.Label=M==EMetric::Forces?Channels[I]:M==EMetric::BudgetTerms?BudgetNames[I]:Name(M);Series.Color=Colors[I%5];Out.Series.Add(MoveTemp(Series));}
         bool Raw=false;FString ExpectedUnit;
         for(const auto& S:H)
         {
@@ -92,7 +93,14 @@ namespace StudioHome4SciencePresentation
             const auto* B=Body(S,BodyId);const auto* L=S.Levels.FindByPredicate([&](const auto& V){return V.Level==Level;});
             const auto* P=S.PhaseEnergies.Find(Phase);EStudioHome4Quantity Q=EStudioHome4Quantity::Dimensionless;
             TArray<TOptional<double>> Values;FString ExplicitUnit;
-            if(M==EMetric::Forces)
+            if(M==EMetric::BudgetTerms)
+            {
+                const auto* Budget=Phase.IsEmpty()?&S.Budget:S.PhaseBudgets.Find(Phase);
+                if(Budget)Values={Budget->Work,Budget->DissipationNear,Budget->DissipationFar,Budget->DissipationAir,Budget->BeachLoss,Budget->FloorLoss,Budget->DeltaKE,Budget->DeltaPE,Budget->Residual};
+                else Values.SetNum(9);
+                Q=EStudioHome4Quantity::Energy;
+            }
+            else if(M==EMetric::Forces)
             {
                 const auto* F=BodyId.IsEmpty()?&S.Forces:B?&B->Forces:nullptr;
                 if(F&&Component>=0&&Component<4)
@@ -121,6 +129,9 @@ namespace StudioHome4SciencePresentation
                 case EMetric::MLUPS:V=FStudioHome4Diagnostics::Performance(S).MLUPSInstant;ExplicitUnit=TEXT("MLUPS");break;
                 case EMetric::CumulativeMLUPS:V=FStudioHome4Diagnostics::Performance(S).MLUPSCumulative;ExplicitUnit=TEXT("MLUPS");break;
                 case EMetric::Bandwidth:V=FStudioHome4Diagnostics::Performance(S).GigabytesPerSecond;ExplicitUnit=TEXT("GB/s");break;
+                case EMetric::ReportedMLUPS:V=S.ReportedMLUPSInstant;ExplicitUnit=TEXT("reported MLUPS");break;
+                case EMetric::ReportedCumulativeMLUPS:V=S.ReportedMLUPSCumulative;ExplicitUnit=TEXT("reported MLUPS");break;
+                case EMetric::TauMargin:if(S.TauMinimum)V=*S.TauMinimum-.5;ExplicitUnit=TEXT("tau - 1/2");break;
                 case EMetric::LevelMass:V=L?L->MassDrift:S.Mass.LevelDrifts.IsValidIndex(Level)?S.Mass.LevelDrifts[Level]:TOptional<double>();break;
                 case EMetric::LevelInjection:V=L?L->Injection:S.Mass.LevelInjections.IsValidIndex(Level)?S.Mass.LevelInjections[Level]:TOptional<double>();ExplicitUnit=TEXT("raw source mass");break;
                 case EMetric::LevelMLUPS:if(L){FStudioHome4Sample WorkSample;WorkSample.Work=L->Work;V=FStudioHome4Diagnostics::Performance(WorkSample).MLUPSInstant;}ExplicitUnit=TEXT("MLUPS");break;
