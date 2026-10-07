@@ -35,8 +35,12 @@ void SStudioHome4ArchivePanel::Construct(const FArguments& A)
         .Text(FText::FromString(TEXT("Import original HOME4 NPZ snapshots. Confirm source axes and units below. Original masks, steps and provenance are retained.")))];
     Form->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SButton).Tag(TEXT("Home4ArchiveAddSource")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,5))
         .IsEnabled_Lambda([this]{return !Task.IsBusy()&&!PendingInspection.IsValid();}).OnClicked_Lambda([this]{AddSource();return FReply::Handled();})[Label(TEXT("Add original NPZ snapshot"))]];
+    Form->AddSlot().AutoHeight()[Text(TEXT("Watched snapshot lane pattern"),TEXT("Home4ArchiveWatchPattern"),WatchPattern,TEXT("Select one compatible output lane, e.g. *_viz*.npz or slice_*.npz. Root/fine patches and slice/volume shapes must be imported separately."))];
+    Form->AddSlot().AutoHeight().Padding(0,0,0,6)[SNew(SButton).Tag(TEXT("Home4ArchiveWatch")).ButtonStyle(&ButtonStyle())
+        .IsEnabled_Lambda([this]{return !Task.IsBusy()&&!PendingInspection.IsValid();}).OnClicked_Lambda([this]{if(Watch.Active()){Watch.Stop();Notice=TEXT("Directory watch stopped; accepted source snapshots retained.");}else StartWatch();return FReply::Handled();})
+        [SNew(STextBlock).Font(Font(10)).ColorAndOpacity(StudioUI::Text).Text_Lambda([this]{return FText::FromString(Watch.Active()?TEXT("Stop watching directory"):TEXT("Watch original NPZ directory…"));})]];
     Form->AddSlot().AutoHeight()[SAssignNew(SourceList,SVerticalBox)];
-    Form->AddSlot().AutoHeight()[Choice(TEXT("Array axis order"),TEXT("Home4ArchiveAxes"),AxisOrder,{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx")},TEXT("Meaning of each source array dimension. Storage order C/F is read from NPY; physical axes require this declaration."))];
+    Form->AddSlot().AutoHeight()[Choice(TEXT("Array axis order"),TEXT("Home4ArchiveAxes"),AxisOrder,{TEXT("xyz"),TEXT("xzy"),TEXT("yxz"),TEXT("yzx"),TEXT("zxy"),TEXT("zyx"),TEXT("xy"),TEXT("xz"),TEXT("yx"),TEXT("yz"),TEXT("zx"),TEXT("zy")},TEXT("Meaning of each source array dimension. Storage order C/F is read from NPY; physical axes require this declaration."))];
     Form->AddSlot().AutoHeight()[Choice(TEXT("Origin/spacing component order"),TEXT("Home4ArchiveMetadata"),MetadataOrder,{TEXT("xyz"),TEXT("array")},TEXT("Whether original origin and spacing triples are XYZ or follow the declared array-axis order."))];
     Form->AddSlot().AutoHeight()[Choice(TEXT("Original coordinates"),TEXT("Home4ArchiveCoordinateUnits"),CoordinateUnits,{TEXT("lattice"),TEXT("physical")},TEXT("Units of source origin and spacing: lattice lengths or metres."))];
     Form->AddSlot().AutoHeight()[Choice(TEXT("Original velocity"),TEXT("Home4ArchiveVelocityUnits"),VelocityUnits,{TEXT("lattice"),TEXT("physical")},TEXT("Units of ux/uy/uz: lattice cells per step or metres per second."))];
@@ -60,7 +64,7 @@ void SStudioHome4ArchivePanel::Construct(const FArguments& A)
         [SNew(SButton).Tag(I?TEXT("Home4ArchiveVTI"):TEXT("Home4ArchiveImport")).ButtonStyle(&ButtonStyle()).ContentPadding(FMargin(8,6))
          .IsEnabled_Lambda([this]{return !Task.IsBusy()&&!PendingInspection.IsValid()&&!bImportPending;}).OnClicked_Lambda([this,I]{Start(I==1);return FReply::Handled();})[Label(I?TEXT("Export original VTI"):TEXT("Convert and open"))]];
     Form->AddSlot().AutoHeight()[Actions];Form->AddSlot().AutoHeight().Padding(0,6,0,0)[SNew(SButton).Tag(TEXT("Home4ArchiveCancel")).ButtonStyle(&ButtonStyle())
-        .IsEnabled_Lambda([this]{return Task.IsBusy()||PendingInspection.IsValid();}).OnClicked_Lambda([this]{Task.Cancel();if(InspectionCancel)InspectionCancel->store(true);return FReply::Handled();})[Label(TEXT("Cancel archive operation"))]];
+        .IsEnabled_Lambda([this]{return Watch.Active()||Task.IsBusy()||PendingInspection.IsValid();}).OnClicked_Lambda([this]{Watch.Stop();Task.Cancel();if(InspectionCancel)InspectionCancel->store(true);return FReply::Handled();})[Label(TEXT("Cancel archive operation"))]];
     Form->AddSlot().AutoHeight().Padding(0,6,0,0)[SNew(SButton).Tag(TEXT("Home4ArchiveOpenCompleted")).ButtonStyle(&ButtonStyle())
         .IsEnabled_Lambda([this]{return !CompletedRecording.IsEmpty()&&!Task.IsBusy()&&!bImportPending;}).OnClicked_Lambda([this]{OpenCompleted();return FReply::Handled();})[Label(TEXT("Open completed recording"))]];
     Form->AddSlot().AutoHeight().Padding(0,8,0,0)[SNew(STextBlock).Tag(TEXT("Home4ArchiveStatus")).Font(Font(9)).AutoWrapText(true).ColorAndOpacity(Muted).Text_Lambda([this]{return FText::FromString(Status());})];
@@ -129,11 +133,33 @@ void SStudioHome4ArchivePanel::OpenCompleted()
 FString SStudioHome4ArchivePanel::Status()const
 {
     if(Task.IsBusy()){const auto P=Task.Progress();const TCHAR* Phase=P.State==EStudioHome4ArchiveState::Publishing?TEXT("Publishing complete output"):P.State==EStudioHome4ArchiveState::Cancelled?TEXT("Cancelling"):TEXT("Converting original snapshots");return FString::Printf(TEXT("%s · %d/%d frames · %.1f MiB staged"),Phase,P.CompletedFrames,P.TotalFrames,P.Bytes/(1024.*1024.));}
-    if(bImportPending){auto M=Model.Pin();return M?M->Notice:Notice;}return Notice;
+    if(bImportPending){auto M=Model.Pin();return M?M->Notice:Notice;}return Watch.Active()?Watch.Notice()+TEXT("\n")+Notice:Notice;
 }
 void SStudioHome4ArchivePanel::Tick(const FGeometry& G,double T,float D)
 {
-    SCompoundWidget::Tick(G,T,D);
+    SCompoundWidget::Tick(G,T,D);Poll(T);
+}
+void SStudioHome4ArchivePanel::Poll(double T)
+{
+    if(Watch.Active())
+    {
+        auto M=Model.Pin();if(!M||M->Project.Id!=ScopeProject){Watch.Stop();Notice=TEXT("Directory watch stopped because the active project changed.");}
+    }
+    Watch.Tick(T);
+    auto Arrivals=Watch.TakeCompleted();
+    for(auto& Arrival:Arrivals)if(!Inspections.ContainsByPredicate([&](const auto& Existing){return Existing.Source.Path==Arrival.Source.Path;}))
+    {Inspections.Add(MoveTemp(Arrival));bWatchDirty=true;}
+    if(!Arrivals.IsEmpty()){Inspections.StableSort([](const auto& A,const auto& B){return A.OriginalStep.Get(MAX_int32)<B.OriginalStep.Get(MAX_int32);});RebuildSources();}
+    if(Watch.Active()&&bWatchDirty&&!Task.IsBusy()&&!bImportPending&&!PendingInspection.IsValid())
+    {
+        auto M=Model.Pin();FStudioHome4ArchiveRequest R;FString Error;
+        if(M&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending()&&Request(R,Error))
+        {
+            R.OutputParent=WatchOutput;R.FolderName=Folder+FString::Printf(TEXT("-watch-%04d-"),++WatchRevision)+FGuid::NewGuid().ToString(EGuidFormats::Digits).Left(12);ScopeSource=M->Solver;
+            if(Task.Start(MoveTemp(R),Error)){bWatchDirty=false;Notice=TEXT("Publishing a new verified watch revision…");}else Notice=Error;
+        }
+        else if(!Error.IsEmpty())Notice=Error;
+    }
     if(PendingInspection.IsValid()&&PendingInspection.IsReady())
     {
         auto R=PendingInspection.Get();PendingInspection={};const bool Cancelled=InspectionCancel&&InspectionCancel->load();InspectionCancel.Reset();
@@ -152,4 +178,19 @@ void SStudioHome4ArchivePanel::Tick(const FGeometry& G,double T,float D)
         {CompletedRecording=R->RecordingJSON;Notice=FString::Printf(TEXT("Saved %d original frames: %s"),R->Frames,*R->Path);auto M=Model.Pin();if(M&&M->Project.Id==ScopeProject&&M->Solver==ScopeSource.Pin()&&!M->IsProjectOpenPending()&&!M->IsRecordingLoadPending()&&!CompletedRecording.IsEmpty())OpenCompleted();else if(!CompletedRecording.IsEmpty())Notice+=TEXT(" · Project/source changed. Use Open completed recording when ready.");}
     }
     if(bImportPending){auto M=Model.Pin();if(!M||!M->IsRecordingLoadPending()){bImportPending=false;if(M)Notice=M->Notice;}}
+}
+
+void SStudioHome4ArchivePanel::StartWatch()
+{
+    FString Directory;auto M=Model.Pin();if(!M)return;
+    bool Selected=false;
+#if WITH_DEV_AUTOMATION_TESTS
+    if(bAutomationFileDialogs){if(NextWatchDirectory&&NextOutputParent){Directory=*NextWatchDirectory;WatchOutput=*NextOutputParent;NextWatchDirectory.Reset();NextOutputParent.Reset();Selected=true;}}
+    else
+#endif
+    Selected=StudioFileDialog::ExportFolder(Directory)&&StudioFileDialog::ExportFolder(WatchOutput);
+    if(!Selected){Notice=TEXT("Watch folder selection cancelled.");return;}
+    FString Error;if(!Watch.Start(Directory,Error,WatchPattern)){Notice=Error;return;}
+    ScopeProject=M->Project.Id;ScopeSource=M->Solver;WatchRevision=0;bWatchDirty=false;Inspections.Reset();RebuildSources();
+    Notice=TEXT("Confirm source axes, units, title and attribution. Completed snapshots are verified and published as immutable revisions; incomplete files remain pending.");
 }

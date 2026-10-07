@@ -1,6 +1,7 @@
 #pragma once
 #include "Widgets/SCompoundWidget.h"
 #include "StudioHome4Archive.h"
+#include "StudioHome4ArchiveWatch.h"
 class FStudioModel;
 class SVerticalBox;
 /** Retained original-source import form; no next-run unit/spec dependency. */
@@ -12,11 +13,13 @@ public:
     SLATE_END_ARGS()
     void Construct(const FArguments& Args);
     ~SStudioHome4ArchivePanel();
+    void Poll(double Time);
     void Tick(const FGeometry&,double,float)override;
 #if WITH_DEV_AUTOMATION_TESTS
     /** One-shot picker results for routed widget tests. Once enabled, missing
      * results cancel; a virtual test can never fall back to a native dialog. */
     void SetNextSourcePathForAutomation(const FString& Path){check(IsInGameThread());bAutomationFileDialogs=true;NextSourcePath=Path;}
+    void SetNextWatchDirectoryForAutomation(const FString& Path){bAutomationFileDialogs=true;NextWatchDirectory=Path;}
     void SetNextOutputParentForAutomation(const FString& Path){check(IsInGameThread());bAutomationFileDialogs=true;NextOutputParent=Path;}
     bool IsOperationPendingForAutomation()const{return PendingInspection.IsValid()||Task.IsBusy()||bImportPending;}
     int32 SourceCountForAutomation()const{return Inspections.Num();}
@@ -25,6 +28,7 @@ public:
 #endif
 private:
     void AddSource();
+    void StartWatch();
     void RebuildSources();
     void Start(bool bVTI);
     void OpenCompleted();
@@ -38,6 +42,8 @@ private:
     TFuture<FStudioHome4ArchiveInspection> PendingInspection;
     FStudioLoadCancellation InspectionCancel;
     FStudioHome4ArchiveTask Task;
+    FStudioHome4ArchiveWatch Watch;
+    FString WatchOutput,WatchPattern=TEXT("*_viz*.npz");int32 WatchRevision=0;bool bWatchDirty=false;
     FGuid ScopeProject;
     TWeakPtr<IStudioSolver,ESPMode::ThreadSafe> ScopeSource;
     FString AxisOrder,MetadataOrder,CoordinateUnits,VelocityUnits,Dx,Dt,Density;
@@ -46,6 +52,6 @@ private:
     bool bDerivatives=true,bWBPressure=false,bImportPending=false;
 #if WITH_DEV_AUTOMATION_TESTS
     bool bAutomationFileDialogs=false;
-    TOptional<FString> NextSourcePath,NextOutputParent;
+    TOptional<FString> NextSourcePath,NextOutputParent,NextWatchDirectory;
 #endif
 };
