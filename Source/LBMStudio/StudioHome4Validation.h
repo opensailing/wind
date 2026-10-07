@@ -24,6 +24,8 @@ struct FStudioHome4ReferenceEvidence
 {
     FString RecipeId, ActualSource, ReferenceSource, SourcePath, SourceSHA256;
     FGuid RunId;
+    /** Session attachment scope only; never an assertion of reference authenticity. */
+    FGuid AttachedProjectId, AttachedCaseId;
     TArray<FStudioHome4ReferenceSeries> Series;
     FString OrderMetric, OrderUnit;
     TArray<FStudioHome4ScalarRun> OrderRuns;

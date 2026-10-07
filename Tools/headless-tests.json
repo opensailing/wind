@@ -131,6 +131,8 @@
     "Studio.Home4.Recipes.RetainedDraftAndPersistence",
     "Studio.Home4.Recipes.TypedBenchmarkConstantsAndDepartures",
     "Studio.Home4.Reports.AtomicBundleAndEscaping",
+    "Studio.Home4.Reports.FiguresScopeProvenanceAndFailure",
+    "Studio.Home4.Reports.OriginalPlotSelectionAndNumericTables",
     "Studio.Home4.Telemetry.BoundedInterfaceLevelAndBodyMeasurements",
     "Studio.Home4.Telemetry.FileResetAndRunMonotonicity",
     "Studio.Home4.Telemetry.FiveHealthSignalsRequireEvidence",

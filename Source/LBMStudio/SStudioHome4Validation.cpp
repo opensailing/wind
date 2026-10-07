@@ -1,4 +1,5 @@
 #include "SStudioHome4Validation.h"
+#include "StudioHome4ReportPlots.h"
 #include "StudioModel.h"
 #include "StudioTheme.h"
 #include "StudioFileDialog.h"
@@ -18,8 +19,8 @@ namespace StudioHome4ValidationUIPrivate
     class SReferenceOverlay final : public SLeafWidget
     {
     public:
-        SLATE_BEGIN_ARGS(SReferenceOverlay) {} SLATE_ARGUMENT(TSharedPtr<FStudioHome4ValidationState>, State) SLATE_END_ARGS()
-        void Construct(const FArguments& A) { State = A._State; }
+        SLATE_BEGIN_ARGS(SReferenceOverlay) {} SLATE_ARGUMENT(TSharedPtr<FStudioHome4ValidationState>, State) SLATE_ARGUMENT(bool, Convergence) SLATE_END_ARGS()
+        void Construct(const FArguments& A) { State = A._State; bConvergence = A._Convergence; }
         FVector2D ComputeDesiredSize(float) const override { return FVector2D(380, 240); }
         FReply OnMouseButtonDown(const FGeometry&,const FPointerEvent&) override {return FReply::Handled();}
         FReply OnMouseMove(const FGeometry&,const FPointerEvent&) override {return FReply::Handled();}
@@ -31,40 +32,33 @@ namespace StudioHome4ValidationUIPrivate
             { FSlateDrawElement::MakeText(Out, Layer + 2, G.ToPaintGeometry(FVector2D(1, 1), FSlateLayoutTransform(At)), Value, Font(8), ESlateDrawEffect::None, Color); };
             if (!State->Evidence || !State->Evidence->Series.IsValidIndex(State->SelectedSeries))
             { TextAt(TEXT("not_evaluated · import actual and reference measurements"), FVector2D(0, 30), Muted); return Layer + 3; }
-            const auto& S = State->Evidence->Series[State->SelectedSeries];
-            const auto Size = G.GetLocalSize(); const double Left = 55, Right = FMath::Max(Left + 1, Size.X - 10), Top = 30, Bottom = Size.Y - 30;
-            double Low = TNumericLimits<double>::Max(), High = -TNumericLimits<double>::Max();
-            for (double V : S.Actual) { Low = FMath::Min(Low, V); High = FMath::Max(High, V); }
-            for (double V : S.Reference) { Low = FMath::Min(Low, V); High = FMath::Max(High, V); }
-            const double Span = High - Low, XSpan = S.Abscissae.Last() - S.Abscissae[0];
-            if (!FMath::IsFinite(Span) || !FMath::IsFinite(XSpan))
-            { TextAt(TEXT("Source range exceeds finite chart scaling"), FVector2D(0, 30), Muted); return Layer + 3; }
-            const double Pad = FMath::Max(Span * .05, FMath::Max(FMath::Abs(Low), FMath::Abs(High)) * .001 + 1e-12);
-            Low -= Pad; High += Pad;
-            if (!FMath::IsFinite(Low) || !FMath::IsFinite(High) || !FMath::IsFinite(High - Low) || High <= Low)
-            { TextAt(TEXT("Source range exceeds finite chart scaling"), FVector2D(0, 30), Muted); return Layer + 3; }
-            TextAt(TEXT("Actual · ") + S.Unit, FVector2D(Left, 3), Cyan);
-            TextAt(TEXT("Reference · ") + S.Unit, FVector2D(Left + 130, 3), Amber);
-            TextAt(FString::Printf(TEXT("%.4g"), High), FVector2D(0, Top), Muted);
-            TextAt(FString::Printf(TEXT("%.4g"), Low), FVector2D(0, Bottom - 10), Muted);
-            TextAt(S.AbscissaName + TEXT(" [") + S.AbscissaUnit + TEXT("]"), FVector2D(Left, Bottom + 8), Muted);
-            for (int32 Channel = 0; Channel < 2; ++Channel)
+            FStudioHome4ReportPlot Plot; FString Error;
+            const bool Ready = bConvergence ? StudioHome4ReportPlots::Convergence(*State->Evidence, Plot, Error)
+                : StudioHome4ReportPlots::Reference(State->Evidence->Series[State->SelectedSeries], Plot, Error);
+            if (!Ready) { TextAt(Error, FVector2D(0,30), Muted); return Layer + 3; }
+            const auto Size=G.GetLocalSize();const double Left=65, Right=FMath::Max(Left+1,Size.X-15),Top=50,Bottom=FMath::Max(Top+1,Size.Y-45);
+            TextAt(Plot.YLabel,FVector2D(Left,3),Text);
+            TextAt(Plot.XLabel,FVector2D(Left,Bottom+23),Muted);
+            TextAt(FString::Printf(TEXT("%.4g"),Plot.YMax),FVector2D(0,Top),Muted);
+            TextAt(FString::Printf(TEXT("%.4g"),Plot.YMin),FVector2D(0,Bottom-10),Muted);
+            TextAt(FString::Printf(TEXT("%.4g"),Plot.XMin),FVector2D(Left,Bottom+7),Muted);
+            TextAt(FString::Printf(TEXT("%.4g"),Plot.XMax),FVector2D(Right-45,Bottom+7),Muted);
+            TArray<FVector2D> Axes={FVector2D(Left,Top),FVector2D(Left,Bottom),FVector2D(Right,Bottom)};
+            FSlateDrawElement::MakeLines(Out,Layer,G.ToPaintGeometry(),Axes,ESlateDrawEffect::None,Muted,true,1);
+            for(int32 C=0;C<Plot.Channels.Num();++C)
             {
-                const auto& Values = Channel ? S.Reference : S.Actual;
-                TArray<FVector2D> Points; Points.Reserve(FMath::Min(Values.Num(),2001));
-                const int32 Stride=FMath::Max(1,(Values.Num()+1999)/2000);
-                for (int32 I = 0; I < Values.Num(); I+=Stride)
-                    Points.Add(FVector2D(Left + (Right - Left) * (S.Abscissae[I] - S.Abscissae[0]) / FMath::Max(1e-12, XSpan),
-                        Bottom - (Bottom - Top) * (Values[I] - Low) / (High - Low)));
-                if(Values.Num()>2000)TextAt(TEXT("Plot preview strided; gate uses every original sample"),FVector2D(Left,Bottom-13),Muted);
-                if (Points.Num() > 1) FSlateDrawElement::MakeLines(Out, Layer + Channel, G.ToPaintGeometry(), Points, ESlateDrawEffect::None, Channel ? Amber : Cyan, true, Channel ? 1.f : 2.f);
-                else if (Points.Num() == 1)
-                { Points.Add(Points[0] + FVector2D(3, 0)); FSlateDrawElement::MakeLines(Out, Layer + Channel, G.ToPaintGeometry(), Points, ESlateDrawEffect::None, Channel ? Amber : Cyan, true, 3); }
+                const auto Color=C?Amber:Cyan;TextAt(Plot.Legends[C],FVector2D(Left+C*110,25),Color);
+                TArray<FVector2D> Points;Points.Reserve(Plot.PreviewIndices.Num());
+                for(int32 I:Plot.PreviewIndices){const auto V=Plot.Normalized(C,I);Points.Add(FVector2D(Left+(Right-Left)*V.X,Bottom-(Bottom-Top)*V.Y));}
+                if(Points.Num()>1)FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,Color,true,2);
+                if(Points.Num()<=3)for(const auto& V:Points){TArray<FVector2D> Mark={V-FVector2D(3,0),V+FVector2D(3,0)};FSlateDrawElement::MakeLines(Out,Layer+1,G.ToPaintGeometry(),Mark,ESlateDrawEffect::None,Color,true,4);}
             }
-            return Layer + 3;
+            if(Plot.X.Num()>StudioHome4ReportPlots::PreviewLimit)TextAt(TEXT("2,000 original samples shown; full arrays retained"),FVector2D(Left,Bottom-15),Muted);
+            return Layer+3;
         }
     private:
         TSharedPtr<FStudioHome4ValidationState> State;
+        bool bConvergence = false;
     };
 }
 void SStudioHome4Validation::Construct(const FArguments& A)
@@ -87,7 +81,7 @@ void SStudioHome4Validation::Construct(const FArguments& A)
     Input(TEXT("Expected reference source (optional)"), TEXT("Home4ReferenceSource"), &ExpectedReferenceDraft);
     Rows->AddSlot().AutoHeight().Padding(0, 5)[Action(TEXT("Import aligned reference JSON"), TEXT("Home4ReferenceImport"), [this] { ImportDialog(); })];
     Rows->AddSlot().AutoHeight()[SAssignNew(SeriesRows, SVerticalBox)];
-    Rows->AddSlot().AutoHeight()[SNew(StudioHome4ValidationUIPrivate::SReferenceOverlay).Tag(TEXT("Home4ReferenceOverlay")).State(State)];
+    Rows->AddSlot().AutoHeight()[SNew(StudioHome4ValidationUIPrivate::SReferenceOverlay).Tag(TEXT("Home4ReferenceOverlay")).State(State).ToolTipText(FText::FromString(StudioHome4ReportPlots::SelectionDescription()))];
     Rows->AddSlot().AutoHeight().Padding(0, 4)[SNew(STextBlock).Tag(TEXT("Home4ReferenceGate")).Font(Font(9)).ColorAndOpacity(Text).AutoWrapText(true)
         .Text_Lambda([this]
         {
@@ -95,11 +89,21 @@ void SStudioHome4Validation::Construct(const FArguments& A)
             if (!State->Evidence || !State->Evidence->Series.IsValidIndex(State->SelectedSeries)) return FText::FromString(TEXT("not_evaluated · no reference evidence supplied."));
             const auto& E = *State->Evidence; const auto& S = E.Series[State->SelectedSeries];
             FString Description = TEXT("Evidence run ")+E.RunId.ToString(EGuidFormats::Short)+TEXT(" · ")+E.GateStatus() + TEXT(" · ") + S.Name + TEXT(" [") + S.Unit + TEXT("]\nImported evidence evaluates its identified run; the current draft has no transferred gate.\n") + S.Gate.Reason +
-                TEXT("\nMax absolute error ") + OptionalNumber(S.Gate.MaximumAbsoluteError) + TEXT(" · relative L2 error ") + OptionalNumber(S.Gate.RelativeL2Error) +
+                FString::Printf(TEXT("\nInclusive source window: %.17g to %.17g %s\nMax absolute error "),S.Abscissae[0],S.Abscissae.Last(),*S.AbscissaUnit) + OptionalNumber(S.Gate.MaximumAbsoluteError) + TEXT(" · relative L2 error ") + OptionalNumber(S.Gate.RelativeL2Error) +
                 FString::Printf(TEXT("\nSupplied tolerances: absolute %.6g, relative %.6g\nActual source: %s\nReference source: %s\nSHA256 %s"), S.AbsoluteTolerance, S.RelativeTolerance, *E.ActualSource, *E.ReferenceSource, *E.SourceSHA256);
             if (E.ObservedOrder) Description += TEXT("\nObserved order ") + OptionalNumber(E.ObservedOrder) + TEXT(" · ") + E.OrderMetric;
             else if (!E.OrderRuns.IsEmpty()) Description += TEXT("\nObserved order unavailable: scalar sequence does not show monotone convergence.");
             return FText::FromString(Description);
+        })];
+    Rows->AddSlot().AutoHeight()[SNew(StudioHome4ValidationUIPrivate::SReferenceOverlay).Tag(TEXT("Home4ConvergencePlot")).State(State).Convergence(true)
+        .ToolTipText(FText::FromString(StudioHome4ReportPlots::SelectionDescription()))];
+    Rows->AddSlot().AutoHeight()[SNew(STextBlock).Tag(TEXT("Home4ConvergenceIdentity")).Font(Font(8)).ColorAndOpacity(Muted).AutoWrapText(true)
+        .Text_Lambda([this]
+        {
+            if(!State->Evidence || State->Evidence->OrderRuns.IsEmpty())return FText::FromString(TEXT("No three-run scalar evidence supplied. The development queue is not measured convergence."));
+            const auto& E=*State->Evidence;FString V=E.OrderMetric+TEXT(" [")+E.OrderUnit+TEXT("] · scalar averaging window not supplied; no window equivalence inferred.");
+            for(const auto& R:E.OrderRuns)V+=FString::Printf(TEXT("\nRefinement %.6g · value %.17g · run %s"),R.Refinement,R.Value,*R.RunId.ToString());
+            return FText::FromString(V);
         })];
     Rows->AddSlot().AutoHeight().Padding(0, 10, 0, 3)[Label(TEXT("Development refinement queue"), 11, Text, true)];
     Input(TEXT("Increasing factors (comma separated)"), TEXT("Home4RefinementFactors"), &RefinementDraft);
@@ -141,6 +145,7 @@ void SStudioHome4Validation::PollImport()
     const auto M = Model.Pin();
     if (M && (M->Project.Id!=ImportProjectId||M->Project.Draft.Id!=ImportCaseId||!M->Project.Draft.Home4 || M->Project.Draft.Home4->RecipeId != R.Evidence.RecipeId))
     {ScopeState();State->Status = TEXT("Selected project/case/recipe changed while importing; the imported gate was not attached."); return; }
+    R.Evidence.AttachedProjectId=State->ProjectId;R.Evidence.AttachedCaseId=State->CaseId;
     State->Evidence = MakeShared<FStudioHome4ReferenceEvidence>(MoveTemp(R.Evidence)); State->SelectedSeries = 0;
     State->Status = TEXT("Imported identified reference evidence · ") + State->Evidence->GateStatus(); Refresh();
 }
