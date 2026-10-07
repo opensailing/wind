@@ -20,12 +20,17 @@ namespace StudioHome4ReportPlotsPrivate
         P.XMin=P.X[0];P.XMax=P.X.Last();P.YMin=TNumericLimits<double>::Max();P.YMax=-TNumericLimits<double>::Max();
         for (int32 I=0;I<P.X.Num();++I) if (!FMath::IsFinite(P.X[I]) || (I && P.X[I]<=P.X[I-1]))
         { Error=TEXT("Figure abscissae must be finite and strictly increasing."); return false; }
-        for (const auto& C:P.Channels)
+        if(!P.Validity.IsEmpty()&&P.Validity.Num()!=P.Channels.Num()){Error=TEXT("Figure gap masks must match original channels.");return false;}
+        bool Any=false;
+        for (int32 Channel=0;Channel<P.Channels.Num();++Channel)
         {
+            const auto& C=P.Channels[Channel];
             if (C.Num()!=P.X.Num()) { Error=TEXT("Figure original arrays must align exactly."); return false; }
-            for (double V:C)
-            { if (!FMath::IsFinite(V)) { Error=TEXT("Figure measurements must be finite."); return false; } P.YMin=FMath::Min(P.YMin,V);P.YMax=FMath::Max(P.YMax,V); }
+            if(!P.Validity.IsEmpty()&&P.Validity[Channel].Num()!=C.Num()){Error=TEXT("Figure gap mask must align with original samples.");return false;}
+            for (int32 I=0;I<C.Num();++I)
+            { if(!P.Present(Channel,I))continue;const double V=C[I];if (!FMath::IsFinite(V)) { Error=TEXT("Figure measurements must be finite."); return false; } Any=true;P.YMin=FMath::Min(P.YMin,V);P.YMax=FMath::Max(P.YMax,V); }
         }
+        if(!Any){Error=TEXT("No original values supplied for this figure.");return false;}
         const int32 Count=FMath::Min(P.X.Num(),StudioHome4ReportPlots::PreviewLimit);
         for (int32 K=0;K<Count;++K) P.PreviewIndices.Add(Count==1?0:int32(int64(K)*(P.X.Num()-1)/(Count-1)));
         Error.Empty(); return true;
@@ -50,6 +55,17 @@ bool StudioHome4ReportPlots::Convergence(const FStudioHome4ReferenceEvidence& E,
     { if(!R.RunId.IsValid() || Ids.Contains(R.RunId) || R.Refinement<=0) {Error=TEXT("Convergence requires unique original run IDs and positive refinement factors.");return false;}Ids.Add(R.RunId);P.X.Add(R.Refinement);P.Channels[0].Add(R.Value); }
     if(!StudioHome4ReportPlotsPrivate::Prepare(P,Error))return false;Out=MoveTemp(P);return true;
 }
+bool StudioHome4ReportPlots::Science(const StudioHome4SciencePresentation::FHistory& H,const FString& Title,FStudioHome4ReportPlot& Out,FString& Error)
+{
+    FStudioHome4ReportPlot P;P.Title=Title;P.X=H.X;P.XLabel=H.Axis;P.YLabel=Title+TEXT(" [")+H.Unit+TEXT("]");
+    for(const auto& S:H.Series)
+    {
+        TArray<double> Values;TArray<uint8> Valid;
+        for(const auto& V:S.Values){Values.Add(V.Get(0));Valid.Add(V.IsSet()?1:0);}
+        P.Channels.Add(MoveTemp(Values));P.Validity.Add(MoveTemp(Valid));P.Legends.Add(S.Label);
+    }
+    if(!StudioHome4ReportPlotsPrivate::Prepare(P,Error))return false;Out=MoveTemp(P);return true;
+}
 const FStudioHome4ReportPlot* FStudioHome4ReferencePlotCache::Get(const TSharedPtr<const FStudioHome4ReferenceEvidence>& E,int32 Series,bool Convergence)const
 {
     if(!bInitialized||Source!=E||SelectedSeries!=Series||bOrder!=Convergence)
@@ -72,9 +88,21 @@ FString StudioHome4ReportPlots::SVG(const FStudioHome4ReportPlot& P,const FStrin
     Out+=TEXT("<path d=\"M80 65V390H870\" fill=\"none\" stroke=\"#8795a5\"/>");
     for(int32 C=0;C<P.Channels.Num();++C)
     {
-        const FString Color=C?TEXT("#b45309"):TEXT("#007a9f");Text(500+C*155,24,P.Legends[C]);Out+=TEXT("<polyline fill=\"none\" stroke=\"")+Color+TEXT("\" stroke-width=\"2\" points=\"");
-        for(int32 I:P.PreviewIndices){const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("%.6f,%.6f "),80+790*V.X,390-325*V.Y);}Out+=TEXT("\"/>");
-        if(P.X.Num()<=3)for(int32 I:P.PreviewIndices){const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("<circle cx=\"%.6f\" cy=\"%.6f\" r=\"3\" fill=\"%s\"/>"),80+790*V.X,390-325*V.Y,*Color);}
+        const FString Color=C?TEXT("#b45309"):TEXT("#007a9f");Text(500+(C%2)*155,24+(C/2)*14,P.Legends[C]);
+        bool Open=false;int32 Previous=INDEX_NONE;
+        for(int32 I:P.PreviewIndices)
+        {
+            bool Gap=false;for(int32 K=Previous+1;K<=I;++K)if(!P.Present(C,K)){Gap=true;break;}
+            if((Gap||!P.Present(C,I))&&Open){Out+=TEXT("\"/>");Open=false;}
+            if(P.Present(C,I))
+            {
+                if(!Open){Out+=TEXT("<polyline fill=\"none\" stroke=\"")+Color+TEXT("\" stroke-width=\"2\" points=\"");Open=true;}
+                const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("%.6f,%.6f "),80+790*V.X,390-325*V.Y);
+            }
+            Previous=I;
+        }
+        if(Open)Out+=TEXT("\"/>");
+        if(P.X.Num()<=3)for(int32 I:P.PreviewIndices)if(P.Present(C,I)){const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("<circle cx=\"%.6f\" cy=\"%.6f\" r=\"3\" fill=\"%s\"/>"),80+790*V.X,390-325*V.Y,*Color);}
     }
     return Out+TEXT("</g></svg>\n");
 }
@@ -87,8 +115,20 @@ FString StudioHome4ReportPlots::TikZ(const FStudioHome4ReportPlot& P)
     for(int32 C=0;C<P.Channels.Num();++C)
     {
         const FString Color=C?TEXT("orange!80!black"):TEXT("cyan!55!black");Node(TEXT("anchor=west"),.60+C*.20,1.22,P.Legends[C]);
-        if(P.X.Num()>1){Out+=TEXT("\\draw[")+Color+TEXT(",line width=.6pt] ");bool First=true;for(int32 I:P.PreviewIndices){const auto V=P.Normalized(C,I);Out+=First?TEXT(""):TEXT(" -- ");Out+=FString::Printf(TEXT("(%.8f,%.8f)"),V.X,V.Y);First=false;}Out+=TEXT(";\n");}
-        if(P.X.Num()<=3)for(int32 I:P.PreviewIndices){const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("\\fill[%s] (%.8f,%.8f) circle[radius=1.5pt];\n"),*Color,V.X,V.Y);}
+        bool Open=false;int32 Previous=INDEX_NONE;
+        for(int32 I:P.PreviewIndices)
+        {
+            bool Gap=false;for(int32 K=Previous+1;K<=I;++K)if(!P.Present(C,K)){Gap=true;break;}
+            if((Gap||!P.Present(C,I))&&Open){Out+=TEXT(";\n");Open=false;}
+            if(P.Present(C,I))
+            {
+                if(!Open){Out+=TEXT("\\draw[")+Color+TEXT(",line width=.6pt] ");Open=true;}else Out+=TEXT(" -- ");
+                const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("(%.8f,%.8f)"),V.X,V.Y);
+            }
+            Previous=I;
+        }
+        if(Open)Out+=TEXT(";\n");
+        if(P.X.Num()<=3)for(int32 I:P.PreviewIndices)if(P.Present(C,I)){const auto V=P.Normalized(C,I);Out+=FString::Printf(TEXT("\\fill[%s] (%.8f,%.8f) circle[radius=1.5pt];\n"),*Color,V.X,V.Y);}
     }
     return Out+TEXT("\\end{tikzpicture}\n");
 }
@@ -99,12 +139,14 @@ FString StudioHome4ReportPlots::CSV(const FStudioHome4ReportPlot& P,const TArray
 {
     using namespace StudioHome4ReportPlotsPrivate;
     const bool Metadata=ScalarRuns&&ScalarRuns->Num()==P.X.Num()&&!RunIds.IsEmpty();
-    FString Out=RunIds.IsEmpty()?TEXT("source_sample,x,actual,reference"):TEXT("source_sample,run_id,refinement,value");
+    FString Out;
+    if(P.Validity.IsEmpty())Out=RunIds.IsEmpty()?TEXT("source_sample,x,actual,reference"):TEXT("source_sample,run_id,refinement,value");
+    else {Out=TEXT("source_sample,x");for(const auto& Legend:P.Legends)Out+=TEXT(",\"")+Legend.Replace(TEXT("\""),TEXT("\"\""))+TEXT("\"");}
     if(Metadata)Out+=TEXT(",window_start,window_end,abscissa_unit,epoch,extraction_method,original_source,original_source_sha256");Out+=TEXT("\n");
     auto Quoted=[](const FString& V){return TEXT("\"")+V.Replace(TEXT("\""),TEXT("\"\""))+TEXT("\"");};
     for(int32 I=0;I<P.X.Num();++I)
     {
-        Out+=LexToString(I)+TEXT(",");if(!RunIds.IsEmpty())Out+=RunIds[I].ToString()+TEXT(",");Out+=Number(P.X[I]);for(const auto& C:P.Channels)Out+=TEXT(",")+Number(C[I]);
+        Out+=LexToString(I)+TEXT(",");if(!RunIds.IsEmpty())Out+=RunIds[I].ToString()+TEXT(",");Out+=Number(P.X[I]);for(int32 C=0;C<P.Channels.Num();++C)Out+=TEXT(",")+(P.Present(C,I)?Number(P.Channels[C][I]):FString());
         if(Metadata)
         {
             const auto& E=(*ScalarRuns)[I].Extraction;

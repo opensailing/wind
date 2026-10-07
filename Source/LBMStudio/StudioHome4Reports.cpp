@@ -10,6 +10,11 @@
 #include "HAL/FileManager.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
+#define UI UI_HOME4_REPORT_COMPLETION
+THIRD_PARTY_INCLUDES_START
+#include <openssl/evp.h>
+THIRD_PARTY_INCLUDES_END
+#undef UI
 
 namespace StudioHome4ReportTelemetryPrivate
 {
@@ -35,7 +40,10 @@ namespace StudioHome4ReportTelemetryPrivate
         Optional(U,TEXT("speed_cells_step"),M.UnitMap.Reference.SpeedCellsPerStep);O->SetObjectField(TEXT("unit_map"),U);
         O->SetObjectField(TEXT("normalization"),Normalization(M.Normalization));auto Bodies=MakeShared<FJsonObject>();
         for(const auto& B:M.BodyNormalizations)Bodies->SetObjectField(B.Key,Normalization(B.Value));
-        O->SetObjectField(TEXT("body_normalizations"),Bodies);return O;
+        O->SetObjectField(TEXT("body_normalizations"),Bodies);
+        O->SetStringField(TEXT("divergence_convention"),M.DivergenceConvention);O->SetStringField(TEXT("divergence_unit"),M.DivergenceUnit);O->SetStringField(TEXT("divergence_domain"),M.DivergenceDomain);
+        Optional(O,TEXT("device_peak_gbps"),M.DevicePeakGBps);O->SetStringField(TEXT("device_peak_source"),M.DevicePeakSource);
+        TArray<TSharedPtr<FJsonValue>> Levels;for(int32 L:M.DeclaredLevels)Levels.Add(MakeShared<FJsonValueNumber>(L));O->SetArrayField(TEXT("declared_levels"),Levels);return O;
     }
     bool Verify(const FStudioHome4TelemetryStream& Stream,const FStudioHome4TelemetryProvenance* P,const FStudioProject& Project,FString& Error)
     {
@@ -95,7 +103,7 @@ FString StudioHome4Reports::EscapeLaTeX(const FString& V)
     }
     return Out;
 }
-bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,const FStudioProject& P,const FStudioHome4TelemetryStream* Telemetry,FString& OutPath,FString& Error,const FStudioHome4ReferenceEvidence* Evidence,const FStudioHome4SpatialEvidence* Spatial,const FStudioHome4TelemetryProvenance* TelemetryProvenance)
+bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,const FStudioProject& P,const FStudioHome4TelemetryStream* Telemetry,FString& OutPath,FString& Error,const FStudioHome4ReferenceEvidence* Evidence,const FStudioHome4SpatialEvidence* Spatial,const FStudioHome4TelemetryProvenance* TelemetryProvenance,const FStudioHome4ReportInputs* Inputs)
 {
     if(!P.Draft.Home4.IsSet()){Error=TEXT("Apply a HOME4 recipe or configuration before exporting its report.");return false;}
     if(Folder.IsEmpty()||Folder.Len()>100||Folder==TEXT(".")||Folder==TEXT("..")||Folder.Contains(TEXT("/"))||Folder.Contains(TEXT("\\"))||Folder.Contains(TEXT(":")))
@@ -103,6 +111,20 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
     const auto& S=P.Draft.Home4.GetValue();if(!StudioHome4Config::Validate(S,Error))return false;
     const bool HasTelemetry=Telemetry&&(!Telemetry->History().IsEmpty()||!Telemetry->OutputEvents().IsEmpty());
     if(HasTelemetry&&!StudioHome4ReportTelemetryPrivate::Verify(*Telemetry,TelemetryProvenance,P,Error))return false;
+    if(Inputs&&Inputs->WindowStart.IsSet()!=Inputs->WindowEnd.IsSet())
+    {Error=TEXT("Report window requires both explicit bounds.");return false;}
+    if(Inputs&&Inputs->WindowStart&&(!FMath::IsFinite(*Inputs->WindowStart)||!FMath::IsFinite(*Inputs->WindowEnd)||*Inputs->WindowStart>=*Inputs->WindowEnd||Inputs->WindowAxis.IsEmpty()))
+    {Error=TEXT("Report window requires increasing finite bounds and exact original axis label.");return false;}
+    if(Inputs&&Inputs->OriginalTelemetryBytes&&!Inputs->OriginalTelemetryBytes->IsEmpty()&&HasTelemetry)
+    {
+        const auto& Bytes=*Inputs->OriginalTelemetryBytes;uint8 Digest[32];unsigned int Count=0;
+        if(Bytes.Num()>64*1024*1024||EVP_Digest(Bytes.GetData(),Bytes.Num(),Digest,&Count,EVP_sha256(),nullptr)!=1||Count!=32||BytesToHex(Digest,Count).ToLower()!=TelemetryProvenance->SourceSHA256)
+        {Error=TEXT("Original telemetry bytes differ from the displayed source hash or exceed its capture budget.");return false;}
+        if(TelemetryProvenance->bCapturedPrefix&&TelemetryProvenance->CapturedByteCount!=Bytes.Num())
+        {Error=TEXT("Live captured prefix byte count does not match its original retained bytes.");return false;}
+    }
+    if(Inputs&&Inputs->Validation&&(Inputs->Validation->ProjectId!=P.Id||Inputs->Validation->CaseId!=P.Draft.Id||Inputs->Validation->RecipeId!=S.RecipeId))
+    {Error=TEXT("Ladder evidence belongs to another project/case/recipe scope.");return false;}
     FStudioHome4SpatialEvidence CheckedSpatial;
     if(Spatial)
     {
@@ -124,8 +146,18 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
         FStudioHome4ReferenceExpectation Expected;Expected.RecipeId=S.RecipeId;Expected.RunId=Evidence->RunId;
         if(!StudioHome4Validation::Parse(StudioHome4Validation::SerializeEvidence(*Evidence),Expected,CheckedEvidence,Error))return false;
         CheckedEvidence.SourcePath=Evidence->SourcePath;CheckedEvidence.SourceSHA256=Evidence->SourceSHA256;
+        if(!Evidence->OriginalBytes.IsEmpty())
+        {if(!StudioHome4Validation::VerifyOriginalBytes(*Evidence,Error))return false;CheckedEvidence.OriginalBytes=Evidence->OriginalBytes;
+            CheckedEvidence.ActualOriginalBytes=Evidence->ActualOriginalBytes;CheckedEvidence.ReferenceOriginalBytes=Evidence->ReferenceOriginalBytes;}
+        else CheckedEvidence.OriginalBytes.Reset();
         CheckedEvidence.AttachedProjectId=Evidence->AttachedProjectId;CheckedEvidence.AttachedCaseId=Evidence->AttachedCaseId;
         Evidence=&CheckedEvidence;
+    }
+    if(Inputs&&Inputs->bFigurePublication)
+    {
+        if(!Evidence||!Inputs->PublishedEvidence||!Inputs->PublicationAbsoluteTolerance||!Inputs->PublicationRelativeTolerance)
+        {Error=TEXT("Figure publication requires original current/published evidence and explicit coefficient comparison tolerances.");return false;}
+        if(!PublicationCheck(*Evidence,*Inputs->PublishedEvidence,*Inputs->PublicationAbsoluteTolerance,*Inputs->PublicationRelativeTolerance,Error))return false;
     }
     const FString Destination=Parent/Folder;
     if(IFileManager::Get().DirectoryExists(*Destination)||IFileManager::Get().FileExists(*Destination))
@@ -149,8 +181,9 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
     Metadata->SetBoolField(TEXT("contains_telemetry"),HasTelemetry);
     Metadata->SetBoolField(TEXT("contains_imported_telemetry"),HasTelemetry&&TelemetryProvenance->bImportedReplay);
     FString TeX=StudioHome4ReportPlots::TeXPreamble()+TEXT("\\section*{")+EscapeLaTeX(P.Name)+TEXT("}\n");
-    TeX+=TEXT("Recipe: ")+EscapeLaTeX(R?R->Name:TEXT("Unspecified"))+TEXT("\\\\\nLineage: ")+EscapeLaTeX(S.LineageId)+(Evidence?TEXT("\\\\\nValidation gate: not evaluated. Imported comparisons apply only to the identified evidence run; recipe coverage is unknown.\\\\\n"):TEXT("\\\\\nValidation gate: not evaluated. Reference evidence is not supplied.\\\\\n"));
+    TeX+=TEXT("Recipe: ")+EscapeLaTeX(R?R->Name:TEXT("Unspecified"))+TEXT("\\\\\nLineage: ")+EscapeLaTeX(S.LineageId)+(Evidence?TEXT("\\\\\nIdentified original evidence: ")+EscapeLaTeX(Evidence->GateStatus())+TEXT(". Current draft has no transferred gate.\\\\\n"):TEXT("\\\\\nValidation gate: not evaluated. Reference evidence is not supplied.\\\\\n"));
     TeX+=TEXT("Configuration is stored in run\\_spec.json. The command is a reproducibility preview; the development adapter computes no CFD.\\\\\n");
+    if(Evidence&&Evidence->RecipeCoverage()==TEXT("unknown"))TeX+=TEXT("Original recipe coverage is unknown; only supplied series are compared.\\\\\n");
     if(Spatial)
     {
         auto Provenance=MakeShared<FJsonObject>();
@@ -188,6 +221,15 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
         if(TelemetryProvenance->bImportedReplay)Provenance->SetStringField(TEXT("replay_id"),TelemetryProvenance->StreamRunId.ToString());
         else Provenance->SetField(TEXT("replay_id"),MakeShared<FJsonValueNull>());
         Provenance->SetBoolField(TEXT("imported_replay"),TelemetryProvenance->bImportedReplay);
+        Provenance->SetBoolField(TEXT("captured_prefix"),TelemetryProvenance->bCapturedPrefix);Provenance->SetBoolField(TEXT("capture_covers_displayed_data"),TelemetryProvenance->bCaptureCoversDisplayedData);
+        Provenance->SetNumberField(TEXT("captured_byte_count"),TelemetryProvenance->CapturedByteCount);
+        if(Inputs&&Inputs->OriginalTelemetryBytes&&!Inputs->OriginalTelemetryBytes->IsEmpty())
+        {
+            const TCHAR* File=TelemetryProvenance->bCapturedPrefix?TEXT("original-live-prefix.jsonl"):TEXT("original-telemetry.jsonl");
+            if(!FFileHelper::SaveArrayToFile(*Inputs->OriginalTelemetryBytes,*(Stage/File))){Error=TEXT("Could not write exact original science bytes.");return Abort();}
+            Provenance->SetStringField(TEXT("original_file"),File);
+        }
+        else Provenance->SetStringField(TEXT("original_bytes_status"),TEXT("not_supplied; retained table is bounded original history only"));
         Provenance->SetStringField(TEXT("source_id"),TelemetryProvenance->SourceId);
         if(!TelemetryProvenance->SourcePath.IsEmpty())Provenance->SetStringField(TEXT("source_path"),TelemetryProvenance->SourcePath);
         else Provenance->SetField(TEXT("source_path"),MakeShared<FJsonValueNull>());
@@ -240,6 +282,11 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
         TeX+=TEXT("\\subsection*{Imported reference comparison}\nRun: ")+EscapeLaTeX(Evidence->RunId.ToString())+TEXT("\\\\\nStatus: ")+EscapeLaTeX(Evidence->GateStatus())+TEXT("\\\\\nActual source: ")+EscapeLaTeX(Evidence->ActualSource)+TEXT("\\\\\nReference: ")+EscapeLaTeX(Evidence->ReferenceSource)+TEXT("\\\\\nThis comparison does not validate an edited configuration.\\\\\n");
         for(const auto& Series:Evidence->Series)TeX+=EscapeLaTeX(Series.Name+TEXT(" (")+Series.Unit+TEXT("): ")+Series.Gate.Reason)+TEXT("\\\\\n");
         if(!Write(TEXT("reference-evidence.json"),StudioHome4Validation::SerializeEvidence(*Evidence)))return Abort();
+        if(!Evidence->OriginalBytes.IsEmpty()&&!FFileHelper::SaveArrayToFile(Evidence->OriginalBytes,*(Stage/TEXT("original-reference.json"))))
+        {Error=TEXT("Could not write exact original reference source.");return Abort();}
+        if(Evidence->bComposedAlignment&&(!FFileHelper::SaveArrayToFile(Evidence->ActualOriginalBytes,*(Stage/TEXT("original-actual-series.json")))||
+            !FFileHelper::SaveArrayToFile(Evidence->ReferenceOriginalBytes,*(Stage/TEXT("original-reference-series.json")))))
+        {Error=TEXT("Could not write independently retained exact original actual/reference sources.");return Abort();}
         auto Figure=[&](const FString& Stem,const FStudioHome4ReportPlot& Plot,const FString& Caption,const TSharedRef<FJsonObject>& Provenance,const TArray<FGuid>& Runs)
         {
             const FString Fragment=StudioHome4ReportPlots::TikZ(Plot);
@@ -251,9 +298,20 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
             Provenance->SetNumberField(TEXT("original_samples"),Plot.X.Num());Provenance->SetNumberField(TEXT("preview_samples"),Plot.PreviewIndices.Num());
             Provenance->SetStringField(TEXT("preview_selection"),StudioHome4ReportPlots::SelectionDescription());
             Provenance->SetStringField(TEXT("source_path"),Evidence->SourcePath);Provenance->SetStringField(TEXT("source_sha256"),Evidence->SourceSHA256);
+            if(Evidence->bComposedAlignment)
+            {
+                Provenance->SetStringField(TEXT("alignment_policy"),Evidence->AlignmentPolicy);
+                Provenance->SetStringField(TEXT("actual_original_path"),Evidence->ActualOriginalPath);Provenance->SetStringField(TEXT("reference_original_path"),Evidence->ReferenceOriginalPath);
+                Provenance->SetStringField(TEXT("actual_original_sha256"),Evidence->ActualOriginalSHA256);Provenance->SetStringField(TEXT("reference_original_sha256"),Evidence->ReferenceOriginalSHA256);
+                Provenance->SetStringField(TEXT("actual_original_bytes_file"),TEXT("original-actual-series.json"));Provenance->SetStringField(TEXT("reference_original_bytes_file"),TEXT("original-reference-series.json"));
+            }
+            Provenance->SetStringField(TEXT("reference_method"),Evidence->ReferenceMethod);
             Provenance->SetStringField(TEXT("actual_source"),Evidence->ActualSource);Provenance->SetStringField(TEXT("reference_source"),Evidence->ReferenceSource);
             Provenance->SetStringField(TEXT("evidence_run_id"),Evidence->RunId.ToString());Provenance->SetStringField(TEXT("recipe_id"),Evidence->RecipeId);
             Provenance->SetStringField(TEXT("project_id"),P.Id.ToString());Provenance->SetStringField(TEXT("case_id"),P.Draft.Id.ToString());
+            Provenance->SetStringField(TEXT("original_recipe_gate"),Evidence->RecipeGateStatus());Provenance->SetStringField(TEXT("current_draft_gate"),TEXT("not_transferred"));
+            FString Sidecar;FJsonSerializer::Serialize(Provenance,TJsonWriterFactory<>::Create(&Sidecar));
+            if(!Write(*(Stem+TEXT(".json")),Sidecar))return false;
             FigureManifest.Add(MakeShared<FJsonValueObject>(Provenance));
             TeX+=TEXT("\\begin{figure}[htbp]\n\\centering\n\\input{")+Stem+TEXT(".tikz}\n\\caption{")+EscapeLaTeX(Caption)+TEXT("}\n\\end{figure}\n");return true;
         };
@@ -262,7 +320,7 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
             const auto& V=Evidence->Series[I];FStudioHome4ReportPlot Plot;
             if(!StudioHome4ReportPlots::Reference(V,Plot,Error))return Abort();
             auto Provenance=MakeShared<FJsonObject>();Provenance->SetStringField(TEXT("kind"),TEXT("reference_overlay"));Provenance->SetStringField(TEXT("metric_id"),V.Id);Provenance->SetStringField(TEXT("unit"),V.Unit);
-            Provenance->SetStringField(TEXT("x_name"),V.AbscissaName);Provenance->SetStringField(TEXT("x_unit"),V.AbscissaUnit);Provenance->SetNumberField(TEXT("window_start"),V.Abscissae[0]);Provenance->SetNumberField(TEXT("window_end"),V.Abscissae.Last());Provenance->SetBoolField(TEXT("window_inclusive"),true);
+            Provenance->SetStringField(TEXT("x_name"),V.AbscissaName);Provenance->SetStringField(TEXT("x_unit"),V.AbscissaUnit);Provenance->SetStringField(TEXT("original_epoch"),V.AbscissaEpoch.IsEmpty()?TEXT("unknown"):V.AbscissaEpoch);Provenance->SetNumberField(TEXT("window_start"),V.Abscissae[0]);Provenance->SetNumberField(TEXT("window_end"),V.Abscissae.Last());Provenance->SetBoolField(TEXT("window_inclusive"),true);
             Provenance->SetNumberField(TEXT("absolute_tolerance"),V.AbsoluteTolerance);Provenance->SetNumberField(TEXT("relative_tolerance"),V.RelativeTolerance);
             const FString Caption=V.Name+TEXT(" [")+V.Unit+TEXT("] · evidence run ")+Evidence->RunId.ToString()+FString::Printf(TEXT(" · inclusive %s window %.17g to %.17g %s · absolute tolerance %.17g, relative %.17g. Display preview; complete data in its CSV."),*V.AbscissaName,V.Abscissae[0],V.Abscissae.Last(),*V.AbscissaUnit,V.AbsoluteTolerance,V.RelativeTolerance);
             if(!Figure(FString::Printf(TEXT("reference-%02d"),I+1),Plot,Caption,Provenance,{}))return Abort();
@@ -280,9 +338,79 @@ bool StudioHome4Reports::Export(const FString& Parent,const FString& Folder,cons
             if(!Figure(TEXT("convergence"),Plot,Caption,Provenance,Runs))return Abort();
         }
     }
+    if(HasTelemetry)
+    {
+        using namespace StudioHome4SciencePresentation;
+        const FStudioHome4ReportInputs Selection=Inputs?*Inputs:FStudioHome4ReportInputs();
+        auto ScienceFigure=[&](EMetric Metric,int32 Component,const FString& Body,const FString& Phase,int32 Level,const FString& Stem)
+        {
+            auto History=StudioHome4SciencePresentation::History(Telemetry,Metric,Selection.Display,Component,false,Body,Level,Phase);
+            if(Selection.WindowStart)
+            {
+                if(History.Axis!=Selection.WindowAxis){Error=TEXT("Report window axis does not match the original displayed science abscissa.");return false;}
+                for(int32 I=History.X.Num()-1;I>=0;--I)if(History.X[I]<*Selection.WindowStart||History.X[I]>*Selection.WindowEnd)
+                {History.X.RemoveAt(I,1,EAllowShrinking::No);for(auto& Channel:History.Series)Channel.Values.RemoveAt(I,1,EAllowShrinking::No);}
+            }
+            FStudioHome4ReportPlot Plot;FString Failure;
+            if(!StudioHome4ReportPlots::Science(History,Name(Metric),Plot,Failure))return true;
+            auto Sidecar=MakeShared<FJsonObject>();Sidecar->SetStringField(TEXT("kind"),TEXT("original_science_history"));Sidecar->SetStringField(TEXT("metric"),Name(Metric));
+            Sidecar->SetStringField(TEXT("stream_run_id"),TelemetryProvenance->StreamRunId.ToString());Sidecar->SetStringField(TEXT("source_id"),TelemetryProvenance->SourceId);Sidecar->SetStringField(TEXT("source_sha256"),TelemetryProvenance->SourceSHA256);
+            if(TelemetryProvenance->OriginalRunId)Sidecar->SetStringField(TEXT("original_run_id"),TelemetryProvenance->OriginalRunId->ToString());
+            Sidecar->SetStringField(TEXT("body_id"),Body);Sidecar->SetStringField(TEXT("phase"),Phase);Sidecar->SetNumberField(TEXT("level"),Level);Sidecar->SetNumberField(TEXT("component"),Component);
+            Sidecar->SetStringField(TEXT("axis"),History.Axis);Sidecar->SetStringField(TEXT("unit"),History.Unit);Sidecar->SetStringField(TEXT("conversion_note"),History.Note);
+            Sidecar->SetNumberField(TEXT("window_start"),Plot.XMin);Sidecar->SetNumberField(TEXT("window_end"),Plot.XMax);Sidecar->SetNumberField(TEXT("retained_original_samples"),Plot.X.Num());
+            Sidecar->SetBoolField(TEXT("source_is_captured_prefix"),TelemetryProvenance->bCapturedPrefix);Sidecar->SetBoolField(TEXT("capture_covers_displayed_data"),TelemetryProvenance->bCaptureCoversDisplayedData);
+            Sidecar->SetStringField(TEXT("missing_values"),TEXT("Blank CSV values and visible disconnected plot segments; no filling or interpolation."));Sidecar->SetStringField(TEXT("gate_status"),TEXT("not_evaluated"));
+            if(const auto M=Telemetry->OriginalMetadata())Sidecar->SetObjectField(TEXT("source_metadata"),StudioHome4ReportTelemetryPrivate::Metadata(*M));
+            const FString Fragment=StudioHome4ReportPlots::TikZ(Plot);FString JSON;FJsonSerializer::Serialize(Sidecar,TJsonWriterFactory<>::Create(&JSON));
+            if(!Write(*(Stem+TEXT(".svg")),StudioHome4ReportPlots::SVG(Plot,TelemetryProvenance->SourceId))||!Write(*(Stem+TEXT(".tikz")),Fragment)||
+                !Write(*(Stem+TEXT(".tex")),StudioHome4ReportPlots::TeXPreamble()+Fragment+StudioHome4ReportPlots::TeXEnd())||!Write(*(Stem+TEXT(".csv")),StudioHome4ReportPlots::CSV(Plot))||!Write(*(Stem+TEXT(".json")),JSON))return false;
+            FigureManifest.Add(MakeShared<FJsonValueObject>(Sidecar));
+            TeX+=TEXT("\\begin{figure}[htbp]\n\\centering\n\\input{")+Stem+TEXT(".tikz}\n\\caption{")+EscapeLaTeX(FString(Name(Metric))+TEXT(" · original retained science; gaps are missing measurements. ")+History.Note)+TEXT("}\n\\end{figure}\n");return true;
+        };
+        for(int32 I=0;I<int32(EMetric::Count);++I)
+        {
+            const auto Metric=EMetric(I);
+            if(Metric==EMetric::Forces){for(int32 Component=0;Component<4;++Component)if(!ScienceFigure(Metric,Component,Selection.BodyId,Selection.Phase,Selection.Level,FString::Printf(TEXT("science-force-%d"),Component)))return Abort();}
+            else if(!ScienceFigure(Metric,0,Selection.BodyId,Selection.Phase,Selection.Level,FString::Printf(TEXT("science-%02d"),I)))return Abort();
+        }
+    }
+    if(Inputs&&Inputs->Validation)
+    {
+        const auto& State=*Inputs->Validation;auto Manifest=MakeShared<FJsonObject>();TArray<TSharedPtr<FJsonValue>> Results;
+        for(int32 I=0;I<State.Results.Num();++I)
+        {
+            const auto& Result=State.Results[I];
+            const auto* Planned=State.Ladder.FindByPredicate([&](const auto& R){return R.PlannedRunId==Result.RunId;});
+            if(!Result.Evidence||!Planned||Result.Refinement!=Planned->Refinement||Result.Evidence->RunId!=Result.RunId||Result.Evidence->AttachedProjectId!=P.Id||Result.Evidence->AttachedCaseId!=P.Draft.Id||Result.Evidence->RecipeId!=S.RecipeId||
+                !Result.Evidence->OriginalRunSpec||StudioHome4Config::Serialize(*Result.Evidence->OriginalRunSpec)!=StudioHome4Config::Serialize(Planned->Spec))
+            {Error=TEXT("Ladder result no longer matches this scope and its exact immutable planned rung specification.");return Abort();}
+            if(!StudioHome4Validation::VerifyOriginalBytes(*Result.Evidence,Error))return Abort();
+            const FString File=FString::Printf(TEXT("original-rung-%02d.json"),I);
+            if(!FFileHelper::SaveArrayToFile(Result.Evidence->OriginalBytes,*(Stage/File))){Error=TEXT("Could not write exact original rung source.");return Abort();}
+            if(Result.Evidence->bComposedAlignment&&(!FFileHelper::SaveArrayToFile(Result.Evidence->ActualOriginalBytes,*(Stage/FString::Printf(TEXT("original-rung-%02d-actual.json"),I)))||!FFileHelper::SaveArrayToFile(Result.Evidence->ReferenceOriginalBytes,*(Stage/FString::Printf(TEXT("original-rung-%02d-reference.json"),I)))))
+            {Error=TEXT("Could not write independently retained exact original rung sources.");return Abort();}
+            auto Record=StudioHome4Validation::EvidenceMetadata(*Result.Evidence);Record->SetStringField(TEXT("original_file"),File);Record->SetNumberField(TEXT("refinement"),Result.Refinement);
+            if(Result.Scalar)Record->SetObjectField(TEXT("extracted_scalar"),StudioHome4Validation::ScalarRunMetadata(*Result.Scalar));
+            Results.Add(MakeShared<FJsonValueObject>(Record));
+        }
+        Manifest->SetArrayField(TEXT("original_results"),Results);Metadata->SetObjectField(TEXT("ladder_evidence"),Manifest);
+        if(State.ConvergenceEvidence)
+        {
+            FStudioHome4ReportPlot Plot;if(!StudioHome4ReportPlots::Convergence(*State.ConvergenceEvidence,Plot,Error))return Abort();
+            const auto Provenance=StudioHome4Validation::EvidenceMetadata(*State.ConvergenceEvidence);FString JSON;FJsonSerializer::Serialize(Provenance,TJsonWriterFactory<>::Create(&JSON));
+            TArray<FGuid> Runs;for(const auto& V:State.ConvergenceEvidence->OrderRuns)Runs.Add(V.RunId);
+            const FString Fragment=StudioHome4ReportPlots::TikZ(Plot);
+            if(!Write(TEXT("ladder-convergence.svg"),StudioHome4ReportPlots::SVG(Plot,TEXT("Original selected rung triplet")))||!Write(TEXT("ladder-convergence.tikz"),Fragment)||
+                !Write(TEXT("ladder-convergence.tex"),StudioHome4ReportPlots::TeXPreamble()+Fragment+StudioHome4ReportPlots::TeXEnd())||!Write(TEXT("ladder-convergence.csv"),StudioHome4ReportPlots::CSV(Plot,Runs,&State.ConvergenceEvidence->OrderRuns))||!Write(TEXT("ladder-convergence.json"),JSON))return Abort();
+            TeX+=TEXT("\\subsection*{Selected original ladder convergence}\n\\input{ladder-convergence.tikz}\n");FigureManifest.Add(MakeShared<FJsonValueObject>(Provenance));
+        }
+    }
     Metadata->SetArrayField(TEXT("figures"),FigureManifest);
     Metadata->SetStringField(TEXT("tex_engine"),TEXT("XeLaTeX, LuaLaTeX or Tectonic; UTF-8/fontspec and TikZ"));
-    Metadata->SetStringField(TEXT("recipe_coverage"),TEXT("unknown"));
+    Metadata->SetStringField(TEXT("recipe_coverage"),Evidence?Evidence->RecipeCoverage():TEXT("unknown"));
+    Metadata->SetStringField(TEXT("original_evidence_gate"),Evidence?Evidence->RecipeGateStatus():TEXT("not_evaluated"));
+    Metadata->SetStringField(TEXT("publication_check"),Inputs&&Inputs->bFigurePublication?TEXT("passed_original_coefficient_comparison"):TEXT("not_requested"));
     TeX+=StudioHome4ReportPlots::TeXEnd();FString JSON;FJsonSerializer::Serialize(Metadata,TJsonWriterFactory<>::Create(&JSON));
     if(!Write(TEXT("run_spec.json"),StudioHome4Config::Serialize(S))||!Write(TEXT("command.txt"),CLI)||!Write(TEXT("report.tex"),TeX)||!Write(TEXT("report.json"),JSON))return Abort();
     const FString Instructions=TEXT("Compile report.tex from this directory with xelatex report.tex, lualatex report.tex or tectonic report.tex. pdfLaTeX is unsupported (UTF-8/fontspec). Each figure .tex is independently compilable; its .tikz fragment is included by the report. SVG and TikZ are documented display previews. CSV and reference-evidence.json retain every original measurement at round-trip double precision. report.json contains figure/run/source/window/tolerance provenance. Convergence CSV retains optional per-run original extraction window/unit/epoch/method/source/hash; absent values are blank or null and explicitly unknown. No cross-run window equivalence is inferred. Imported comparisons do not validate the current draft or establish recipe coverage.\n");

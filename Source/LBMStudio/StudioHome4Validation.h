@@ -10,7 +10,7 @@ struct FStudioHome4ReferenceExpectation
 };
 struct FStudioHome4ReferenceSeries
 {
-    FString Id, Name, AbscissaName, AbscissaUnit, Unit;
+    FString Id, Name, AbscissaName, AbscissaUnit, Unit, AbscissaEpoch;
     TArray<double> Abscissae, Actual, Reference;
     double AbsoluteTolerance = 0, RelativeTolerance = 0;
     FStudioHome4GateResult Gate;
@@ -19,6 +19,7 @@ struct FStudioHome4ScalarExtraction
 {
     TOptional<double> WindowStart, WindowEnd;
     FString AbscissaUnit, Epoch, Method, Source, SourceSHA256;
+    bool bEpochConfirmedFromOriginal=false;
 };
 struct FStudioHome4ScalarRun
 {
@@ -26,21 +27,43 @@ struct FStudioHome4ScalarRun
     double Refinement = 1, Value = 0;
     FStudioHome4ScalarExtraction Extraction={};
 };
+struct FStudioHome4ExtractionPolicy
+{
+    FString Metric, Unit, AbscissaUnit, Epoch, Method;
+    double WindowStart=0, WindowEnd=0;
+};
+struct FStudioHome4LadderResult
+{
+    FGuid RunId;
+    int32 Refinement=1;
+    TSharedPtr<const struct FStudioHome4ReferenceEvidence> Evidence;
+    TOptional<FStudioHome4ScalarRun> Scalar;
+    FString Status;
+};
 struct FStudioHome4ReferenceEvidence
 {
     FString RecipeId, ActualSource, ReferenceSource, SourcePath, SourceSHA256;
     FGuid RunId;
     /** Session attachment scope only; never an assertion of reference authenticity. */
     FGuid AttachedProjectId, AttachedCaseId;
+    TOptional<FStudioHome4Spec> OriginalRunSpec;
+    FString ReferenceCitation, ReferenceSHA256, ReferenceMethod;
+    bool bReferenceOwnerVerified=false;
+    TArray<uint8> OriginalBytes;
+    bool bComposedAlignment=false;
+    FString AlignmentPolicy,ActualOriginalPath,ReferenceOriginalPath,ActualOriginalSHA256,ReferenceOriginalSHA256;
+    TArray<uint8> ActualOriginalBytes,ReferenceOriginalBytes;
+    TOptional<double> AlignmentWindowStart,AlignmentWindowEnd;
     TArray<FStudioHome4ReferenceSeries> Series;
     FString OrderMetric, OrderUnit;
     TArray<FStudioHome4ScalarRun> OrderRuns;
     TOptional<double> ObservedOrder;
     /** Applies only to supplied aligned series; it never establishes recipe coverage. */
     FString ComparisonStatus() const;
-    FString RecipeCoverage() const { return TEXT("unknown"); }
+    FString RecipeCoverage() const;
+    FString RecipeGateStatus() const;
     /** Display wording includes both facts, preserving useful comparison pass/fail. */
-    FString GateStatus() const { return TEXT("Supplied-series comparisons: ") + ComparisonStatus() + TEXT(" · recipe gate not_evaluated (coverage unknown)"); }
+    FString GateStatus() const;
 };
 /** Shared session evidence for Validation and Reports. Imports replace evidence
  * only after complete validation. It never modifies the case, camera or playback. */
@@ -51,6 +74,9 @@ struct FStudioHome4ValidationState
     TSharedPtr<const FStudioHome4ReferenceEvidence> Evidence;
     int32 SelectedSeries = 0;
     TArray<FStudioHome4LadderRung> Ladder;
+    TArray<FStudioHome4LadderResult> Results;
+    TOptional<FStudioHome4ExtractionPolicy> ExtractionPolicy;
+    TSharedPtr<const FStudioHome4ReferenceEvidence> ConvergenceEvidence;
     FString Status = TEXT("not_evaluated · import identified, aligned reference evidence with explicit tolerances.");
 };
 namespace StudioHome4Validation
@@ -69,10 +95,17 @@ namespace StudioHome4Validation
         FStudioHome4ReferenceEvidence& Out, FString& Error);
     bool Load(const FString& Path, const FStudioHome4ReferenceExpectation& Expected,
         FStudioHome4ReferenceEvidence& Out, FString& Error);
+    bool VerifyOriginalBytes(const FStudioHome4ReferenceEvidence& Evidence,FString& Error);
     TSharedRef<FJsonObject> EvidenceMetadata(const FStudioHome4ReferenceEvidence& Evidence);
     FString SerializeEvidence(const FStudioHome4ReferenceEvidence& Evidence);
     TSharedRef<FJsonObject> ScalarRunMetadata(const FStudioHome4ScalarRun& Run);
     FString ScalarRunDescription(const FStudioHome4ScalarRun& Run);
+    bool ExtractScalar(const FStudioHome4ReferenceEvidence& Evidence, int32 Refinement,
+        const FStudioHome4ExtractionPolicy& Policy, FStudioHome4ScalarRun& Out, FString& Error);
+    /** Exact planned run and immutable spec required; control completion is irrelevant. */
+    bool AttachLadderResult(FStudioHome4ValidationState& State, const FStudioHome4ReferenceEvidence& Evidence, FString& Error);
+    bool ApplyExtraction(FStudioHome4ValidationState& State, const FStudioHome4ExtractionPolicy& Policy, FString& Error);
+    bool AssembleConvergence(FStudioHome4ValidationState& State, int32 FirstIndex, FString& Error);
     /** Export original aligned measurements and provenance atomically without overwrite. */
     bool ExportEvidence(const FString& Parent, const FString& Folder, const FStudioHome4ReferenceEvidence& Evidence,
         FString& OutPath, FString& Error);

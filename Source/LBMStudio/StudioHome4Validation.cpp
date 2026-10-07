@@ -1,5 +1,7 @@
 #include "StudioHome4Validation.h"
 #include "StudioHome4JSON.h"
+#include "StudioHome4RecipeGates.h"
+#include "StudioHome4ReferenceSources.h"
 #include "StudioFileDialog.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
@@ -50,7 +52,7 @@ namespace StudioHome4ValidationPrivate
     {
         const auto V=Field(Run,TEXT("extraction"));if(!V||V->Type==EJson::Null)return true;
         if(V->Type!=EJson::Object)return false;const auto O=V->AsObject();
-        const TSet<FString> Known={TEXT("window_start"),TEXT("window_end"),TEXT("abscissa_unit"),TEXT("epoch"),TEXT("method"),TEXT("source"),TEXT("source_sha256")};
+        const TSet<FString> Known={TEXT("window_start"),TEXT("window_end"),TEXT("abscissa_unit"),TEXT("epoch"),TEXT("method"),TEXT("source"),TEXT("source_sha256"),TEXT("epoch_confirmed_from_original")};
         for(const auto& E:O->Values)if(!Known.Contains(FString(*E.Key)))return false;
         auto OptionalNumber=[&](const TCHAR* K,TOptional<double>& N)
         {const auto F=Field(O,K);if(!F||F->Type==EJson::Null)return true;double D=0;if(!Number(O,K,D))return false;N=D;return true;};
@@ -60,6 +62,9 @@ namespace StudioHome4ValidationPrivate
             !OptionalText(TEXT("abscissa_unit"),Out.AbscissaUnit,96)||!OptionalText(TEXT("epoch"),Out.Epoch,256)||
             !OptionalText(TEXT("method"),Out.Method,256)||!OptionalText(TEXT("source"),Out.Source,2048)||
             !OptionalText(TEXT("source_sha256"),Out.SourceSHA256,64))return false;
+        const auto EpochConfirmed=Field(O,TEXT("epoch_confirmed_from_original"));
+        if(EpochConfirmed&&EpochConfirmed->Type!=EJson::Null&&(EpochConfirmed->Type!=EJson::Boolean||!EpochConfirmed->TryGetBool(Out.bEpochConfirmedFromOriginal)))return false;
+        if(Out.bEpochConfirmedFromOriginal&&Out.Epoch.IsEmpty())return false;
         if(Out.WindowStart.IsSet()!=Out.WindowEnd.IsSet()||(Out.WindowStart&&(*Out.WindowEnd<=*Out.WindowStart||Out.AbscissaUnit.IsEmpty())))return false;
         if(!Out.SourceSHA256.IsEmpty())
         {
@@ -116,6 +121,22 @@ FString FStudioHome4ReferenceEvidence::ComparisonStatus() const
     for (const auto& S : Series) if (!S.Gate.bPassed) return TEXT("failed");
     return TEXT("passed");
 }
+FString FStudioHome4ReferenceEvidence::RecipeCoverage() const
+{ return StudioHome4RecipeGates::Evaluate(*this).Status; }
+FString FStudioHome4ReferenceEvidence::RecipeGateStatus() const
+{
+    const auto C=StudioHome4RecipeGates::Evaluate(*this);
+    if(C.Status!=TEXT("complete")) return TEXT("not_evaluated");
+    for(const auto& Id:C.Required)
+    {
+        const auto* S=Series.FindByPredicate([&](const auto& Item){return Item.Id==Id;});
+        if(!S||!S->Gate.bEvaluated) return TEXT("not_evaluated");
+        if(!S->Gate.bPassed) return TEXT("failed");
+    }
+    return TEXT("passed");
+}
+FString FStudioHome4ReferenceEvidence::GateStatus() const
+{ return TEXT("Supplied-series comparisons: ")+ComparisonStatus()+TEXT(" · recipe gate ")+RecipeGateStatus()+TEXT(" (coverage ")+RecipeCoverage()+TEXT(")"); }
 bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4ReferenceExpectation& Expected,
     FStudioHome4ReferenceEvidence& Out, FString& Error)
 {
@@ -136,6 +157,26 @@ bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4Referen
         (!Expected.ActualSource.IsEmpty() && E.ActualSource != Expected.ActualSource) ||
         (!Expected.ReferenceSource.IsEmpty() && E.ReferenceSource != Expected.ReferenceSource))
         return Fail(TEXT("Reference evidence does not match the selected recipe, run or explicit source identity."));
+    const auto OriginalSpec=Field(O,TEXT("original_run_spec"));
+    if(OriginalSpec&&OriginalSpec->Type!=EJson::Null)
+    {
+        FStudioHome4Spec Spec;
+        if(OriginalSpec->Type!=EJson::Object||!StudioHome4Config::FromJSON(OriginalSpec->AsObject(),Spec,Error)||Spec.RecipeId!=E.RecipeId)
+            return Fail(TEXT("Original run specification is invalid or belongs to another recipe."));
+        E.OriginalRunSpec=MoveTemp(Spec);
+    }
+    const auto ReferenceMethod=Field(O,TEXT("reference_method"));
+    if(ReferenceMethod&&ReferenceMethod->Type!=EJson::Null&&!Text(O,TEXT("reference_method"),E.ReferenceMethod,2048))return Fail(TEXT("Reference method must be an explicit bounded description."));
+    const auto Verification=Field(O,TEXT("reference_verification"));
+    if(Verification&&Verification->Type!=EJson::Null)
+    {
+        if(Verification->Type!=EJson::Object) return Fail(TEXT("Reference verification must be an explicit source object."));
+        const auto V=Verification->AsObject(); const auto Flag=Field(V,TEXT("owner_verified"));
+        if(!Flag||Flag->Type!=EJson::Boolean||!Flag->TryGetBool(E.bReferenceOwnerVerified)||
+            !Text(V,TEXT("citation"),E.ReferenceCitation,2048)||!Text(V,TEXT("sha256"),E.ReferenceSHA256,64)||E.ReferenceSHA256.Len()!=64)
+            return Fail(TEXT("Reference verification requires owner_verified, original citation and SHA256."));
+        for(TCHAR C:E.ReferenceSHA256) if(!FChar::IsHexDigit(C)) return Fail(TEXT("Reference source SHA256 must be hexadecimal."));
+    }
     const auto Series = Field(O, TEXT("series"));
     if (!Series || Series->Type != EJson::Array || Series->AsArray().IsEmpty() || Series->AsArray().Num() > 16)
         return Fail(TEXT("Supply 1–16 named aligned measurement/reference series."));
@@ -151,6 +192,8 @@ bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4Referen
             !Number(Item, TEXT("absolute_tolerance"), S.AbsoluteTolerance, true) ||
             !Number(Item, TEXT("relative_tolerance"), S.RelativeTolerance, true))
             return Fail(TEXT("Every series requires exact names/units, finite aligned arrays and explicit nonnegative tolerances."));
+        const auto Epoch=Field(Item,TEXT("epoch"));
+        if(Epoch&&Epoch->Type!=EJson::Null&&!Text(Item,TEXT("epoch"),S.AbscissaEpoch,256))return Fail(TEXT("Optional original series epoch must be an explicit bounded identity."));
         if (Ids.Contains(S.Id) || S.Abscissae.Num() != S.Actual.Num() || S.Actual.Num() != S.Reference.Num())
             return Fail(TEXT("Series identities must be unique and x/actual/reference arrays must align exactly."));
         Ids.Add(S.Id); Points += S.Actual.Num();
@@ -190,7 +233,27 @@ bool StudioHome4Validation::Parse(const FString& JSON, const FStudioHome4Referen
             return Fail(TEXT("Observed order requires an increasing constant refinement ratio."));
         E.ObservedOrder = StudioHome4Recipes::ObservedOrder(E.OrderRuns[0].Value, E.OrderRuns[1].Value, E.OrderRuns[2].Value, A);
     }
+    const auto Alignment=Field(O,TEXT("alignment"));
+    if(Alignment&&Alignment->Type!=EJson::Null)
+    {
+        if(Alignment->Type!=EJson::Object)return Fail(TEXT("Alignment provenance must be an object."));
+        const auto A=Alignment->AsObject();
+        if(!Text(A,TEXT("policy"),E.AlignmentPolicy,2048)||!Text(A,TEXT("actual_sha256"),E.ActualOriginalSHA256,64)||!Text(A,TEXT("reference_sha256"),E.ReferenceOriginalSHA256,64)||E.ActualOriginalSHA256.Len()!=64||E.ReferenceOriginalSHA256.Len()!=64)
+            return Fail(TEXT("Alignment provenance requires exact original source hashes and explicit policy."));
+        for(TCHAR C:E.ActualOriginalSHA256+E.ReferenceOriginalSHA256)if(!FChar::IsHexDigit(C))return Fail(TEXT("Alignment source hashes must be hexadecimal."));
+        const auto ActualPath=Field(A,TEXT("actual_path")),ReferencePath=Field(A,TEXT("reference_path"));
+        if(ActualPath&&ActualPath->Type!=EJson::Null){if(ActualPath->Type!=EJson::String)return Fail(TEXT("Actual original path must be a string."));E.ActualOriginalPath=ActualPath->AsString();}
+        if(ReferencePath&&ReferencePath->Type!=EJson::Null){if(ReferencePath->Type!=EJson::String)return Fail(TEXT("Reference original path must be a string."));E.ReferenceOriginalPath=ReferencePath->AsString();}
+        for(TCHAR C:E.ActualOriginalPath+E.ReferenceOriginalPath)if(C<32||C==127)return Fail(TEXT("Original source paths contain control characters."));
+        if(E.ActualOriginalPath.Len()>4096||E.ReferenceOriginalPath.Len()>4096)return Fail(TEXT("Alignment source path exceeds its identity budget."));
+        double Start=0,End=0;const auto S=Field(A,TEXT("window_start")),T=Field(A,TEXT("window_end"));
+        if(S&&S->Type!=EJson::Null){if(!Number(A,TEXT("window_start"),Start))return Fail(TEXT("Invalid alignment window start."));E.AlignmentWindowStart=Start;}
+        if(T&&T->Type!=EJson::Null){if(!Number(A,TEXT("window_end"),End))return Fail(TEXT("Invalid alignment window end."));E.AlignmentWindowEnd=End;}
+        if(E.AlignmentWindowStart.IsSet()!=E.AlignmentWindowEnd.IsSet()||(E.AlignmentWindowStart&&*E.AlignmentWindowEnd<=*E.AlignmentWindowStart))return Fail(TEXT("Alignment window bounds must be paired and increasing."));
+        E.bComposedAlignment=true;
+    }
     if (!SHA256(Bytes.Get(), Bytes.Length(), E.SourceSHA256)) return Fail(TEXT("Could not hash the original reference evidence."));
+    E.OriginalBytes.Append(reinterpret_cast<const uint8*>(Bytes.Get()),Bytes.Length());
     Out = MoveTemp(E); Error.Empty(); return true;
 }
 bool StudioHome4Validation::Load(const FString& Path, const FStudioHome4ReferenceExpectation& Expected,
@@ -204,6 +267,8 @@ bool StudioHome4Validation::Load(const FString& Path, const FStudioHome4Referenc
     if(!File||File->TotalSize()!=Size){Error=TEXT("Original reference evidence is missing or changed.");return false;}
     TArray<uint8> Bytes;Bytes.SetNumUninitialized(int32(Size));File->Serialize(Bytes.GetData(),Size);
     if(File->IsError()||!StudioHome4JSON::UTF8(Bytes.GetData(),Bytes.Num())){Error=TEXT("Original reference must be valid UTF-8 JSON.");return false;}
+    if(!File->Close()){Error=TEXT("Original reference read failed while closing.");return false;}
+    File.Reset();
     const int32 Offset=Bytes.Num()>=3&&Bytes[0]==0xef&&Bytes[1]==0xbb&&Bytes[2]==0xbf?3:0;
     const FUTF8ToTCHAR Converted(reinterpret_cast<const ANSICHAR*>(Bytes.GetData()+Offset),Bytes.Num()-Offset);
     const FString JSON(Converted.Length(),Converted.Get());
@@ -212,6 +277,14 @@ bool StudioHome4Validation::Load(const FString& Path, const FStudioHome4Referenc
     if (!SHA256(Bytes.GetData(), Bytes.Num(), Candidate.SourceSHA256)) { Error = TEXT("Could not verify original evidence identity."); return false; }
     if (IFileManager::Get().FileSize(*Path) != Size || IFileManager::Get().GetTimeStamp(*Path) != Timestamp)
     { Error = TEXT("Original reference evidence changed while reading."); return false; }
+    TUniquePtr<FArchive> Verify(IFileManager::Get().CreateFileReader(*Path,FILEREAD_Silent));
+    if(!Verify||Verify->TotalSize()!=Size){Error=TEXT("Original reference evidence changed while reading.");return false;}
+    TArray<uint8> Checked;Checked.SetNumUninitialized(int32(Size));Verify->Serialize(Checked.GetData(),Size);
+    const bool ReadError=Verify->IsError();const bool Closed=Verify->Close();Verify.Reset();
+    if(ReadError||!Closed||Checked!=Bytes||IFileManager::Get().FileSize(*Path)!=Size||IFileManager::Get().GetTimeStamp(*Path)!=Timestamp)
+    {Error=TEXT("Original reference evidence changed while reading; previous evidence retained.");return false;}
+    if(Candidate.bComposedAlignment){Error=TEXT("A derived alignment document cannot replace its original independent sources. Select the actual and reference originals and align them explicitly.");return false;}
+    Candidate.OriginalBytes=MoveTemp(Bytes);
     Candidate.SourcePath = FPaths::ConvertRelativePathToFull(Path); Out = MoveTemp(Candidate); return true;
 }
 TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHome4ReferenceEvidence& E)
@@ -220,14 +293,29 @@ TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHom
     O->SetStringField(TEXT("actual_source"), E.ActualSource); O->SetStringField(TEXT("reference_source"), E.ReferenceSource);
     O->SetStringField(TEXT("original_path"), E.SourcePath); O->SetStringField(TEXT("original_sha256"), E.SourceSHA256);
     O->SetStringField(TEXT("comparison_status"), E.ComparisonStatus());
-    O->SetStringField(TEXT("gate_status"), TEXT("not_evaluated"));
-    O->SetStringField(TEXT("recipe_coverage"), TEXT("unknown"));
-    O->SetStringField(TEXT("coverage_reason"), TEXT("Only the supplied aligned series are compared. Required recipe metrics and reference provenance have not been verified."));
+    O->SetStringField(TEXT("gate_status"), E.RecipeGateStatus());
+    O->SetStringField(TEXT("recipe_coverage"), E.RecipeCoverage());
+    O->SetStringField(TEXT("coverage_reason"), StudioHome4RecipeGates::Evaluate(E).Reason);
+    O->SetBoolField(TEXT("reference_owner_verified"),E.bReferenceOwnerVerified);O->SetStringField(TEXT("reference_citation"),E.ReferenceCitation);O->SetStringField(TEXT("reference_sha256"),E.ReferenceSHA256);O->SetStringField(TEXT("reference_method"),E.ReferenceMethod);
+    O->SetNumberField(TEXT("original_bytes"),E.OriginalBytes.Num());
+    O->SetBoolField(TEXT("composed_from_independent_original_sources"),E.bComposedAlignment);
+    if(E.bComposedAlignment)
+    {
+        auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("policy"),E.AlignmentPolicy);
+        A->SetStringField(TEXT("actual_path"),E.ActualOriginalPath);A->SetStringField(TEXT("reference_path"),E.ReferenceOriginalPath);
+        A->SetStringField(TEXT("actual_sha256"),E.ActualOriginalSHA256);A->SetStringField(TEXT("reference_sha256"),E.ReferenceOriginalSHA256);
+        A->SetNumberField(TEXT("actual_original_bytes"),E.ActualOriginalBytes.Num());A->SetNumberField(TEXT("reference_original_bytes"),E.ReferenceOriginalBytes.Num());
+        if(E.AlignmentWindowStart){A->SetNumberField(TEXT("window_start"),*E.AlignmentWindowStart);A->SetNumberField(TEXT("window_end"),*E.AlignmentWindowEnd);}
+        O->SetObjectField(TEXT("alignment"),A);
+    }
+    if(E.OriginalRunSpec) O->SetObjectField(TEXT("original_run_spec"),StudioHome4Config::ToJSON(*E.OriginalRunSpec));
+    else O->SetField(TEXT("original_run_spec"),MakeShared<FJsonValueNull>());
     TArray<TSharedPtr<FJsonValue>> Series;
     for (const auto& S : E.Series)
     {
         auto Item = MakeShared<FJsonObject>(); Item->SetStringField(TEXT("id"), S.Id); Item->SetStringField(TEXT("name"), S.Name);
         Item->SetStringField(TEXT("unit"), S.Unit); Item->SetStringField(TEXT("x_name"), S.AbscissaName); Item->SetStringField(TEXT("x_unit"), S.AbscissaUnit);
+        if(!S.AbscissaEpoch.IsEmpty())Item->SetStringField(TEXT("epoch"),S.AbscissaEpoch);
         Item->SetNumberField(TEXT("points"), S.Actual.Num()); Item->SetNumberField(TEXT("absolute_tolerance"), S.AbsoluteTolerance); Item->SetNumberField(TEXT("relative_tolerance"), S.RelativeTolerance);
         Item->SetStringField(TEXT("comparison_status"), !S.Gate.bEvaluated ? TEXT("not_evaluated") : S.Gate.bPassed ? TEXT("passed") : TEXT("failed"));
         Item->SetStringField(TEXT("reason"), S.Gate.Reason);
@@ -242,17 +330,46 @@ TSharedRef<FJsonObject> StudioHome4Validation::EvidenceMetadata(const FStudioHom
     if (E.ObservedOrder) { O->SetNumberField(TEXT("observed_order"), *E.ObservedOrder); O->SetStringField(TEXT("order_metric"), E.OrderMetric); }
     return O;
 }
+bool StudioHome4Validation::VerifyOriginalBytes(const FStudioHome4ReferenceEvidence& E,FString& Error)
+{
+    using namespace StudioHome4ValidationPrivate;FString Hash;
+    if(E.OriginalBytes.IsEmpty()||E.OriginalBytes.Num()>MaxBytes||!StudioHome4JSON::UTF8(E.OriginalBytes.GetData(),E.OriginalBytes.Num())||
+        !SHA256(E.OriginalBytes.GetData(),E.OriginalBytes.Num(),Hash)||Hash!=E.SourceSHA256)
+    {Error=TEXT("Original evidence bytes are absent, invalid or differ from their retained source SHA256.");return false;}
+    const int32 Offset=E.OriginalBytes.Num()>=3&&E.OriginalBytes[0]==0xef&&E.OriginalBytes[1]==0xbb&&E.OriginalBytes[2]==0xbf?3:0;
+    const FUTF8ToTCHAR Converted(reinterpret_cast<const ANSICHAR*>(E.OriginalBytes.GetData()+Offset),E.OriginalBytes.Num()-Offset);
+    FStudioHome4ReferenceEvidence Parsed;FStudioHome4ReferenceExpectation Expected;Expected.RecipeId=E.RecipeId;Expected.RunId=E.RunId;Expected.ActualSource=E.ActualSource;Expected.ReferenceSource=E.ReferenceSource;
+    if(!Parse(FString(Converted.Length(),Converted.Get()),Expected,Parsed,Error)||SerializeEvidence(Parsed)!=SerializeEvidence(E))
+    {Error=TEXT("Retained evidence no longer matches its exact original source bytes.");return false;}
+    if(!StudioHome4ReferenceSources::VerifyComposed(E,Error))return false;
+    Error.Empty();return true;
+}
 FString StudioHome4Validation::SerializeEvidence(const FStudioHome4ReferenceEvidence& E)
 {
     using namespace StudioHome4ValidationPrivate;
     auto O = MakeShared<FJsonObject>(); O->SetStringField(TEXT("schema"), TEXT("LBMStudio.Home4Reference")); O->SetNumberField(TEXT("version"), 1);
     O->SetStringField(TEXT("recipe_id"), E.RecipeId); O->SetStringField(TEXT("run_id"), E.RunId.ToString());
     O->SetStringField(TEXT("actual_source"), E.ActualSource); O->SetStringField(TEXT("reference_source"), E.ReferenceSource);
+    if(E.OriginalRunSpec) O->SetObjectField(TEXT("original_run_spec"),StudioHome4Config::ToJSON(*E.OriginalRunSpec));
+    if(!E.ReferenceMethod.IsEmpty())O->SetStringField(TEXT("reference_method"),E.ReferenceMethod);
+    if(!E.ReferenceCitation.IsEmpty()||!E.ReferenceSHA256.IsEmpty())
+    {
+        auto V=MakeShared<FJsonObject>();V->SetBoolField(TEXT("owner_verified"),E.bReferenceOwnerVerified);
+        V->SetStringField(TEXT("citation"),E.ReferenceCitation);V->SetStringField(TEXT("sha256"),E.ReferenceSHA256);O->SetObjectField(TEXT("reference_verification"),V);
+    }
+    if(E.bComposedAlignment)
+    {
+        auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("policy"),E.AlignmentPolicy);A->SetStringField(TEXT("actual_path"),E.ActualOriginalPath);A->SetStringField(TEXT("reference_path"),E.ReferenceOriginalPath);
+        A->SetStringField(TEXT("actual_sha256"),E.ActualOriginalSHA256);A->SetStringField(TEXT("reference_sha256"),E.ReferenceOriginalSHA256);
+        if(E.AlignmentWindowStart){A->SetNumberField(TEXT("window_start"),*E.AlignmentWindowStart);A->SetNumberField(TEXT("window_end"),*E.AlignmentWindowEnd);}
+        O->SetObjectField(TEXT("alignment"),A);
+    }
     TArray<TSharedPtr<FJsonValue>> Series;
     for (const auto& S : E.Series)
     {
         auto Item = MakeShared<FJsonObject>(); Item->SetStringField(TEXT("id"), S.Id); Item->SetStringField(TEXT("name"), S.Name);
         Item->SetStringField(TEXT("x_name"), S.AbscissaName); Item->SetStringField(TEXT("x_unit"), S.AbscissaUnit); Item->SetStringField(TEXT("unit"), S.Unit);
+        if(!S.AbscissaEpoch.IsEmpty())Item->SetStringField(TEXT("epoch"),S.AbscissaEpoch);
         Item->SetArrayField(TEXT("x"), JSONNumbers(S.Abscissae)); Item->SetArrayField(TEXT("actual"), JSONNumbers(S.Actual)); Item->SetArrayField(TEXT("reference"), JSONNumbers(S.Reference));
         Item->SetNumberField(TEXT("absolute_tolerance"), S.AbsoluteTolerance); Item->SetNumberField(TEXT("relative_tolerance"), S.RelativeTolerance);
         Series.Add(MakeShared<FJsonValueObject>(Item));
@@ -276,25 +393,31 @@ TSharedRef<FJsonObject> StudioHome4Validation::ScalarRunMetadata(const FStudioHo
     if(E.WindowEnd)X->SetNumberField(TEXT("window_end"),*E.WindowEnd);else X->SetField(TEXT("window_end"),MakeShared<FJsonValueNull>());
     auto String=[&](const TCHAR* K,const FString& V){if(V.IsEmpty())X->SetField(K,MakeShared<FJsonValueNull>());else X->SetStringField(K,V);};
     String(TEXT("abscissa_unit"),E.AbscissaUnit);String(TEXT("epoch"),E.Epoch);String(TEXT("method"),E.Method);String(TEXT("source"),E.Source);String(TEXT("source_sha256"),E.SourceSHA256);
+    X->SetBoolField(TEXT("epoch_confirmed_from_original"),E.bEpochConfirmedFromOriginal);
     O->SetObjectField(TEXT("extraction"),X);return O;
 }
 FString StudioHome4Validation::ScalarRunDescription(const FStudioHome4ScalarRun& R)
 {
     const auto& E=R.Extraction;auto Known=[](const FString& V){return V.IsEmpty()?FString(TEXT("unknown")):V;};
     const FString Window=E.WindowStart&&E.WindowEnd?FString::Printf(TEXT("%.17g to %.17g %s"),*E.WindowStart,*E.WindowEnd,*E.AbscissaUnit):FString(TEXT("unknown"));
-    return FString::Printf(TEXT("Refinement %.17g · value %.17g · run %s\nExtraction window %s · epoch %s · method %s\nOriginal scalar source %s · SHA256 %s"),
-        R.Refinement,R.Value,*R.RunId.ToString(),*Window,*Known(E.Epoch),*Known(E.Method),*Known(E.Source),*Known(E.SourceSHA256));
+    return FString::Printf(TEXT("Refinement %.17g · value %.17g · run %s\nExtraction window %s · epoch %s · method %s\nOriginal scalar source %s · SHA256 %s · epoch confirmation %s"),
+        R.Refinement,R.Value,*R.RunId.ToString(),*Window,*Known(E.Epoch),*Known(E.Method),*Known(E.Source),*Known(E.SourceSHA256),E.bEpochConfirmedFromOriginal?TEXT("matched exact original epoch"):TEXT("owner declared; original epoch unknown"));
 }
 bool StudioHome4Validation::ExportEvidence(const FString& Parent, const FString& Folder, const FStudioHome4ReferenceEvidence& E,
     FString& OutPath, FString& Error)
 {
     using namespace StudioHome4ValidationPrivate;
     if (E.SourceSHA256.Len() != 64 || E.ComparisonStatus() == TEXT("not_evaluated")) { Error = TEXT("Identified imported reference evidence is required."); return false; }
+    if(!E.OriginalBytes.IsEmpty()&&!VerifyOriginalBytes(E,Error))return false;
     return Publish(Parent, Folder, [&E](const FString& Stage, FString& Failure)
     {
         if (!WriteJSON(Stage / TEXT("evidence.json"), EvidenceMetadata(E), Failure)) return false;
         if (!FFileHelper::SaveStringToFile(SerializeEvidence(E), *(Stage / TEXT("aligned_reference.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
         { Failure = TEXT("Could not write aligned reference measurements."); return false; }
+        if(!E.OriginalBytes.IsEmpty()&&!FFileHelper::SaveArrayToFile(E.OriginalBytes,*(Stage/TEXT("original_reference.json"))))
+        {Failure=TEXT("Could not retain exact original reference bytes.");return false;}
+        if(E.bComposedAlignment&&(!FFileHelper::SaveArrayToFile(E.ActualOriginalBytes,*(Stage/TEXT("original_actual_series.json")))||!FFileHelper::SaveArrayToFile(E.ReferenceOriginalBytes,*(Stage/TEXT("original_reference_series.json")))))
+        {Failure=TEXT("Could not retain independent exact original sources.");return false;}
         return true;
     }, OutPath, Error);
 }
