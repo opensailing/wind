@@ -90,6 +90,20 @@ bool FStudioModel::Control(EStudioJobCommand Command)
     else OK=JobController->Command(Command,JobClock);
     SyncJob();Notice=Job().Notice();return OK;
 }
+bool FStudioModel::CanHome4StepN() const
+{return !bSnapshotView&&Project.bControlHarness&&Job().Capabilities().bStepN&&Job().Can(EStudioJobCommand::Step);}
+bool FStudioModel::CanHome4RunToDimensionless() const
+{return !bSnapshotView&&Project.bControlHarness&&Job().Can(EStudioJobCommand::RunToDimensionless);}
+bool FStudioModel::Home4StepN(int64 Count)
+{
+    if(!CanHome4StepN()) {Notice=TEXT("Step N requires a paused development control harness.");return false;}
+    const bool OK=JobController->StepN(Count,JobClock);SyncJob();Notice=Job().Notice();return OK;
+}
+bool FStudioModel::Home4RunToDimensionless(double Target)
+{
+    if(!CanHome4RunToDimensionless()) {Notice=TEXT("Run to t* requires a paused development control harness.");return false;}
+    const bool OK=JobController->RunToDimensionless(Target,JobClock);SyncJob();Notice=Job().Notice();return OK;
+}
 void FStudioModel::SyncJob()
 {
     if(!Job().Run())return;

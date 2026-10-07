@@ -72,7 +72,9 @@ struct FStudioHome4Run
     TOptional<bool> BodyOnCpu, NoGpuKernels, Smoke, NoFrameAcceleration;
     TOptional<bool> ExtensionImported, FallbackConfirmed;
     TOptional<double> Travel, RampLength, AverageLength;
-    TOptional<int64> Steps, MeasureEvery, PrintEvery, SaveEvery, VizEvery;
+    // Restart cadence is an explicit frontend request; the driver CLI mapping
+    // remains unavailable until its actual checkpoint hook is verified.
+    TOptional<int64> Steps, MeasureEvery, PrintEvery, SaveEvery, VizEvery, RestartEvery;
     TOptional<FIntVector> BlockShape;
 };
 struct FStudioHome4Allocation

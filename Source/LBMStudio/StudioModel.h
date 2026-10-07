@@ -303,6 +303,10 @@ public:
     bool SetControlHarness(bool bEnabled);
     bool CanControl(EStudioJobCommand Command) const;
     bool Control(EStudioJobCommand Command);
+    bool CanHome4StepN() const;
+    bool CanHome4RunToDimensionless() const;
+    bool Home4StepN(int64 Count);
+    bool Home4RunToDimensionless(double Target);
     bool HasActiveJob() const;
     bool CanReplaceProject();
     const FStudioJobController& Job() const { return *JobController; }

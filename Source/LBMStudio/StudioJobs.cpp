@@ -41,6 +41,7 @@ bool FStudioJobController::Can(EStudioJobCommand C) const
     case EStudioJobCommand::Pause:return Caps.bPause&&Current==EStudioJobState::Running;
     case EStudioJobCommand::Resume:return Caps.bPause&&Current==EStudioJobState::Paused;
     case EStudioJobCommand::Step:return Caps.bStep&&Current==EStudioJobState::Paused;
+    case EStudioJobCommand::RunToDimensionless:return Caps.bControlHarness&&Caps.bRunToDimensionless&&Current==EStudioJobState::Paused;
     case EStudioJobCommand::Checkpoint:return Caps.bCheckpoint&&(Current==EStudioJobState::Running||Current==EStudioJobState::Paused);
     case EStudioJobCommand::Stop:return Current==EStudioJobState::Running||Current==EStudioJobState::Paused||Current==EStudioJobState::Queued;
     case EStudioJobCommand::Reconnect:return Caps.bReconnect&&Current==EStudioJobState::Disconnected;
@@ -57,15 +58,71 @@ bool FStudioJobController::Submit(const FString& Name,const FStudioCaseDraft& Dr
     if(!AdvanceClock(Now))return false;
     Record=FStudioRunRecord::Capture(Name,Draft,Caps.bControlHarness?EStudioRunOrigin::ControlHarness:EStudioRunOrigin::Solver);
     History.Reset();LastSequence=Steps=Checkpoints=0;
+    Schedule.Reset();SimulatedSteps=0;
     Measurements.Reset();StepHighWater.Reset();PhysicalHighWater.Reset();StateSequence=RateAfterSequence=0;
     FStudioJobRequest R;R.RunId=Record->GetId();R.Command=EStudioJobCommand::Submit;R.Configuration=Draft;
     Dispatch(MoveTemp(R),Now);return true;
 }
 bool FStudioJobController::Command(EStudioJobCommand C,double Now)
 {
+    if(C==EStudioJobCommand::Step&&Caps.bControlHarness&&Caps.bStepN)return StepN(1,Now);
+    if(C==EStudioJobCommand::RunToDimensionless) {Status=TEXT("Supply an explicit dimensionless target.");return false;}
     if(C==EStudioJobCommand::Submit||!Can(C)) {Status=TEXT("Command is unavailable in the current job state.");return false;}
     if(!AdvanceClock(Now))return false;
     FStudioJobRequest R;R.RunId=Record->GetId();R.Command=C;Dispatch(MoveTemp(R),Now);return true;
+}
+TOptional<int64> FStudioJobController::DimensionlessTargetStep(double Target) const
+{
+    if(!Caps.bControlHarness||!Caps.bRunToDimensionless||!FMath::IsFinite(Target)||Target<=0||!Record)return {};
+    const auto* Configuration=Record->GetConfiguration();
+    if(!Configuration||!Configuration->Home4)return {};
+    const auto StepsTarget=StudioHome4Config::ConvertUnits(Target,EStudioHome4Quantity::Time,
+        EStudioHome4UnitDisplay::Nondimensional,EStudioHome4UnitDisplay::Lattice,*Configuration->Home4);
+    if(!StepsTarget||*StepsTarget<=double(SimulatedSteps)||*StepsTarget>double(MaxSimulatedControlSteps))return {};
+    const double Nearest=FMath::RoundToDouble(*StepsTarget);
+    const double Roundoff=8.881784197001252e-16*FMath::Max(1.,FMath::Abs(*StepsTarget));
+    const double Rounded=FMath::Abs(*StepsTarget-Nearest)<=Roundoff?Nearest:FMath::CeilToDouble(*StepsTarget);
+    const int64 Limit=Configuration->Home4->Run.Steps.Get(Configuration->Setup.MaxSteps);
+    if(Rounded>double(Limit)||Rounded<=double(SimulatedSteps))return {};
+    return int64(Rounded);
+}
+bool FStudioJobController::DispatchStepRange(EStudioJobCommand C,int64 Count,double Now,TOptional<double> Target)
+{
+    if(!Caps.bControlHarness||!Caps.bStepN||!Can(C)||Count<=0||Count>MaxSimulatedControlSteps-SimulatedSteps||!Record)
+    {Status=TEXT("Development step range is unavailable or exceeds its bounded limit.");return false;}
+    const auto* Configuration=Record->GetConfiguration();
+    const int64 Limit=Configuration->Home4?Configuration->Home4->Run.Steps.Get(Configuration->Setup.MaxSteps):Configuration->Setup.MaxSteps;
+    if(Count>Limit-SimulatedSteps) {Status=TEXT("Development range exceeds the frozen run step limit.");return false;}
+    if(!AdvanceClock(Now))return false;
+    FStudioJobRequest R;R.RunId=Record->GetId();R.Command=C;R.StepCount=Count;
+    R.SimulatedTargetStep=SimulatedSteps+Count;R.RequestedDimensionlessTime=Target;
+    Dispatch(MoveTemp(R),Now);return true;
+}
+bool FStudioJobController::StepN(int64 Count,double Now)
+{return DispatchStepRange(EStudioJobCommand::Step,Count,Now);}
+bool FStudioJobController::RunToDimensionless(double Target,double Now)
+{
+    const auto Step=DimensionlessTargetStep(Target);
+    if(!Step) {Status=TEXT("Run to t* requires a known frozen reference time and a later target within the frozen step limit.");return false;}
+    return DispatchStepRange(EStudioJobCommand::RunToDimensionless,*Step-SimulatedSteps,Now,Target);
+}
+void FStudioJobController::AddScheduledOutputs(int64 Before,int64 After,uint64 CommandId)
+{
+    if(!Caps.bControlHarness||!Caps.bOutputSchedule||!Record||After<=Before)return;
+    const auto* Configuration=Record->GetConfiguration();
+    if(!Configuration||!Configuration->Home4)return;
+    const auto& Run=Configuration->Home4->Run;
+    const TOptional<int64> Intervals[]={Run.MeasureEvery,Run.SaveEvery,Run.VizEvery,Run.RestartEvery};
+    for(int32 I=0;I<4;++I)
+    {
+        if(!Intervals[I]||*Intervals[I]<=0)continue;
+        const int64 Interval=*Intervals[I],FirstIndex=Before/Interval+1,LastIndex=After/Interval;
+        if(LastIndex<FirstIndex)continue;
+        FStudioJobScheduleNotice N;N.RunId=Record->GetId();N.CommandId=CommandId;N.Kind=EStudioJobScheduledOutputKind(I);
+        N.FirstStep=FirstIndex*Interval;N.LastStep=LastIndex*Interval;N.Crossings=LastIndex-FirstIndex+1;N.Interval=Interval;
+        if(Schedule.Num()>=64)Schedule.RemoveAt(0,Schedule.Num()-63,EAllowShrinking::No);
+        Schedule.Add(N);
+    }
 }
 void FStudioJobController::Dispatch(FStudioJobRequest R,double Now)
 {
@@ -98,7 +155,14 @@ bool FStudioJobController::Accept(const FStudioJobEvent& E)
     {
         if(!Matches)return false;
         const bool Step=E.Kind==EStudioJobEventKind::StepCompleted;
-        if(Pending->Command!=(Step?EStudioJobCommand::Step:EStudioJobCommand::Checkpoint))return false;
+        if(Step?Pending->Command!=EStudioJobCommand::Step&&Pending->Command!=EStudioJobCommand::RunToDimensionless:
+            Pending->Command!=EStudioJobCommand::Checkpoint)return false;
+        if(Step&&Caps.bControlHarness&&Caps.bStepN)
+        {
+            if(!E.SimulatedSteps||!Pending->SimulatedTargetStep||*E.SimulatedSteps!=*Pending->SimulatedTargetStep||
+                *E.SimulatedSteps<=SimulatedSteps||*E.SimulatedSteps>MaxSimulatedControlSteps)return false;
+            AddScheduledOutputs(SimulatedSteps,*E.SimulatedSteps,E.CommandId);SimulatedSteps=*E.SimulatedSteps;
+        }
         if(Step)++Steps;else ++Checkpoints;Complete=true;
     }
     else if(E.Kind==EStudioJobEventKind::State)
@@ -132,8 +196,17 @@ bool FStudioJobController::Accept(const FStudioJobEvent& E)
                 (E.State==EStudioJobState::Completed&&(Current==EStudioJobState::Running||Current==EStudioJobState::Pausing||
                     Current==EStudioJobState::Stopping||Current==EStudioJobState::Paused));
         if(!Allowed)return false;
+        if(Matches&&Pending->Command==EStudioJobCommand::Reconnect&&Caps.bControlHarness&&Caps.bStepN)
+        {
+            if(!E.SimulatedSteps)return false;
+            const auto* Configuration=Record->GetConfiguration();
+            const int64 Limit=Configuration->Home4?Configuration->Home4->Run.Steps.Get(Configuration->Setup.MaxSteps):Configuration->Setup.MaxSteps;
+            if(*E.SimulatedSteps<SimulatedSteps||*E.SimulatedSteps>FMath::Min(Limit,MaxSimulatedControlSteps))return false;
+        }
         BreakTelemetryRates();StateSequence=E.Sequence;
         Current=E.State;
+        if(Matches&&Pending->Command==EStudioJobCommand::Reconnect&&Caps.bControlHarness&&Caps.bStepN&&E.SimulatedSteps)
+        {AddScheduledOutputs(SimulatedSteps,*E.SimulatedSteps,E.CommandId);SimulatedSteps=*E.SimulatedSteps;}
         if(Matches)Deadline=LastClock+Caps.CompletionTimeout;
         Complete|=IsTerminal(Current)||Current==EStudioJobState::Disconnected;
     }
@@ -160,7 +233,7 @@ void FStudioJobController::Tick(double Now)
 }
 
 FStudioJobCapabilities FStudioControlHarness::Capabilities() const
-{ FStudioJobCapabilities C;C.BackendId=TEXT("studio-control-harness");C.bControlHarness=C.bPause=C.bStep=C.bCheckpoint=C.bReconnect=true;return C; }
+{ FStudioJobCapabilities C;C.BackendId=TEXT("studio-control-harness");C.bControlHarness=C.bPause=C.bStep=C.bCheckpoint=C.bReconnect=true;C.bStepN=C.bRunToDimensionless=C.bOutputSchedule=true;return C; }
 void FStudioControlHarness::Queue(double At,uint64 Command,EStudioJobEventKind Kind,EStudioJobState State,const FString& Message,bool bQueryState)
 {
     FStudioJobEvent E;E.RunId=ActiveRun;E.CommandId=Command;E.Kind=Kind;E.State=State;E.Message=Message;
@@ -173,15 +246,17 @@ void FStudioControlHarness::DeliverUntil(double Now,int32 MaxEvents,TArray<FStud
     while(!QueueItems.IsEmpty()&&QueueItems[0].At<=Now&&Delivered<MaxEvents)
     {
         auto E=MoveTemp(QueueItems[0].Event);
-        if(QueueItems[0].bQueryState)E.State=Actual==EStudioJobState::Idle?EStudioJobState::Stopped:Actual;
+        if(QueueItems[0].bQueryState)
+        {E.State=Actual==EStudioJobState::Idle?EStudioJobState::Stopped:Actual;E.SimulatedSteps=SimulatedSteps;}
         QueueItems.RemoveAt(0,1,EAllowShrinking::No);E.Sequence=++Sequence;
         if(E.Kind==EStudioJobEventKind::State&&E.State!=EStudioJobState::Disconnected)Actual=E.State;
+        if(E.Kind==EStudioJobEventKind::StepCompleted&&E.SimulatedSteps)SimulatedSteps=*E.SimulatedSteps;
         if(Out)Out->Add(MoveTemp(E));++Delivered;
     }
 }
 void FStudioControlHarness::Send(const FStudioJobRequest& R,double Now)
 {
-    if(R.Command==EStudioJobCommand::Submit) {ActiveRun=R.RunId;Actual=EStudioJobState::Idle;QueueItems.Reset();Sequence=0;}
+    if(R.Command==EStudioJobCommand::Submit) {ActiveRun=R.RunId;Actual=EStudioJobState::Idle;QueueItems.Reset();Sequence=0;SimulatedSteps=0;}
     if(R.RunId!=ActiveRun)return;
     if(R.Command==EStudioJobCommand::Reconnect)
     {
@@ -203,7 +278,18 @@ void FStudioControlHarness::Send(const FStudioJobRequest& R,double Now)
     case EStudioJobCommand::Pause:Queue(Now+.02,R.CommandId,EStudioJobEventKind::State,EStudioJobState::Paused,TEXT("Control harness paused."));break;
     case EStudioJobCommand::Resume:Queue(Now+.02,R.CommandId,EStudioJobEventKind::State,EStudioJobState::Running,TEXT("Control harness resumed."));break;
     case EStudioJobCommand::Stop:Queue(Now+.02,R.CommandId,EStudioJobEventKind::State,EStudioJobState::Stopped,TEXT("Control harness stopped."));break;
-    case EStudioJobCommand::Step:Queue(Now+.02,R.CommandId,EStudioJobEventKind::StepCompleted,Actual,TEXT("Control step acknowledged. No solver step or field generated."));break;
+    case EStudioJobCommand::Step:
+    case EStudioJobCommand::RunToDimensionless:
+    {
+        if(Actual!=EStudioJobState::Paused||R.StepCount<=0||R.StepCount>FStudioJobController::MaxSimulatedControlSteps-SimulatedSteps||
+            !R.SimulatedTargetStep||*R.SimulatedTargetStep!=SimulatedSteps+R.StepCount)
+        {Queue(Now+.02,R.CommandId,EStudioJobEventKind::Rejected,Actual,TEXT("Invalid development step range."));break;}
+        Queue(Now+.02,R.CommandId,EStudioJobEventKind::StepCompleted,Actual,
+            FString::Printf(TEXT("Development range acknowledged: %lld simulated control steps. No solver steps or fields generated."),R.StepCount));
+        auto* Completion=QueueItems.FindByPredicate([&R](const FScheduled& E)
+            {return E.Event.CommandId==R.CommandId&&E.Event.Kind==EStudioJobEventKind::StepCompleted;});
+        if(Completion)Completion->Event.SimulatedSteps=*R.SimulatedTargetStep;break;
+    }
     case EStudioJobCommand::Checkpoint:Queue(Now+.02,R.CommandId,EStudioJobEventKind::CheckpointCompleted,Actual,TEXT("Checkpoint control acknowledged. No restart file generated."));break;
     case EStudioJobCommand::Reconnect:Queue(Now+.02,R.CommandId,EStudioJobEventKind::State,Actual,TEXT("Control harness state confirmed."),true);break;
     }

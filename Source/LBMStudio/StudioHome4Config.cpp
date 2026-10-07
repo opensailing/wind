@@ -108,6 +108,7 @@ namespace
             I("run","printEvery",Run.PrintEvery,"Run",1,Home4MaxCount),
             I("run","saveEvery",Run.SaveEvery,"Run",1,Home4MaxCount),
             I("run","vizEvery",Run.VizEvery,"Run",1,Home4MaxCount),
+            I("run","restartEvery",Run.RestartEvery,"Run",1,Home4MaxCount),
             I("performance","availableBytes",Performance.AvailableBytes,"Run",1,Home4MaxCount)
         }; return V;
     }

@@ -6,7 +6,7 @@
 // Job control has no access to recorded fields, camera state or playback time.
 enum class EStudioJobState : uint8
 { Idle, Validating, Preparing, Queued, Running, Pausing, Paused, Stopping, Completed, Stopped, Failed, Disconnected };
-enum class EStudioJobCommand : uint8 { Submit, Pause, Resume, Step, Stop, Checkpoint, Reconnect };
+enum class EStudioJobCommand : uint8 { Submit, Pause, Resume, Step, Stop, Checkpoint, Reconnect, RunToDimensionless };
 enum class EStudioJobEventKind : uint8 { Accepted, State, Rejected, StepCompleted, CheckpointCompleted };
 
 namespace StudioJobs
@@ -33,6 +33,7 @@ struct FStudioJobCapabilities
     bool bControlHarness = false;
     bool bPause = false, bStep = false, bCheckpoint = false, bReconnect = false;
     bool bTelemetry = false;
+    bool bStepN = false, bRunToDimensionless = false, bOutputSchedule = false;
     double AcknowledgementTimeout = 5., CompletionTimeout = 30.;
     double TelemetryStaleSeconds = 5.;
 };
@@ -43,6 +44,9 @@ struct FStudioJobRequest
     EStudioJobCommand Command = EStudioJobCommand::Submit;
     // A deep snapshot for Submit only. The adapter receives its own value copy.
     TOptional<FStudioCaseDraft> Configuration;
+    int64 StepCount = 1; // Requested development control steps, never a solver measurement.
+    TOptional<int64> SimulatedTargetStep;
+    TOptional<double> RequestedDimensionlessTime;
 };
 struct FStudioJobEvent
 {
@@ -51,6 +55,17 @@ struct FStudioJobEvent
     EStudioJobEventKind Kind = EStudioJobEventKind::State;
     EStudioJobState State = EStudioJobState::Idle;
     FString Message;
+    TOptional<int64> SimulatedSteps; // Authoritative harness counter, not CFD progress.
+};
+
+enum class EStudioJobScheduledOutputKind : uint8 { Trace, Slice, Visualization, Restart };
+/** Development schedule expectation only: no output file or science value exists. */
+struct FStudioJobScheduleNotice
+{
+    FGuid RunId;
+    uint64 CommandId = 0;
+    EStudioJobScheduledOutputKind Kind = EStudioJobScheduledOutputKind::Trace;
+    int64 FirstStep = 0, LastStep = 0, Crossings = 0, Interval = 0;
 };
 
 /** Nonblocking owner-thread contract. Transports marshal worker events into Poll.
@@ -74,6 +89,9 @@ public:
     explicit FStudioJobController(TUniquePtr<IStudioJobAdapter> InAdapter);
     bool Submit(const FString& Name, const FStudioCaseDraft& Draft, double Now);
     bool Command(EStudioJobCommand Command, double Now);
+    bool StepN(int64 Count, double Now);
+    bool RunToDimensionless(double Target, double Now);
+    TOptional<int64> DimensionlessTargetStep(double Target) const;
     void Tick(double Now);
     bool Can(EStudioJobCommand Command) const;
     EStudioJobState State() const { return Current; }
@@ -84,6 +102,9 @@ public:
     bool IsPending() const { return Pending.IsSet(); }
     uint64 PendingCommandId() const { return Pending.IsSet()?Pending->CommandId:0; }
     uint64 CompletedStepCommands() const { return Steps; }
+    int64 SimulatedControlSteps() const { return SimulatedSteps; }
+    const TArray<FStudioJobScheduleNotice>& ScheduledOutputs() const { return Schedule; }
+    static constexpr int64 MaxSimulatedControlSteps = 1000000000000LL;
     uint64 CompletedCheckpointCommands() const { return Checkpoints; }
     FStudioJobTelemetryView Telemetry() const;
     const TArray<FStudioJobTelemetryRecord>& TelemetryHistory() const { return Measurements; }
@@ -94,12 +115,16 @@ private:
     bool Accept(const FStudioJobEvent& Event);
     bool AcceptTelemetry(const FStudioJobMeasurement& Sample);
     void BreakTelemetryRates();
+    void AddScheduledOutputs(int64 Before, int64 After, uint64 CommandId);
+    bool DispatchStepRange(EStudioJobCommand Command, int64 Count, double Now, TOptional<double> Target = {});
     TUniquePtr<IStudioJobAdapter> Adapter;
     FStudioJobCapabilities Caps;
     TOptional<FStudioRunRecord> Record;
     TOptional<FStudioJobRequest> Pending;
     TArray<FStudioJobEvent> History;
     TArray<FStudioJobTelemetryRecord> Measurements;
+    TArray<FStudioJobScheduleNotice> Schedule;
+    int64 SimulatedSteps = 0;
     TOptional<int64> StepHighWater;
     TOptional<double> PhysicalHighWater;
     EStudioJobState Current = EStudioJobState::Idle, BeforeCommand = EStudioJobState::Idle;
@@ -132,5 +157,6 @@ private:
     EStudioJobState Actual = EStudioJobState::Idle;
     TArray<FScheduled> QueueItems;
     uint64 Sequence = 0;
+    int64 SimulatedSteps = 0;
     bool bDropNext=false,bRejectNext=false;
 };
