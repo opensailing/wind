@@ -1,0 +1,4001 @@
+{
+  "originalHDF5SHA256": "513e30f370ecdd30c5a49dfcc7b9b0caf39204b6dec08ee513a53afeba657237",
+  "sourceOrdinals": [
+    0,
+    4000,
+    7999
+  ],
+  "reconstructionSHA256": "0f999d6d22921d1e669689df79217090e6da0b87a4abf77f394b9ada9e08f1ec",
+  "trianglesSHA256": "00c84ce67f2ea533058e05ed05beffcf78b7a20d71b98d51a08bd3e2654428cf",
+  "coordinatesSHA256": "656bd7a475294918e45f2e944cfe779d3fdcf306d06394bc3be274d35d56512b",
+  "pointIdsSHA256": "8af5657fbbfd606198fae8d9719101d52a0bdc71cfa661e4cfaa216ac25d4452",
+  "extractorSHA256": "51770b12ed5f4d3decd171a3663345f6823598800b8708b0e81a540d692839ba",
+  "queries": [
+    {
+      "position": [
+        0.13010210394,
+        0.094347722828
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.839465709000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.823210719000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.826037024999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.3371853827
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.421219539500001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.4900274754
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -23.276226995000002
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -16.727154351
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -12.829357338
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.384957313
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.198979376
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.060793495
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.6846373727999998e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.6846373727999998e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.6846373727999998e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.023816629498,
+        -0.13919233381
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.793448638999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 24.975369075000003
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.149201587
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.8416000842
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.8600643157
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.8693801878
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 11.55233908
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 11.702068138
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 11.046480848
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.472339246
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.44385338
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.445131490999998
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 4.9651064548000004e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 4.9651064548000004e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 4.9651064548000004e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.12065911591,
+        -0.0113125919344
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.345681572
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 24.73542347
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.018631366
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.8233109476
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.704921627
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.5937604427
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 13.438272
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 10.002558705999999
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 8.0726922035
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.283809091000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.384803390000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.436888505
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 6.4451539218e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 6.4451539218e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 6.4451539218e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.10937779543000001,
+        0.18600248098
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.180284311
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.443795584
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.627650644
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.7946906091
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.5751042845
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.4238294124
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -15.738656141
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -14.856191158
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -13.426380632
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.08092594
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.047430801000004
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.006669235
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 4.4609734324999996e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 4.4609734324999996e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 4.4609734324999996e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.13851275445,
+        0.082202196867
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.677793122
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.692796901
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.725704766
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.121628427499999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.295177650099999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.4184072733
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -16.984536172
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -11.971687793000001
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -9.2032002459
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.183644295
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.049368288
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.951838493
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.6786192466e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.6786192466e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.6786192466e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.44841243329,
+        -0.04384053983
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.923424149
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.180698393
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.372975159
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.295414495599999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.102354097199999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.0114916325
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 3.6120781184000004
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 3.4382537362
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 2.770294881
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.706211089
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.692442516
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.688126754000002
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 8.3082188214e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 8.3082188214e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 8.3082188214e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.049760770425,
+        0.21005912720000003
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.354108237
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.578014184
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.73431816
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.7115110396999995
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.4850546838
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.3350482462999995
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -20.586888888
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -18.63771019
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -16.549429130999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.227374841
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.159523777
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.096894075
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.7781000494e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.7781000494e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.7781000494e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.23955014345,
+        0.43880078792
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.156367109
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.373148726
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.538044743
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.267302799099999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.1327858925
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.0551238538
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -15.822375394000002
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -14.880569649
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -13.269330404000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.925314714000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.8871048
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.85799408
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 0.00016171079772
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 0.00016171079772
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 0.00016171079772
+        }
+      ]
+    },
+    {
+      "position": [
+        0.15612559915000002,
+        0.22750299719
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.387129594999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.556809427
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.682112124999996
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.140052462
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0202878476
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9556515934
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -17.185200503
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -14.943369198
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -12.980089858
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.119084549
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.045226097
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.984957504
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.1459231428999999e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.1459231428999999e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.1459231428999999e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.037555209918,
+        -0.056471058355
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.282916643
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.378897094
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.503289033
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 4.6784026145999995
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 3.9779946562
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.2249848365
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 2.6112365844600003
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 2.7477204085
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 1.78563019068
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.712265018000004
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.688860701000003
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.706442451
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 8.406443794e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 8.406443794e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 8.406443794e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.21294010281,
+        0.029734705388
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 21.326759529
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 18.626552198
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 20.393514824
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.570617437499999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 3.7777454138
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 2.9971131564
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 8.2823960305
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 6.0503247739
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 3.5510364534
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 22.042331313
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 19.005887031
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 20.612621497
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.1328539496e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.1328539496e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.1328539496e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.01285406491,
+        0.42674200237
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.190809440000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.412174991
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.575307083
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.4061490535
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.248282146799999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.1480994699
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -18.763592719000002
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -17.344447135000003
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -15.26823387
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.992607119
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.948470307999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.90951843
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 0.00016787953646
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 0.00016787953646
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 0.00016787953646
+        }
+      ]
+    },
+    {
+      "position": [
+        0.26941049101,
+        0.27504074278
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.183385087
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.394699093
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.553621673000002
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.1506835935
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0324860094999995
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9734079361
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -11.682594013
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -10.908957478000001
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -9.831499863
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.923613930000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.888543512
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.860695074000002
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.6860802133e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.6860802133e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.6860802133e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.24494342207,
+        0.064656555652
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 20.473001289000003
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.420186426
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.396325682
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 4.6806174757
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.813625145
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.7752672432
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 3.5357223746999997
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 1.15494791304
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -0.39943749312
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 21.001241114000003
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.871932599
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.675396731
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.0807643866e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.0807643866e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.0807643866e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.1992394105,
+        0.14760109036
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.284555435999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.474020767
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.608928871
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.8598130703
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.8138338089
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.8015408751
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -10.457279875000001
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -9.366692352200001
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -8.3830261232
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.954695889
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.924867629
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.889552306
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.3589450557000002e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.3589450557000002e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.3589450557000002e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.068304363639,
+        0.032001663
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.380827713
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 24.86587677
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.183841704000002
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 7.5895308973999995
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 6.3670804979
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 5.177434015299999
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 5.3777403831
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 0.82729023676
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -0.9591954619088
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.534865574
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.668158343
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.710582541
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 2.0767590471e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 2.0767590471e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 2.0767590471e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.12717039432,
+        -0.070650701968
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.446171381
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.366631316
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.370848275
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.3478812697
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.1910508632
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.0551038741
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -12.768892193000001
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -3.4117616176
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 2.4534730434
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.226015852
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.892339897
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.692876242
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.0468227992e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.0468227992e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.0468227992e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.10661197079999998,
+        0.2816318661
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.359701729999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.543470001000003
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.678799056000003
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.2982692716
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.1469794273
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.0574787614
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -18.914507104000002
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -16.724136162
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -14.593762685000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.130110932
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.056865502
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.997380828
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.2942019367e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.2942019367e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.2942019367e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.44008842112,
+        0.23152949213000001
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.058725738
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.286352729999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.467687223
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.1623350620999995
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.038237238300001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9818289044
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -5.9301077366
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -6.0703607558999995
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -5.816318798399999
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.805313492
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.783393861
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.777085307
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 0.00011365661851
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 0.00011365661851
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 0.00011365661851
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.048357112706,
+        0.101561849575
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.359072683
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.67123432
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.871842383999997
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 7.3453181265000005
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 6.010499811000001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.7804475786000005
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -22.789695551
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -22.147483252999997
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -20.756998445
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.401454735
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.36548538
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.309794997
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.02833875646e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.02833875646e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.02833875646e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.23235381093000002,
+        0.064462634925
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 21.860575103000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.410675050000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.388130761
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 4.9428392409
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.7772360324
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.7453587057
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 4.084226966
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 1.2713645099000002
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -0.35164228824
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 22.412426947
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.85583973
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.662909509000002
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.110990879e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.110990879e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.110990879e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.19636378737,
+        0.09815687686499999
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.150266264
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.380970193000003
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.535275079999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.6207959175
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.6527471067
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.6881350995
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -4.1359698772
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -4.617386531999999
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -4.7314806939
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.770712278
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.803910448000003
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.80024643
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.4296927656e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.4296927656e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.4296927656e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.09639635533,
+        -0.063431078941
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.775596429
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.625366976000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.544135286
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.0498260022
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0463407515
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.019990444099999
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -20.694754027000002
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -10.3194526685
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -2.6606639625
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.476086234
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.117536164
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.858528516
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.0359468344e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.0359468344e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.0359468344e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.12959408756000002,
+        -0.11625572371000001
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.188774683000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.238451765
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.326839641
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.1693126676
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0570318219
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9754052401
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -2.5192872284
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 2.4074455735999996
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 5.0662364959
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.933278655000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.740106769
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.636940957
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.7701109391e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.7701109391e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.7701109391e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.036011289064,
+        0.25502659082
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.327189255999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.542644312
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.695897293999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.5896835803
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.3878945353
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.2561305523
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -20.010483552
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -18.042044642
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -15.906647203999999
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.17041283
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.104713438
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.045993231
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 2.6207795234e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 2.6207795234e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 2.6207795234e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.029442202112,
+        0.18382107916
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.464112857
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.675427437000003
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.820552063999997
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.7695379733
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.5191457748
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.3545898436999995
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -23.527654456
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -21.040801049000002
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -18.652064135
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.348580932
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.261922264
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.185175132
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.0372503109e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.0372503109e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.0372503109e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.009859837777900001,
+        0.15455924574000002
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.641394997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.830682375000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.957596588999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.856593895
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.5661649228
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.3774156095
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -28.612210466
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -25.194251438
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -22.253896333999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.542309571
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.423598669
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.324108122
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 8.9693668087e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 8.9693668087e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 8.9693668087e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.038164320215000005,
+        0.16211469027999997
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.805435750999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.920712280000004
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 26.001140404
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.5542170522
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.304305744300001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.149088859600001
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -31.392691039
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -26.337663078
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -22.522735216
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.624775885000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.457876589
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.33010292
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.3790969294e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.3790969294e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.3790969294e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.21953186992,
+        0.17614898680000002
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.244911957
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.446329309
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.590829471
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.9730861663
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.895875930799999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.8646723033
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -10.474745084
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -9.559545707799998
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -8.6080667493
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.941923713
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.913033104
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.881002422
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 8.6167524389e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 8.6167524389e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 8.6167524389e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.10729782057,
+        -0.022067054547
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 26.387500189
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.802922058
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.387369157000002
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 7.1723747254
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.961257171600001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.6216860293
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -49.681905366
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -22.890257266
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -1.9979246375000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 27.345117759
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.482743069999998
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.804707148000002
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.1184476714000001e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.1184476714000001e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.1184476714000001e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.30390689076,
+        -0.02617200054
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.918446353
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.140235710000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.346580505
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.3287460807
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0732899186000004
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9599538087
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 3.2357766154
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 3.577667737
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 3.0284419533999998
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.709571076
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.647021485
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.654051022
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.4403733074e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.4403733074e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.4403733074e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.22651973068000003,
+        -0.10357045087
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.003537751000003
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.143650629
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.304250146999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.3365701201
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.1179022788
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9892608165
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 1.9776377678000001
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 4.7874206542
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 5.5882502078
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.793972207
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.659230232
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.616777802
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.9122979392e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.9122979392e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.9122979392e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.12340389194,
+        0.29698387088
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.324321365
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.513856315
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.65384636
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.2813969610000004
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.1355755805
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.050140762
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -18.038399122
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -16.083608056
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -14.083622076000001
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.091707801000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.025582505
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.971588517
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.3705287325e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.3705287325e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.3705287325e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.015615666938,
+        0.022087058425
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 28.60828781
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 29.487450408
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 30.059886741999996
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 10.66254711
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 7.9063559057
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 5.880619526
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -149.64932402
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -153.99045254
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -162.20944515999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 30.532264326
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 30.53130169
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 30.633761980000003
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.1223178351e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.1223178351e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.1223178351e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.08198072389,
+        0.15945659278
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.823314666
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.897173881999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.953710176
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.2335152628
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0564628125999995
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.953407383
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -29.578333281
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -23.989056968
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -20.010359572
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.565028382
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.386200523
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.253089524
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.5325248657e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.5325248657e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.5325248657e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.022266595809,
+        -0.0016779836645499997
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 21.613158798999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 22.397656628999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 22.929744720000002
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 8.314692211
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 7.346545410399999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 6.1906604765
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 74.821750642
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 62.885751344
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 57.142315288999995
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 23.160011480999998
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 23.574137115
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 23.752853586999997
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.727923953e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.727923953e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.727923953e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.28568820951,
+        0.030533677897
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.905581858
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 24.248784827
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 21.488616946
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.3122152329
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.874041700499999
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.373055172
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 3.1182680607
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 2.3791313167999997
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 1.3712381724
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.693035315
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 24.733782387
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 21.751740074
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.057685058e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.057685058e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.057685058e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.10779286848,
+        0.19641104193999998
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.572606278
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.703035162
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.798887062
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.1886913298
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0462144852
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9649249791
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -22.530162240000003
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -18.881524849999998
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -16.063397792
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.310800743
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.193708038
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.101785088
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.3301656417e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.3301656417e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.3301656417e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.23457201272,
+        0.26005577444
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.226208495
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.430254365
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.58146534
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.1377665517
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0223422054
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9638982295
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -12.735191251
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -11.67207823
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -10.425338266
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.962158586999998
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.921454618
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.8867506
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.6380547801e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.6380547801e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.6380547801e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.087091045083,
+        0.17403520048
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.720649146
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.819523430000004
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.893310165
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.2333704472
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.0669912817
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9701438906
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -26.810890196
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -22.038333892
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -18.539367675
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.465202331
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.312018392
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.195908928
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.3376727567e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.3376727567e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.3376727567e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.069747470318,
+        -0.047339735179
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 26.219162175999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 26.041667939
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.909408759999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 5.3797102453
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 4.617602634700001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.8075276852
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -30.147238351
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -20.783867263
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -13.010393143
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.765550229
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.447993089
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.187744902
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 1.3921216123e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 1.3921216123e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 1.3921216123e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        0.27949233354,
+        -0.026981690155
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 24.915607832999996
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.124291227
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.332495879
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.340951109100001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.075506258000001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 3.9517091752
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": 3.2863001823999998
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": 3.9137337207
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": 3.4187829492999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 25.709827232000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 25.631832504000002
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.638864137
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.201525063e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.201525063e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.201525063e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.030425686764000003,
+        0.083659639955
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.52036209
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.859477423999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 26.068712421999997
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 7.6537288664
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 6.2427792549
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.9643750188
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -29.546275138
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -28.86491165
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -27.323456763000003
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.643374446
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.602361867
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.537207412999997
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 7.964627274999999e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 7.964627274999999e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 7.964627274999999e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.10726338624000001,
+        0.042792889847
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 26.775807193
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 26.412879562999997
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.832039835
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 3.3985708950999998
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 3.0711602211
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 2.5322338341
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -47.604394915
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -22.026437758
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -9.4335759145
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.992377092999998
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.591291618
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 25.956052016
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 2.1794904935000004e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 2.1794904935000004e-05
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 2.1794904935000004e-05
+        }
+      ]
+    },
+    {
+      "position": [
+        -0.051957773418,
+        0.08643738850900001
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.24334469
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.596297076
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.820785714
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 7.486423349200001
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 6.1481656552
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.9112931251
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -20.093025969000003
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -20.438662338999997
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -19.592403601999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.33008709
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.324339105999996
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.283724594
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.3367819318e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.3367819318e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.3367819318e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.080265763401,
+        0.23319361656999998
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 25.486813927
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 25.647085574000002
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 25.763641739999997
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 6.3299341679
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": 5.1626461508000006
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 4.0623280049
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -21.860013388
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -18.837211993
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -16.261591527999997
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.261108204000003
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.161535453
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.081941413000003
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 9.935146681100001e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 9.935146681100001e-06
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 9.935146681100001e-06
+        }
+      ]
+    },
+    {
+      "position": [
+        0.023722086847,
+        -0.0078051274644
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": 26.326643177999998
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": 26.415224073
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 26.619546319
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": -0.11371130421900003
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": -0.15043889843500002
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": -0.20387916490299998
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -37.346180341
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -50.331527331000004
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -68.490976716
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 26.330080031999998
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 26.418921851
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 26.623581698000002
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 2.9957026869e-07
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 2.9957026869e-07
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 2.9957026869e-07
+        }
+      ]
+    },
+    {
+      "position": [
+        0.029705235548999998,
+        0.0076163189949
+      ],
+      "expected": [
+        {
+          "field": "velocity_u",
+          "frame": 0,
+          "value": -2.8012654784
+        },
+        {
+          "field": "velocity_u",
+          "frame": 1,
+          "value": -2.6978310109
+        },
+        {
+          "field": "velocity_u",
+          "frame": 2,
+          "value": 5.1163115977
+        },
+        {
+          "field": "velocity_v",
+          "frame": 0,
+          "value": 0.096453963976
+        },
+        {
+          "field": "velocity_v",
+          "frame": 1,
+          "value": -0.31101618407
+        },
+        {
+          "field": "velocity_v",
+          "frame": 2,
+          "value": 0.31611794978999996
+        },
+        {
+          "field": "pressure",
+          "frame": 0,
+          "value": -188.80407408000002
+        },
+        {
+          "field": "pressure",
+          "frame": 1,
+          "value": -166.00044707
+        },
+        {
+          "field": "pressure",
+          "frame": 2,
+          "value": -154.50861207
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 0,
+          "value": 2.8029440879000003
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 1,
+          "value": 2.7235760925
+        },
+        {
+          "field": "velocity_magnitude",
+          "frame": 2,
+          "value": 5.1332028389
+        },
+        {
+          "field": "cell_volume",
+          "frame": 0,
+          "value": 2.9919326038999995e-07
+        },
+        {
+          "field": "cell_volume",
+          "frame": 1,
+          "value": 2.9919326038999995e-07
+        },
+        {
+          "field": "cell_volume",
+          "frame": 2,
+          "value": 2.9919326038999995e-07
+        }
+      ]
+    }
+  ],
+  "scope": "Test-only reconstructed topology, shared with original coordinates in NACA0018_ReaderFixture. Not a recording or original CFD mesh.",
+  "expectedValueMethod": "pandas direct original HDF5 row selection, weighted by (0.2,0.3,0.5); interpolation checks, not new solver output."
+}

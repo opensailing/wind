@@ -1,0 +1,14 @@
+{
+  "recordings": [
+    {
+      "id": "MeshGraphNets_Airfoil_test009",
+      "title": "Airfoil SU2 009",
+      "path": "MeshGraphNets_Airfoil/flow.bin"
+    },
+    {
+      "id": "MeshGraphNets_Airfoil_test010",
+      "title": "Airfoil SU2 010",
+      "path": "MeshGraphNets_Airfoil_test010/flow.bin"
+    }
+  ]
+}

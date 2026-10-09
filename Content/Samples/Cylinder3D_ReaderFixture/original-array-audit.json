@@ -1,0 +1,578 @@
+{
+  "member_sha256": "53f46fa7a858cd66acdf881ecfcb0d7740339d40b15779c749a821ff5846137a",
+  "published_archive_md5_verified": "95ae813b52fe6b188e930d9c699e6a3e",
+  "container_layout": {
+    "cell_volume/axis0": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S11",
+      "object_storage": false
+    },
+    "cell_volume/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "cell_volume/block0_items": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S11",
+      "object_storage": false
+    },
+    "cell_volume/block0_values": {
+      "shape": [
+        296174,
+        1
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "coordinates/axis0": {
+      "shape": [
+        3
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "coordinates/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "coordinates/block0_items": {
+      "shape": [
+        3
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "coordinates/block0_values": {
+      "shape": [
+        296174,
+        3
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "gather_idx/axis0": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S3",
+      "object_storage": false
+    },
+    "gather_idx/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "gather_idx/block0_items": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S3",
+      "object_storage": false
+    },
+    "gather_idx/block0_values": {
+      "shape": [
+        296174,
+        1
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "kept_node_ids/axis0": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S7",
+      "object_storage": false
+    },
+    "kept_node_ids/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "kept_node_ids/block0_items": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S7",
+      "object_storage": false
+    },
+    "kept_node_ids/block0_values": {
+      "shape": [
+        296174,
+        1
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "meta/axis0": {
+      "shape": [
+        32
+      ],
+      "dtype": "|S27",
+      "object_storage": false
+    },
+    "meta/axis1": {
+      "shape": [
+        1
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "meta/block0_items": {
+      "shape": [
+        10
+      ],
+      "dtype": "|S14",
+      "object_storage": false
+    },
+    "meta/block0_values": {
+      "shape": [
+        1,
+        10
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "meta/block1_items": {
+      "shape": [
+        9
+      ],
+      "dtype": "|S15",
+      "object_storage": false
+    },
+    "meta/block1_values": {
+      "shape": [
+        1,
+        9
+      ],
+      "dtype": "float64",
+      "object_storage": false
+    },
+    "meta/block2_items": {
+      "shape": [
+        5
+      ],
+      "dtype": "|S13",
+      "object_storage": false
+    },
+    "meta/block2_values": {
+      "shape": [
+        1
+      ],
+      "dtype": "object",
+      "object_storage": true
+    },
+    "meta/block3_items": {
+      "shape": [
+        8
+      ],
+      "dtype": "|S27",
+      "object_storage": false
+    },
+    "meta/block3_values": {
+      "shape": [
+        1,
+        8
+      ],
+      "dtype": "uint8",
+      "object_storage": false
+    },
+    "pressure/axis0": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "pressure/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "pressure/block0_items": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "pressure/block0_values": {
+      "shape": [
+        296174,
+        5901
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "velocity_magnitude/axis0": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_magnitude/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "velocity_magnitude/block0_items": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_magnitude/block0_values": {
+      "shape": [
+        296174,
+        5901
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "velocity_u/axis0": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_u/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "velocity_u/block0_items": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_u/block0_values": {
+      "shape": [
+        296174,
+        5901
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "velocity_v/axis0": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_v/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "velocity_v/block0_items": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_v/block0_values": {
+      "shape": [
+        296174,
+        5901
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "velocity_w/axis0": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_w/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "velocity_w/block0_items": {
+      "shape": [
+        5901
+      ],
+      "dtype": "|S6",
+      "object_storage": false
+    },
+    "velocity_w/block0_values": {
+      "shape": [
+        296174,
+        5901
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "x_coords/axis0": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "x_coords/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "x_coords/block0_items": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "x_coords/block0_values": {
+      "shape": [
+        296174,
+        1
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "y_coords/axis0": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "y_coords/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "y_coords/block0_items": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "y_coords/block0_values": {
+      "shape": [
+        296174,
+        1
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    },
+    "z_coords/axis0": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "z_coords/axis1": {
+      "shape": [
+        296174
+      ],
+      "dtype": "int64",
+      "object_storage": false
+    },
+    "z_coords/block0_items": {
+      "shape": [
+        1
+      ],
+      "dtype": "|S1",
+      "object_storage": false
+    },
+    "z_coords/block0_values": {
+      "shape": [
+        296174,
+        1
+      ],
+      "dtype": "float32",
+      "object_storage": false
+    }
+  },
+  "dataframe_keys": [
+    "/cell_volume",
+    "/coordinates",
+    "/gather_idx",
+    "/kept_node_ids",
+    "/meta",
+    "/pressure",
+    "/velocity_magnitude",
+    "/velocity_u",
+    "/velocity_v",
+    "/velocity_w",
+    "/x_coords",
+    "/y_coords",
+    "/z_coords"
+  ],
+  "field_shapes": {
+    "pressure": [
+      296174,
+      5901
+    ],
+    "velocity_u": [
+      296174,
+      5901
+    ],
+    "velocity_v": [
+      296174,
+      5901
+    ],
+    "velocity_w": [
+      296174,
+      5901
+    ],
+    "velocity_magnitude": [
+      296174,
+      5901
+    ],
+    "cell_volume": [
+      296174,
+      1
+    ]
+  },
+  "field_dtypes": {
+    "pressure": "float32",
+    "velocity_u": "float32",
+    "velocity_v": "float32",
+    "velocity_w": "float32",
+    "velocity_magnitude": "float32",
+    "cell_volume": "float32"
+  },
+  "point_count": 296174,
+  "frame_count": 5901,
+  "scalar_values_checked": 8738910044,
+  "point_id_source": "kept_node_ids/node_id, independently aligned with coordinate and field row indices",
+  "first_solver_step": 2200,
+  "last_solver_step": 8100,
+  "save_interval_seconds": 0.01,
+  "first_solver_time_seconds": 22.0,
+  "last_solver_time_seconds": 81.0,
+  "source_elapsed_seconds": 59.0,
+  "time_origin": "Original step labels times the author export interval; no temporal interpolation.",
+  "bounds_m": {
+    "min": [
+      -0.01995532587170601,
+      -0.03991502523422241,
+      0.003999999724328518
+    ],
+    "max": [
+      0.1499989628791809,
+      0.03991502895951271,
+      0.07599999755620956
+    ]
+  },
+  "exact_unique_axis_counts": [
+    11422,
+    36227,
+    28
+  ],
+  "full_cartesian_product": false,
+  "exact_z_layers": 28,
+  "points_per_exact_z_layer": [
+    73,
+    15586
+  ],
+  "exact_xy_locations": 46533,
+  "span_samples_per_exact_xy": [
+    1,
+    19
+  ],
+  "minimum_radius_about_author_cylinder_axis_m": 0.004993312256405871,
+  "field_ranges": {
+    "pressure": [
+      -1.1698914766311646,
+      0.5854741334915161
+    ],
+    "velocity_u": [
+      -0.030072888359427452,
+      0.04661867022514343
+    ],
+    "velocity_v": [
+      -0.03550180047750473,
+      0.03550355136394501
+    ],
+    "velocity_w": [
+      -0.01824212074279785,
+      0.021171877160668373
+    ],
+    "velocity_magnitude": [
+      0.0,
+      0.04687655717134476
+    ],
+    "cell_volume": [
+      1.5332153602276577e-10,
+      2.4465607317836202e-09
+    ]
+  },
+  "exported_speed_vs_vector_norm_max_error": 1.870036882289927e-09,
+  "cell_volume_time_max_error": 0.0,
+  "first_last_velocity_component_rms_change": {
+    "velocity_u": 0.003778466973757877,
+    "velocity_v": 0.004702706126136456,
+    "velocity_w": 0.0020997153442204692
+  },
+  "selected_frame_ordinals": [
+    0,
+    250,
+    1000,
+    2000,
+    5900
+  ],
+  "selected_solver_times_seconds": [
+    22.0,
+    24.5,
+    32.0,
+    42.0,
+    81.0
+  ],
+  "limits": [
+    "Exported point rows are not cell connectivity.",
+    "Author preprocessing crops and downsamples the original Fluent mesh.",
+    "Author cell_volume naming/units need an explicit convention before integrations.",
+    "Topology, solid/no-data masks and any display resampling remain separate acceptance gates.",
+    "This audit does not accept native import, volume rendering or packaged playback."
+  ],
+  "acceptance": "Original 3D arrays inspected, not yet accepted as a volume recording.",
+  "audited_samples_sha256": "18170b5a6d13a888719a106b175d108a00440e3f7a56875e496d101611770378",
+  "audit_tool_sha256": "2c4e9f9f83a33a90232cd67886926147a75586f4b7581bc36ea9b5d2f36fa95c",
+  "library_versions": {
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "h5py": "3.16.0"
+  }
+}

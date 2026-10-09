@@ -1,0 +1,86 @@
+{
+  "recording_sha256": "2cb791df8c6697c7709ab99bd0e9ae93fa03cdaf49522d7bd5edffa144907fc1",
+  "reconstruction_sha256": "25277f0fdcc3cd2196fe6efb147da1c24df4be332ac438d368fe948c234aefc8",
+  "audit_sha256": "5e9f912bc4d5b755af5a5618343dee32ce23f1b0f4dc3386fa58fc1c53aaa807",
+  "samples_sha256": "18170b5a6d13a888719a106b175d108a00440e3f7a56875e496d101611770378",
+  "all_original_points": 296174,
+  "supported_original_queries": 280468,
+  "supported_fraction": 0.9469703620169225,
+  "masked_original_queries": 15706,
+  "source_frame_ordinals": [
+    0,
+    250,
+    1000,
+    2000,
+    5900
+  ],
+  "measurements": {
+    "velocity_u": {
+      "unit": "m/s",
+      "count": 1402340,
+      "rms": 0.00020102824860160657,
+      "maximum_absolute": 0.003738920988038366,
+      "rms_fraction_of_observed_range": 0.0026947632437723393,
+      "observed_range": [
+        -0.028688808903098106,
+        0.0459107868373394
+      ]
+    },
+    "velocity_v": {
+      "unit": "m/s",
+      "count": 1402340,
+      "rms": 0.0002131176586679166,
+      "maximum_absolute": 0.00415199238634956,
+      "rms_fraction_of_observed_range": 0.003270687781225989,
+      "observed_range": [
+        -0.032801419496536255,
+        0.03235847130417824
+      ]
+    },
+    "velocity_w": {
+      "unit": "m/s",
+      "count": 1402340,
+      "rms": 0.0001605942337895277,
+      "maximum_absolute": 0.003756809125272309,
+      "rms_fraction_of_observed_range": 0.004640096353323741,
+      "observed_range": [
+        -0.017905212938785553,
+        0.016704894602298737
+      ]
+    },
+    "pressure": {
+      "unit": "Pa",
+      "count": 1402340,
+      "rms": 0.0019641443448645633,
+      "maximum_absolute": 0.05167588245679311,
+      "rms_fraction_of_observed_range": 0.001191117831075447,
+      "observed_range": [
+        -1.1491975784301758,
+        0.4997949004173279
+      ]
+    },
+    "velocity_magnitude": {
+      "unit": "m/s",
+      "count": 1402340,
+      "rms": 0.0002227552781494776,
+      "maximum_absolute": 0.00592821061489402,
+      "rms_fraction_of_observed_range": 0.004848587535330399,
+      "observed_range": [
+        0.00016208335000555962,
+        0.04610438644886017
+      ]
+    },
+    "cell_volume": {
+      "unit": "unspecified",
+      "count": 280468,
+      "rms": 1.1036000052846341e-11,
+      "maximum_absolute": 1.0894875125679313e-10,
+      "rms_fraction_of_observed_range": 0.004975998938623196,
+      "observed_range": [
+        1.807427402189532e-10,
+        2.398588883067987e-09
+      ]
+    }
+  },
+  "interpretation": "Errors describe display resampling at supported original positions. Unsupported cells and cells crossing the solid are excluded and counted. Original rows remain unchanged."
+}

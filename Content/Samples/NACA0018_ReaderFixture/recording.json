@@ -1,0 +1,215 @@
+{
+  "version": 3,
+  "kind": "field_recording",
+  "id": "NACA0018_ReaderFixture_3OriginalFrames",
+  "title": "Reader test fixture · 3 original NACA snapshots",
+  "sourceURL": "https://zenodo.org/records/20582405",
+  "spatialDimensions": 2,
+  "coordinateUnit": "m",
+  "topology": {
+    "kind": "points",
+    "origin": "source",
+    "connectivity": null
+  },
+  "pointCount": 18706,
+  "coordinates": {
+    "path": "coordinates.f64",
+    "dtype": "float64",
+    "byteOrder": "little",
+    "shape": [
+      18706,
+      2
+    ],
+    "byteLength": 299296,
+    "sha256": "656bd7a475294918e45f2e944cfe779d3fdcf306d06394bc3be274d35d56512b"
+  },
+  "pointIds": {
+    "path": "point-ids.i64",
+    "dtype": "int64",
+    "byteOrder": "little",
+    "count": 18706,
+    "sha256": "8af5657fbbfd606198fae8d9719101d52a0bdc71cfa661e4cfaa216ac25d4452"
+  },
+  "sourceBounds": {
+    "min": [
+      -0.2596604526,
+      -0.2998604774
+    ],
+    "max": [
+      0.5400604606,
+      0.4998604953
+    ]
+  },
+  "frameCount": 3,
+  "timeUnit": "s",
+  "frames": [
+    {
+      "index": 1001,
+      "label": "t_1001",
+      "time": 2.5025
+    },
+    {
+      "index": 5001,
+      "label": "t_5001",
+      "time": 12.5025
+    },
+    {
+      "index": 9000,
+      "label": "t_9000",
+      "time": 22.5
+    }
+  ],
+  "timeOrigin": "Original solver step labels multiplied by author save interval 0.0025 s.",
+  "fields": [
+    {
+      "id": "velocity_u",
+      "label": "Velocity X",
+      "unit": "m/s",
+      "association": "point",
+      "origin": "source",
+      "static": false,
+      "range": [
+        -9.050888062,
+        36.48199463
+      ],
+      "array": {
+        "path": "velocity_u.f64",
+        "dtype": "float64",
+        "byteOrder": "little",
+        "shape": [
+          3,
+          18706
+        ],
+        "byteLength": 448944,
+        "sha256": "d1258f0ff7fc8695c51b9e3250e0e18c57f456563b7ab1c6b4b06e84c7e1220d",
+        "frameCRC32": [
+          3785061063,
+          2179053516,
+          1302580998
+        ]
+      },
+      "vector": "velocity",
+      "component": "x"
+    },
+    {
+      "id": "velocity_v",
+      "label": "Velocity Y",
+      "unit": "m/s",
+      "association": "point",
+      "origin": "source",
+      "static": false,
+      "range": [
+        -8.494385719,
+        23.40345955
+      ],
+      "array": {
+        "path": "velocity_v.f64",
+        "dtype": "float64",
+        "byteOrder": "little",
+        "shape": [
+          3,
+          18706
+        ],
+        "byteLength": 448944,
+        "sha256": "eb42aefe1611e35865bc397f43f657eb0471773d0c7da31f5932b50167559a3f",
+        "frameCRC32": [
+          1158711563,
+          2582037103,
+          3730456746
+        ]
+      },
+      "vector": "velocity",
+      "component": "y"
+    },
+    {
+      "id": "pressure",
+      "label": "Pressure",
+      "unit": "Pa",
+      "association": "point",
+      "origin": "source",
+      "static": false,
+      "range": [
+        -616.4060669,
+        360.4399414
+      ],
+      "array": {
+        "path": "pressure.f64",
+        "dtype": "float64",
+        "byteOrder": "little",
+        "shape": [
+          3,
+          18706
+        ],
+        "byteLength": 448944,
+        "sha256": "ff3b82e5d904d719d55c07c78fdc9185c91564debcde882aabde2d74bf269b38",
+        "frameCRC32": [
+          1729018698,
+          3452846291,
+          2418718986
+        ]
+      }
+    },
+    {
+      "id": "velocity_magnitude",
+      "label": "Exported speed",
+      "unit": "m/s",
+      "association": "point",
+      "origin": "source",
+      "static": false,
+      "range": [
+        0.0,
+        36.88103485
+      ],
+      "array": {
+        "path": "velocity_magnitude.f64",
+        "dtype": "float64",
+        "byteOrder": "little",
+        "shape": [
+          3,
+          18706
+        ],
+        "byteLength": 448944,
+        "sha256": "a198e7f5f6d36eccf170bb3e1bcbed8e545b71384fd2710078b290d09e5a1313",
+        "frameCRC32": [
+          1511563603,
+          724653810,
+          2112066361
+        ]
+      }
+    },
+    {
+      "id": "cell_volume",
+      "label": "Exported cell_volume",
+      "unit": "unspecified",
+      "association": "point",
+      "origin": "source",
+      "static": true,
+      "range": [
+        2.27078317e-07,
+        0.0002475259826
+      ],
+      "array": {
+        "path": "cell_volume.f64",
+        "dtype": "float64",
+        "byteOrder": "little",
+        "shape": [
+          18706
+        ],
+        "byteLength": 149648,
+        "sha256": "78da6e397e9ac0b52378fb2c0c1e0217b687cf414edfe6d081d60dc9b524d0de"
+      }
+    }
+  ],
+  "defaultScalar": "velocity_magnitude",
+  "provenanceSHA256": "00d7b28a4dbbcfadb9818497f9a0fbaa80789880d495515dce5ee0354393493d",
+  "attributionSHA256": "6090c6af91a2a5416853762db0c5f5ccb17f54037974554b49378e4b10689330",
+  "limitations": [
+    "No original cell connectivity or boundary patch IDs.",
+    "No density, force or residual history.",
+    "Two-dimensional fields; no spanwise velocity.",
+    "Exported speed differs from the norm of exported velocity components.",
+    "cell_volume units are undocumented and are not inferred.",
+    "Native v3 import/render acceptance remains pending.",
+    "Test-only sparse snapshots; not the longer playback recording."
+  ]
+}

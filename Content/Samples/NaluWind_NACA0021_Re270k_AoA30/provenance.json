@@ -1,0 +1,60 @@
+{
+  "id": "NaluWind_NACA0021_Re270k_AoA30",
+  "title": "NACA 0021 · Re 270,000 · 30° · IDDES force history",
+  "source_url": "https://data.nlr.gov/submissions/311",
+  "doi": "10.7799/3014033",
+  "citation": "Bidadi, Shreyas, Ganesh Vijayakumar, Ashesh Sharma, and Michael Sprague. 2026. High-Fidelity Simulation Aerodynamics Dataset of NACA 0012 and 0021 Airfoils. NLR Data Catalog. DOI: 10.7799/3014033.",
+  "attribution": "Source data: DOE/NREL/ALLIANCE (now published by the National Laboratory of the Rockies). No endorsement is implied.",
+  "archive_url": "https://data.nlr.gov/system/files/311/1768508676-NACA0021_0.zip",
+  "archive_sha256": "ba73dce1088772e014c81539905847a5d2783c92028b830125af80721c6c94ec",
+  "archive_member": "NACA0021/Re_270k_aoa_30.dat",
+  "sha256": {
+    "source/Re_270k_aoa_30.dat": "f8faf9694f41ffc05f3a4662aa217414275e4850351b0262732cf3def6f4116e",
+    "source/LICENSE.txt": "be238a4885ef46666b3ec36edcf5ff98122aa637f90bb30a7b5adab3cd7fbc45"
+  },
+  "license_url": "https://data.nlr.gov/node/311/license",
+  "paper": {
+    "doi": "10.1080/14685248.2023.2225141",
+    "author_manuscript_url": "https://www.osti.gov/servlets/purl/1992015",
+    "sha256": "76f726edcc411e83ae9163b08e12a7a699ede5477095ceb9d033a578a77a0e2a",
+    "relevant_pages": [
+      7,
+      12
+    ]
+  },
+  "cross_check": {
+    "repository": "https://github.com/kynema/kynema-benchmarks",
+    "commit": "a798c64862836e2e0a5e2dfd48f6af490e546d8f",
+    "identical_data_path": "kynema-ugf/3D_airfoil_IDDES/NACA-0021/aoa_30/raw_data/iddes-sou-240-257-121_v2_0021.dat",
+    "method_path": "kynema-ugf/3D_airfoil_IDDES/NACA-0021/plots/plot_lift_drag.py",
+    "method_sha256": "01a3fb0930eeed2da600b19978f157bfdcf362d07dddd432c7e6babf5e604be4",
+    "comparison": "Entire force file is byte-identical, including header and all 6,967 samples.",
+    "grid_points": [
+      240,
+      257,
+      121
+    ]
+  },
+  "normalization": {
+    "density_kg_m3": 1.2,
+    "freestream_speed_m_s": 50,
+    "reference_area_m2": 4,
+    "denominator_N": 6000,
+    "CL": "(Fpy + Fvy) / 6000",
+    "CD": "(Fpx + Fvx) / 6000",
+    "method": "Same component summation and normalization as the authors plotting script; retain individual time samples rather than the script average of its last 4,000 rows."
+  },
+  "time": {
+    "unit": "s",
+    "first": 0.4004,
+    "last": 3.1868,
+    "interval": 0.0004,
+    "count": 6967,
+    "note": "Original solver time is retained. Simulation begins before this stored IDDES segment. Coefficients are not offset to a different recording."
+  },
+  "limitations": [
+    "Force history only: no mesh, flow frames, residuals or pressure field are supplied by this fixture.",
+    "Independent Nalu-Wind run; must not be attached to the bundled SU2 recordings.",
+    "Geometry has four-chord span; coefficients follow the authors normalization for this run."
+  ]
+}

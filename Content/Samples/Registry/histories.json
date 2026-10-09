@@ -1,0 +1,10 @@
+{
+  "histories": [
+    {
+      "id": "NaluWind_NACA0021_Re270k_AoA30",
+      "title": "NACA 0021 · Re 270,000 · 30° · IDDES force history",
+      "path": "NaluWind_NACA0021_Re270k_AoA30/history.json",
+      "metadataSHA256": "251d617b30731e247315acc3a46eef7ba81ed76385a1687543bfe9e0bc492086"
+    }
+  ]
+}
