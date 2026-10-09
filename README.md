@@ -2,9 +2,139 @@
 
 A fresh Unreal Engine 5 Solve workspace for a custom lattice Boltzmann solver. The current backend replays **two published SU2 trajectories with 601 snapshots each** from DeepMind's published [MeshGraphNets Airfoil dataset](https://github.com/google-deepmind/deepmind-research/tree/master/meshgraphnets), test trajectories 009 and 010. It also imports the verified external NACA 0018 point recording: 8,000 original snapshots covering 19.9975 seconds of physical evolution. The custom lattice Boltzmann solver is not connected yet.
 
+## Getting started: contributors and AI agents
+
+**Start here on a fresh checkout.** The maintained build, launch and validation scripts target **Apple Silicon macOS with Unreal Engine 5.8.1**. Windows is listed in the project descriptor, but these scripts use Mac executables and ARM64 packaging paths. HOME4 remains stubbed; its solver repository and a GPU compute cluster are not needed to develop the frontend.
+
+### 1. Install Unreal and the Mac toolchain
+
+Install these dependencies before asking an agent to build:
+
+| Dependency | Setup |
+| --- | --- |
+| Unreal Engine **5.8.1** | Install through the [Epic Games Launcher](https://www.unrealengine.com/download), including Mac platform support. The default location is `/Users/Shared/Epic Games/UE_5.8`. The engine is separate from this Git repository. |
+| Full **Xcode** | Choose a version compatible with your macOS and UE 5.8. Epic currently recommends **Xcode 26.1.1** and explicitly excludes 26.4 in its [Mac development requirements](https://dev.epicgames.com/documentation/en-us/unreal-engine/macos-development-requirements-for-unreal-engine). Command Line Tools alone are insufficient for this workflow. See the Xcode 27 note below if reproducing the reference machine. |
+| **Metal Toolchain** | Install through Xcode's Components settings or the command below. It is needed for shader compilation. See [Apple's component installation guide](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components). |
+| Host **Python 3.11+**, Git and **ripgrep** (`rg`) | Make them available on the terminal/agent's `PATH`. Validation tools use `hashlib.file_digest`, which requires Python 3.11+. Base build and validation scripts use the Python standard library. |
+| Pinned **FreeCAD 1.1.0 ARM64 / Python 3.11** | Required for STEP/IGES preparation, the complete headless test suite and packaging. Install and stage it in step 3. This dependency is separate from the HOME4 solver. |
+
+Select your full Xcode installation, complete its first-launch setup and install Metal. Adjust the path if Xcode has a different name:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+xcodebuild -downloadComponent MetalToolchain
+```
+
+Complete any Xcode license prompt before continuing. [Apple documents how to select the active Xcode installation](https://developer.apple.com/library/archive/technotes/tn2339/_index.html).
+
+**Reference-machine exception: Xcode 27.** This repo has been built with UE 5.8.1, macOS 27 and Xcode 27.0. That engine installation has a local change in `Engine/Config/Apple/Apple_SDK.json`: `MaxVersion` was raised from `26.9.0` to `27.9.0`. Cloning the repo does **not** apply that change. Prefer Epic's compatible Xcode version for a new setup. If deliberately reproducing the Xcode 27 environment, back up that engine file, check the installed versions, and make only that `MaxVersion` change before rebuilding and validating. This bypasses a version check; it does not establish Epic support for Xcode 27. Do not create a per-project SDK override: with an installed engine, it can redirect precompiled Mac platform modules into missing project binary paths.
+
+### 2. Clone and verify the environment
+
+Clone the repository, then run subsequent commands from its root:
+
+```sh
+git clone https://github.com/opensailing/wind.git
+cd wind
+export UE_ENGINE_PATH="/Users/Shared/Epic Games/UE_5.8"
+```
+
+`UE_ENGINE_PATH` is the directory **containing** `Engine/`, not `Engine/` itself or `UnrealEditor.app`. Export it in each new terminal/agent session, or persist it in your shell configuration. The scripts use the location above when the variable is unset; `LBMStudio.uproject` associates the project with UE 5.8. Keep 5.8.1 for the initial build rather than upgrading the engine during setup.
+
+Run this preflight before a long build:
+
+```sh
+uname -m                              # Expected: arm64
+xcode-select -p                       # Expected: a full Xcode.app developer directory
+xcodebuild -version
+xcrun --sdk macosx metal -v            # Must find and run the Metal compiler
+python3 -c 'import sys; print(sys.version); assert sys.version_info >= (3, 11)'
+rg --version
+cat "$UE_ENGINE_PATH/Engine/Build/Build.version"
+test -x "$UE_ENGINE_PATH/Engine/Build/BatchFiles/Mac/Build.sh"
+test -x "$UE_ENGINE_PATH/Engine/Binaries/Mac/UnrealEditor-Cmd"
+test -x "$UE_ENGINE_PATH/Engine/Binaries/ThirdParty/DotNet/10.0/mac-arm64/dotnet"
+```
+
+The final three commands should exit successfully. Use Unreal's bundled .NET and Python for its build tools and material scripts; there is no separate system .NET or `pip install unreal` prerequisite. An Xcode workspace does not need to be generated manually for the command-line workflow.
+
+### 3. Stage the CAD runtime
+
+Download the exact [FreeCAD 1.1.0 macOS ARM64 / Python 3.11 installer](https://github.com/FreeCAD/FreeCAD/releases/download/1.1.0/FreeCAD_1.1.0-macOS-arm64-py311.dmg). The SHA-256 below matches the release's [checksum file](https://github.com/FreeCAD/FreeCAD/releases/download/1.1.0/FreeCAD_1.1.0-macOS-arm64-py311.dmg-SHA256.txt):
+
+```sh
+mkdir -p tmp/setup
+curl --fail --location --retry 3 \
+  'https://github.com/FreeCAD/FreeCAD/releases/download/1.1.0/FreeCAD_1.1.0-macOS-arm64-py311.dmg' \
+  --output tmp/setup/FreeCAD_1.1.0-macOS-arm64-py311.dmg
+printf '%s\n' '52b069f86471ccf4fdd535c42cd9b74b9a8079a7abfd0f51ff19b0a30c6d795b  tmp/setup/FreeCAD_1.1.0-macOS-arm64-py311.dmg' | shasum -a 256 -c -
+```
+
+After verification, mount the DMG and copy `FreeCAD.app` into `/Applications`. If keeping it elsewhere, set `HOME4_FREECAD_RESOURCES` to that app's `Contents/Resources` directory. The GUI does not need to stay open. Stage the headless dependency:
+
+```sh
+export HOME4_FREECAD_RESOURCES="/Applications/FreeCAD.app/Contents/Resources"
+python3 Tools/stage_home4_cad_runtime.py Content/ThirdParty/Home4CAD
+```
+
+The staging tool checks package versions/builds/checksums and native binaries against [the committed source manifest](Tools/ThirdParty/home4-cad-source.json), copies a relocatable runtime and verifies an isolated CAD operation. It needs network access on first use for upstream licenses and pinned dependency archives. A different FreeCAD build can fail even if it reports version 1.1.0; use the pinned installer rather than weakening the checks. The generated `Content/ThirdParty/Home4CAD/` directory is ignored by Git. After a helper or dependency update, rerun with `--refresh` to replace a recognized generated runtime transactionally.
+
+### 4. Build and establish a baseline
+
+Close existing LBMStudio/Unreal sessions, then run these **sequentially**:
+
+```sh
+Tools/build.sh
+python3 Tools/validate.py
+python3 Tools/validate_render.py
+```
+
+`build.sh` verifies/imports the bundled SU2 samples, compiles `LBMStudioEditor` and creates the runtime materials through Unreal's Python plugin. Full headless validation requires the CAD runtime from step 3; `build.sh` does not stage it. The original sample inputs, recording fixtures and material assets are checked in, so the large external recordings are unnecessary for this baseline. First builds and shader compilation take longer than incremental runs; inspect the logs below while they run.
+
+| Command | Successful result / evidence |
+| --- | --- |
+| `Tools/build.sh` | Prints `Build and runtime materials ready.`; compiler and material logs are in `tmp/debug/`, starting with `editor-build.log` and `materials.log`. |
+| `python3 Tools/validate.py` | Compiles and runs the complete [headless catalog](Tools/headless-tests.json) with NullRHI. Exit 0 and `passed: true` in the new `tmp/debug/headless-*/summary.json`. |
+| `python3 Tools/validate_render.py` | Compiles and runs the production renderer on Metal without a window. Exit 0 and `passed: true` in the new `tmp/debug/windowless-render-*/summary.json`. |
+
+These checks need no screenshots, mouse/keyboard automation or foreground application. NullRHI covers model/virtual Slate behavior; the separate Metal check covers rendering. A successful compile alone does not establish either test result.
+
+### 5. Run or package the app
+
+```sh
+Tools/run.sh                 # Standalone app through the Editor runtime; close before the next command
+Tools/package.sh             # Build Game, finalize, cook, stage, package and verify
+Tools/run.sh --packaged      # Launch Packaged/Mac/LBMStudio.app
+```
+
+The launchers do not build missing executables. Run `build.sh` before the first package, because `package.sh` expects the Editor module to exist. Packaging refreshes the CAD runtime, uses Unreal's bundled ARM64 .NET, and writes `tmp/debug/game-build.log`, `postbuild.log` and `package.log`. Its resulting `.app` includes the CAD runtime; the recipient does not need Unreal or FreeCAD installed. This is a local Development package; see [Sharing with another Mac](#sharing-with-another-mac) for distribution signing and startup verification.
+
+### Working instructions for an AI agent
+
+- **Use the repo's entry points.** Read `Tools/build.sh`, `Tools/package.sh`, `Tools/run_studio.py`, `Tools/validate.py` and `Tools/validate_render.py` before inventing build commands. `LBMStudioEditor` is the Editor target; `LBMStudio` is the packaged Game target. Preserve the `-LLM` handling and the package script's separate `ApplePostBuildSync` step with `-NoUBA`; they address documented Mac startup/build failures.
+- **Keep Unreal execution serial.** The tools share `Tools/runtime_lane.py` and reject overlapping sessions. Wait for the owning build/test, or close the app normally. Do not delete the lock or kill unrelated Unreal/crash-reporter processes to bypass it. Parallel agents may inspect or edit independent files, but source must remain unchanged during validation so its fingerprints stay valid.
+- **Validate headlessly first.** For a focused change, use `python3 Tools/validate.py --suite Studio.FlowConditions.` (choose a prefix from the catalog). Use the Metal validator for renderer changes. `--no-build` checks an existing module and must not be presented as compiling new source. Read the latest run's JSON and log paths; historical `tmp/` evidence mentioned elsewhere in this README is local and will not exist on a new clone.
+- **Keep source and generated output distinct.** `Source/LBMStudio/`, `Config/`, `Tools/`, `Build/Mac/Resources/` and the supplied `Content/Samples/` inputs are project files. `Binaries/`, `Intermediate/`, `Saved/`, `DerivedDataCache/`, `Packaged/`, `tmp/` and the staged CAD runtime are ignored outputs. Material generation and sample imports can modify tracked `.uasset`/recording files: review `git diff` before committing. Put scratch work under `tmp/` and commit completed changes atomically.
+- **Keep HOME4 stubbed and CFD provenance intact.** UI/configuration/diagnostic work does not require the real solver. Use the published recordings or explicitly labeled test fixtures; do not fabricate replacement CFD output to make a demo or test pass. Native dialogs, visual reviews and long stability runs have separate targeted workflows below.
+
+### Setup troubleshooting
+
+| Symptom | Next action |
+| --- | --- |
+| Engine executable missing or `UE_ENGINE_PATH` rejected | Check the directory level and `Engine/Build/Build.version`; select the installed 5.8.1 engine. |
+| Invalid Mac SDK / Xcode version outside the accepted range | Check `xcode-select -p`, `xcodebuild -version` and the selected engine's `Apple_SDK.json`. Select a compatible full Xcode; see the explicit Xcode 27 exception in step 1. |
+| Metal compiler missing | Complete Xcode first launch, install the Metal component, then rerun `xcrun --sdk macosx metal -v`. |
+| `No module named unreal`, missing material or missing Editor module | Run `Tools/build.sh`; material scripts execute inside `UnrealEditor-Cmd`, not host `python3`. Read the corresponding `tmp/debug/*material*.log` or `editor-build.log`. |
+| Missing CAD interpreter / pinned CAD dependency mismatch | Complete step 3 with the exact installer and correct Resources path. Check `Content/ThirdParty/Home4CAD/runtime-manifest.json`; use `--refresh` only for an existing generated runtime. |
+
+For a build/package command that exits without printing the compiler error, inspect its redirected log under `tmp/debug/`. For `Unreal execution is in use`, let the current owner finish. If a test times out during first-use shaders, inspect its log before rerunning with the validator's `--timeout` option; retain the failed report.
+
+**Optional scientific tooling:** the base workflow above needs no host pip packages. Independent image/movie/field audits use Pillow, NumPy, VTK and `ffmpeg`/`ffprobe`; original HDF5 import additionally uses h5py, and the Python HOME4 archive utility uses NumPy. Install these only for the corresponding workflows, in a separate environment such as `tmp/venv-audit` (`python3 -m venv tmp/venv-audit`). They are not Unreal material-script dependencies.
+
 ## Run
 
-On the development Mac:
+On a Mac with the setup above completed:
 
 ```bash
 Tools/build.sh
@@ -52,14 +182,14 @@ Builds, packaged apps, logs, temporary plans, captures and Python caches stay ou
 Use this for routine development checks; it needs no screenshots or desktop interaction:
 
 ```sh
-python3 Tools/validate.py                                 # Compile, then all 288 headless tests
+python3 Tools/validate.py                                 # Compile, then all cataloged headless tests
 python3 Tools/validate.py --suite Studio.HeadlessUI.       # Compile, then virtual Slate workflows
 python3 Tools/validate.py --no-build --suite Studio.FlowConditions. # Explicit existing-module check
 ```
 
 The default command compiles the Editor module with unity enabled, then runs Unreal Automation using `-nullrhi -RenderOffscreen`. A reviewed catalog in `Tools/headless-tests.json` makes missing, skipped, duplicate or unexpected tests fail. Each run creates a fresh `tmp/debug/headless-*/summary.json` containing failures, warnings, source/module hashes and process ownership, plus raw build/test logs. Exit code zero means the requested checks passed. `--no-build` is explicitly reported and does not establish compilation of current source.
 
-`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. Two Flow Conditions workflows cover 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. Three Help widget cases exercise the panel and real routed keyboard behavior at 1280 × 720 and 1320 × 740; two additional Help model cases verify diagnostics and guidance. The current catalog has 280 model cases and eight virtual Slate cases, totaling 288, including five notification cases (two model and three widget). Routine validation is headless and writes zero images; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
+`FStudioHeadlessSlate` hosts real widgets in a virtual window with an isolated cursor/input adapter. It routes Slate keyboard events, measures layout and writes tagged control text, bounds, focus and enabled state to `widgets/*.json`. Two Flow Conditions workflows cover 300- and 360-unit inspector widths: typing, units popup, calculator, invalid-input recovery, Apply/Revert, conflicts, undo/redo and camera/frame isolation. Three Help widget cases exercise the panel and real routed keyboard behavior at 1280 × 720 and 1320 × 740; two additional Help model cases verify diagnostics and guidance. `Tools/headless-tests.json` is the source of truth for the current test names and count, including the HOME4 model and widget cases. Routine validation is headless and writes zero images; other native UI suites have not yet migrated. Future behavior checks should use this harness wherever a native window is unnecessary. Add new headless cases to the catalog in the same commit.
 
 Check the production CFD renderer on Metal without a window, desktop input or screenshots:
 
@@ -68,7 +198,7 @@ python3 Tools/validate_render.py             # Compile, then windowless GPU regr
 python3 Tools/validate_render.py --no-build  # Explicit existing-module check
 ```
 
-This command runs `StudioRenderValidation` through `UnrealEditor-Cmd -AllowCommandletRendering -RenderOffscreen`. It owns an isolated world with no game viewport or top-level Slate windows. Eleven cases use the original SU2 wing trajectory and the attributed three-frame 3D cylinder fixture: different original times, independent camera changes, inside perspective/orthographic views, clipping, isosurfaces, restored pixels and a frame-consistent snapshot. It compares original frame headers and identities independently, checks visible pixel counts and resource bounds, compares snapshot pixels to the live render target, and verifies idle/hidden capture suppression. No CFD values are generated. Routine renderer validation is headless and writes zero images; the separate optional `-StudioHelpReview=<dir>` flag deliberately writes offscreen visual-review artifacts. The sparse cylinder fixture is a renderer regression input; full animation and long-session acceptance use the complete recording.
+This command runs `StudioRenderValidation` through `UnrealEditor-Cmd -AllowCommandletRendering -RenderOffscreen`. It owns an isolated world with no game viewport or top-level Slate windows. Eleven cases use the original SU2 wing trajectory and the attributed three-frame 3D cylinder fixture: different original times, independent camera changes, inside perspective/orthographic views, clipping, isosurfaces, restored pixels and a frame-consistent snapshot. Seven additional HOME4 cases use explicitly artificial fixtures to check XY/XZ/YZ source slices and diagnostic masks. It compares original frame headers and identities independently, checks visible pixel counts and resource bounds, compares snapshot pixels to the live render target, and verifies idle/hidden capture suppression. Published CFD values are not replaced with generated data. Routine renderer validation is headless and writes zero images; the separate optional `-StudioHelpReview=<dir>` flag deliberately writes offscreen visual-review artifacts. The sparse cylinder fixture is a renderer regression input; full animation and long-session acceptance use the complete recording.
 
 Each run writes `tmp/debug/windowless-render-*/summary.json`, `renderer.json`, logs, source/material/recording/module hashes and owned-process reports. Missing cases, wrong original identities, blank renders, failed checks or cleanup problems fail the command. First use can compile shaders; the default process deadline is 600 seconds. Later runs reuse Unreal's shader cache. `--no-build` does not establish current-source compilation.
 
@@ -514,7 +644,7 @@ The dedicated mixed-use runner records the exact binary/source hashes, process i
 
 ## Reference environment
 
-Unreal 5.8.1, Apple Silicon, macOS 27, Xcode 27. The Apple Metal Toolchain must be installed (`xcodebuild -downloadComponent MetalToolchain`). On this machine UE's `Engine/Config/Apple/Apple_SDK.json` maximum was raised from 26.9.0 to 27.9.0 to accept Xcode 27. This is a local compatibility adjustment, not an assertion of Epic's support. Do not use a per-project SDK override with the installed engine: it can redirect precompiled Mac platform modules into missing project binary paths.
+Unreal 5.8.1, Apple Silicon, macOS 27 and Xcode 27.0 with the separately installed Metal Toolchain. See [contributor setup](#1-install-unreal-and-the-mac-toolchain) for the required local Unreal SDK adjustment and the compatible-Xcode alternative. That engine adjustment is outside Git.
 
 The previous project is preserved locally in `tmp/legacy-recovery-2026-09-26/` and is excluded from builds and version control.
 
