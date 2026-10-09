@@ -1,0 +1,664 @@
+% FRONTEND_DESIGN.tex -- what the LBM Solver Studio frontend must carry for the
+% WB HOME4 D3Q27 hydro + phase-field stack, and what would make it exceptional.
+% Design note, 2026-10-05.  Compile: latexmk -pdf FRONTEND_DESIGN.tex
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs,longtable,array,multirow}
+\usepackage{siunitx}
+\usepackage[expansion=false]{microtype}
+\usepackage{enumitem}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{xcolor}
+\usepackage{float}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\usepackage{listings}
+\setlist{nosep,leftmargin=1.5em}
+\sisetup{range-phrase=--,range-units=single,per-mode=symbol}
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true,breaklines=true,frame=single,framerule=0.3pt}
+\newcommand{\Ma}{\mathrm{Ma}}
+\renewcommand{\Re}{\mathrm{Re}}
+\newcommand{\Fr}{\mathrm{Fr}}
+\newcommand{\Bo}{\mathrm{Bo}}
+\newcommand{\We}{\mathrm{We}}
+\newcommand{\Ca}{\mathrm{Ca}}
+\newcommand{\Pe}{\mathrm{Pe}}
+\newcommand{\Cn}{\mathrm{Cn}}
+\newcommand{\Kn}{\mathrm{Kn}}
+\newcommand{\At}{\mathrm{At}}
+\newcommand{\KC}{\mathrm{KC}}
+\newcommand{\Ga}{\mathrm{Ga}}
+\newcommand{\cs}{c_s}
+\newcommand{\ps}{p^\ast}
+\newcommand{\pd}{p_d}
+\newcommand{\Pih}{\Pi_h}
+\newcommand{\Mcells}{\,\mathrm{Mcells}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\todo}[1]{\textcolor{red!70!black}{[#1]}}
+\newcommand{\have}{\textcolor{green!45!black}{exists}}
+\newcommand{\addme}{\textcolor{orange!80!black}{add}}
+\newcommand{\gui}{\textcolor{blue!55!black}{GUI}}
+
+\title{\textbf{FRONTEND\_DESIGN} --- what \emph{LBM Solver Studio} must carry for the
+WB HOME4 D3Q27 hydro + phase-field stack, and what would set it apart\\[2pt]
+\large Design note for the frontend build}
+\author{HOME4 project note}
+\date{2026-10-05}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent The first prototype of \emph{LBM Solver Studio} is a clean, well-built shell
+whose \emph{shape} was borrowed from finite-volume Navier--Stokes products (Fluent,
+SU2, STAR): a meshing step, material properties, a solver page, residual-style
+monitors, and a post-processor. HOME4 has none of the first three in that form and
+offers several things an FV code cannot. This note gives the frontend engineer the
+dozen facts about the solver that should shape the interface, a specific critique of
+the prototype, a replacement information architecture, and inventories --- fields,
+monitors, forces, zones, multidomain, run/backends, outputs, viewer --- each mapped to
+the solver attribute or driver flag that supplies it, marked \have\ (the code
+already produces it) or \addme\ (a small solver-side addition is needed). It closes
+with the ranked list of features that would make the product different from every
+other CFD front end, a phased build sequence, a proposed telemetry schema so the GUI
+never has to import \code{torch}, and a worked map of the \path{run_hull_speed.py}
+flags onto controls. The thesis in one sentence: \textbf{organise the interface
+around lattice units, ledgers and budgets, the diffuse interface, and validated
+recipes --- not around meshing, residuals and materials.}
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{Scope}
+%======================================================================
+This note covers the 3-D stack in \path{home4_hydro_phase_3d}: the single-domain
+velocity-based D3Q27 solver (\path{home4_3d_multiphase.py}), the well-balanced
+layer (\path{home4_3d_wb.py}), the FSI and moving-body layers
+(\path{home4_3d_fsi_solver.py}, \path{home4_3d_moving_fsi.py},
+\path{hull_moving.py}), the multidomain stack (\path{home4_3d_md_*.py},
+\path{multidomain_nlevel.py}), the CAD$\to$SDF pipeline (\path{cad_sdf.py}), the
+run drivers (\path{run_*.py}), the PyVista viewer (\path{kinetic_viz/}) and the
+rack workflow (\code{rack/}, \path{RACK_HANDOFF.md}). The mathematical content is
+in \path{home4_3d_hydro_phase_math.tex}; equation references below point there.
+The 2-D stack is out of scope but the same architecture applies.
+
+The note is written for someone who will build the interface without having read
+the solver. Where it says ``the solver stores $X$'' it names the attribute. Where it
+proposes a new diagnostic it says what has to be added and roughly where.
+
+%======================================================================
+\section{Twelve facts about the solver that should shape the interface}\label{sec:facts}
+%======================================================================
+\begin{enumerate}[leftmargin=2em]
+\item \textbf{Everything runs in lattice units.} Lengths in cells, time in steps,
+  speed in cells/step with $\cs = 1/\sqrt3$. Physical units are a \emph{map} chosen at
+  setup ($\Delta x$, $\Delta t$, $\rho_{\rm ref}$), not a property of the fields. The
+  user, however, thinks in $\Re$, $\Fr$, $\Bo$, $\We$, $\Ca$, $\Pe$, $\At$, $\KC$,
+  $\Ga$; every benchmark is specified and reported that way (math note \S2.2).
+\item \textbf{There is no mesh.} There is a Cartesian lattice ($N_x\times N_y\times N_z$),
+  a signed-distance band around CAD bodies (\path{cad_sdf.py}: tessellate, weld,
+  orient, band distance, winding-number sign, EDT completion), cut links with
+  interpolation weights, and multidomain refinement patches with factor-2 levels.
+  ``Meshing'' as a stage does not exist; ``Lattice'' and ``Geometry'' do.
+\item \textbf{The scheme is explicit and time-accurate.} There are no iterations
+  within a step, hence no residual to converge. The natural health signals are
+  conservation ledgers, budget closures and agreement between independent channels
+  (\S\ref{sec:monitors}).
+\item \textbf{The zeroth moment is pressure, not density.} The hydro population $g$
+  carries $\ps$ (normalised pressure); $\rho$ is a function of $\phi$
+  (\path{update_density_from_phi}). Under the WB layer $\ps$ \emph{is} the dynamic
+  pressure $\pd$ and the hydrostatic head $\Pih$ is carried separately; physical
+  pressure is reassembled as $p = \rho\cs^2\pd + (\Pih-\Pih^0)$
+  (\path{WBFSI3D.measure_forces}).
+\item \textbf{The strain rate is a state variable.} $S_{ab}$ (six components) is
+  stored and relaxed in closed form; $u$, $\ps$, $S$ and the seven tied third-order
+  closures $a^{(3)}$ are the hydro state. Dissipation $2\nu S\!:\!S$, enstrophy and
+  $Q$ come without finite differencing.
+\item \textbf{Relaxation time is a field.} $\tau(\phi)$ (\path{tau_fld}) runs
+  between $\tau_H$ and $\tau_L$; the light phase is the dangerous end
+  ($\nu_L$ small, $\tau_L\to\tfrac12$).
+\item \textbf{The interface is a diffuse object with its own parameters.} $\xi$ in
+  cells (4--5), $\sigma$, mobility $M$, four phase relaxation rates
+  $(s_T, s_{D1}, s_{D2}, s_{xy})$, the \code{muphi} force form, and two
+  load-bearing safeguards (gradient limiter at $1.6\times$ the tanh slope; force
+  thresholding at $60|F_b|$ with factor $0.6$ where $\phi<0.1$; math note \S5.3).
+\item \textbf{Forces are a decomposition.} $F = F_s + F_p + F_\nu + F_b$
+  (single domain) or $F_s + F_p(\pd) + F_\nu + F_{\rm tilt}$ (WB), each a
+  $[3,N_x,N_y,N_z]$ field the user may want to see separately.
+\item \textbf{Bodies are SDF bands, and moving them has a cost cliff.} Static mask:
+  47.8 MLUPS; per-step retabulation: 5.9 (oscillating cylinder) and 0.63
+  (sedimentation) on the M1 Pro (math note, performance summary table). Two
+  independent force channels exist: stress integral and momentum exchange.
+\item \textbf{Multidomain has per-level physics.} With $k=2^d$:
+  $\nu^{(d)}=\nu_0 k$ (or a $\tau$ floor), $\sigma^{(d)}=\sigma_0 k$,
+  $M^{(d)}=M_0 k$, $g^{(d)}=g_0/k$; $\xi$ is fixed in \emph{root} cells; mobility is a
+  fine-level quantity; each level keeps a mass ledger (math note \S10.5, Prop.~10.1).
+\item \textbf{Three backends, one of them silently slow.} Metal (Mac), CUDA
+  (rack), or the pure-PyTorch fallback when the extension fails to import --- tens of
+  times slower with no other symptom than a stdout line. The code is
+  bandwidth-bound ($\sim$500 B/node/step for two-buffer D3Q27).
+\item \textbf{Four kinds of output already exist.} Traces (every $N$ steps),
+  mid-span slices, full 3-D viz snapshots (\path{kinetic_viz.data.save_snapshot}:
+  \code{ux}, \code{uy}, \code{uz}, \code{phi}, \code{solid}, \code{iteration}, \code{spacing}, \code{origin}; atomic rename), and restart
+  checkpoints (\path{save_state}: the full moment state incl.\ $S$, $a^{(3)}$,
+  $J_\phi$, $P_\phi$). They are different things and belong on the timeline as
+  different markers.
+\end{enumerate}
+
+\begin{table}[H]
+\centering\small
+\caption{Translation table for the frontend engineer: the FV concept the prototype
+was modelled on, and the HOME4 counterpart.}
+\begin{tabular}{L{4.2cm}L{10.8cm}}
+\toprule
+FV-GUI concept & HOME4 counterpart \\
+\midrule
+Mesh / meshing & Lattice resolution + unit map; SDF band from CAD; cut links; MD levels \\
+Material properties & Two fluids ($\rho_H,\rho_L,\nu_H,\nu_L$) and an interface ($\sigma,\xi,M,s^\phi$) \\
+Residual convergence & Ledgers (mass, energy), channel agreement (forces), rest tests (WB) \\
+CFL number & Lattice Mach $U/\cs$ and $\tau$ margin; interface $\Pe$ and $\Cn$ \\
+Pressure field & $\ps$, $\pd$, $\Pih$, reassembled $p$ --- four layers, not one \\
+Velocity gradient (post-processed) & $S_{ab}$ stored; dissipation/enstrophy/$Q$ exact from state \\
+Turbulence model panel & None; instead the kinetic layer ($S^{\rm neq}$, $a^{(3)}$, filtered $a^{(4)}$) \\
+Inlet/outlet/wall BCs & Plus sponges, beaches, wave absorption, phase-wall pinning, mass correction \\
+Time step size & Fixed by the lattice; the knobs are $N$, $U$ (Ma) and $\tau$ \\
+Checkpoint & Viz snapshot \emph{or} restart state; not the same file \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{The prototype: keep, change, remove}\label{sec:proto}
+%======================================================================
+\paragraph{Keep.} The visual language (dark, quiet, dockable panels with
+collapse buttons), the top bar (Run / Pause / Stop / Step / Export), the playback bar
+with a snapshot index, the axes gizmo, the colour-scale panel with a ``source
+range'' line, the view presets (Flow overview, Perspective), the notification
+bell, and the recovery banner. \emph{Step} is especially right for an LBM: one step
+is cheap and well-defined; add ``step $N$'' and ``run to $t^\ast=\ldots$''.
+
+\paragraph{Change.}
+\begin{itemize}
+\item The colour bar reads \qtyrange{0.005}{397}{m/s} for an airfoil. At lattice
+  Mach above $\sim$0.3 this solver diverges; 397 m/s is supersonic in air. The demo
+  numbers show the shell has no notion of the unit map. Every scalar readout needs
+  lattice, physical and nondimensional forms, with one global toggle and the other
+  two in a tooltip.
+\item The playback bar shows ``frame 600, 0.1200 s''. Show step, physical time, and
+  nondimensional time ($t/T$, $tU/L$, $t/t_0$) together; the last is the one every
+  validation plot is drawn against.
+\item The demo project is ``Airfoil SU2 009'' (single-phase, compressible, FV). The
+  shipped example projects should be the validated recipes (\S\ref{sec:recipes}).
+\item ``Meshing'' $\to$ \emph{Lattice}. ``Materials'' $\to$ \emph{Fluids \& Interface}.
+  ``Boundary Conditions'' $\to$ \emph{Boundaries \& Zones}. ``Solver'' $\to$
+  \emph{Run}. ``Results'' and ``Post-Processing'' merge into \emph{Fields} and
+  \emph{Reports}; add \emph{Bodies} and \emph{Validation}.
+\item The status line ``RECORDED CFD'' is honest and should stay as a mode badge:
+  \emph{live}, \emph{replay}, \emph{remote} (job on the rack).
+\end{itemize}
+
+\paragraph{Remove.} Nothing visual. Remove the assumption that a project is one
+geometry + one mesh + one solver run; a HOME4 project is a \emph{recipe lineage}
+(\S\ref{sec:recipes}) with many runs, each a provenance \path{.npz}.
+
+%======================================================================
+\section{Information architecture}\label{sec:ia}
+%======================================================================
+Sidebar, top to bottom, and what each page owns:
+\begin{description}[style=nextline]
+\item[Dashboard] Open projects, running jobs (local and remote), last ledgers, last
+  failures with their locator (\S\ref{sec:locator}).
+\item[Projects] Recipe lineage tree; each run as a card with its \path{.npz}, tag,
+  backend, MLUPS, and gate status.
+\item[Geometry] CAD import (IGES/STEP/STL/OBJ via \path{cad_sdf.py}), attitude
+  (heel/trim/yaw/sinkage), flotation solve (\path{--float}), SDF band preview against
+  the voxel staircase, cut-link fraction, tessellation cache status.
+\item[Lattice] $N_x,N_y,N_z$; unit map; pads/air gap/depth in body lengths
+  (\path{--pad_up}, \path{--pad_down}, \path{--pad_side}, \path{--depth},
+  \path{--air}); MD levels with per-level parameters; memory and cost estimate.
+\item[Fluids \& Interface] $\rho_H,\rho_L,\nu_H,\nu_L,\sigma,\xi,M$,
+  $s^\phi$, \path{tau_method}, \path{surface_tension_form}, safeguards; the
+  dimensionless-first form (\S\ref{sec:units}) lives here.
+\item[Boundaries \& Zones] Walls, inlet/outlet with ramp, periodic axes, sponges and
+  beaches, wave absorption, phase-wall pinning ($\phi_{\rm top},\phi_{\rm bot}$),
+  mass-correction mode, drawn as translucent regions in the 3-D view.
+\item[Bodies] Fixed / forced (heave, pitch, spin) / free; mass properties, CoG,
+  stiffness matrix $K$; retabulation policy and its cost; force channels.
+\item[Run] Backend, device, block shape, output cadence (\path{--measure_every},
+  \path{--print_every}, \path{--viz-every}, \path{--save_state}), warm start
+  (\path{--init_state}), tag, outdir, queue target (local / gpulab), live CLI
+  equivalent.
+\item[Monitors] Ledgers and budgets first; forces; performance; safeguard activity.
+\item[Fields] The 3-D viewer (\S\ref{sec:viewer}).
+\item[Validation] Recipe cards with reference overlays and gates
+  (\S\ref{sec:recipes}); convergence-ladder builder.
+\item[Reports] Figures with sidecars, tables, the run's CLI line and parameter
+  block; export to the LaTeX report conventions.
+\item[Settings] Unit display, palette, viewer defaults.
+\end{description}
+
+%======================================================================
+\section{Setup: dimensionless first, with a live feasibility map}\label{sec:units}
+%======================================================================
+The user enters the dimensionless groups of the case and the lattice resolution;
+the GUI derives the lattice parameters and checks them. The relations are those
+already used in the drivers (\path{run_hull_speed.py} prints exactly this block at
+startup: $U$ in lu/step, $\tau$, $\Re_L$, $U/\cs$, $\Fr_h$):
+\begin{align}
+\nu &= \cs^2\,(\tau-\tfrac12), \qquad \Ma = U/\cs, \qquad \Re = \frac{UL}{\nu}
+      = \frac{\Ma\,L}{\cs(\tau-\tfrac12)}, \\
+\Kn &\approx \frac{\Ma}{\Re} = \frac{\cs(\tau-\tfrac12)}{L}, \qquad
+\Cn = \frac{\xi}{L}, \qquad \Pe_\phi = \frac{UL}{M}, \\
+\Fr &= \frac{U}{\sqrt{gL}}, \qquad \Bo = \frac{\rho_H g L^2}{\sigma}, \qquad
+\We = \frac{\rho_H U^2 L}{\sigma}, \qquad \At = \frac{\rho_H-\rho_L}{\rho_H+\rho_L}.
+\end{align}
+For fixed $\Ma$ and $\tau$, $\Re\propto L$: resolution buys Reynolds number. The
+three-way trade ($N$, $\Ma$, $\tau$) is the central fact of LBM sizing and should be
+a \emph{live widget}: drag any one, the others respond, and the validated recipes
+are plotted as points so the safe region is visible. The widget replaces the
+Knudsen number as a display: $\Kn$ is derived from two things the user already
+controls, is tiny by construction in the hydrodynamic regime the Chapman--Enskog
+analysis assumes (math note \S6), and is best shown as a tooltip.
+
+\begin{longtable}{L{3.6cm}L{4.2cm}L{7.2cm}}
+\caption{Setup checks the GUI should run before launch. All derive from
+parameters already in the drivers.}\\
+\toprule
+Check & Rule & Message / action \\
+\midrule
+\endfirsthead
+\toprule
+Check & Rule & Message / action \\
+\midrule
+\endhead
+Lattice Mach & $U/\cs \le 0.1$ (warn), $\le 0.3$ (block) & ``Compressibility error $\sim\Ma^2$''; suggest raising $N$ or lowering $U$ \\
+$\tau$ margin & $\tau_L - \tfrac12 \ge 0.01$ (warn below) & Light phase under-resolved viscously; suggest \path{tau_method}, $\nu_L$, or MD $\tau$ floor \\
+Interface width & $4 \le \xi \le 5$ cells & Below: spurious currents and limiter firing; above: $\Cn$ too large \\
+Cahn number & $\Cn=\xi/L$ vs the recipe's & Fixed-$\Cn$ refinement means $\xi\propto N$; warn when a ladder holds $\xi$ in cells \\
+Mobility & $M$ matches recipe at the \emph{finest} level & MD: pass $M_0 = M_{\rm ref}/2^{d_{\max}}$ (defect D23) \\
+Density ratio & $\rho_H/\rho_L \ge 100$ flags safeguards & Turn on gradient limiter and force thresholding (both required at 1000:1) \\
+Memory & $\approx 350$ B/node $\times N_{\rm cell}$ (+ MD, FSI) & Compute from the allocation list, not a constant; M4 Pro MPS ceiling $79.5\Mcells$ \\
+Index width & Metal path: $27 N_{\rm cell} < 2^{32}$ ($N_{\rm cell} < 159$ M) & Block on Metal; CUDA path uses \path{size_t} \\
+Backend & extension imported? & Big badge: Metal / CUDA / \emph{PyTorch fallback (slow)} \\
+Sponge sizing & width vs expected wavelength $2\pi\Fr^2 L$ & Hull driver already compares the wake wavelength to $2\pi\Fr^2L$; use the same number to size \path{--sponge} and \path{--beach_gap} \\
+\bottomrule
+\end{longtable}
+
+%======================================================================
+\section{Field inventory}\label{sec:fields}
+%======================================================================
+Fields the viewer and the slice tools should offer, with the solver attribute that
+supplies them. Default air masking follows the lesson that $\omega c/U$ normalisation
+amplifies air-phase noise by $\sim$1600$\times$.
+
+\begin{longtable}{L{3.3cm}L{4.6cm}L{1.4cm}L{5.4cm}}
+\caption{Field inventory. ``mask'' = air phase masked by default.}\\
+\toprule
+Field & Source & Status & Notes \\
+\midrule
+\endfirsthead
+\toprule
+Field & Source & Status & Notes \\
+\midrule
+\endhead
+$\phi$ & \code{phi} & \have & Isosurface at 0.5; thickness histogram (\S\ref{sec:monitors}) \\
+$\rho(\phi)$ & \code{rho} & \have & Linear in $\phi$ \\
+$\tau(\phi)$ & \path{tau_fld} & \have & Show $\tau-\tfrac12$ log scale; the light phase is the risk \\
+$\ps$ & \path{p_star} & \have & Under WB this \emph{is} $\pd$ \\
+$\pd$, $\Pih$, $p$ & \path{p_star}, \path{compute_Pi_h}, \path{measure_forces} & \have & Three-layer pressure view; rest test $\pd=0$ \\
+$u$, $|u|$ & \code{ux,uy,uz}, \path{get_velocity_magnitude} & \have & mask for vorticity-derived quantities \\
+$S_{ab}$ & \path{Sxx..Syz} & \have & Stored state; no differencing \\
+Dissipation $2\nu S\!:\!S$ & from $S$, \path{tau_fld} & \addme & One kernel-free tensor expression; per-phase sums for the budget \\
+$\nabla\cdot u$ & \path{compute_vel_gradients} trace & \addme & Compressibility map; the observable for \path{s_bulk} \\
+$\omega$, $Q$, helicity & \path{kinetic_viz} (central differences) & \have & Could instead use $S$ + antisymmetric part from the gradient kernel \\
+$a^{(3)}$ (7), filtered $a^{(4)}$ (6) & \path{a3_*}, \path{_compute_a4_all} & \have & Kinetic layer; magnitude maps \\
+$J_\phi$, $P_\phi$ & \path{Jx_phi..Pyz_phi} & \have & Phase-moment layer; rarely needed, keep behind ``advanced'' \\
+$F_s, F_p, F_\nu, F_b, F_{\rm tilt}$ & \path{compute_all_forces} (returns the sum) & \addme & Return the terms separately behind a flag; mask \\
+$\nabla\phi$, $|\nabla\phi|$ vs $4\phi(1-\phi)/\xi$ & \path{compute_grad_phi} & \have & Limiter-engagement map = where the ratio exceeds 1.6 \\
+Solid mask, SDF, cut links & \path{fsi_solid}, SDF bundle, \code{faces} & \have & Draw the SDF zero level \emph{and} the voxel contour \\
+MD level map, bands, ghosts & \code{GridLevel} topology & \have & Colour by level; show band depth and twin rings \\
+Sponge / beach weights & \path{_build_absorb_field}, driver zones & \have & Translucent volumes with strength profile \\
+Safeguard activity & limiter/threshold masks & \addme & Boolean per cell per step; count + map \\
+\bottomrule
+\end{longtable}
+
+%======================================================================
+\section{Monitors: ledgers and budgets before anything else}\label{sec:monitors}
+%======================================================================
+There is no residual. The Monitors page should open on five health signals, each
+with a traffic-light threshold and a one-line explanation of what to do when it
+turns.
+
+\begin{longtable}{L{3.4cm}L{4.6cm}L{1.4cm}L{5.3cm}}
+\caption{Health signals and secondary monitors.}\\
+\toprule
+Monitor & Source & Status & Healthy / action \\
+\midrule
+\endfirsthead
+\toprule
+Monitor & Source & Status & Healthy / action \\
+\midrule
+\endhead
+\multicolumn{4}{l}{\emph{Primary (the five)}}\\
+$\phi$ mass ledger & \path{get_phase_mass}; hull driver's ``ledger drift''; MD per-level ledger + injections & \have & $|{\rm drift}| < 10^{-4}$; injections should not grow (positive-feedback failure, Prop.~10.1) \\
+Energy budget residual & live version of \path{h2_energy_budget.py}: $W = D_{\rm near}+D_{\rm far}+D_{\rm air}+Z_{\rm beach}+Z_{\rm floor}+\Delta KE+\Delta PE+{\rm res}$ & \addme & Residual as a bar; large residual = non-conservative operations at the body or sub-grid Stokes layer \\
+Force channel agreement & \path{measure_forces}: stress integral vs \path{MEA_ALD} & \have & Within a few \%; divergence means cut-link / retabulation trouble \\
+Steady-window bracket & driver: window mean [previous window] & \have & Bracket within tolerance = converged in time \\
+WB rest test & $\max|\pd|$ with $U=0$, full $g$ & \have & Exactly 0 at rest; any growth is a BC or MD defect \\
+\midrule
+\multicolumn{4}{l}{\emph{Secondary}}\\
+$\Ma_{\rm inst}$, $\max|u|$ + location & \path{get_max_speed}; hull driver \path{vw_loc} & \have & Location feeds the locator (\S\ref{sec:locator}) \\
+$\tau_{\min}$ & \path{tau_fld.min()} & \have & Margin to $\tfrac12$ \\
+$\|\nabla\cdot u\|$ & new & \addme & $\sim\Ma^2$; rises with acoustic ringing; knob \path{s_bulk} \\
+Interface thickness histogram & $|\nabla\phi|$ at $\phi\in(0.1,0.9)$ & \addme & Peak at $\xi$; a tail = sharpening/limiter fight \\
+Spurious current & $\max|u|$ in cells far from forcing (Laplace test) & \addme & Recipe values known from the droplet test \\
+Safeguard counts & limiter/threshold cells per step & \addme & Non-zero but flat is tolerable; climbing is a warning \\
+KE per phase, surface energy & $\tfrac12\rho|u|^2$ masked; $\sigma\times$ area of $\phi=0.5$ & \have/\addme & Feed the budget \\
+Non-finite guard & driver ``non-finite load'' check & \have & Auto-stop, auto-checkpoint last good state \\
+MLUPS inst.\ (windowed) and cum. & drivers (cum.); windowed to add & \addme & Cum.\ masks throttling; show both \\
+Achieved GB/s & bytes/node/step $\times$ MLUPS vs device peak & \addme & The honest efficiency number for a bandwidth-bound code \\
+\bottomrule
+\end{longtable}
+
+%======================================================================
+\section{Forces, bodies, attitude}\label{sec:forces}
+%======================================================================
+\path{WBFSI3D.measure_forces} returns \code{Cd, Cl, Fx, Fy, Fz} from the stress
+integral on the cut faces (with $p = \rho\cs^2\pd + (\Pih-\Pih^0)$), and
+\path{MEA_ALD} from momentum exchange when post-streaming populations are kept.
+\path{hull_moving.measure_forces_moments} adds the moment about the CoG.
+The GUI should show, per body:
+\begin{itemize}
+\item the time series of $F_x,F_y,F_z,M_y$ with the pressure and viscous parts, in the
+  benchmark normalisation ($F/mg$, $M_y/mgL$, $C_d=F_x/(\tfrac12\rho U^2 D\,N_y)$);
+\item both channels and their difference;
+\item the steady window with the previous window in brackets, and the averaging
+  length in body lengths (\path{--avg_L});
+\item for floating bodies: the hydrostatic stiffness $K$ ($k_{33},k_{35},k_{55}$) from
+  \path{hull_hydrostatics.py}, the held attitude $\zeta_{\rm eq}$, trim, and the
+  quasi-static running attitude $K^{-1}F$ next to the tank reference
+  (\path{th01_tank_data.py});
+\item for forced motion: the fitted added mass and damping (\path{period_fit.py},
+  \path{barge_roll_fit.py}) against the BEM reference
+  (\path{th01_bem_capytaine.py}) and Vugts;
+\item for free motion: the 6-DOF state, virtual-mass integrator status, and the
+  retabulation cadence with its MLUPS cost shown next to it.
+\end{itemize}
+
+%======================================================================
+\section{Boundaries and zones}\label{sec:zones}
+%======================================================================
+Half the tuning in the hull campaign is zones. Each should be a drawn region with a
+strength profile, and the GUI should size them from the expected wavelength:
+\path{--sponge} (solver sponge relaxing $\pd$ and $u$ toward the stream),
+\path{--xbeach} / \path{--xbeach_strength} (driver beach: $u\to$ stream,
+$\phi\to$ flat, $p$ untouched), \path{--beach_y}, \path{--beach_gap},
+\path{--zone_strength}, \path{--floor_fric}, \path{--mass_correct}
+\{beach, global, off\}, \path{--pierce_bc}, phase-wall pinning
+(\path{phi_top}, \path{phi_bot}, \path{pin_phase_walls}), inlet ramp
+(\path{--ramp_L}, cubic) and the hull-frame body force $\rho\,dU/dt$
+(\path{--no_frame_accel} to drop it). In MD the sponge strength is
+exponent-rescaled per level (D13); show the per-level value.
+
+%======================================================================
+\section{Multidomain}\label{sec:md}
+%======================================================================
+A dedicated view: level map coloured by level; per-level table of
+$\nu^{(d)},\sigma^{(d)},M^{(d)},g^{(d)},\tau^{(d)}$ with the $2^d$ scaling shown
+explicitly and the $\tau$-floor choice flagged as a \emph{physics} choice (it runs
+level $d$ at $2^d\times\Re$); band depth, overlap, restriction margin, even-wrap on
+periodic axes, phase-free root on/off; the hopping patch following a moving body
+(Tier 2); per-level MLUPS and mass ledger; $S^{\rm neq}$ factor mode
+(\code{dorschner} / \code{derived}). Driver flags: \path{--levels}, \path{--z1},
+\path{--z2}, \path{--margin}, \path{--even_wrap}, \path{--root_phase_free},
+\path{--sneq_mode}, \path{--no_tau_floor}, \path{--mass_fix_every},
+\path{--no_full_f2c}.
+
+%======================================================================
+\section{Run: backends, cost, queue, reproducibility}\label{sec:run}
+%======================================================================
+\paragraph{Backend badge.} Metal / CUDA / PyTorch fallback, from the extension
+import line. Never let a fallback run start without a confirmation.
+
+\paragraph{Cost estimate before launch.} From the MLUPS table (M1 Pro: RTI 84.6,
+Colagrossi 32.5, breaking wave $\sim$45, MD RTI 55.3, Magnus 47.8; per-step
+retabulation 5.9 / 0.63; rack $\sim$1.0 GLUPS on the ported kernels) and the step
+count: ``$\approx$ 4.2 h on the M4 Pro, 35 min on gpulab''. Keep a small per-machine
+MLUPS table that the GUI updates from completed runs.
+
+\paragraph{Queue.} Mirror \path{rack/status.sh}: GPU utilisation, memory, power,
+temperature, clocks; ``card busy with someone else's job'' detection (the rack is
+shared); running jobs with elapsed time; queued jobs; last log lines; disk free. Jobs
+are launched as the existing drivers with a generated command line; the GUI tails
+the log and parses the telemetry (\S\ref{sec:telemetry}). Local MPS and remote
+CUDA from the same dialog.
+
+\paragraph{Reproducibility.} A live ``equivalent command line'' pane that updates as
+settings change (the ParaView-trace idea applied to run configuration); the
+provenance \path{.npz} as the project record; the \path{_viz} tag rule (figure
+runs never overwrite published results, and are checked against the published
+coefficients before use); warm start (\path{--init_state}) with the grid check
+\path{load_state} already enforces; a JSON sidecar for every exported image
+(\path{kinetic_viz} already writes one).
+
+%======================================================================
+\section{Outputs and the timeline}\label{sec:outputs}
+%======================================================================
+Four kinds, four markers:
+\begin{enumerate}
+\item \textbf{Traces} (\path{--measure_every}): forces, ledgers, $\max|u|$ and
+  location, energies; cheap; feed Monitors.
+\item \textbf{Slices} (mid-span, as most result archives store): cheap 2-D fields
+  at \path{--save_every}; feed the slice tools.
+\item \textbf{Viz snapshots} (\path{--viz-every}, \path{--viz-dir}): full 3-D
+  \code{ux,uy,uz,phi,solid}; expensive (CPU transfer + compression); feed the viewer;
+  one \path{.npz} per snapshot, atomic rename, so the viewer can watch a directory
+  safely.
+\item \textbf{Restart checkpoints} (\path{--save_state}): the full moment state
+  (\path{STATE_KEYS} + $a^{(3)}$); large; ``warm start from here'' on right-click.
+\end{enumerate}
+The GUI should let the user set cadences for each independently, show the disk cost,
+and never conflate a viz snapshot with a restart point. Auto-checkpoint the last
+good state when the non-finite guard trips.
+
+%======================================================================
+\section{Viewer: adopt the \code{kinetic\_viz} contract}\label{sec:viewer}
+%======================================================================
+Do not reinvent the viewer; port the layer set and the conventions:
+\begin{itemize}
+\item Layers: \code{surface} ($\phi=0.5$ isosurface, adjustable), \code{obstacle}
+  (mask contour, and the SDF zero level when available), \code{streamlines} (RK45
+  tubes, speed-coloured, deterministic seeds in liquid cells), \code{speed} (planar
+  slice), \code{vorticity} (RGBA volume: $Q$ colour, $|\omega|^2$ opacity), \code{q}
+  (positive-$Q$ isosurface), \code{helicity} (signed plane).
+\item Colour ranges fixed to the 99th percentile of the first frame and held across
+  frames; explicit \path{--speed-max} / \path{--q-max} for cross-run comparison;
+  clipped extremes recorded in the sidecar.
+\item Air mask \emph{on by default} for vorticity, $Q$ and pressure panels; a toggle.
+\item Derivatives exclude stencils touching air or solid (one-node halo); say so in the
+  panel rather than hiding it.
+\item Crop in lattice indices with preserved origin; stride as a preview only.
+\item MD patches are not auto-stitched; show them with true origin and spacing.
+\item Export: PNG + JSON sidecar, VTI for ParaView, PNG sequence for FFmpeg.
+\end{itemize}
+The frontend's rendering stack is the colleague's choice; the \emph{contract}
+(input shape, origin/spacing, masks, percentile ranges, sidecar) is not.
+
+%======================================================================
+\section{Validation cards and recipes}\label{sec:recipes}
+%======================================================================
+A new project starts from a validated recipe card, not a blank canvas. Each card
+carries the literature anchor, the parameter recipe (math note \S14), the driver,
+the reference data file, and a gate. Users perturb from there; the project keeps the
+lineage (``derived from Colagrossi WB; $\Fr$ 0.30 $\to$ 0.45'') and the GUI flags
+departures from the validated envelope.
+
+\begin{longtable}{L{2.4cm}L{4.8cm}L{4.0cm}L{3.5cm}}
+\caption{Recipe cards to ship.}\\
+\toprule
+Card & Recipe (from the math note) & Driver / reference & Gate \\
+\midrule
+\endfirsthead
+\toprule
+Card & Recipe & Driver / reference & Gate \\
+\midrule
+\endhead
+RTI (Fakhari) & $\At=0.5$, $\Re=3000$, $\Ca=0.26$, $\Pe=1000$, $\xi=5$, $t_0=16000$, $s^\phi=(1,1.5,1.5,1.5)$, $\rho_H{:}\rho_L=3{:}1$ & \path{run_rti3d_multiphase.py} & Spike/bubble fronts vs reference; fixed-$\Cn$ ladder \\
+Breaking wave (Banari grid3) & $N_x=400$, $W/L=0.25$, $L_z/L=0.30$, $c_{\rm lat}=0.015$, $\xi=5$, $M=0.02$, slope 0.08 & \path{run_breaking_wave3d_md.py} & Jet geometry and energy vs Banari; $c_{\rm lat}=0.02$ is a known failure \\
+Colagrossi WB cylinder & $\Fr$-aware $U$, $g=(U/\Fr)^2/D$, $M=0.05$ ($\Fr<0.8$), $\Bo=200$, sponge $8D$, $s^\phi_{xy}=1.8$, limiter on & \path{run_cylinder3d_colagrossi.py} & $C_d$, $C_l$, surface profile vs Colagrossi 2018 \\
+Oscillating cylinder (D\"utsch) & $\KC=5$, $\Re=100$, $U_{\max}=0.04$, domain $20D$ & \path{run_cylinder3d_oscillating.py} & Force history vs D\"utsch \\
+Couette spin gate & $U_s=0.04$, $\Re_\Omega=100$, box $12D$ & \path{run_cylinder3d_spinning.py} & Analytic torque \\
+Magnus & $\Re=100$, $U=0.05$, $30D\times16D$, spin ramped & \path{run_md_magnus_patch.py} & Lift vs literature anchor (to verify) \\
+Sedimentation & $\rho_r=1.25$, $\Ga=19.6$ & \path{run_cylinder3d_sedimenting.py} & Terminal velocity vs reference \\
+Vugts barge (H2-c) & $B/T=2$, forced heave/roll & \path{run_barge_roll.py} & Added mass / damping vs Vugts \\
+TH01 hull & $L=256$, $\Fr$, $\Re_{\rm ref}$, tank G/Q/P zone presets & \path{run_hull_static.py}, \path{run_hull_speed.py} & Heave/trim/drag vs SYRF tank; BEM intercepts \\
+Hydrofoil (Parkin) & $\Fr=0.95$, $h/c=1.8$, $c=128$, $\Re=4000$ & \path{run_hydrofoil_parkin.py} & Surface profile vs Parkin--Wu \\
+\bottomrule
+\end{longtable}
+
+\paragraph{Convergence-ladder builder.} Refinement in this code means fixed-$\Cn$
+($\xi\propto N$), fine-level mobility, and a steady-window extraction per rung. The
+GUI generates the ladder from a card, estimates cost per rung, queues it, and
+assembles the convergence plot and order estimate at the end
+(\path{hull_ladder_analysis.py}, \path{plot_hull_ladder.py},
+\path{make_hull_ladder_tex.py} are the existing pieces).
+
+%======================================================================
+\section{The trouble locator}\label{sec:locator}
+%======================================================================
+The hull driver already reports $\max|u-U|$ with its location relative to the CoG
+and stops on a non-finite load. Make this a feature: on a NaN or a hot spot above
+threshold, auto-checkpoint the last good state, stop, jump the camera to the cell,
+drop a marker, and show the local $\phi$, $\tau$, safeguard flags, and whether the
+cell sits in a band, a sponge, or a cut-link shell. This one feature will save more
+user hours than any rendering option.
+
+%======================================================================
+\section{What sets it apart --- ranked}\label{sec:diff}
+%======================================================================
+\begin{enumerate}
+\item \textbf{Recipe-first projects with lineage and envelope warnings.} No CFD GUI
+  ships with its default state being a validated run and a gate.
+\item \textbf{Ledgers and budgets as the health panel.} Mass ledger, energy-budget
+  residual, two-channel force agreement, steady-window bracket, WB rest test.
+\item \textbf{The feasibility triangle} ($N$, $\Ma$, $\tau$) with $\Cn$ and
+  $\Pe_\phi$, live, with recipes plotted.
+\item \textbf{The interface as a first-class object}: thickness histogram, spurious
+  current, limiter and threshold activity maps. Scientific honesty built in.
+\item \textbf{Strain rate is state}: dissipation, enstrophy, $Q$ exact; and the
+  \emph{kinetic layer} ($S^{\rm neq}$, $a^{(3)}$, filtered $a^{(4)}$) as a
+  ``where is the model working hardest'' map that only a moment-based Hermite solver
+  can produce.
+\item \textbf{The trouble locator.}
+\item \textbf{The convergence-ladder builder} with cost per rung.
+\item \textbf{One launcher for the Mac and the rack}, tenant-aware.
+\item \textbf{Reproducibility by construction}: live CLI line, provenance
+  \path{.npz}, \path{_viz} tag rule, figure sidecars.
+\item \textbf{Four-layer pressure view} with the one-click WB rest test.
+\end{enumerate}
+
+%======================================================================
+\section{Build sequence}\label{sec:build}
+%======================================================================
+\begin{description}[style=nextline]
+\item[Phase 0 --- structure and units (no solver changes).] New sidebar; unit map
+  with the three-form readouts; dimensionless-first setup form with the checks of
+  \S\ref{sec:units}; backend badge; live CLI line; load existing provenance
+  \path{.npz} archives and \path{kinetic_viz} snapshots. Ship the recipe cards as
+  static project templates.
+\item[Phase 1 --- monitors, forces, viewer (small driver additions).] Telemetry
+  stream (\S\ref{sec:telemetry}) emitted by the drivers; Monitors page with the five
+  health signals; forces with both channels and the bracket; viewer with the
+  \path{kinetic_viz} layers and the air mask; timeline with four marker kinds;
+  trouble locator; windowed MLUPS.
+\item[Phase 2 --- validation and ladders.] Reference overlays and gates per card;
+  convergence-ladder builder; cost model; envelope warnings from lineage.
+\item[Phase 3 --- MD, queue, kinetic layer.] MD view; rack queue mirroring
+  \path{status.sh}; safeguard activity maps; dissipation and divergence fields;
+  energy-budget closure live; kinetic-layer fields; force-term layers.
+\end{description}
+
+%======================================================================
+\section{Telemetry schema (so the GUI never imports \texorpdfstring{\code{torch}}{torch})}\label{sec:telemetry}
+%======================================================================
+Drivers print a JSON line every \path{--measure_every} steps (stdout or a
+\path{.jsonl} beside the \path{.npz}); the GUI tails it. Proposed record; fields
+marked $\dagger$ need a small driver addition, the rest are already computed.
+\begin{lstlisting}
+{"step": 12000, "t_lat": 12000, "t_phys": 0.84, "t_star": 2.31,
+ "backend": "metal", "mlups_inst": 61.2, "mlups_cum": 63.0,
+ "ma_inst": 0.071, "tau_min": 0.5083,
+ "umax": 0.0412, "umax_loc": [212, 4, 96],
+ "mass_ledger": {"phi": -1.3e-5, "levels": [-1.3e-5, 2.0e-6], "injected": 0.0},
+ "ke": {"water": 3.1e-3, "air": 8.0e-6}, "pe_surface": 1.2e-3,
+ "div_u_norm": 2.4e-4,
+ "forces": {"Fx": -1.1e-2, "Fy": 0.0, "Fz": 0.42, "My": 3.0e-4,
+            "Fx_p": -8.0e-3, "Fz_p": 0.41, "mea_Fx": -1.08e-2},
+ "window": {"Fx": -1.10e-2, "Fx_prev": -1.12e-2},
+ "safeguards": {"limiter_cells": 0, "threshold_cells": 0},
+ "budget": {"W": 0.0, "D_near": 0.0, "D_far": 0.0, "D_air": 0.0,
+            "Z_beach": 0.0, "Z_floor": 0.0, "dKE": 0.0, "dPE": 0.0, "res": 0.0},
+ "snapshot": null, "checkpoint": null, "nonfinite": false}
+\end{lstlisting}
+$\dagger$: \path{mlups_inst}, \path{div_u_norm}, \code{safeguards},
+\code{budget}, \path{pe_surface}, per-phase \code{ke}. Everything else is a
+reformatting of what the drivers print today. A matching \path{run_spec.json}
+(the settings the GUI serialises) should round-trip to the CLI line and be stored
+inside the provenance \path{.npz} as a string.
+
+%======================================================================
+\section{Open questions for Colton and the frontend engineer}\label{sec:open}
+%======================================================================
+\begin{enumerate}
+\item Process model: does the GUI launch the drivers as subprocesses (simplest;
+  keeps the validated CLI path) or embed the solver? The telemetry schema assumes
+  subprocesses and a tailed log; this also makes the rack a first-class target.
+\item Rendering stack: port \path{kinetic_viz} (PyVista/VTK, Python) or
+  reimplement the contract in the GUI's own renderer? If the GUI is web-based,
+  the VTI export is the bridge.
+\item Which drivers get the telemetry hook first? Suggest
+  \path{run_hull_speed.py}, \path{run_cylinder3d_colagrossi.py},
+  \path{run_rti3d_multiphase.py} --- they cover WB+FSI, MD, and single domain.
+\item Where does the run spec live: inside the \path{.npz} only, or also a sidecar
+  JSON beside it for grep-ability?
+\item Energy-budget boxes (near/far/air) are case-specific in
+  \path{h2_energy_budget.py}; the GUI needs a general box definition (body-relative
+  radii) or a per-card default.
+\item Unit map ownership: the drivers currently carry physical anchors ad hoc
+  (\path{F_N}, \path{heave_mm}); a single \code{units} block in the run spec would
+  let the GUI convert everything consistently.
+\end{enumerate}
+
+\appendix
+%======================================================================
+\section{Worked map: \code{run\_hull\_speed.py} flags \texorpdfstring{$\to$}{to} controls}
+%======================================================================
+\begin{longtable}{L{5.0cm}L{2.6cm}L{7.4cm}}
+\caption{Every flag of \code{run\_hull\_speed.py} and where it lives in the
+proposed architecture.}\\
+\toprule
+Flag & Page & Control \\
+\midrule
+\endfirsthead
+\toprule
+Flag & Page & Control \\
+\midrule
+\endhead
+\path{--L}, \path{--config} & Geometry & Body length in cells; patch classification (CB / HKR / HKr / full) \\
+\path{--Fn}, \path{--Re_ref}, \path{--g} & Fluids \& Interface & Dimensionless-first form; derived $U$, $\nu$, $\tau$ shown \\
+\path{--xi}, \path{--Bo}, \path{--mobility}, \path{--rho_L} & Fluids \& Interface & Interface block; $\sigma$ derived from $\Bo$ \\
+\path{--sink_cells}, \path{--trim}, \path{--no_equilibrate} & Bodies & Attitude offsets on top of the equilibrium solve \\
+\path{--pad_up}, \path{--pad_down}, \path{--pad_side}, \path{--depth}, \path{--air} & Lattice & Tank layout in body lengths; drawn in the 3-D view \\
+\path{--sponge}, \path{--xbeach}, \path{--xbeach_strength}, \path{--beach_y}, \path{--beach_gap}, \path{--zone_strength}, \path{--floor_fric} & Boundaries \& Zones & Zone regions with strength profiles; sized from $2\pi\Fr^2L$ \\
+\path{--mass_correct}, \path{--pierce_bc} & Boundaries \& Zones & Mode selectors with one-line explanations \\
+\path{--travel}, \path{--ramp_L}, \path{--no_frame_accel}, \path{--steps} & Run & Duration in body lengths; ramp; frame force toggle; step override \\
+\path{--avg_L}, \path{--measure_every}, \path{--print_every} & Run / Monitors & Averaging window; telemetry cadence \\
+\path{--band_cells}, \path{--refine}, \path{--sdf_backend}, \path{--cpt_path} & Geometry & SDF band and backend (libigl / CPT) \\
+\path{--body_on_cpu}, \path{--no_gpu_kernels}, \path{--device} & Run & Backend and placement; fallback confirmation \\
+\path{--init_state}, \path{--save_state} & Run / timeline & Warm start; restart checkpoint cadence \\
+\path{--tag}, \path{--outdir}, \path{--smoke} & Run & Naming (the \path{_viz} rule), output folder, smoke preset \\
+\bottomrule
+\end{longtable}
+
+\end{document}
