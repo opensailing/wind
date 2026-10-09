@@ -49,6 +49,8 @@ def main():
     parser.add_argument('--volume-recording', type=Path)
     parser.add_argument('--volume-reconstruction', type=Path)
     parser.add_argument('--volume-phase-seconds', type=int, default=1200)
+    parser.add_argument('--release-soak', action='store_true',
+                        help='Extend volume stability to 2:1:1:2 playback/camera/export/idle phases')
     parser.add_argument('--residual-log', type=Path,
                         help='Original published OpenFOAM log for the complete residual reader audit or native UI acceptance')
     args = parser.parse_args()
@@ -70,6 +72,8 @@ def main():
         if not args.residual_log.is_file() or any(ord(c)<32 or c=='"' for c in str(args.residual_log)):
             parser.error('Choose an existing original log with a plain local path.')
     volume_gate = args.suite == 'Studio.VolumeStability.MixedUse'
+    if args.release_soak and not volume_gate:
+        parser.error('Release soak is only valid for volume stability.')
     if volume_gate != bool(args.volume_recording and args.volume_reconstruction):
         parser.error('Volume stability requires both original recording and reconstruction paths.')
     if not volume_gate and (args.volume_recording or args.volume_reconstruction):
@@ -85,6 +89,8 @@ def main():
                 parser.error('Expected an existing volume source file with a plain path.')
             extra.append(f'-{name}={option}')
         extra += ['-StudioVolumeSoak', f'-StudioVolumePhaseSeconds={args.volume_phase_seconds}']
+        if args.release_soak:
+            extra.append('-StudioReleaseSoak')
     if full_point_gate != bool(args.point_recording):
         parser.error('The full point-data gate requires --point-recording; other suites do not accept it.')
     if args.point_recording:
@@ -134,6 +140,12 @@ def main():
                 'processes_before': relevant(before), 'errors': []}
     if volume_gate:
         manifest['volume_phase_seconds'] = args.volume_phase_seconds
+        manifest['release_soak'] = args.release_soak
+        manifest['phase_durations_seconds'] = (
+            {'playback': 2*args.volume_phase_seconds, 'camera': args.volume_phase_seconds,
+             'mixed_exports': args.volume_phase_seconds, 'idle': 2*args.volume_phase_seconds}
+            if args.release_soak else {'playback': args.volume_phase_seconds,
+                                     'mixed': args.volume_phase_seconds, 'idle': args.volume_phase_seconds})
         for name,path in [('volume_recording',args.volume_recording),('volume_reconstruction',args.volume_reconstruction)]:
             with path.open('rb') as source:
                 manifest[name]={'path':str(path.resolve()),'sha256':hashlib.file_digest(source,'sha256').hexdigest()}

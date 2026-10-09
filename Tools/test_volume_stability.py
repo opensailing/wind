@@ -5,14 +5,26 @@ import csv
 import json
 from pathlib import Path
 import statistics
+import math
 import subprocess
 import sys
 
 
-def analyze(path, seconds):
+def analyze(path, seconds, release=False):
+    acceptance = ('two-hour integrated stability' if release else '60-minute volume stability') if seconds >= 1200 else 'driver rehearsal only'
+    def invalid(message):
+        return {'passed': False, 'acceptance': acceptance, 'errors': [message]}
     with Path(path).open(encoding='utf-8-sig') as f:
         samples=[{k:float(v) for k,v in row.items()} for row in csv.DictReader(f)]
-    if not samples:return {'errors':['No volume resource telemetry']}
+    if not samples:return invalid('No volume resource telemetry')
+    required={'phase','phase_s','footprint_bytes','mesh_bytes','workers','sections','scalar_texture_bytes',
+              'point_value_bytes','point_readers','rhi_bytes','rhi_count','device_allocated_bytes',
+              'source_frames','volume_attached','volume_enabled','captures','minimized','source_slot','playback_loops'}
+    if release:required|={'elapsed_s','export_active','export_scenes','total_scene_workers','export_completed','export_cancelled','camera_edits','slice_edits'}
+    missing=required-set(samples[0])
+    if missing:return invalid('Missing telemetry: '+', '.join(sorted(missing)))
+    if any(not math.isfinite(v) for r in samples for v in r.values()):
+        return invalid('Nonfinite resource telemetry')
     mib=1024**2
     budgets={'footprint_bytes':6144*mib,'mesh_bytes':128*mib,'workers':1,'sections':8,
              'scalar_texture_bytes':17*mib,'point_value_bytes':64*mib,'point_readers':3,
@@ -21,11 +33,14 @@ def analyze(path, seconds):
     errors=[f'{k} exceeds budget: {peaks[k]} > {v}' for k,v in budgets.items() if peaks[k]>v]
     if any(r['device_allocated_bytes']<=0 for r in samples):errors.append('Native device memory unavailable')
     phases={}
-    for phase in (1,2,4):
+    for phase in ((1,10,2,4) if release else (1,2,4)):
+        duration=seconds*(2 if release and phase in (1,4) else 1)
         rows=[r for r in samples if r['phase']==phase]
-        if len(rows)<3 or max(r['phase_s'] for r in rows)<seconds-12:
+        if len(rows)<3 or max(r['phase_s'] for r in rows)<duration-12:
             errors.append(f'Phase {phase} lacks required duration/samples');continue
-        warm=[r for r in rows if r['phase_s']>=seconds*.2];width=max(1,len(warm)//3)
+        if release and any(b['elapsed_s']-a['elapsed_s']>35 or b['elapsed_s']<a['elapsed_s'] for a,b in zip(rows,rows[1:])):
+            errors.append(f'Phase {phase}: discontinuous telemetry')
+        warm=[r for r in rows if r['phase_s']>=duration*.2];width=max(1,len(warm)//3)
         drift={k:statistics.mean(r[k] for r in warm[-width:])-statistics.mean(r[k] for r in warm[:width])
                for k in ('footprint_bytes','rhi_bytes','rhi_count','device_allocated_bytes')}
         if drift['footprint_bytes']>(128 if phase==4 else 256)*mib:errors.append(f'Phase {phase}: retained process growth')
@@ -37,9 +52,18 @@ def analyze(path, seconds):
         if phase==4:
             if len({r['captures'] for r in rows})!=1:errors.append('Idle/minimized captures continued')
             if {r['minimized'] for r in rows}!={0,1}:errors.append('Visible and minimized idle were not both measured')
+            if release and any(r['export_active'] or r['export_scenes'] or r['total_scene_workers'] for r in rows):
+                errors.append('Idle retains export scenes or workers')
         if phase==2 and {r['source_slot'] for r in rows}!={0,1,2}:errors.append('Mixed use did not exercise all source types')
+        if release and phase==10 and (rows[-1]['camera_edits']<100 or rows[-1]['slice_edits']<10):
+            errors.append('Camera phase lacks camera and slice edits')
     if seconds>=1200 and max(r['playback_loops'] for r in samples)<1:errors.append('No complete playback loop')
-    return {'errors':errors,'passed':not errors,'acceptance':'60-minute volume stability' if seconds>=1200 else 'driver rehearsal only',
+    if release:
+        if max(r['export_scenes'] for r in samples)>1 or max(r['total_scene_workers'] for r in samples)>2:
+            errors.append('Combined live/export ownership exceeds its bound')
+        if max(r['export_completed'] for r in samples)<3 or max(r['export_cancelled'] for r in samples)<1:
+            errors.append('Repeated export completion and cancellation were not exercised')
+    return {'errors':errors,'passed':not errors,'acceptance':acceptance,
             'samples':len(samples),'budgets':budgets,'peaks':peaks,'phases':phases,
             'metric_notes':'footprint is macOS phys_footprint; device allocation is Metal currentAllocatedSize; zero RHI counts may indicate unavailable RHI telemetry.'}
 

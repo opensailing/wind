@@ -32,7 +32,7 @@ class PackagedProcessOwnership(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_fixture(self, child=False, active=False, point_recording=False, application_default=False, startup_log=True,
-                    surface_reconstruction=False, volume=False, missing_volume=False, performance=False, interrupted=False):
+                    surface_reconstruction=False, volume=False, missing_volume=False, performance=False, interrupted=False, release=False):
         program = '''import json, pathlib, subprocess, sys, time
 pathlib.Path(__file__).with_suffix('.args.json').write_text(json.dumps(sys.argv))
 report = pathlib.Path(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('-ReportExportPath=')))
@@ -54,6 +54,8 @@ print('LLM enabled CsvWriter: off TraceWriter: off')''' if application_default a
             arguments[2] = 'ScientificAcceptance.PerformanceUI.MeasurePauseCameraAndRestore'
         if application_default:
             arguments += ['--startup-profile', 'application-default']
+        if release:
+            arguments += ['--release-soak']
         if point_recording:
             recording = self.root/'field data $(literal)'/'recording.json'
             recording.parent.mkdir()
@@ -174,6 +176,19 @@ print('LLM enabled CsvWriter: off TraceWriter: off')''' if application_default a
     def test_volume_gate_refuses_missing_reconstruction_before_launch(self):
         with self.assertRaises(SystemExit) as caught:
             self.run_fixture(missing_volume=True)
+        self.assertEqual(caught.exception.code, 2)
+        self.assertFalse(self.binary.with_suffix('.args.json').exists())
+
+    def test_release_profile_has_explicit_schedule_and_flag(self):
+        code, report = self.run_fixture(volume=True, release=True)
+        self.assertEqual(code, 0)
+        self.assertTrue(report['release_soak'])
+        self.assertEqual(report['phase_durations_seconds'], {'playback': 60, 'camera': 30, 'mixed_exports': 30, 'idle': 60})
+        self.assertIn('-StudioReleaseSoak', json.loads(self.binary.with_suffix('.args.json').read_text()))
+
+    def test_release_profile_cannot_launch_an_unrelated_suite(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.run_fixture(release=True)
         self.assertEqual(caught.exception.code, 2)
         self.assertFalse(self.binary.with_suffix('.args.json').exists())
 

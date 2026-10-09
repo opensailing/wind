@@ -2,6 +2,8 @@
 #include "StudioPointRecording.h"
 #include "StudioVolume.h"
 #include "StudioPlatformDiagnostics.h"
+#include "StudioImageSequenceRenderer.h"
+#include "StudioFileDialog.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -20,12 +22,14 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 // Explicit, separate acceptance gate. A short rehearsal verifies the driver;
-// only 1200 seconds in each phase constitutes the one-hour volume baseline.
+// A base of 1200 seconds constitutes the one-hour volume baseline, or two hours
+// when StudioReleaseSoak adds camera/export work and doubles playback/idle.
 class FStudioVolumeSoakCommand final : public IAutomationLatentCommand
 {
 public:
     explicit FStudioVolumeSoakCommand(FAutomationTestBase* InTest):Test(InTest)
     {
+        bRelease=FParse::Param(FCommandLine::Get(),TEXT("StudioReleaseSoak"));
         FParse::Value(FCommandLine::Get(),TEXT("StudioVolumePhaseSeconds="),PhaseSeconds);
         FParse::Value(FCommandLine::Get(),TEXT("StudioVolumeRecording="),PointPath);
         FParse::Value(FCommandLine::Get(),TEXT("StudioVolumeReconstruction="),VolumePath);
@@ -34,6 +38,7 @@ public:
     }
     ~FStudioVolumeSoakCommand()
     {
+        Export.Shutdown();
         if(Window&&Window->IsWindowMinimized())Window->Restore();
         StudioPlatformDiagnostics::EndWindowEvents(WindowEvents);
     }
@@ -42,13 +47,15 @@ public:
         const double Now=FPlatformTime::Seconds();
         if(!Started)Started=PhaseStarted=Now;
         if(Test->HasAnyErrors())return true;
-        if(Now-Started>PhaseSeconds*3+600.){Test->AddError(TEXT("Mixed-use driver timed out"));return true;}
+        if(Now-Started>PhaseSeconds*(bRelease?6:3)+600.){Test->AddError(TEXT("Mixed-use driver timed out"));return true;}
         if(!Scene.IsValid())for(const auto& Context:GEngine->GetWorldContexts())if(Context.World()&&Context.World()->IsGameWorld())
             for(TActorIterator<AStudioScene> It(Context.World());It;++It)Scene=*It;
         if(!Scene.IsValid()||!Scene->Model)return false;
         auto& M=*Scene->Model;
         if(!Window)Window=GEngine->GameViewport->GetWindow();
         if(!Window)return false;
+        if(bRelease)TickExport(Now);
+        if(Test->HasAnyErrors())return true;
         const double Elapsed=Now-PhaseStarted;
         if(Phase>0&&Now-LastSample>=Interval){Sample(Now);LastSample=Now;}
         switch(Phase)
@@ -56,9 +63,16 @@ public:
         case 0:
             if(!Scene->HasCurrentFrame())return false;
             if(Window->GetNativeWindow())WindowEvents=StudioPlatformDiagnostics::BeginWindowEvents(Window->GetNativeWindow()->GetOSWindowHandle());
-            Root=FPaths::ProjectSavedDir()/TEXT("Automation/VolumeStability");IFileManager::Get().MakeDirectory(*Root,true);
+            Root=FPaths::ProjectSavedDir()/(bRelease?TEXT("Automation/ReleaseStability"):TEXT("Automation/VolumeStability"));
+            IFileManager::Get().MakeDirectory(*Root,true);
+            if(bRelease)
+            {
+                Root/=FGuid::NewGuid().ToString();IFileManager::Get().MakeDirectory(*Root,true);
+                FString Error;OriginalProject=M.Project.Id;
+                if(!Test->TestTrue(TEXT("Preserve prior project before release gate"),StudioProjectIO::Save(Root/TEXT("original.lbms"),M.SnapshotProject(),Error)))return true;
+            }
             Test->TestTrue(TEXT("Initialize resource telemetry"),FFileHelper::SaveStringToFile(
-                TEXT("elapsed_s,phase,phase_s,footprint_bytes,captures,cache_bytes,cache_budget,cache_frames,live_readers,live_frames,live_frame_bytes,mesh_bytes,vertices,indices,sections,workers,render_target_bytes,rhi_count,rhi_bytes,source_load,project_load,selected_frame,presented_frame,minimized,device_allocated_bytes,source_slot,source_frames,point_readers,point_value_bytes,playback_loops,volume_attached,volume_enabled,scalar_texture_bytes,points_enabled,frame_current\n"),
+                TEXT("elapsed_s,phase,phase_s,footprint_bytes,captures,cache_bytes,cache_budget,cache_frames,live_readers,live_frames,live_frame_bytes,mesh_bytes,vertices,indices,sections,workers,render_target_bytes,rhi_count,rhi_bytes,source_load,project_load,selected_frame,presented_frame,minimized,device_allocated_bytes,source_slot,source_frames,point_readers,point_value_bytes,playback_loops,volume_attached,volume_enabled,scalar_texture_bytes,points_enabled,frame_current,export_active,export_completed,export_cancelled,export_captured,export_scenes,total_scene_workers,camera_edits,slice_edits\n"),
                 *(Root/TEXT("resources.csv"))));
             // Development RHIInit enables engine resource tracking before the
             // renderer starts; query it without restarting its global tracker.
@@ -109,7 +123,7 @@ public:
                     MinPresented=FMath::Min(MinPresented,LastPresented);MaxPresented=FMath::Max(MaxPresented,LastPresented);
                 }
             }
-            if(Elapsed<PhaseSeconds)break;
+            if(Elapsed<TargetSeconds(1))break;
             if(!PointSource.IsEmpty())
             {
                 Test->TestTrue(TEXT("Point recording is visibly evolving"),PresentedPointFrames>100);
@@ -120,8 +134,31 @@ public:
                 }
             }
             M.Pause();Scene->FitCamera();BaseCamera=Scene->SavedCameraState();
-            NextAction=NextSwitch=0;Action=0;Switches=0;Next(2,Now);break;
+            NextAction=NextSwitch=0;Action=0;Switches=0;Next(bRelease?10:2,Now);break;
+        case 10:
+        {
+            auto C=BaseCamera;const auto Bounds=M.Solver->Descriptor().DisplayBounds;
+            const double Scale=Bounds.GetSize().GetMax();
+            C.Position+=FVector(FMath::Sin(Elapsed*.7)*Scale*.1,0,FMath::Cos(Elapsed*.5)*Scale*.06);
+            C.Orientation=(C.Focus-C.Position).Rotation().Quaternion();
+            Scene->RestoreCamera(C,TEXT("Release camera"));++CameraEdits;
+            if(Elapsed>=NextAction)
+            {
+                const int32 Axis=SliceEdits%3;
+                M.EditView(TEXT("Release slice"),[&](auto& V)
+                {V.Display.bCutPlane=true;V.Display.SliceAxis=Axis;V.Display.SlicePosition=FMath::Lerp(Bounds.Min[Axis],Bounds.Max[Axis],.25+.5*((SliceEdits%5)/4.));});
+                ++SliceEdits;NextAction=Elapsed+2.;
+            }
+            if(Elapsed<TargetSeconds(10))break;
+            Test->TestTrue(TEXT("Continuous camera and slice phase exercised both"),CameraEdits>100&&SliceEdits>=10);
+            NextAction=NextSwitch=0;Next(2,Now);break;
+        }
         case 2:
+            if(bRelease&&!M.IsRecordingLoadPending()&&Scene->HasCurrentFrame()&&!Export.IsBusy()&&
+                (Elapsed>=NextExport||!ExportSourceSlots.Contains(M.Solver->Descriptor().bSourcePoints?2:M.Project.Dataset==TEXT("MeshGraphNets_Airfoil_test010")?1:0)))
+            {
+                StartExport(Now);NextExport=Elapsed+20.;
+            }
             // Camera continuously responds while field workers serve bounded,
             // deterministic scrubs, display edits and alternate real recordings.
             {
@@ -145,7 +182,7 @@ public:
                 // Dwell after verification completes. Large recordings must
                 // receive camera/display work, rather than immediately switch
                 // away because their verification consumed the dwell interval.
-                NextSwitch=Elapsed+FMath::Min(30.,PhaseSeconds/4.);
+                NextSwitch=Elapsed+(bRelease?30.:FMath::Min(30.,PhaseSeconds/4.));
                 Sample(Now);
             }
             else if(Elapsed>=NextSwitch)
@@ -155,7 +192,7 @@ public:
                         M.Project.Dataset==TEXT("MeshGraphNets_Airfoil_test009")?TEXT("MeshGraphNets_Airfoil_test010"):PointSource;
                 else ExpectedSource=M.Project.Dataset==TEXT("MeshGraphNets_Airfoil_test009")?TEXT("MeshGraphNets_Airfoil_test010"):TEXT("MeshGraphNets_Airfoil_test009");
                 Test->TestTrue(TEXT("Mixed-use source switch accepted"),M.RequestRecording(ExpectedSource));SwitchStarted=Now;
-                NextSwitch=Elapsed+FMath::Min(30.,PhaseSeconds/4.);
+                NextSwitch=Elapsed+(bRelease?30.:FMath::Min(30.,PhaseSeconds/4.));
             }
             else if(Elapsed>=NextAction)
             {
@@ -188,11 +225,18 @@ public:
                     {V.Display.bVolumeIsosurface=true;V.Display.VolumeIsovalue=(Range.Minimum+Range.Maximum)*.5;});}
                 ++Action;NextAction=Elapsed+2.;
             }
-            if(Elapsed<PhaseSeconds||M.IsRecordingLoadPending()||(!VolumePath.IsEmpty()&&VolumeActions<3))break;
+            if(Elapsed<TargetSeconds(2)||M.IsRecordingLoadPending()||(!VolumePath.IsEmpty()&&VolumeActions<3)||Export.IsBusy()||
+                (bRelease&&(ExportsCompleted<3||ExportsCancelled<1||ExportSourceSlots.Num()<3)))break;
             Test->TestTrue(TEXT("Mixed phase completed multiple source switches"),Switches>=2);
             Test->TestTrue(TEXT("Mixed phase exercised source scrubbing"),Action>=5);
             if(!VolumePath.IsEmpty())Test->TestTrue(TEXT("Mixed phase exercised real-volume display edits"),VolumeActions>=3);
             if(!PointSource.IsEmpty())Test->TestTrue(TEXT("Mixed use reloaded the long recording"),PointSwitches>=1);
+            if(bRelease)
+            {
+                Test->TestTrue(TEXT("Repeated image/movie exports completed"),ExportsCompleted>=3);
+                Test->TestTrue(TEXT("Image exports cancelled and drained"),ExportsCancelled>=1);
+                Test->TestTrue(TEXT("All source types exported"),ExportSourceSlots.Num()==3);
+            }
             if(M.State==EStudioRunState::Running)M.Pause();
             if(!PointSource.IsEmpty()&&M.Project.Dataset!=PointSource)
                 Test->TestTrue(TEXT("Return to point source for idle acceptance"),M.RequestRecording(PointSource));
@@ -201,6 +245,14 @@ public:
             if(Elapsed>300.){Test->AddError(TEXT("Final source failed to settle"));return true;}
             if(M.IsRecordingLoadPending()||!Scene->HasCurrentFrame())break;
             if(!PointSource.IsEmpty())Test->TestEqual(TEXT("Idle tests the full point source"),M.Project.Dataset,PointSource);
+            if(bRelease)
+            {
+                const auto Identity=Scene->PresentedField()->Identity();
+                FStudioSliceObject Slice;Slice.Name=TEXT("Retained release slice");
+                Slice.Source={Identity->Dataset,Identity->MetadataSHA256,Identity->PayloadSHA256};
+                Slice.Origin=M.Solver->Descriptor().DisplayBounds.GetCenter();Slice.Normal=FVector(1,1,1).GetSafeNormal();
+                Test->TestTrue(TEXT("Save a nonempty named inspection"),M.AddSlice(Slice));
+            }
             M.EditView(TEXT("Restore display"),[&](auto& V)
             {
                 V.Display.SliceAxis=1;V.Display.SlicePosition=0;V.Display.bVectors=true;
@@ -226,18 +278,20 @@ public:
                     int32(StudioView::CameraEquals(Saved.Camera,C)),int32(StudioView::DisplayEquals(Saved.View,M.InspectionState().Display)),
                     int32(Window->IsWindowMinimized()),int32(bBackgroundPlayback),*Saved.Camera.Position.ToString(),*C.Position.ToString(),*Presented.Position.ToString(),
                     *Saved.Camera.Orientation.Rotator().ToString(),*C.Orientation.Rotator().ToString()));
+                Test->AddInfo(FString::Printf(TEXT("Idle view history: undo=%s; redo=%s; gestureActive=%d; cameraRevision=%d"),
+                    *M.UndoViewLabel(),*M.RedoViewLabel(),int32(M.IsViewEditActive()),M.CameraRevision));
             }
             Test->TestEqual(TEXT("Idle/minimized view submits no 3D captures"),Scene->GetCaptureCount(),IdleCaptures);
-            if(!bMinimized&&Elapsed>=PhaseSeconds*.5)
+            if(!bMinimized&&Elapsed>=TargetSeconds(4)*.5)
             {
                 // Minimized playback must not rebuild or capture the unseen scene.
                 UE_LOG(LogTemp,Display,TEXT("Studio mixed-use requests native minimize at %.3fs"),Now-Started);
                 Window->Minimize();bMinimized=true;
             }
             if(bMinimized&&!bBackgroundPlayback&&Window->IsWindowMinimized()) { M.Run();bBackgroundPlayback=true; }
-            if(bMinimized&&Elapsed>=PhaseSeconds*.5+2.)
+            if(bMinimized&&Elapsed>=TargetSeconds(4)*.5+2.)
                 Test->TestTrue(TEXT("Native window is actually minimized"),Window->IsWindowMinimized());
-            if(Elapsed<PhaseSeconds)break;
+            if(Elapsed<TargetSeconds(4))break;
             Test->TestEqual(TEXT("Retained texture survives idle/minimized playback"),Pixels(),IdleHash);
             UE_LOG(LogTemp,Display,TEXT("Studio mixed-use requests native restore at %.3fs"),Now-Started);
             M.Pause();Window->Restore();Next(5,Now);break;
@@ -251,14 +305,85 @@ public:
             Test->TestTrue(TEXT("Saved camera restored after mixed use"),StudioView::CameraEquals(Scene->SavedCameraState(),Saved.Camera));
             Test->TestEqual(TEXT("Saved source restored after mixed use"),M.Project.Dataset,Saved.Dataset);
             Test->TestTrue(TEXT("Saved display restored after mixed use"),StudioView::DisplayEquals(M.InspectionState().Display,Saved.View));
+            if(bRelease)
+            {
+                Test->TestTrue(TEXT("Saved inspection objects restored after mixed use"),M.InspectionObjects==Saved.View.InspectionObjects);
+                Test->TestEqual(TEXT("Saved case restored after mixed use"),StudioCaseIO::Serialize(M.Project.Draft),StudioCaseIO::Serialize(Saved.Draft));
+            }
             Test->TestTrue(TEXT("Final snapshot succeeds"),Scene->Snapshot(Root/TEXT("final.png")));
             Sample(Now);UE_LOG(LogTemp,Display,TEXT("Studio mixed-use complete: %.1fs; phase target %.0fs; %d switches (%d point); %d scrub/display actions; %d full playback loops; %d presented point frames"),
                 Now-Started,PhaseSeconds,Switches,PointSwitches,Action,PlaybackLoops,PresentedPointFrames);
+            if(bRelease){Test->TestTrue(TEXT("Restore user's prior project"),M.RequestProjectOpen(Root/TEXT("original.lbms")));Next(11,Now);break;}
             return true;
+        case 11:
+            if(M.IsProjectOpenPending()||!Scene->HasCurrentFrame())break;
+            Test->TestEqual(TEXT("Prior project restored"),M.Project.Id,OriginalProject);return true;
         }
         return false;
     }
 private:
+    double TargetSeconds(int32 P) const
+    {return PhaseSeconds*(bRelease&&(P==1||P==4)?2:1);}
+    void StartExport(double Now)
+    {
+        FStudioSnapshot Anchor;Anchor.Options.Size=FIntPoint(640,360);FString Error;
+        if(!Test->TestTrue(TEXT("Freeze current export anchor"),Scene->CaptureSnapshot(Anchor,nullptr,Error)))return;
+        // Every attempt uses three actual source frames, including cancellation.
+        if(Anchor.Identity.Ordinal>Scene->Model->Solver->FrameCount()-3)return;
+        JobName=FString::Printf(TEXT("sequence-%04d"),++ExportsStarted);
+        IFileManager::Get().MakeDirectory(*(Root/TEXT("anchors")),true);
+        TArray64<uint8> PNG;
+        if(!Test->TestTrue(TEXT("Keep direct presented anchor for independent audit"),StudioSnapshot::Encode(Anchor,PNG,Error)&&
+            StudioFileDialog::WriteAtomicBytes(Root/TEXT("anchors")/(JobName+TEXT(".png")),PNG,Error)))return;
+        AnchorPixels=Anchor.Pixels;Anchor.Pixels.Reset();
+        ExportRequest={};ExportRequest.Source=Scene->Model->Solver;ExportRequest.FirstOrdinal=Anchor.Identity.Ordinal;
+        ExportRequest.LastOrdinal=FMath::Min(Anchor.Identity.Ordinal+2,ExportRequest.Source->FrameCount()-1);
+        ExportRequest.View=MoveTemp(Anchor);ExportRequest.Movie={true,20};
+        JobSourceSlot=ExportRequest.Source->Descriptor().bSourcePoints?2:Scene->Model->Project.Dataset==TEXT("MeshGraphNets_Airfoil_test010")?1:0;
+        JobCaptured=0;bCancelThisJob=(ExportsStarted%4)==0;bCancelSent=false;ExportStarted=Now;
+        Export.CapturedForAutomation=[this](const FStudioSnapshot& S)
+        {
+            ++JobCaptured;++ExportsCaptured;FString Reason;
+            if(!Test->TestTrue(TEXT("Export retains frozen original identity and view"),StudioImageSequence::Matches(ExportRequest,S.Identity.Ordinal,S,Reason)))
+            {Test->AddError(Reason);return;}
+            if(S.Identity.Ordinal==ExportRequest.FirstOrdinal)
+            {
+                if(!Test->TestEqual(TEXT("Anchor image dimensions retained"),S.Pixels.Num(),AnchorPixels.Num()))return;
+                double Difference=0;
+                for(int32 I=0;I<S.Pixels.Num();++I)
+                {const auto A=AnchorPixels[I],B=S.Pixels[I];Difference+=FMath::Abs(int32(A.R)-B.R)+FMath::Abs(int32(A.G)-B.G)+FMath::Abs(int32(A.B)-B.B);}
+                const double Mean=Difference/(3.*S.Pixels.Num());
+                Test->TestTrue(TEXT("Frozen first image matches original presented pixels"),Mean<2.);
+                UE_LOG(LogTemp,Display,TEXT("Release export %s anchor mean RGB error %.9g"),*JobName,Mean);
+            }
+        };
+        if(!Test->TestTrue(TEXT("Start independent image/movie export"),Export.Start(Scene->GetWorld(),ExportRequest,Root,JobName,Error)))Test->AddError(Error);
+    }
+    void TickExport(double Now)
+    {
+        if(!Export.IsBusy())return;
+        Export.Tick();
+        if(bCancelThisJob&&!bCancelSent&&JobCaptured>0)
+        {bCancelSent=Export.Cancel();Test->TestTrue(TEXT("Cancel a partially rendered image sequence"),bCancelSent);}
+        const auto Result=Export.Poll();
+        if(!Result)
+        {if(Now-ExportStarted>180.)Test->AddError(TEXT("Release image export did not finish within 180 seconds"));return;}
+        Test->TestTrue(TEXT("Export releases its scene before completion"),Export.SceneForAutomation()==nullptr);
+        const int32 Expected=ExportRequest.LastOrdinal-ExportRequest.FirstOrdinal+1;
+        if(bCancelThisJob)
+        {
+            Test->TestTrue(TEXT("Cancelled sequence drains without success"),Result->bCancelled&&!Result->bSuccess);
+            Test->TestFalse(TEXT("Cancellation publishes no partial output"),IFileManager::Get().DirectoryExists(*(Root/JobName)));
+            ++ExportsCancelled;
+        }
+        else
+        {
+            if(!Test->TestTrue(TEXT("Complete native movie/image sequence"),Result->bSuccess&&!Result->bCancelled&&Result->CompletedFrames==Expected&&JobCaptured==Expected))Test->AddError(Result->Error);
+            Test->TestTrue(TEXT("Native movie was published"),IFileManager::Get().FileSize(*(Root/JobName/TEXT("flow.mp4")))>0);
+            ++ExportsCompleted;ExportSourceSlots.Add(JobSourceSlot);
+        }
+        ExportRequest.Source.Reset();AnchorPixels.Reset();Export.CapturedForAutomation={};
+    }
     void Next(int32 P,double Now)
     { Phase=P;PhaseStarted=Now;UE_LOG(LogTemp,Display,TEXT("Studio mixed-use phase %d started at %.1fs"),P,Now-Started); }
     uint32 Pixels()
@@ -282,18 +407,24 @@ private:
         const uint64 Footprint=FPlatformMemory::GetStats().UsedPhysical;
         const int64 DeviceBytes=StudioPlatformDiagnostics::DeviceAllocatedBytes();
         const int32 SourceSlot=M.Solver->Descriptor().bSourcePoints?2:M.Project.Dataset==TEXT("MeshGraphNets_Airfoil_test010")?1:0;
-        const FString Line=FString::Printf(TEXT("%.3f,%d,%.3f,%llu,%llu,%lld,%lld,%d,%d,%d,%lld,%lld,%lld,%lld,%d,%d,%lld,%d,%llu,%d,%d,%d,%d,%d,%lld,%d,%d,%d,%lld,%d,%d,%d,%lld,%d,%d\n"),
+        int32 ExportScenes=0,TotalWorkers=0;
+        for(TActorIterator<AStudioScene> It(Scene->GetWorld());It;++It)
+        {TotalWorkers+=It->ResourceStats().Workers;if(It->Tags.Contains(TEXT("StudioImageSequence")))++ExportScenes;}
+        const FString Line=FString::Printf(TEXT("%.3f,%d,%.3f,%llu,%llu,%lld,%lld,%d,%d,%d,%lld,%lld,%lld,%lld,%d,%d,%lld,%d,%llu,%d,%d,%d,%d,%d,%lld,%d,%d,%d,%lld,%d,%d,%d,%lld,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n"),
             Now-Started,Phase,Now-PhaseStarted,Footprint,Scene->GetCaptureCount(),C.ResidentBytes,C.BudgetBytes,C.ResidentFrames,
             L.Readers,L.Frames,L.FrameBytes,S.MeshBytes,S.Vertices,S.Indices,S.Sections,S.Workers,S.RenderTargetBytes,RHICount,RHIBytes,
             int32(M.IsRecordingLoadPending()),int32(M.IsProjectOpenPending()),M.SelectedFrame,Scene->PresentedFrame().Index,int32(Window->IsWindowMinimized()),DeviceBytes,
             SourceSlot,M.Solver->FrameCount(),P.Readers,P.AllocatedValueBytes,PlaybackLoops,
             int32(M.Solver->VolumeReconstruction().IsValid()),int32(M.bVolume),S.ScalarTextureBytes,
-            int32(M.bSourcePoints),int32(Scene->HasCurrentFrame()));
+            int32(M.bSourcePoints),int32(Scene->HasCurrentFrame()),int32(Export.IsBusy()),ExportsCompleted,ExportsCancelled,ExportsCaptured,ExportScenes,TotalWorkers,CameraEdits,SliceEdits);
         Test->TestTrue(TEXT("Resource telemetry appended"),FFileHelper::SaveStringToFile(Line,*(Root/TEXT("resources.csv")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM,&IFileManager::Get(),FILEWRITE_Append));
         Test->TestTrue(TEXT("Cache stays within its byte budget"),C.ResidentBytes<=C.BudgetBytes);
         Test->TestTrue(TEXT("Recorded readers stay bounded across replacements"),L.Readers<=3);
         Test->TestTrue(TEXT("Pinned and cached frames stay bounded across replacements"),L.FrameBytes<=3*8LL*1024*1024+1024*1024);
         Test->TestTrue(TEXT("Derived geometry workers stay bounded"),S.Workers<=1);
+        Test->TestTrue(TEXT("At most one independent export scene"),ExportScenes<=1);
+        Test->TestTrue(TEXT("Combined live/export geometry workers stay bounded"),TotalWorkers<=2);
+        if(bRelease&&Phase==4)Test->TestTrue(TEXT("Idle retains no export scene or worker"),ExportScenes==0&&TotalWorkers==0&&!Export.IsBusy());
         Test->TestTrue(TEXT("Scalar texture remains bounded during mixed use"),S.ScalarTextureBytes<=StudioVolumes::MaximumVoxels*8LL+1024*1024);
         if(!VolumePath.IsEmpty()&&(Phase==1||Phase==4))
         {
@@ -316,6 +447,12 @@ private:
     double Started=0,PhaseStarted=0,LastSample=0,PhaseSeconds=1200,Interval=10,NextAction=0,NextSwitch=0,SwitchStarted=0;
     uint32 IdleHash=0;uint64 IdleCaptures=0;
     FIntPoint IdleViewport=FIntPoint::ZeroValue;int32 IdleRevision=0;uint64 IdleIntent=0;
+    bool bRelease=false,bCancelThisJob=false,bCancelSent=false;
+    FGuid OriginalProject;
+    FStudioImageSequenceRenderer Export;FStudioImageSequenceRequest ExportRequest;
+    TArray<FColor> AnchorPixels;TSet<int32> ExportSourceSlots;FString JobName;
+    int32 ExportsStarted=0,ExportsCompleted=0,ExportsCancelled=0,ExportsCaptured=0,JobCaptured=0,JobSourceSlot=0,CameraEdits=0,SliceEdits=0;
+    double NextExport=0,ExportStarted=0;
 };
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStudioVolumeSoakTest,"Studio.VolumeStability.MixedUse",
     EAutomationTestFlags::ClientContext|EAutomationTestFlags::EngineFilter|EAutomationTestFlags::NonNullRHI)
